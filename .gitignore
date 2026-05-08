@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+server_out.txt
+server_err.txt
+*.log
+npm-debug.log*
+
+# Uploads (사용자 업로드 파일)
+public/uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Build output
+dist/
+build/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temp files
+*.tmp
+*.bak
+_db_update.js
