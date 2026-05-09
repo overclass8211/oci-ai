@@ -2123,12 +2123,17 @@ async function initTables() {
 initTables();
 
 // =============================================================
-// 서버 시작
+// 서버 시작 — `node server.js` 로 직접 실행 시에만 listen.
+// 테스트(supertest)에서는 app/pool 을 import 하여 사용합니다.
 // =============================================================
-server.listen(PORT, () => {
-  console.log('═════════════════════════════════════════════');
-  console.log('  🔴 OCI CRM 서버 시작');
-  console.log('  📍 http://localhost:' + PORT);
-  console.log('  🔌 WebSocket 활성화');
-  console.log('═════════════════════════════════════════════');
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log('═════════════════════════════════════════════');
+    console.log('  🔴 OCI CRM 서버 시작');
+    console.log('  📍 http://localhost:' + PORT);
+    console.log('  🔌 WebSocket 활성화');
+    console.log('═════════════════════════════════════════════');
+  });
+}
+
+module.exports = { app, server, pool };
