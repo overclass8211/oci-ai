@@ -155,6 +155,149 @@ CREATE TABLE activities (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================
+-- 8. 캘린더 이벤트 (영업 일정 / 액션 아이템)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  title           VARCHAR(200) NOT NULL                 COMMENT '일정 제목 (예: "삼성케미칼 견적서 발송")',
+  description     TEXT                                  COMMENT '상세 설명 / 회의 안건 / 결과',
+  start_datetime  DATETIME NOT NULL                     COMMENT '시작 일시',
+  end_datetime    DATETIME                              COMMENT '종료 일시 (NULL 가능)',
+  all_day         TINYINT(1) DEFAULT 0                  COMMENT '종일 일정 여부 (1=종일)',
+  event_type      VARCHAR(20) DEFAULT '기타'             COMMENT '미팅/영업방문/입찰/제안/내부/기타',
+  status          VARCHAR(20) DEFAULT 'planned'         COMMENT 'planned(계획) | completed(완료)',
+  lead_id         INT                                   COMMENT '연결된 영업기회 ID',
+  customer_name   VARCHAR(200)                          COMMENT '고객사명 (캐시)',
+  assigned_to     INT                                   COMMENT '담당자 (team_members.id)',
+  color           VARCHAR(20) DEFAULT '#1a73e8'         COMMENT '이벤트 색상 (hex)',
+  recurrence      VARCHAR(100)                          COMMENT '반복 규칙 (RRULE)',
+  created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_start_datetime  (start_datetime),
+  INDEX idx_assignee_start  (assigned_to, start_datetime),
+  INDEX idx_customer        (customer_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='영업 캘린더 이벤트 (FullCalendar 표시용)';
+
+-- =====================================================
+-- 9. 회의록 (Google STT + Gemini 요약)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS meeting_minutes (
+  id                  INT AUTO_INCREMENT PRIMARY KEY,
+  title               VARCHAR(300) NOT NULL             COMMENT '미팅 제목',
+  meeting_date        DATE                              COMMENT '미팅 일자',
+  audio_filename      VARCHAR(300)                      COMMENT '원본 오디오 파일명 (보관 안 함)',
+  audio_duration_sec  INT                               COMMENT '오디오 길이 (초)',
+  raw_transcript      MEDIUMTEXT                        COMMENT 'STT 원본 전사 텍스트',
+  speakers_json       MEDIUMTEXT                        COMMENT '화자 분리 JSON [{speaker,text}]',
+  summary_md          MEDIUMTEXT                        COMMENT 'Gemini 요약 (마크다운)',
+  agenda              TEXT                              COMMENT '추출된 어젠다 (옵션)',
+  key_points          TEXT                              COMMENT '핵심 내용 (옵션)',
+  action_items        TEXT                              COMMENT '액션 아이템 (옵션)',
+  customer_name       VARCHAR(200)                      COMMENT '연결된 고객사',
+  lead_id             INT                               COMMENT '연결된 리드',
+  calendar_event_id   INT                               COMMENT '캘린더 자동 등록 시 메인 이벤트 ID',
+  created_by          INT                               COMMENT '작성자 (team_members.id)',
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_meeting_date (meeting_date),
+  INDEX idx_customer     (customer_name),
+  INDEX idx_created_at   (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='AI 회의록 (음성 → 텍스트 → 요약)';
+
+-- =====================================================
+-- 10. AI 토큰 사용량 (사용자별 추적 + 한도 관리)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id                  INT AUTO_INCREMENT PRIMARY KEY,
+  user_id             INT NULL                          COMMENT 'X-User-Id 헤더에서 추출 (team_members.id)',
+  endpoint            VARCHAR(100)                      COMMENT '호출 엔드포인트 식별자 (chat/insights/ocr 등)',
+  prompt_tokens       INT DEFAULT 0                     COMMENT '입력 토큰 수',
+  completion_tokens   INT DEFAULT 0                     COMMENT '출력 토큰 수',
+  total_tokens        INT DEFAULT 0                     COMMENT '합계 토큰 수',
+  model               VARCHAR(50)                       COMMENT '사용된 Gemini 모델 ID',
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_created (created_at),
+  INDEX idx_user    (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='AI API 호출별 토큰 소비 로그';
+
+-- =====================================================
+-- 11. 시스템 정책 설정 (관리자 콘솔)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS system_settings (
+  setting_key   VARCHAR(50) PRIMARY KEY                 COMMENT '키 (예: idle_timeout_min)',
+  setting_value VARCHAR(255)                            COMMENT '값 (문자열로 저장)',
+  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='조직 정책 (idle 타임아웃, 토큰 기본 한도 등)';
+
+-- 기본 정책 시드
+INSERT INTO system_settings (setting_key, setting_value) VALUES
+  ('idle_timeout_min',             '30'),
+  ('default_monthly_token_limit',  '500000')
+ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
+
+-- =====================================================
+-- 12. 게시판 (공지 / 댓글 / FAQ)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS announcements (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  title       VARCHAR(300) NOT NULL,
+  content     TEXT NOT NULL,
+  is_pinned   TINYINT(1) DEFAULT 0,
+  created_by  INT,
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='조직 공지사항';
+
+CREATE TABLE IF NOT EXISTS comments (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  ref_type    VARCHAR(30) NOT NULL                      COMMENT '댓글 대상 종류 (announcement/lead 등)',
+  ref_id      INT NOT NULL,
+  content     TEXT NOT NULL,
+  author_name VARCHAR(100),
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ref (ref_type, ref_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='범용 댓글 (공지사항/리드 등 어디에든 부착 가능)';
+
+CREATE TABLE IF NOT EXISTS faq (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  question    TEXT NOT NULL,
+  answer      TEXT NOT NULL,
+  category    VARCHAR(50) DEFAULT '기타',
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='FAQ';
+
+-- =====================================================
+-- 13. 접근 로그 (관리자 모니터링용)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS access_logs (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  action      VARCHAR(300),
+  method      VARCHAR(10),
+  path        VARCHAR(500),
+  ip          VARCHAR(60),
+  status_code INT,
+  duration_ms INT,
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='/api 모든 호출의 응답 시간 로그';
+
+-- =====================================================
+-- 추가 성능 인덱스 (Phase 0 정리 — EXPLAIN 분석 결과)
+--   기존 단일 인덱스에 더해 자주 쓰이는 쿼리의 정렬을
+--   제거하기 위한 복합 인덱스.
+-- =====================================================
+ALTER TABLE leads      ADD INDEX idx_stage_updated   (stage, updated_at);
+ALTER TABLE leads      ADD INDEX idx_assigned_stage  (assigned_to, stage);
+ALTER TABLE activities ADD INDEX idx_lead_performed  (lead_id, performed_at);
+-- 이미 추가됨 (CREATE TABLE 안): calendar_events.idx_start_datetime / idx_assignee_start / idx_customer
+-- 이미 추가됨: meeting_minutes.idx_created_at, ai_usage.idx_user / idx_created
+
+-- =====================================================
 -- 샘플 데이터 INSERT
 -- =====================================================
 

@@ -2115,7 +2115,36 @@ async function initTables() {
     // team_members 에 월별 토큰 한도 컬럼
     try { await pool.query(`ALTER TABLE team_members ADD COLUMN monthly_token_limit INT NULL`); } catch (_) {}
 
-    console.log('✅ DB 확장 테이블 초기화 완료');
+    // ─── 성능 인덱스 (idempotent) ─────────────────────────
+    // EXPLAIN 분석으로 식별된 핫스팟에만 추가. 이미 있으면 ALTER 가 에러 → 무시.
+    const idx = [
+      // 캘린더: 날짜 범위 조회가 풀스캔 → 시작시간 인덱스
+      `ALTER TABLE calendar_events ADD INDEX idx_start_datetime (start_datetime)`,
+      // 캘린더: 담당자 + 날짜 복합 (대시보드 / 필터)
+      `ALTER TABLE calendar_events ADD INDEX idx_assignee_start (assigned_to, start_datetime)`,
+      // 캘린더: 고객사별 조회 (인텔리전스)
+      `ALTER TABLE calendar_events ADD INDEX idx_customer (customer_name)`,
+      // 회의록: 목록 정렬 (created_at DESC)
+      `ALTER TABLE meeting_minutes ADD INDEX idx_created_at (created_at)`,
+      // 리드: 단계 필터 + 최신순 (자주 사용)
+      `ALTER TABLE leads ADD INDEX idx_stage_updated (stage, updated_at)`,
+      // 리드: 담당자별 단계 (팀 성과 쿼리)
+      `ALTER TABLE leads ADD INDEX idx_assigned_stage (assigned_to, stage)`,
+      // 활동: lead 별 시간순 (히스토리)
+      `ALTER TABLE activities ADD INDEX idx_lead_performed (lead_id, performed_at)`,
+      // 활동: 전체 최신순 (대시보드 최근 활동)
+      `ALTER TABLE activities ADD INDEX idx_performed_at (performed_at)`
+    ];
+    for (const sql of idx) {
+      try { await pool.query(sql); } catch (e) {
+        // Duplicate key name 만 정상 — 그 외는 로그
+        if (!String(e.message).includes('Duplicate')) {
+          console.warn('⚠ 인덱스 추가 경고:', e.message);
+        }
+      }
+    }
+
+    console.log('✅ DB 확장 테이블 + 인덱스 초기화 완료');
   } catch (err) {
     console.error('❌ DB 초기화 오류:', err.message);
   }
