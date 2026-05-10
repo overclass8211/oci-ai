@@ -1,0 +1,58 @@
+name: CI Test
+
+on:
+  push:
+    branches:
+      - master
+      - feature/gcp-test-server
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: rootpass
+          MARIADB_DATABASE: oci_crm
+          MARIADB_USER: oci_crm
+          MARIADB_PASSWORD: oci_crm_dev_1234!
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot -prootpass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      PORT: 3000
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: oci_crm
+      DB_PASSWORD: oci_crm_dev_1234!
+      DB_NAME: oci_crm
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize database schema
+        run: mysql -h 127.0.0.1 -u oci_crm -poci_crm_dev_1234! oci_crm < schema.sql
+
+      - name: Run tests
+        run: npm test

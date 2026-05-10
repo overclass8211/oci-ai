@@ -20,6 +20,7 @@ CREATE TABLE team_members (
   name VARCHAR(50) NOT NULL,
   role ENUM('CS', 'Field', 'Sales') NOT NULL,
   team VARCHAR(50) COMMENT '태양광/전기ESS/해외',
+  monthly_token_limit INT DEFAULT 100000,
   email VARCHAR(100),
   phone VARCHAR(50),
   avatar_color VARCHAR(20) DEFAULT '#E63329',
