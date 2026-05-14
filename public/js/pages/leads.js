@@ -1,0 +1,625 @@
+// ============================================================
+// Leads Page (테이블 + CRUD + Copy & Paste)
+// ============================================================
+const LeadsPage = {
+  filters: { search: '', stage: '', region: '', assigned_to: '', business_type: '', date_from: '', date_to: '', date_field: 'close' },
+  team: [],
+  _selectedIds: new Set(),   // 체크박스 선택된 리드 ID
+  _allLeads: [],             // 현재 렌더링된 리드 목록 (복사용)
+  _pasteHandler: null,       // Ctrl+V 핸들러 (페이지 언마운트 시 제거)
+
+  async render() {
+    const html = `
+      <div class="filter-bar">
+        <input type="text" class="search-input" id="leads-search" placeholder="고객사, 프로젝트명, 메모 검색...">
+
+        <select class="filter-select" id="leads-stage">
+          <option value="">전체 단계</option>
+          <option value="lead">리드 발굴</option>
+          <option value="review">검토/미팅</option>
+          <option value="proposal">제안/견적</option>
+          <option value="bidding">입찰</option>
+          <option value="negotiation">협상/계약</option>
+          <option value="won">수주</option>
+          <option value="lost">실주</option>
+          <option value="dropped">드롭</option>
+        </select>
+
+        <select class="filter-select" id="leads-business-type">
+          <option value="">전체 사업유형</option>
+          <option value="태양광">태양광</option>
+          <option value="풍력">풍력</option>
+          <option value="ESS">ESS</option>
+          <option value="수소">수소</option>
+          <option value="기타">기타</option>
+        </select>
+
+        <select class="filter-select" id="leads-region">
+          <option value="">국내/해외</option>
+          <option value="국내">국내</option>
+          <option value="해외">해외</option>
+        </select>
+
+        <select class="filter-select" id="leads-assigned">
+          <option value="">전체 담당자</option>
+        </select>
+
+        <div class="filter-date-group">
+          <select class="filter-select" id="leads-date-field" style="width:90px">
+            <option value="close">마감일</option>
+            <option value="updated">수정일</option>
+            <option value="created">등록일</option>
+          </select>
+          <input type="date" class="filter-date" id="leads-date-from" title="시작일">
+          <span class="text-muted" style="font-size:11px">~</span>
+          <input type="date" class="filter-date" id="leads-date-to" title="종료일">
+          <button class="btn btn-ghost btn-sm" id="leads-date-clear" title="날짜 초기화" style="display:none">✕</button>
+        </div>
+
+        <button class="btn btn-primary" id="leads-open-form-btn">+ 리드 등록</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">영업 리드 목록 <span class="text-muted fs-12" id="leads-count"></span></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div id="leads-active-filters" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
+            <!-- Copy & Paste 툴바 -->
+            <div class="cp-toolbar" id="cp-toolbar" style="display:none">
+              <span class="cp-sel-count" id="cp-sel-count">0건 선택</span>
+              <button class="btn btn-ghost btn-sm" id="cp-copy-btn" title="선택된 행을 클립보드에 복사 (Excel/Word에 붙여넣기 가능)">
+                📋 복사
+              </button>
+              <button class="btn btn-ghost btn-sm" id="leads-clear-sel-btn">선택 해제</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="cp-paste-btn"
+              data-feature="data.bulk_paste"
+              title="Excel·Word·이메일에서 복사한 표 데이터를 붙여넣기로 일괄 등록">
+              📥 붙여넣기 등록
+            </button>
+            <button class="btn btn-ghost btn-sm" id="leads-export-btn"
+              data-feature="data.excel_exp"
+              title="현재 필터 결과를 엑셀 파일로 다운로드">
+              📤 엑셀 다운로드
+            </button>
+            <label class="btn btn-ghost btn-sm" data-feature="data.excel_imp"
+              title="엑셀 파일로 일괄 등록" style="cursor:pointer;margin:0">
+              📂 엑셀 가져오기
+              <input type="file" id="leads-import-input" accept=".xlsx,.xls" style="display:none">
+            </label>
+          </div>
+        </div>
+        <div class="card-body no-pad" id="leads-table-wrap">
+          <div class="loading">로딩중...</div>
+        </div>
+      </div>
+    `;
+    document.getElementById('content').innerHTML = html;
+
+    const team = await API.team.list();
+    this.team = team.data;
+    const sel = document.getElementById('leads-assigned');
+    sel.innerHTML = '<option value="">전체 담당자</option>' +
+      this.team.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+
+    // toolbar / header buttons
+    document.getElementById('leads-open-form-btn')?.addEventListener('click', () => App.openLeadForm());
+    document.getElementById('cp-copy-btn')?.addEventListener('click', () => this.copySelected());
+    document.getElementById('leads-clear-sel-btn')?.addEventListener('click', () => this._clearSelection());
+    document.getElementById('cp-paste-btn')?.addEventListener('click', () => this.openPasteModal());
+    document.getElementById('leads-export-btn')?.addEventListener('click', () => this.exportExcel());
+    document.getElementById('leads-import-input')?.addEventListener('change', (e) => this.importExcel(e.target));
+
+    // 검색어
+    document.getElementById('leads-search').addEventListener('input', debounce((e) => {
+      this.filters.search = e.target.value;
+      this.loadData();
+    }, 300));
+
+    // 드롭다운 필터들
+    const selectMap = {
+      'leads-stage':          'stage',
+      'leads-business-type':  'business_type',
+      'leads-region':         'region',
+      'leads-assigned':       'assigned_to',
+      'leads-date-field':     'date_field',
+    };
+    Object.entries(selectMap).forEach(([id, key]) => {
+      document.getElementById(id).addEventListener('change', (e) => {
+        this.filters[key] = e.target.value;
+        this.loadData();
+      });
+    });
+
+    // 날짜 range
+    document.getElementById('leads-date-from').addEventListener('change', (e) => {
+      this.filters.date_from = e.target.value;
+      document.getElementById('leads-date-clear').style.display = (this.filters.date_from || this.filters.date_to) ? '' : 'none';
+      this.loadData();
+    });
+    document.getElementById('leads-date-to').addEventListener('change', (e) => {
+      this.filters.date_to = e.target.value;
+      document.getElementById('leads-date-clear').style.display = (this.filters.date_from || this.filters.date_to) ? '' : 'none';
+      this.loadData();
+    });
+    document.getElementById('leads-date-clear').addEventListener('click', () => {
+      this.filters.date_from = '';
+      this.filters.date_to = '';
+      document.getElementById('leads-date-from').value = '';
+      document.getElementById('leads-date-to').value = '';
+      document.getElementById('leads-date-clear').style.display = 'none';
+      this.loadData();
+    });
+
+    // Ctrl+V 전역 붙여넣기 핸들러 등록
+    this._bindPasteShortcut();
+
+    await this.loadData();
+  },
+
+  // ── Ctrl+V 단축키 등록 ──────────────────────────────────────
+  _bindPasteShortcut() {
+    if (this._pasteHandler) document.removeEventListener('keydown', this._pasteHandler);
+    this._pasteHandler = (e) => {
+      // 입력 필드에 포커스된 경우는 무시
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault();
+        this.openPasteModal();
+      }
+    };
+    document.addEventListener('keydown', this._pasteHandler);
+  },
+
+  async loadData() {
+    try {
+      const result = await API.leads.list(this.filters);
+      this._allLeads = result.data;
+      this.renderTable(result.data);
+      this.renderActiveFilters();
+    } catch (err) { console.error(err); }
+  },
+
+  renderActiveFilters() {
+    const wrap = document.getElementById('leads-active-filters');
+    if (!wrap) return;
+    const chips = [];
+    const dateFieldLabel = { close:'마감일', updated:'수정일', created:'등록일' };
+    if (this.filters.search)        chips.push(['검색', this.filters.search, () => { this.filters.search = ''; document.getElementById('leads-search').value = ''; }]);
+    if (this.filters.stage)         chips.push(['단계', STAGES[this.filters.stage]?.label || this.filters.stage, () => { this.filters.stage = ''; document.getElementById('leads-stage').value = ''; }]);
+    if (this.filters.business_type) chips.push(['유형', this.filters.business_type, () => { this.filters.business_type = ''; document.getElementById('leads-business-type').value = ''; }]);
+    if (this.filters.region)        chips.push(['구분', this.filters.region, () => { this.filters.region = ''; document.getElementById('leads-region').value = ''; }]);
+    if (this.filters.assigned_to) {
+      const member = this.team.find(t => String(t.id) === String(this.filters.assigned_to));
+      chips.push(['담당자', member?.name || this.filters.assigned_to, () => { this.filters.assigned_to = ''; document.getElementById('leads-assigned').value = ''; }]);
+    }
+    if (this.filters.date_from || this.filters.date_to) {
+      const label = `${dateFieldLabel[this.filters.date_field]}: ${this.filters.date_from || '∞'} ~ ${this.filters.date_to || '∞'}`;
+      chips.push(['기간', label, () => {
+        this.filters.date_from = ''; this.filters.date_to = '';
+        document.getElementById('leads-date-from').value = '';
+        document.getElementById('leads-date-to').value = '';
+        document.getElementById('leads-date-clear').style.display = 'none';
+      }]);
+    }
+    if (!chips.length) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = chips.map((c, i) =>
+      `<span class="filter-chip" data-filter-idx="${i}">${c[0]}: <strong>${esc(c[1])}</strong> ✕</span>`
+    ).join('');
+    this._filterChipCallbacks = chips.map(c => c[2]);
+
+    wrap.addEventListener('click', (e) => {
+      const chip = e.target.closest('.filter-chip[data-filter-idx]');
+      if (chip) this._removeFilter(parseInt(chip.dataset.filterIdx));
+    }, { once: true });
+  },
+
+  _removeFilter(idx) {
+    if (this._filterChipCallbacks?.[idx]) {
+      this._filterChipCallbacks[idx]();
+      this.loadData();
+    }
+  },
+
+  // ── 테이블 렌더링 (체크박스 컬럼 추가) ──────────────────────
+  renderTable(leads) {
+    document.getElementById('leads-count').textContent = `(총 ${leads.length}건)`;
+
+    if (!leads.length) {
+      document.getElementById('leads-table-wrap').innerHTML =
+        '<div class="empty"><div class="empty-icon">📋</div>등록된 리드가 없습니다</div>';
+      return;
+    }
+
+    const stageBadge = (stage) => {
+      const map = {
+        lead: 'gray', review: 'gray', proposal: 'blue',
+        bidding: 'amber', negotiation: 'green',
+        won: 'green', lost: 'gray', dropped: 'red'
+      };
+      return `<span class="badge badge-${map[stage]}">${STAGES[stage].label}</span>`;
+    };
+
+    const html = `
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="cp-check-col" style="width:36px">
+              <input type="checkbox" class="cp-checkbox" id="cp-check-all" title="전체 선택">
+            </th>
+            <th>고객사</th>
+            <th>프로젝트명</th>
+            <th>사업유형</th>
+            <th class="text-right">규모(MW)</th>
+            <th class="text-right">예상금액</th>
+            <th>상태</th>
+            <th>구분</th>
+            <th>담당자</th>
+            <th>예상 마감일</th>
+            <th>최종 활동</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${leads.map(l => `
+            <tr class="clickable${this._selectedIds.has(l.id) ? ' cp-selected' : ''}"
+                data-lead-id="${l.id}">
+              <td class="cp-check-col" data-stop-propagation="1">
+                <input type="checkbox" class="cp-checkbox" data-id="${l.id}"
+                  ${this._selectedIds.has(l.id) ? 'checked' : ''}>
+              </td>
+              <td><strong>${esc(l.customer_name)}</strong></td>
+              <td>${esc(l.project_name)}</td>
+              <td><span class="badge ${BUSINESS_COLORS[l.business_type] || 'badge-gray'}">${esc(l.business_type)}</span></td>
+              <td class="text-right mono">${l.capacity_mw ? parseFloat(l.capacity_mw).toFixed(0) : '-'}</td>
+              <td class="text-right mono">${Fmt.amount(l.expected_amount, l.currency)}</td>
+              <td>${stageBadge(l.stage)}</td>
+              <td><span class="badge ${l.region === '해외' ? 'badge-purple' : 'badge-blue'}">${esc(l.region)}</span></td>
+              <td>${esc(l.assigned_name || '-')}</td>
+              <td>${Fmt.date(l.expected_close_date)}</td>
+              <td class="text-muted fs-11">${Fmt.relTime(l.updated_at)}</td>
+              <td data-stop-propagation="1">
+                <button class="btn btn-ghost btn-sm" data-action="edit-lead" data-lid="${l.id}">편집</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    const wrap = document.getElementById('leads-table-wrap');
+    wrap.innerHTML = html;
+    this._updateSelectionUI();
+
+    wrap.addEventListener('click', (e) => {
+      const stopEl = e.target.closest('[data-stop-propagation]');
+      if (stopEl) { e.stopPropagation(); }
+
+      const actionBtn = e.target.closest('[data-action="edit-lead"]');
+      if (actionBtn) { this.editLead(parseInt(actionBtn.dataset.lid)); return; }
+
+      const cb = e.target.closest('.cp-checkbox[data-id]');
+      if (cb) { this._toggleRow(parseInt(cb.dataset.id), cb.checked); return; }
+
+      const hdrCb = e.target.closest('#cp-check-all');
+      if (hdrCb) { this._toggleAll(hdrCb.checked); return; }
+
+      if (!stopEl) {
+        const tr = e.target.closest('tr[data-lead-id]');
+        if (tr) App.openLeadDetail(parseInt(tr.dataset.leadId));
+      }
+    });
+  },
+
+  // ── 체크박스 선택 관리 ───────────────────────────────────────
+  _toggleAll(checked) {
+    this._allLeads.forEach(l => {
+      if (checked) this._selectedIds.add(l.id);
+      else         this._selectedIds.delete(l.id);
+    });
+    document.querySelectorAll('.cp-checkbox[data-id]').forEach(cb => cb.checked = checked);
+    document.querySelectorAll('tr[data-lead-id]').forEach(tr => tr.classList.toggle('cp-selected', checked));
+    this._updateSelectionUI();
+  },
+
+  _toggleRow(id, checked) {
+    if (checked) this._selectedIds.add(id);
+    else         this._selectedIds.delete(id);
+    const tr = document.querySelector(`tr[data-lead-id="${id}"]`);
+    if (tr) tr.classList.toggle('cp-selected', checked);
+    // 전체 선택 체크박스 상태 동기화
+    const all = document.getElementById('cp-check-all');
+    if (all) all.checked = this._selectedIds.size === this._allLeads.length;
+    this._updateSelectionUI();
+  },
+
+  _clearSelection() {
+    this._selectedIds.clear();
+    document.querySelectorAll('.cp-checkbox').forEach(cb => cb.checked = false);
+    document.querySelectorAll('tr[data-lead-id]').forEach(tr => tr.classList.remove('cp-selected'));
+    this._updateSelectionUI();
+  },
+
+  _updateSelectionUI() {
+    const n = this._selectedIds.size;
+    const toolbar = document.getElementById('cp-toolbar');
+    const count   = document.getElementById('cp-sel-count');
+    if (toolbar) toolbar.style.display = n > 0 ? 'flex' : 'none';
+    if (count)   count.textContent = `${n}건 선택`;
+  },
+
+  // ── 복사(Copy) ───────────────────────────────────────────────
+  // 선택된 행을 TSV 형식으로 클립보드에 복사 (Excel·Word·이메일에 바로 붙여넣기 가능)
+  copySelected() {
+    const selected = this._allLeads.filter(l => this._selectedIds.has(l.id));
+    if (!selected.length) { Toast.info('복사할 항목을 선택하세요'); return; }
+
+    const STAGE_LABELS = {
+      lead:'리드발굴', review:'검토/미팅', proposal:'제안/견적',
+      bidding:'입찰', negotiation:'협상/계약', won:'수주완료', lost:'실주', dropped:'드롭'
+    };
+    const headers = ['고객사','프로젝트명','사업유형','규모(MW)','예상금액','통화','단계','구분','담당자','예상마감일','메모'];
+    const rows = selected.map(l => [
+      l.customer_name || '',
+      l.project_name  || '',
+      l.business_type || '',
+      l.capacity_mw   != null ? l.capacity_mw : '',
+      l.expected_amount != null ? l.expected_amount : '',
+      l.currency      || 'KRW',
+      STAGE_LABELS[l.stage] || l.stage || '',
+      l.region        || '',
+      l.assigned_name || '',
+      l.expected_close_date ? String(l.expected_close_date).slice(0,10) : '',
+      l.notes         || '',
+    ].map(v => String(v).replace(/\t/g, ' ')));  // 탭 문자 이스케이프
+
+    const tsv = [headers, ...rows].map(r => r.join('\t')).join('\n');
+    navigator.clipboard.writeText(tsv).then(() => {
+      Toast.success(`${selected.length}건 복사 완료 — Excel·Word에 Ctrl+V로 붙여넣기 하세요`);
+    }).catch(() => {
+      // clipboard API 실패 시 textarea 방법으로 대체
+      const ta = document.createElement('textarea');
+      ta.value = tsv;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      Toast.success(`${selected.length}건 복사 완료`);
+    });
+  },
+
+  // ── 붙여넣기(Paste) 모달 ────────────────────────────────────
+  openPasteModal() {
+    Modal.open({
+      title: '📥 데이터 붙여넣기 등록',
+      width: 780,
+      body: `
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.7">
+          Excel·Word·이메일의 표 데이터를 복사(Ctrl+C)한 뒤 아래 입력란에 붙여넣기(Ctrl+V)하세요.<br>
+          <span style="color:var(--text-3)">지원 형식: 탭 구분(Excel), 쉼표 구분(CSV) · 첫 행이 헤더인 경우 자동 인식</span>
+        </div>
+        <textarea id="cp-paste-input" class="cp-paste-textarea"
+          placeholder="여기에 Excel·Word·이메일 데이터를 붙여넣기 하세요 (Ctrl+V)..."
+          rows="8" autofocus></textarea>
+        <div id="cp-parse-result" style="margin-top:10px"></div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="leads-paste-cancel-btn">취소</button>
+        <button class="btn btn-secondary" id="leads-paste-preview-btn">미리보기</button>
+        <button class="btn btn-primary" id="cp-import-btn" style="display:none">등록하기</button>
+      `,
+      bind: {
+        '#leads-paste-cancel-btn':  () => Modal.close(),
+        '#leads-paste-preview-btn': () => this._parsePasteInput(),
+        '#cp-import-btn':           () => this._importParsed()
+      }
+    });
+
+    // 붙여넣기 시 자동 파싱
+    const ta = document.getElementById('cp-paste-input');
+    if (ta) {
+      ta.focus();
+      ta.addEventListener('paste', () => setTimeout(() => this._parsePasteInput(), 50));
+    }
+  },
+
+  // ── 클립보드 데이터 파싱 ────────────────────────────────────
+  _parsePasteInput() {
+    const raw = document.getElementById('cp-paste-input')?.value?.trim();
+    if (!raw) { document.getElementById('cp-parse-result').innerHTML = '<p style="color:var(--text-3);font-size:12px">데이터를 먼저 붙여넣기 해주세요.</p>'; return; }
+
+    // 구분자 감지 (탭 vs 쉼표)
+    const firstLine = raw.split('\n')[0];
+    const sep = firstLine.includes('\t') ? '\t' : ',';
+
+    const lines = raw.split('\n').map(l => l.split(sep).map(v => v.trim().replace(/^["']|["']$/g, '')));
+    if (!lines.length) return;
+
+    // 헤더 행 감지
+    const HEADER_MAP = {
+      '고객사':true, '고객':true, 'customer':true, 'customer_name':true,
+      '프로젝트':true, '프로젝트명':true, 'project':true, 'project_name':true,
+      '사업유형':true, '유형':true, 'type':true, 'business_type':true,
+      '규모':true, 'mw':true, 'capacity':true, '용량':true,
+      '금액':true, '예상금액':true, 'amount':true, 'expected_amount':true,
+      '단계':true, 'stage':true, '상태':true,
+      '구분':true, '지역':true, 'region':true,
+      '담당자':true, '담당':true, 'assigned':true,
+      '마감일':true, '예상마감':true, '마감':true, 'close_date':true,
+      '메모':true, '비고':true, 'notes':true,
+    };
+    const firstRow = lines[0].map(v => v.toLowerCase().trim());
+    const hasHeader = firstRow.some(v => HEADER_MAP[v]);
+
+    let headers, dataRows;
+    if (hasHeader) {
+      headers  = lines[0];
+      dataRows = lines.slice(1).filter(r => r.some(v => v));
+    } else {
+      // 기본 컬럼 순서: 고객사, 프로젝트명, 사업유형, 규모, 예상금액, 단계, 구분, 담당자, 마감일, 메모
+      headers  = ['고객사','프로젝트명','사업유형','규모(MW)','예상금액','단계','구분','담당자','마감일','메모'];
+      dataRows = lines.filter(r => r.some(v => v));
+    }
+
+    // 컬럼 → 필드 매핑
+    const COL_FIELD = {
+      '고객사':'customer_name', '고객':'customer_name', 'customer':'customer_name', 'customer_name':'customer_name',
+      '프로젝트명':'project_name', '프로젝트':'project_name', 'project':'project_name', 'project_name':'project_name',
+      '사업유형':'business_type', '유형':'business_type', 'type':'business_type', 'business_type':'business_type',
+      '규모(mw)':'capacity_mw', '규모':'capacity_mw', 'mw':'capacity_mw', 'capacity':'capacity_mw', '용량':'capacity_mw',
+      '예상금액':'expected_amount', '금액':'expected_amount', 'amount':'expected_amount', 'expected_amount':'expected_amount',
+      '통화':'currency', 'currency':'currency',
+      '단계':'stage', 'stage':'stage', '상태':'stage',
+      '구분':'region', '지역':'region', 'region':'region',
+      '담당자':'assigned_name_raw', '담당':'assigned_name_raw', 'assigned':'assigned_name_raw',
+      '마감일':'expected_close_date', '예상마감일':'expected_close_date', '마감':'expected_close_date', 'close_date':'expected_close_date',
+      '메모':'notes', '비고':'notes', 'notes':'notes',
+    };
+
+    const STAGE_REVERSE = {
+      '리드발굴':'lead', '리드 발굴':'lead', 'lead':'lead',
+      '검토':'review', '검토/미팅':'review', 'review':'review',
+      '제안':'proposal', '제안/견적':'proposal', 'proposal':'proposal',
+      '입찰':'bidding', 'bidding':'bidding',
+      '협상':'negotiation', '협상/계약':'negotiation', 'negotiation':'negotiation',
+      '수주':'won', '수주완료':'won', 'won':'won',
+      '실주':'lost', 'lost':'lost',
+      '드롭':'dropped', 'dropped':'dropped',
+    };
+
+    const fieldCols = headers.map(h => COL_FIELD[h.toLowerCase().trim()] || null);
+
+    const parsed = dataRows.map(row => {
+      const obj = {};
+      row.forEach((val, i) => {
+        const field = fieldCols[i];
+        if (!field || !val) return;
+        if (field === 'stage') obj[field] = STAGE_REVERSE[val.toLowerCase()] || 'lead';
+        else if (field === 'capacity_mw' || field === 'expected_amount') {
+          const num = parseFloat(val.replace(/[,₩$¥]/g, ''));
+          if (!isNaN(num)) obj[field] = num;
+        } else if (field === 'assigned_name_raw') obj[field] = val;  // 이름→ID 매핑은 나중에
+        else obj[field] = val;
+      });
+      return obj;
+    }).filter(o => o.customer_name || o.project_name);
+
+    this._parsedLeads = parsed;
+
+    if (!parsed.length) {
+      document.getElementById('cp-parse-result').innerHTML =
+        '<p style="color:#E63329;font-size:12px">⚠ 인식된 데이터가 없습니다. 형식을 확인해주세요.</p>';
+      document.getElementById('cp-import-btn').style.display = 'none';
+      return;
+    }
+
+    // 미리보기 테이블 렌더링
+    const previewHtml = `
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text-1)">
+        📊 ${parsed.length}건 인식됨 — 아래 내용을 확인하고 [등록하기]를 클릭하세요
+      </div>
+      <div style="overflow-x:auto;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+        <table class="data-table" style="font-size:11px;min-width:600px">
+          <thead>
+            <tr>
+              <th>#</th><th>고객사</th><th>프로젝트명</th><th>사업유형</th>
+              <th>규모(MW)</th><th>단계</th><th>구분</th><th>담당자</th><th>마감일</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${parsed.map((r, i) => `
+              <tr class="${!r.customer_name || !r.project_name ? 'cp-row-warn' : ''}">
+                <td class="text-muted">${i+1}</td>
+                <td>${r.customer_name ? `<strong>${esc(r.customer_name)}</strong>` : '<span style="color:#E63329">필수</span>'}</td>
+                <td>${r.project_name  ? esc(r.project_name)  : '<span style="color:#E63329">필수</span>'}</td>
+                <td>${esc(r.business_type || '태양광')}</td>
+                <td class="text-right">${r.capacity_mw != null ? r.capacity_mw : '-'}</td>
+                <td>${esc(STAGE_REVERSE[r.stage] ? (r.stage) : 'lead')}</td>
+                <td>${esc(r.region || '국내')}</td>
+                <td>${esc(r.assigned_name_raw || '-')}</td>
+                <td>${esc(r.expected_close_date || '-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${parsed.some(r => !r.customer_name || !r.project_name)
+        ? '<p style="color:#F59C00;font-size:11px;margin-top:6px">⚠ 빨간색 행은 필수값 누락으로 건너뜁니다.</p>' : ''}
+    `;
+    document.getElementById('cp-parse-result').innerHTML = previewHtml;
+    document.getElementById('cp-import-btn').style.display = '';
+  },
+
+  // ── 파싱된 데이터 일괄 등록 ─────────────────────────────────
+  async _importParsed() {
+    if (!this._parsedLeads?.length) return;
+
+    // assigned_name_raw → ID 변환
+    const leadsToSend = this._parsedLeads
+      .filter(r => r.customer_name && r.project_name)
+      .map(r => {
+        const member = this.team.find(t => t.name === r.assigned_name_raw);
+        const { assigned_name_raw, ...rest } = r;
+        return { ...rest, assigned_to: member?.id || null };
+      });
+
+    const btn = document.getElementById('cp-import-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '등록 중...'; }
+
+    try {
+      const res = await API.post('/leads/bulk', { leads: leadsToSend });
+      Modal.close();
+      if (res.success) {
+        const errMsg = res.errors?.length ? ` (${res.errors.length}건 오류)` : '';
+        Toast.success(`${res.inserted}건 등록 완료${errMsg}`);
+        await this.loadData();
+      } else {
+        Toast.error('등록 중 오류가 발생했습니다.');
+      }
+    } catch (e) {
+      Toast.error('서버 오류: ' + (e.message || ''));
+      if (btn) { btn.disabled = false; btn.textContent = '등록하기'; }
+    }
+  },
+
+  async editLead(id) {
+    App.openLeadForm(id);
+  },
+
+  // ── 엑셀 내보내기 ────────────────────────────────────────────
+  exportExcel() {
+    const f = this.filters;
+    const qs = new URLSearchParams();
+    if (f.stage)         qs.set('stage', f.stage);
+    if (f.region)        qs.set('region', f.region);
+    if (f.assigned_to)   qs.set('assigned_to', f.assigned_to);
+    if (f.business_type) qs.set('business_type', f.business_type);
+    if (f.search)        qs.set('search', f.search);
+    const path = '/leads/export' + (qs.toString() ? '?' + qs.toString() : '');
+    API.downloadExcel(path, '영업리드_' + new Date().toISOString().slice(0,10));
+  },
+
+  // ── 엑셀 가져오기 ────────────────────────────────────────────
+  async importExcel(input) {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
+    const headers = {};
+    const uid = localStorage.getItem('current_user_id');
+    if (uid)   headers['X-User-Id'] = uid;
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch('/api/leads/import', { method: 'POST', headers, body: fd });
+      const data = await res.json();
+      if (data.success) {
+        const errMsg = data.errors?.length ? ` (${data.errors.length}건 오류)` : '';
+        Toast.success(`${data.inserted}건 등록 완료${errMsg}`);
+        await this.loadData();
+      } else { Toast.error(data.message || '가져오기 실패'); }
+    } catch (e) { Toast.error('서버 오류: ' + (e.message || '')); }
+  }
+};

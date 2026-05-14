@@ -299,6 +299,149 @@ ALTER TABLE activities ADD INDEX idx_lead_performed  (lead_id, performed_at);
 -- 이미 추가됨: meeting_minutes.idx_created_at, ai_usage.idx_user / idx_created
 
 -- =====================================================
+-- 14. 사용자 계정 (로그인 / 권한 관리)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS users (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  username         VARCHAR(50) UNIQUE NOT NULL,
+  email            VARCHAR(100) UNIQUE,
+  password_hash    VARCHAR(255) NOT NULL,
+  full_name        VARCHAR(100),
+  role             ENUM('manager','team_lead','executive','admin','superadmin') DEFAULT 'manager',
+  is_active        TINYINT(1) DEFAULT 1,
+  otp_secret       VARCHAR(100)  COMMENT 'AES-256 암호화된 TOTP 시크릿',
+  otp_enabled      TINYINT(1) DEFAULT 0,
+  webauthn_cred_id VARCHAR(500)  COMMENT 'WebAuthn 자격증명 ID',
+  last_login       DATETIME,
+  department       VARCHAR(100),
+  avatar_url       VARCHAR(255),
+  created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_username (username),
+  INDEX idx_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='시스템 로그인 계정 (manager/team_lead/executive/admin/superadmin)';
+
+-- =====================================================
+-- 15. Refresh Token (JWT 갱신 / 세션 관리)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  user_id     INT NOT NULL,
+  token_hash  VARCHAR(255) NOT NULL  COMMENT 'bcrypt 해시 (원문 미저장)',
+  jti         VARCHAR(36)  NOT NULL  COMMENT '연결된 access token JTI',
+  user_agent  VARCHAR(500),
+  ip          VARCHAR(45),
+  expires_at  DATETIME NOT NULL,
+  revoked     TINYINT(1) DEFAULT 0,
+  revoked_at  DATETIME,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_user    (user_id),
+  INDEX idx_jti     (jti),
+  INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='Refresh Token (HttpOnly 쿠키 + DB 검증)';
+
+-- =====================================================
+-- 16. Token Blacklist (즉시 무효화)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS token_blacklist (
+  jti        VARCHAR(36) PRIMARY KEY,
+  user_id    INT NOT NULL,
+  expires_at DATETIME NOT NULL  COMMENT '이 시각 이후 자동 정리 가능',
+  reason     VARCHAR(50) DEFAULT 'logout',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='로그아웃된 Access Token JTI 블랙리스트';
+
+-- =====================================================
+-- 17. 개발자 기능 플래그 (Feature Flags)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS dev_features (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  feature_key      VARCHAR(100) NOT NULL UNIQUE,
+  feature_name     VARCHAR(200) NOT NULL,
+  description      TEXT,
+  category         VARCHAR(50) DEFAULT 'general',
+  is_enabled       TINYINT(1)  DEFAULT 1,
+  is_experimental  TINYINT(1)  DEFAULT 0,
+  affects_routes   VARCHAR(500),
+  affects_tables   VARCHAR(500),
+  updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='기능 토글 (superadmin 전용 개발자 옵션)';
+
+-- =====================================================
+-- 18. 공지사항 열람 기록
+-- =====================================================
+CREATE TABLE IF NOT EXISTS announcement_views (
+  announcement_id INT NOT NULL,
+  viewer_id       INT NOT NULL,
+  viewed_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (announcement_id, viewer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='공지사항 열람 기록 (반복 열람 제외, PK 중복 방지)';
+
+-- =====================================================
+-- 19. 토큰 충전 로그
+-- =====================================================
+CREATE TABLE IF NOT EXISTS token_recharge_log (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  user_id         INT          NOT NULL,
+  recharge_amount INT          NOT NULL,
+  new_limit       INT          NOT NULL,
+  reason          VARCHAR(100) DEFAULT '자동충전',
+  triggered_by    VARCHAR(20)  DEFAULT 'auto' COMMENT 'auto|admin',
+  created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_user_date (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='AI 토큰 충전 이력 (자동충전 + 수동충전)';
+
+-- =====================================================
+-- 20. Google OAuth 토큰
+-- =====================================================
+CREATE TABLE IF NOT EXISTS google_oauth_tokens (
+  user_id       INT          NOT NULL,
+  access_token  TEXT                   COMMENT 'AES-256 암호화',
+  refresh_token TEXT                   COMMENT 'AES-256 암호화',
+  expiry_date   BIGINT,
+  google_email  VARCHAR(255),
+  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='Google Calendar/Meet OAuth2 자격증명';
+
+-- =====================================================
+-- 21. Google Meet 세션
+-- =====================================================
+CREATE TABLE IF NOT EXISTS google_meet_sessions (
+  id                 INT AUTO_INCREMENT PRIMARY KEY,
+  user_id            INT,
+  google_event_id    VARCHAR(255),
+  meet_link          VARCHAR(500) NOT NULL,
+  title              VARCHAR(255),
+  scheduled_at       DATETIME,
+  duration_min       INT DEFAULT 60,
+  meeting_minutes_id INT NULL      COMMENT '연결된 회의록 ID',
+  created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='Google Meet 회의 세션 + 회의록 연동';
+
+-- =====================================================
+-- 22. team_members 자동충전 컬럼 (ALTER — 이미 적용됨)
+-- =====================================================
+-- ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_enabled   TINYINT(1) DEFAULT 0;
+-- ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_threshold INT DEFAULT 80;
+-- ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_amount    INT DEFAULT 100000;
+
+-- =====================================================
+-- 23. leads stage_changed_at 컬럼 (ALTER — 이미 적용됨)
+-- =====================================================
+-- ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_changed_at DATETIME;
+
+-- =====================================================
 -- 샘플 데이터 INSERT
 -- =====================================================
 

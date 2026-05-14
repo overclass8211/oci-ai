@@ -37,3 +37,10 @@ coverage/
 *.tmp
 *.bak
 _db_update.js
+
+# Husky
+.husky/_
+.claude/
+server_out_new.txt
+server_run.txt
+docs/
