@@ -162,6 +162,14 @@ async function initTables() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── DFD 무시 목록 (관리자가 알림만 끄고 매핑은 안 함) ────────
+    // 미분류 테이블 중 "확인은 했지만 매핑할 필요 없음" 으로 표시한 항목
+    await pool.query(`CREATE TABLE IF NOT EXISTS dfd_dismissed (
+      table_name   VARCHAR(100) PRIMARY KEY,
+      dismissed_by INT NULL,
+      dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
     const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
     for (const s of DEFAULT_SECTIONS) {

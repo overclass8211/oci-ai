@@ -463,19 +463,23 @@ const DevPage = {
     // ── 1) DB 라이브 스키마 + DFD 매핑 병렬 fetch ───────────────
     let liveTables = {};
     let dbMappings = [];   // [{ table_name, api_keys: ['api-leads', ...] }]
+    let dismissed = [];    // [{ table_name, dismissed_at, ... }]
     let fetchFailed = false;
     try {
-      const [r1, r2] = await Promise.all([
+      const [r1, r2, r3] = await Promise.all([
         API.get('/admin/dev/schema'),
         API.get('/admin/dev/dfd-mappings').catch(() => ({ data: [] })),
+        API.get('/admin/dev/dfd-dismissed').catch(() => ({ data: [] })),
       ]);
       liveTables = r1.data || {};
       dbMappings = r2.data || [];
+      dismissed = r3.data || [];
     } catch (_) {
       fetchFailed = true;
     }
     const dbMappingByTable = {};
     dbMappings.forEach(m => { dbMappingByTable[m.table_name] = m.api_keys || []; });
+    const dismissedSet = new Set(dismissed.map(d => d.table_name));
 
     // ── 2) DFD 정적 카탈로그와 라이브 테이블 병합 ────────────────
     // 카탈로그에 있는 테이블 = 기존 a2t 매핑 보존
@@ -496,6 +500,8 @@ const DevPage = {
 
     // DB 동적 a2t 매핑 (영향도 분석에서 사용)
     const dynamicA2T = [];
+    const trulyNew = [];      // 매핑 없음 + 무시 안 됨 = 신규 알림 대상
+    const dismissedList = []; // 매핑 없음 + 무시됨 = 조용히 표시
 
     // DB 에만 있는 테이블 자동 추가
     liveTableNames.forEach(name => {
@@ -506,17 +512,22 @@ const DevPage = {
       const id = 'tbl-auto-' + name.replace(/_/g, '-');
       const dbApis = dbMappingByTable[name];
       const isMapped = Array.isArray(dbApis) && dbApis.length > 0;
+      const isDismissed = dismissedSet.has(name);
       const entry = {
         id, label: name, cols,
         _uncategorized: !isMapped,
-        _dynamicMapped: isMapped,  // DB 매핑된 항목 (수정/제거 가능)
-        _dbApis: dbApis || [],     // 현재 매핑된 API 목록
+        _dynamicMapped: isMapped,    // DB 매핑된 항목 (수정/제거 가능)
+        _dismissed: isDismissed && !isMapped,  // 무시됨 (매핑 없는 경우에만)
+        _trulyNew: !isMapped && !isDismissed,  // 신규 (매핑도 무시도 안 됨)
+        _dbApis: dbApis || [],
       };
       mergedTables.push(entry);
       if (isMapped) {
         dbApis.forEach(apiId => dynamicA2T.push([apiId, id]));
       } else {
         uncategorized.push(entry);
+        if (isDismissed) dismissedList.push(entry);
+        else trulyNew.push(entry);
       }
     });
 
@@ -533,25 +544,39 @@ const DevPage = {
         <div class="dfd-warn dfd-warn-error">
           ⚠️ 라이브 스키마 조회 실패 — 정적 카탈로그 ${this.DFD.tables.length}개 테이블만 표시됩니다.
         </div>`;
-    } else if (uncategorized.length > 0 || stale.length > 0) {
-      const uncatList = uncategorized.map(t => esc(t.label)).join(', ');
+    } else if (trulyNew.length > 0 || dismissedList.length > 0 || stale.length > 0) {
+      // 3-bucket 분리: 신규(알림) / 무시됨(확인됨) / Stale
+      const newList = trulyNew.map(t => esc(t.label)).join(', ');
+      const dismissedListStr = dismissedList.map(t => esc(t.label)).join(', ');
       const staleList = stale.map(t => esc(t.label)).join(', ');
+      const isAlert = trulyNew.length > 0;
       warningBanner = `
-        <details class="dfd-warn dfd-warn-info">
+        <details class="dfd-warn ${isAlert ? 'dfd-warn-info' : 'dfd-warn-muted'}" ${isAlert ? 'open' : ''}>
           <summary>
-            ⚠️ DFD-스키마 불일치 감지:
-            ${uncategorized.length > 0 ? `<strong>${uncategorized.length}개 미매핑</strong>` : ''}
-            ${uncategorized.length > 0 && stale.length > 0 ? ' · ' : ''}
+            ${isAlert ? '🆕 신규 미매핑 테이블 감지' : 'ℹ️ DFD 상태'}:
+            ${trulyNew.length > 0 ? `<strong style="color:#b45309">${trulyNew.length}개 신규</strong>` : ''}
+            ${trulyNew.length > 0 && dismissedList.length > 0 ? ' · ' : ''}
+            ${dismissedList.length > 0 ? `<span style="color:var(--text-3)">${dismissedList.length}개 무시됨</span>` : ''}
+            ${(trulyNew.length > 0 || dismissedList.length > 0) && stale.length > 0 ? ' · ' : ''}
             ${stale.length > 0 ? `<strong>${stale.length}개 stale</strong>` : ''}
             <span class="dfd-warn-hint">(클릭하여 상세 보기)</span>
           </summary>
           <div class="dfd-warn-body">
-            ${uncategorized.length > 0 ? `
+            ${trulyNew.length > 0 ? `
               <div class="dfd-warn-row">
-                <strong>📌 미매핑 (DB 에 있지만 a2t 매핑 없음):</strong>
-                <code>${uncatList}</code>
+                <strong>🆕 신규 (DB 에 있지만 매핑 안 됨):</strong>
+                <code>${newList}</code>
                 <div class="dfd-warn-tip">
-                  💡 <code>dev.js</code> 의 <code>DFD.tables</code> 와 <code>DFD.a2t</code> 에 추가하면 영향도 분석 가능
+                  💡 노드 <strong>우클릭</strong> → "📋 카탈로그에 추가" 로 매핑하거나
+                  "🔕 무시하기" 로 알림만 끄세요.
+                </div>
+              </div>` : ''}
+            ${dismissedList.length > 0 ? `
+              <div class="dfd-warn-row">
+                <strong>🔕 무시됨 (확인은 했지만 매핑 안 함):</strong>
+                <code>${dismissedListStr}</code>
+                <div class="dfd-warn-tip">
+                  💡 노드 우클릭 → "🔔 다시 알림" 으로 신규로 복원 가능
                 </div>
               </div>` : ''}
             ${stale.length > 0 ? `
@@ -612,21 +637,29 @@ const DevPage = {
 
           <div class="dfd-col" id="dfd-col-tables">
             ${mergedTables.map(t => {
-              const cls = t._uncategorized ? 'dfd-node-uncategorized' :
-                          t._dynamicMapped ? 'dfd-node-dynamic-mapped' : '';
-              const icon = t._uncategorized ? '📌' :
-                           t._dynamicMapped ? '🔗' : '🗄';
-              const tip = t._uncategorized
-                ? 'DFD 매핑 없음 — 우클릭하여 매핑 추가'
-                : (t._dynamicMapped ? '사용자 매핑됨 — 우클릭하여 수정/제거' : '');
-              const badge = t._uncategorized
-                ? '<span class="dfd-uncat-badge">미분류</span>'
-                : (t._dynamicMapped ? '<span class="dfd-mapped-badge">매핑됨</span>' : '');
+              // 4-state visual: catalog / dynamic-mapped / dismissed / truly-new
+              let cls = '', icon = '🗄', badge = '', tip = '';
+              if (t._dynamicMapped) {
+                cls = 'dfd-node-dynamic-mapped';
+                icon = '🔗';
+                badge = '<span class="dfd-mapped-badge">매핑됨</span>';
+                tip = '사용자 매핑됨 — 우클릭하여 수정/제거';
+              } else if (t._dismissed) {
+                cls = 'dfd-node-dismissed';
+                icon = '🔕';
+                badge = '<span class="dfd-dismissed-badge">무시됨</span>';
+                tip = '알림 무시 — 우클릭하여 매핑 추가/다시 알림';
+              } else if (t._trulyNew) {
+                cls = 'dfd-node-uncategorized dfd-node-new';
+                icon = '📌';
+                badge = '<span class="dfd-uncat-badge">신규</span>';
+                tip = '신규 미매핑 — 우클릭하여 매핑 추가';
+              }
+              const interactive = (t._uncategorized || t._dynamicMapped) ? 'data-context-menu="dfd-mapping"' : '';
               return `
               <div class="dfd-node dfd-node-table ${cls}"
                    data-id="${t.id}" data-type="table" data-table-name="${esc(t.label)}"
-                   ${tip ? `title="${esc(tip)}"` : ''}
-                   ${(t._uncategorized || t._dynamicMapped) ? 'data-context-menu="dfd-mapping"' : ''}>
+                   ${tip ? `title="${esc(tip)}"` : ''} ${interactive}>
                 <span class="dfd-table-icon">${icon}</span> ${esc(t.label)}
                 ${badge}
                 <div class="dfd-cols-preview">${t.cols.slice(0,4).join(', ')}${t.cols.length>4?'…':''}</div>
@@ -766,8 +799,12 @@ const DevPage = {
       if (!node) return;
       e.preventDefault();
       const tableName = node.dataset.tableName;
-      const isMapped = node.classList.contains('dfd-node-dynamic-mapped');
-      this._showDfdContextMenu(e.clientX, e.clientY, tableName, isMapped);
+      const state = {
+        isMapped: node.classList.contains('dfd-node-dynamic-mapped'),
+        isDismissed: node.classList.contains('dfd-node-dismissed'),
+        isNew: node.classList.contains('dfd-node-new'),
+      };
+      this._showDfdContextMenu(e.clientX, e.clientY, tableName, state);
     });
 
     // 컨텍스트 메뉴 외부 클릭 시 닫기
@@ -793,19 +830,33 @@ const DevPage = {
   // ──────────────────────────────────────────────────────────────
   // DFD 매핑 컨텍스트 메뉴 + 모달
   // ──────────────────────────────────────────────────────────────
-  _showDfdContextMenu(x, y, tableName, isMapped) {
+  _showDfdContextMenu(x, y, tableName, state) {
     this._hideDfdContextMenu();
     const menu = document.createElement('div');
     menu.id = '__dfd-ctxmenu';
     menu.className = 'dfd-ctxmenu';
     menu.style.left = x + 'px';
     menu.style.top  = y + 'px';
-    menu.innerHTML = isMapped ? `
-      <div class="dfd-ctxmenu-item" data-action="edit">✏️ 매핑 수정 (${esc(tableName)})</div>
-      <div class="dfd-ctxmenu-item dfd-ctxmenu-danger" data-action="remove">🗑 매핑 제거</div>
-    ` : `
-      <div class="dfd-ctxmenu-item" data-action="add">📋 카탈로그에 추가 (${esc(tableName)})</div>
-    `;
+    // state: { isMapped, isDismissed, isNew }
+    let items = '';
+    if (state.isMapped) {
+      items = `
+        <div class="dfd-ctxmenu-item" data-action="edit">✏️ 매핑 수정 (${esc(tableName)})</div>
+        <div class="dfd-ctxmenu-item dfd-ctxmenu-danger" data-action="remove">🗑 매핑 제거</div>
+      `;
+    } else if (state.isDismissed) {
+      items = `
+        <div class="dfd-ctxmenu-item" data-action="add">📋 카탈로그에 추가 (${esc(tableName)})</div>
+        <div class="dfd-ctxmenu-item" data-action="undismiss">🔔 다시 알림</div>
+      `;
+    } else {
+      // truly new
+      items = `
+        <div class="dfd-ctxmenu-item" data-action="add">📋 카탈로그에 추가 (${esc(tableName)})</div>
+        <div class="dfd-ctxmenu-item" data-action="dismiss">🔕 무시하기</div>
+      `;
+    }
+    menu.innerHTML = items;
     document.body.appendChild(menu);
     menu.addEventListener('click', e => {
       const item = e.target.closest('.dfd-ctxmenu-item');
@@ -816,6 +867,10 @@ const DevPage = {
         this._openDfdMappingModal(tableName);
       } else if (action === 'remove') {
         this._removeDfdMapping(tableName);
+      } else if (action === 'dismiss') {
+        this._dismissDfdTable(tableName);
+      } else if (action === 'undismiss') {
+        this._undismissDfdTable(tableName);
       }
     });
     // 화면 밖 넘침 방지
@@ -931,6 +986,26 @@ const DevPage = {
         }
       }
     );
+  },
+
+  async _dismissDfdTable(tableName) {
+    try {
+      await API.request('POST', '/admin/dev/dfd-dismissed', { table_name: tableName });
+      Toast.success(`${tableName} 알림을 껐습니다 (무시 목록에 추가)`);
+      await this.renderDFD();
+    } catch (e) {
+      Toast.error('실패: ' + (e.message || ''));
+    }
+  },
+
+  async _undismissDfdTable(tableName) {
+    try {
+      await API.request('DELETE', '/admin/dev/dfd-dismissed/' + encodeURIComponent(tableName));
+      Toast.success(`${tableName} 알림을 다시 활성화했습니다`);
+      await this.renderDFD();
+    } catch (e) {
+      Toast.error('실패: ' + (e.message || ''));
+    }
   },
 
   _highlightDFD(id, type) {

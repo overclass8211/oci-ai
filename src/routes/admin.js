@@ -798,6 +798,52 @@ router.delete('/dev/dfd-mappings/:tableName', devOnly, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// DFD 무시 목록 — 매핑 안 했지만 "알림 그만"으로 표시한 테이블
+//   GET    /dev/dfd-dismissed              무시 목록
+//   POST   /dev/dfd-dismissed              무시 등록 (body: {table_name})
+//   DELETE /dev/dfd-dismissed/:tableName   다시 알림
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/dfd-dismissed', devOnly, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT table_name, dismissed_by, dismissed_at FROM dfd_dismissed ORDER BY dismissed_at DESC`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post('/dev/dfd-dismissed', devOnly, async (req, res) => {
+  try {
+    const { table_name } = req.body || {};
+    if (!table_name || typeof table_name !== 'string') {
+      return res.status(400).json({ success: false, error: 'table_name (string) 필요' });
+    }
+    await pool.query(
+      `INSERT INTO dfd_dismissed (table_name, dismissed_by)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE
+         dismissed_by = COALESCE(VALUES(dismissed_by), dismissed_by),
+         dismissed_at = CURRENT_TIMESTAMP`,
+      [table_name, req.user?.id || null]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.delete('/dev/dfd-dismissed/:tableName', devOnly, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM dfd_dismissed WHERE table_name = ?', [req.params.tableName]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // GET  /api/admin/dev/perf  — 최근 24h 성능 지표
 router.get('/dev/perf', devOnly, async (req, res) => {
   try {
