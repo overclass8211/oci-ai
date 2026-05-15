@@ -572,9 +572,11 @@ const Notifications = {
       '활동등록':  { icon:'✍️', color:'gray',   dateLabel:'등록일', urgent:false },
     };
 
-    // 긴급/일반 그룹 분리 (패널은 최대 20개 slice된 목록 사용)
-    const urgent  = displayItems.filter(n => META[n.type]?.urgent);
-    const normal  = displayItems.filter(n => !META[n.type]?.urgent);
+    // 시간순(최신↓) 정렬 후 날짜 그룹핑 — 사용자가 알림 벨을 클릭하는 의도는
+    // "뭐가 새로 생겼나" 이므로 최근 항목이 위에 와야 함. urgent 표시는
+    // 색상 코딩된 아이콘(red/amber 배경)으로 시각 구분 유지.
+    const sortedDisplay = Notifications._sortByRecency(displayItems);
+    const groups        = Notifications._groupByDate(sortedDisplay);
 
     const renderGroup = (items, groupLabel) => {
       if (!items.length) return '';
@@ -635,8 +637,10 @@ const Notifications = {
 
     const notifList = panel.querySelector('.notif-list');
     notifList.innerHTML =
-      renderGroup(urgent, '⚠ 긴급 · 주의') +
-      renderGroup(normal, '📌 오늘 · 최근') +
+      renderGroup(groups.today, '📅 오늘') +
+      renderGroup(groups.week,  '🗓 최근 7일') +
+      renderGroup(groups.month, '📆 이번 달') +
+      renderGroup(groups.older, '📋 이전') +
       moreFooter;
 
     notifList.addEventListener('click', (e) => {
@@ -647,6 +651,43 @@ const Notifications = {
         App.navigate('notifications');
       }
     });
+  },
+
+  // ── Helpers (드롭다운 + 전체보기 페이지 양쪽에서 재사용) ────────
+  /**
+   * 시간순(최신↓) 정렬 — due_date DESC, id DESC fallback
+   */
+  _sortByRecency(items) {
+    return [...items].sort((a, b) => {
+      const ta = a.due_date ? new Date(a.due_date).getTime() : 0;
+      const tb = b.due_date ? new Date(b.due_date).getTime() : 0;
+      if (tb !== ta) return tb - ta;       // 최신 날짜가 위
+      return (b.id || 0) - (a.id || 0);    // 동일 날짜면 id 큰 것이 위
+    });
+  },
+  /**
+   * 오늘 기준 거리로 그룹핑 (과거/미래 대칭)
+   *   today  : |diff| < 1일
+   *   week   : 1~7일
+   *   month  : 8~30일
+   *   older  : 30일 초과 또는 due_date 없음
+   */
+  _groupByDate(items) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const DAY = 86400000;
+    const groups = { today: [], week: [], month: [], older: [] };
+    items.forEach(n => {
+      if (!n.due_date) { groups.older.push(n); return; }
+      const d = new Date(n.due_date);
+      d.setHours(0, 0, 0, 0);
+      const diffDays = Math.abs((d - today) / DAY);
+      if (diffDays < 1)        groups.today.push(n);
+      else if (diffDays <= 7)  groups.week.push(n);
+      else if (diffDays <= 30) groups.month.push(n);
+      else                     groups.older.push(n);
+    });
+    return groups;
   },
 
   navigateTo(type, id) {

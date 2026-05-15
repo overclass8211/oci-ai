@@ -89,9 +89,13 @@ const NotificationsListPage = {
       negotiation:'협상', won:'수주', dropped:'드롭'
     };
 
-    // 긴급/일반 분리
-    const urgent = items.filter(n => META[n.type]?.urgent);
-    const normal = items.filter(n => !META[n.type]?.urgent);
+    // 시간순(최신↓) 정렬 후 날짜 그룹핑 — Notifications 의 헬퍼 재사용
+    const sorted = (typeof Notifications !== 'undefined' && Notifications._sortByRecency)
+      ? Notifications._sortByRecency(items)
+      : items;
+    const groups = (typeof Notifications !== 'undefined' && Notifications._groupByDate)
+      ? Notifications._groupByDate(sorted)
+      : { today: sorted, week: [], month: [], older: [] };
 
     const renderSection = (list, label) => {
       if (!list.length) return '';
@@ -149,8 +153,10 @@ const NotificationsListPage = {
     };
 
     wrap.innerHTML =
-      renderSection(urgent, '⚠ 긴급 · 주의') +
-      renderSection(normal, '📌 최근 활동');
+      renderSection(groups.today, '📅 오늘') +
+      renderSection(groups.week,  '🗓 최근 7일') +
+      renderSection(groups.month, '📆 이번 달') +
+      renderSection(groups.older, '📋 이전');
 
     wrap.addEventListener('click', (e) => {
       const row = e.target.closest('.notif-row[data-notif-id]');
