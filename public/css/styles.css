@@ -6174,3 +6174,43 @@ body,
 [data-theme="dark"] .dfd-ext-cat {
   color: #67e8f9;
 }
+
+/* DFD 외부 서비스 자동 발견 상태 표시 */
+.dfd-node-external.is-detected {
+  opacity: 1;
+}
+.dfd-node-external.is-undetected {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.dfd-ext-detected {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: #10b981;
+  border-radius: 50%;
+  margin-left: 2px;
+}
+.dfd-ext-undetected {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--bg-2, #e5e7eb);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  margin-left: 2px;
+}
+[data-theme="dark"] .dfd-ext-undetected {
+  background: var(--surface-2);
+  color: var(--text-3);
+}

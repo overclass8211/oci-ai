@@ -977,6 +977,108 @@ router.delete('/dev/dfd-api-dismissed/:apiId', devOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// 외부 서비스 자동 발견
+//   GET /dev/external-deps
+//   서버 + 프론트 코드에서 https?:// URL 을 추출하여
+//   DFD.external 카탈로그와 substring 매칭 → 사용처 파일 반환.
+// ─────────────────────────────────────────────────────────────
+const EXTERNAL_URL_NOISE = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  'opensource.org',
+  'spdx.org',
+  'json-schema.org',
+  'www.w3.org',
+  'github.com',
+  'raw.githubusercontent.com',
+]);
+
+router.get('/dev/external-deps', devOnly, (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+
+    const scanTargets = [
+      { dir: path.join(projectRoot, 'src'), label: 'src' },
+      { file: path.join(projectRoot, 'server.js'), label: 'server.js' },
+      { file: path.join(projectRoot, 'public', 'index.html'), label: 'index.html' },
+      { file: path.join(projectRoot, 'public', 'js', 'utils.js'), label: 'public/js/utils.js' },
+      { dir: path.join(projectRoot, 'public', 'js', 'pages'), label: 'public/js/pages' },
+    ];
+
+    const walkDir = (dir, baseLabel, depth = 0) => {
+      const out = [];
+      let entries = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (_) {
+        return [];
+      }
+      for (const ent of entries) {
+        const p = path.join(dir, ent.name);
+        if (ent.isDirectory()) {
+          if (depth >= 3) continue;
+          if (['node_modules', '.git', 'coverage', 'dist'].includes(ent.name)) continue;
+          out.push(...walkDir(p, baseLabel + '/' + ent.name, depth + 1));
+        } else if (/\.(js|mjs|cjs|html|json)$/.test(ent.name)) {
+          out.push({ path: p, label: baseLabel + '/' + ent.name });
+        }
+      }
+      return out;
+    };
+
+    const allFiles = [];
+    for (const t of scanTargets) {
+      if (t.file && fs.existsSync(t.file)) allFiles.push({ path: t.file, label: t.label });
+      else if (t.dir) allFiles.push(...walkDir(t.dir, t.label));
+    }
+    const uniqByPath = new Map();
+    for (const f of allFiles) if (!uniqByPath.has(f.path)) uniqByPath.set(f.path, f);
+
+    const URL_RE = /https?:\/\/([a-zA-Z0-9.-]+(?::\d+)?)/g;
+    const acc = new Map(); // host → Set<evidence>
+    let scanned = 0;
+    for (const file of uniqByPath.values()) {
+      let content;
+      try {
+        content = fs.readFileSync(file.path, 'utf8');
+      } catch (_) {
+        continue;
+      }
+      scanned++;
+      const seenInFile = new Set();
+      let m;
+      while ((m = URL_RE.exec(content)) !== null) {
+        const host = m[1].toLowerCase().split(':')[0];
+        if (EXTERNAL_URL_NOISE.has(host)) continue;
+        if (seenInFile.has(host)) continue;
+        seenInFile.add(host);
+        if (!acc.has(host)) acc.set(host, new Set());
+        acc.get(host).add(file.label);
+      }
+    }
+
+    const discovered = [];
+    for (const [host, evidenceSet] of acc) {
+      discovered.push({ host, evidence: [...evidenceSet].sort(), count: evidenceSet.size });
+    }
+    discovered.sort((a, b) => b.count - a.count || a.host.localeCompare(b.host));
+
+    res.json({
+      success: true,
+      data: {
+        discovered,
+        scanned: { files: scanned, hosts: discovered.length },
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // DFD 매핑 자동 추론
 //   GET /dev/infer-mappings
 //     src/routes/*.js 파일들을 분석해 SQL 쿼리에서 테이블명 추출 →

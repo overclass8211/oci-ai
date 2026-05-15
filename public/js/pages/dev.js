@@ -504,13 +504,14 @@ const DevPage = {
     let apiDismissed = [];   // API 무시
     let fetchFailed = false;
     try {
-      const [r1, r2, r3, r4, r5, r6] = await Promise.all([
+      const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
         API.get('/admin/dev/schema'),
         API.get('/admin/dev/dfd-mappings').catch(() => ({ data: [] })),
         API.get('/admin/dev/dfd-dismissed').catch(() => ({ data: [] })),
         API.get('/admin/dev/registered-routes').catch(() => ({ data: { routes: [] } })),
         API.get('/admin/dev/dfd-api-mappings').catch(() => ({ data: [] })),
         API.get('/admin/dev/dfd-api-dismissed').catch(() => ({ data: [] })),
+        API.get('/admin/dev/external-deps').catch(() => ({ data: { discovered: [] } })),
       ]);
       liveTables = r1.data || {};
       dbMappings = r2.data || [];
@@ -518,6 +519,7 @@ const DevPage = {
       registeredRoutes = r4.data?.routes || [];
       apiMappings = r5.data || [];
       apiDismissed = r6.data || [];
+      this._externalDeps = r7.data?.discovered || [];
     } catch (_) {
       fetchFailed = true;
     }
@@ -665,7 +667,8 @@ const DevPage = {
         </div>`;
     } else if (
       trulyNew.length > 0 || dismissedList.length > 0 || stale.length > 0 ||
-      apiTrulyNew.length > 0 || apiDismissedList.length > 0 || apiStale.length > 0
+      apiTrulyNew.length > 0 || apiDismissedList.length > 0 || apiStale.length > 0 ||
+      (this._externalDeps && this._externalDeps.length > 0)
     ) {
       // 3-bucket × 2(테이블/API) — 신규/무시/Stale
       const newList = trulyNew.map(t => esc(t.label)).join(', ');
@@ -708,6 +711,24 @@ const DevPage = {
                 ${apiStale.length > 0 ? `<code><strong>⚡ API:</strong> ${apiStaleList}</code>` : ''}
                 <div class="dfd-warn-tip">💡 <code>dev.js</code> 의 <code>DFD.tables</code> / <code>DFD.apis</code> 에서 제거 권장</div>
               </div>` : ''}
+            ${(() => {
+              // 카탈로그(DFD.external)에 없는 외부 호스트가 코드에 있는지 확인
+              const catalogHosts = this.DFD.external.map(e => (e.url || '').split(' ')[0].split('/')[0]).filter(Boolean);
+              const unmatchedHosts = (this._externalDeps || []).filter(d =>
+                !catalogHosts.some(h => h.includes(d.host) || d.host.includes(h))
+              );
+              if (unmatchedHosts.length === 0) return '';
+              const list = unmatchedHosts.slice(0, 20).map(h => `${esc(h.host)} <span style="color:var(--text-3);font-size:10px">(${h.count}회)</span>`).join(', ');
+              return `
+                <div class="dfd-warn-row">
+                  <strong>🌐 카탈로그 미등록 외부 호스트 (${unmatchedHosts.length}개):</strong>
+                  <code>${list}${unmatchedHosts.length > 20 ? ' …' : ''}</code>
+                  <div class="dfd-warn-tip">
+                    💡 <code>dev.js</code> 의 <code>DFD.external</code> 에 추가하면 4번째 컬럼에 표시됩니다.
+                    빈도가 낮으면 임시·시험용 URL 일 수 있어요.
+                  </div>
+                </div>`;
+            })()}
           </div>
         </details>`;
     }
@@ -819,15 +840,26 @@ const DevPage = {
           </div>
 
           <div class="dfd-col" id="dfd-col-external">
-            ${this.DFD.external.map(e => `
-              <div class="dfd-node dfd-node-external dfd-ext-cat-${esc(e.category)}"
+            ${this.DFD.external.map(e => {
+              // 자동 발견 결과와 매칭 — substring 으로 host 비교
+              const matched = (this._externalDeps || []).filter(d =>
+                e.url && (e.url.includes(d.host) || d.host.includes(e.url.split(' ')[0].split('/')[0]))
+              );
+              const isDetected = matched.length > 0;
+              const evidenceList = matched.flatMap(m => m.evidence).slice(0, 5);
+              return `
+              <div class="dfd-node dfd-node-external dfd-ext-cat-${esc(e.category)} ${isDetected ? 'is-detected' : 'is-undetected'}"
                    data-id="${e.id}" data-type="external"
-                   title="${esc(e.url)}">
+                   data-evidence="${esc(evidenceList.join('|'))}"
+                   title="${esc(e.url)}${isDetected ? ' · 코드에서 ' + evidenceList.length + '곳 사용 확인' : ' · 코드에서 사용 미확인'}">
                 <span class="dfd-ext-icon">${e.icon}</span>
                 <span class="dfd-ext-label">${esc(e.label)}</span>
+                ${isDetected
+                  ? `<span class="dfd-ext-detected" title="자동 발견됨">✓</span>`
+                  : `<span class="dfd-ext-undetected" title="코드에서 사용 미확인">?</span>`}
                 <span class="dfd-ext-cat">${esc(e.category)}</span>
-              </div>
-            `).join('')}
+              </div>`;
+            }).join('')}
           </div>
         </div>
 
@@ -1683,16 +1715,26 @@ const DevPage = {
           if (pg && !pages.find(x=>x.id===p)) pages.push(pg);
         });
       });
-      // 외부는 자체 정보 표시
+      // 외부는 자체 정보 표시 + 자동 발견된 사용처 파일
       title.textContent = `영향도: ${nodeLabel}`;
+      // 사용처 파일 — node element 의 data-evidence 속성에서 추출
+      const node = document.querySelector(`.dfd-node-external[data-id="${id}"]`);
+      const evidenceFiles = node?.dataset.evidence ? node.dataset.evidence.split('|').filter(Boolean) : [];
       body.innerHTML = `
         <div class="impact-section">
           <div class="impact-label">🌐 외부 서비스 정보</div>
           <div style="font-size:11px;color:var(--text-2);line-height:1.7">
             <strong>카테고리:</strong> ${esc(ext?.category || '-')}<br>
-            <strong>URL:</strong> <code style="font-size:10px">${esc(ext?.url || '-')}</code>
+            <strong>URL:</strong> <code style="font-size:10px">${esc(ext?.url || '-')}</code><br>
+            <strong>코드 사용처:</strong> ${evidenceFiles.length > 0
+              ? `<span style="color:#10b981">✓ ${evidenceFiles.length}개 파일에서 자동 발견</span>`
+              : `<span style="color:var(--text-3)">코드에서 사용 미확인</span>`}
           </div>
         </div>
+        ${evidenceFiles.length > 0 ? `<div class="impact-section">
+          <div class="impact-label">📁 사용 파일</div>
+          ${evidenceFiles.map(f=>`<div class="impact-item" style="font-family:monospace;font-size:10px">${esc(f)}</div>`).join('')}
+        </div>` : ''}
         ${apis.length ? `<div class="impact-section">
           <div class="impact-label impact-api">⚡ 사용 API (${apis.length}개)</div>
           ${apis.map(a=>`<div class="impact-item">${esc(a.label)}</div>`).join('')}
