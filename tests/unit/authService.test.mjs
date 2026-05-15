@@ -80,15 +80,15 @@ describe('OTP', () => {
 describe('getRoleInfo', () => {
   it('알려진 역할 반환', () => {
     expect(getRoleInfo('manager').level).toBe(1);
-    expect(getRoleInfo('superadmin').level).toBe(4);
+    expect(getRoleInfo('superadmin').level).toBe(5);
   });
 
   it('알 수 없는 역할은 manager 반환', () => {
     expect(getRoleInfo('unknown').level).toBe(1);
   });
 
-  it('ROLES 에 4개 역할 정의', () => {
-    expect(Object.keys(ROLES)).toHaveLength(4);
+  it('ROLES 에 5개 역할 정의', () => {
+    expect(Object.keys(ROLES)).toHaveLength(5);
   });
 });
 
