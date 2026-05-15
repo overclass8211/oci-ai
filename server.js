@@ -1,20 +1,20 @@
 // =============================================================
 // OCI CRM — 서버 진입점
 // =============================================================
-const express      = require('express');
-const http         = require('http');
-const https        = require('https');          // ① HTTPS
-const fs           = require('fs');
-const cors         = require('cors');
-const path         = require('path');
-const helmet       = require('helmet');
-const rateLimit    = require('express-rate-limit');
-const compression  = require('compression');
+const express = require('express');
+const http = require('http');
+const https = require('https'); // ① HTTPS
+const fs = require('fs');
+const cors = require('cors');
+const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const compression = require('compression');
 const cookieParser = require('cookie-parser'); // ③ Refresh Token 쿠키
-const swaggerUi    = require('swagger-ui-express');
+const swaggerUi = require('swagger-ui-express');
 
-const config  = require('./config');
-const pool    = require('./src/db');
+const config = require('./config');
+const pool = require('./src/db');
 const apiSpec = require('./src/docs/openapi');
 
 const app = express();
@@ -23,127 +23,148 @@ const app = express();
 if (config.env === 'production') app.set('trust proxy', 1);
 
 // ── 보안 헤더 ─────────────────────────────────────────────────
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,   // 외부 스크립트 로드 허용
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc:  ["'self'"],
-      scriptSrc: [
-        "'self'",
-        "'unsafe-eval'",                         // pptxgenjs 내부 동적 eval 필요
-        'https://cdnjs.cloudflare.com',
-        'https://cdn.jsdelivr.net',
-        'https://unpkg.com',                      // pptxgenjs CDN
-        // 카카오 주소 검색 + 지도 SDK
-        'https://*.daumcdn.net',
-        'https://*.daum.net',
-        'https://*.kakao.com',
-        'https://dapi.kakao.com',
-      ],
-      styleSrc: [
-        "'self'",
-        "'unsafe-inline'",
-        'https://fonts.googleapis.com',
-        'https://cdn.jsdelivr.net',
-        'https://cdnjs.cloudflare.com',
-        'https://*.daumcdn.net',
-      ],
-      fontSrc: [
-        "'self'",
-        'https://fonts.gstatic.com',
-        'https://cdnjs.cloudflare.com',
-        'https://*.daumcdn.net',
-      ],
-      imgSrc: [
-        "'self'", 'data:', 'blob:',
-        'https://*.daumcdn.net',
-        'https://*.daum.net',
-        'https://*.kakao.com',
-        'http://*.daumcdn.net',
-      ],
-      connectSrc: [
-        "'self'", 'wss:', 'ws:',
-        'https://*.daumcdn.net',
-        'https://*.daum.net',
-        'https://*.kakao.com',
-        'https://dapi.kakao.com',
-      ],
-      // ⚠️ frame-src + child-src 둘 다 명시 (브라우저별 호환)
-      frameSrc: [
-        "'self'",
-        'https://*.daum.net',
-        'https://*.daumcdn.net',
-        'https://*.kakao.com',
-      ],
-      childSrc: [
-        "'self'",
-        'https://*.daum.net',
-        'https://*.daumcdn.net',
-        'https://*.kakao.com',
-      ],
-      mediaSrc:   ["'self'", 'blob:'],           // 오디오 녹음
-      workerSrc:  ["'self'", 'blob:'],           // Web Worker
-      objectSrc:  ["'none'"],
-      frameAncestors: ["'none'"],                // Clickjacking 방어
+// ⚠️ HTTP 배포 환경 대응:
+//   - HSTS / upgrade-insecure-requests 는 HTTPS 가 준비된 환경에서만 켭니다.
+//   - .env 에 ENABLE_HTTPS=true 가 있어야 활성화. 기본값은 비활성 (IP·HTTP 직접 접속 허용).
+//   - HTTPS 도입 후 ENABLE_HTTPS=true 설정만 켜면 자동 강화됩니다.
+const httpsEnabled = process.env.ENABLE_HTTPS === 'true';
+app.use(
+  helmet({
+    crossOriginEmbedderPolicy: false, // 외부 스크립트 로드 허용
+    hsts: httpsEnabled, // HTTPS 미사용 환경에서는 HSTS 비활성
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-eval'", // pptxgenjs 내부 동적 eval 필요
+          'https://cdnjs.cloudflare.com',
+          'https://cdn.jsdelivr.net',
+          'https://unpkg.com', // pptxgenjs CDN
+          // 카카오 주소 검색 + 지도 SDK
+          'https://*.daumcdn.net',
+          'https://*.daum.net',
+          'https://*.kakao.com',
+          'https://dapi.kakao.com',
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          'https://fonts.googleapis.com',
+          'https://cdn.jsdelivr.net',
+          'https://cdnjs.cloudflare.com',
+          'https://*.daumcdn.net',
+        ],
+        fontSrc: [
+          "'self'",
+          'https://fonts.gstatic.com',
+          'https://cdnjs.cloudflare.com',
+          'https://*.daumcdn.net',
+        ],
+        imgSrc: [
+          "'self'",
+          'data:',
+          'blob:',
+          'https://*.daumcdn.net',
+          'https://*.daum.net',
+          'https://*.kakao.com',
+          'http://*.daumcdn.net',
+        ],
+        connectSrc: [
+          "'self'",
+          'wss:',
+          'ws:',
+          'https://*.daumcdn.net',
+          'https://*.daum.net',
+          'https://*.kakao.com',
+          'https://dapi.kakao.com',
+        ],
+        // ⚠️ frame-src + child-src 둘 다 명시 (브라우저별 호환)
+        frameSrc: ["'self'", 'https://*.daum.net', 'https://*.daumcdn.net', 'https://*.kakao.com'],
+        childSrc: ["'self'", 'https://*.daum.net', 'https://*.daumcdn.net', 'https://*.kakao.com'],
+        mediaSrc: ["'self'", 'blob:'], // 오디오 녹음
+        workerSrc: ["'self'", 'blob:'], // Web Worker
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"], // Clickjacking 방어
+        // HTTPS 환경에서만 자동 업그레이드 (HTTP 배포 시 정적 자원 차단 방지)
+        upgradeInsecureRequests: httpsEnabled ? [] : null,
+      },
     },
-  },
-}));
+  })
+);
 
 // ── Rate Limiting ─────────────────────────────────────────────
 const skipInTest = () => config.rateLimit?.skip === true;
 // 환경별 한도 — 개발 환경은 통합 테스트·폴링·HMR 등으로 호출 빈도가 많음
 const isDev = config.env === 'development';
-const API_MAX = isDev ? 3000 : 300;   // 15분
-const AI_MAX  = isDev ? 100  : 20;    // 1분
+const API_MAX = isDev ? 3000 : 300; // 15분
+const AI_MAX = isDev ? 100 : 20; // 1분
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: API_MAX,
-  standardHeaders: true, legacyHeaders: false,
-  message: { success: false, error: '요청 횟수가 초과되었습니다. 잠시 후 다시 시도하세요.', code: 'RATE_LIMIT' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: '요청 횟수가 초과되었습니다. 잠시 후 다시 시도하세요.',
+    code: 'RATE_LIMIT',
+  },
   skip: skipInTest,
 });
 
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: AI_MAX,
-  standardHeaders: true, legacyHeaders: false,
-  message: { success: false, error: `AI 요청 한도(분당 ${AI_MAX}회)를 초과했습니다.`, code: 'RATE_LIMIT' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: `AI 요청 한도(분당 ${AI_MAX}회)를 초과했습니다.`,
+    code: 'RATE_LIMIT',
+  },
   skip: skipInTest,
 });
 
 console.log(`[rate-limit] env=${config.env}  api=${API_MAX}/15min  ai=${AI_MAX}/min`);
 
 // ── CORS ─────────────────────────────────────────────────────
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || config.env === 'test') return cb(null, true);
-    if (!config.allowedOrigins.length || config.allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error('CORS policy: origin not allowed'));
-  },
-  credentials: true,  // 쿠키 전달 허용
-}));
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || config.env === 'test') return cb(null, true);
+      if (!config.allowedOrigins.length || config.allowedOrigins.includes(origin))
+        return cb(null, true);
+      cb(new Error('CORS policy: origin not allowed'));
+    },
+    credentials: true, // 쿠키 전달 허용
+  })
+);
 
 // ── 압축 / 바디 파서 / 쿠키 파서 ─────────────────────────────
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());                         // ③ HttpOnly 쿠키 파싱
+app.use(cookieParser()); // ③ HttpOnly 쿠키 파싱
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api', apiLimiter);
 app.use('/api/ai', aiLimiter);
 
 // ── API 문서 (개발·스테이징 전용) ────────────────────────────
 if (config.env !== 'production') {
-  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(apiSpec, {
-    customSiteTitle: 'OCI CRM API Docs',
-    swaggerOptions: { persistAuthorization: true },
-  }));
+  app.use(
+    '/api/docs',
+    swaggerUi.serve,
+    swaggerUi.setup(apiSpec, {
+      customSiteTitle: 'OCI CRM API Docs',
+      swaggerOptions: { persistAuthorization: true },
+    })
+  );
   app.get('/api/docs/spec', (_req, res) => res.json(apiSpec));
 }
 
 // 인증 라우트 (RBAC 불필요)
-app.use('/api/auth',   require('./src/routes/auth'));
+app.use('/api/auth', require('./src/routes/auth'));
 // Google OAuth 콜백은 인증 미들웨어 전에 등록 (Google 리디렉션엔 JWT 없음)
 app.use('/api/google', require('./src/routes/google'));
 
@@ -176,7 +197,9 @@ app.get('/api/admin/dev/features/public', async (_req, res) => {
   try {
     const [rows] = await pool.query('SELECT feature_key, is_enabled FROM dev_features');
     const data = {};
-    rows.forEach(r => { data[r.feature_key] = !!r.is_enabled; });
+    rows.forEach(r => {
+      data[r.feature_key] = !!r.is_enabled;
+    });
     res.json({ success: true, data });
   } catch (_) {
     res.json({ success: true, data: {} }); // 실패 시 모든 기능 활성화로 처리
@@ -191,23 +214,23 @@ app.use('/api', authenticate);
 app.use('/api', autoLevel);
 
 // 도메인 라우트
-app.use('/api/dashboard',     require('./src/routes/dashboard'));
-app.use('/api/leads',         require('./src/routes/leads'));
-app.use('/api/products',      require('./src/routes/products'));
-app.use('/api/projects',      require('./src/routes/projects'));
-app.use('/api/team',          require('./src/routes/team'));
-app.use('/api/customers',     require('./src/routes/customers'));
-app.use('/api/activities',    require('./src/routes/activities'));
-app.use('/api/ai',            require('./src/routes/ai'));
-app.use('/api/admin',         require('./src/routes/admin'));
-app.use('/api/calendar',      require('./src/routes/calendar'));
-app.use('/api/meeting',       require('./src/routes/meetings'));
-app.use('/api/meetings',      require('./src/routes/meetings'));
-app.use('/api/board',         require('./src/routes/board'));
-app.use('/api/upload',        require('./src/routes/upload'));
-app.use('/uploads',           require('./src/routes/upload'));
+app.use('/api/dashboard', require('./src/routes/dashboard'));
+app.use('/api/leads', require('./src/routes/leads'));
+app.use('/api/products', require('./src/routes/products'));
+app.use('/api/projects', require('./src/routes/projects'));
+app.use('/api/team', require('./src/routes/team'));
+app.use('/api/customers', require('./src/routes/customers'));
+app.use('/api/activities', require('./src/routes/activities'));
+app.use('/api/ai', require('./src/routes/ai'));
+app.use('/api/admin', require('./src/routes/admin'));
+app.use('/api/calendar', require('./src/routes/calendar'));
+app.use('/api/meeting', require('./src/routes/meetings'));
+app.use('/api/meetings', require('./src/routes/meetings'));
+app.use('/api/board', require('./src/routes/board'));
+app.use('/api/upload', require('./src/routes/upload'));
+app.use('/uploads', require('./src/routes/upload'));
 app.use('/api/notifications', require('./src/routes/notifications'));
-app.use('/api/exchange',      require('./src/routes/exchange'));
+app.use('/api/exchange', require('./src/routes/exchange'));
 app.use('/api/pipeline/stages', require('./src/routes/pipeline-stages'));
 app.use('/api/admin/dev/schema', require('./src/routes/schema-export'));
 
@@ -219,12 +242,20 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.h
 
 // 404
 app.use('/api', (_req, res) => {
-  res.status(404).json({ success: false, error: '요청한 API 엔드포인트를 찾을 수 없습니다.', code: 'NOT_FOUND' });
+  res
+    .status(404)
+    .json({
+      success: false,
+      error: '요청한 API 엔드포인트를 찾을 수 없습니다.',
+      code: 'NOT_FOUND',
+    });
 });
 
 // 글로벌 에러 핸들러
 const { handleError } = require('./src/middleware/errorHandler');
-app.use((err, _req, res, _next) => { handleError(res, err); });
+app.use((err, _req, res, _next) => {
+  handleError(res, err);
+});
 
 const { initTables } = require('./src/initTables');
 const { loadBlacklistFromDB } = require('./src/services/authService');
@@ -248,7 +279,7 @@ if (require.main === module) {
     if (config.sslKeyPath && config.sslCertPath) {
       try {
         const sslOptions = {
-          key:  fs.readFileSync(config.sslKeyPath),
+          key: fs.readFileSync(config.sslKeyPath),
           cert: fs.readFileSync(config.sslCertPath),
         };
         const httpsServer = https.createServer(sslOptions, app);
@@ -316,7 +347,9 @@ if (require.main === module) {
     // 서버 시작 시 1회 즉시 갱신 + 백필
     setTimeout(async () => {
       try {
-        const [[c]] = await pool.query("SELECT COUNT(*) AS cnt FROM exchange_rates WHERE rate_date >= CURRENT_DATE");
+        const [[c]] = await pool.query(
+          'SELECT COUNT(*) AS cnt FROM exchange_rates WHERE rate_date >= CURRENT_DATE'
+        );
         if (c.cnt < 3) {
           console.log('[FX] 오늘자 환율 캐시 부족 — 즉시 갱신');
           await Fx.refreshAll();
@@ -328,32 +361,39 @@ if (require.main === module) {
            FROM leads
            WHERE expected_amount IS NOT NULL AND expected_amount > 0
              AND amount_krw IS NULL
-           LIMIT 500`);
+           LIMIT 500`
+        );
         if (missing.length) {
           console.log(`[FX] amount_krw 백필 시작: ${missing.length}건`);
-          let ok = 0, fail = 0;
-          const isLocked = (stage) => ['won', 'lost', 'dropped'].includes(stage);
+          let ok = 0,
+            fail = 0;
+          const isLocked = stage => ['won', 'lost', 'dropped'].includes(stage);
           for (const r of missing) {
             try {
               const rate = await Fx.getRate(r.currency || 'KRW');
-              const krw  = Math.round(Number(r.expected_amount) * rate);
+              const krw = Math.round(Number(r.expected_amount) * rate);
               const policy = isLocked(r.stage) ? 'locked' : 'live';
               const lockedAt = isLocked(r.stage) ? new Date() : null;
               await pool.query(
                 'UPDATE leads SET amount_krw=?, fx_rate=?, fx_lock_policy=?, fx_locked_at=? WHERE id=?',
-                [krw, rate, policy, lockedAt, r.id]);
+                [krw, rate, policy, lockedAt, r.id]
+              );
               ok++;
-            } catch (e) { fail++; }
+            } catch (e) {
+              fail++;
+            }
           }
           console.log(`[FX] 백필 완료: 성공 ${ok}건 / 실패 ${fail}건`);
         }
-      } catch (e) { console.warn('[FX] 초기화 실패:', e.message); }
+      } catch (e) {
+        console.warn('[FX] 초기화 실패:', e.message);
+      }
     }, 3000);
 
     // ── access_logs 자동 정리 (매일 새벽 3시, 90일 초과 레코드 삭제) ──────────
     // 폴링·일반 사용자 요청이 연간 수십만건 누적되는 것을 방지
     function scheduleAccessLogCleanup() {
-      const now   = new Date();
+      const now = new Date();
       const next3am = new Date(now);
       next3am.setHours(3, 0, 0, 0);
       if (next3am <= now) next3am.setDate(next3am.getDate() + 1);
@@ -370,10 +410,12 @@ if (require.main === module) {
         } catch (e) {
           console.error('[cleanup] access_logs 정리 실패:', e.message);
         }
-        setTimeout(runCleanup, 24 * 60 * 60 * 1000);  // 다음날 같은 시각
+        setTimeout(runCleanup, 24 * 60 * 60 * 1000); // 다음날 같은 시각
       }, delay);
 
-      console.log(`[cleanup] access_logs 정리 스케줄 등록 (다음 실행: ${next3am.toLocaleString('ko-KR')})`);
+      console.log(
+        `[cleanup] access_logs 정리 스케줄 등록 (다음 실행: ${next3am.toLocaleString('ko-KR')})`
+      );
     }
     scheduleAccessLogCleanup();
   })();
