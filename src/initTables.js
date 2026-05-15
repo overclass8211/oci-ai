@@ -170,6 +170,21 @@ async function initTables() {
       dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── DFD API 동적 매핑 (테이블과 동일 패턴 — API → 페이지) ─────
+    await pool.query(`CREATE TABLE IF NOT EXISTS dfd_api_mappings (
+      api_id     VARCHAR(100) PRIMARY KEY COMMENT 'e.g. api-leads, api-exchange',
+      page_keys  TEXT NOT NULL COMMENT 'JSON array e.g. ["pg-dashboard","pg-admin"]',
+      added_by   INT NULL,
+      added_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS dfd_api_dismissed (
+      api_id       VARCHAR(100) PRIMARY KEY,
+      dismissed_by INT NULL,
+      dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
     const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
     for (const s of DEFAULT_SECTIONS) {

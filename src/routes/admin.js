@@ -845,6 +845,138 @@ router.delete('/dev/dfd-dismissed/:tableName', devOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// 서버 등록 API 라우트 introspection (DFD API 자동 동기화)
+// app._router.stack 을 walk → /api/* 마운트 추출
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/registered-routes', devOnly, (req, res) => {
+  try {
+    const app = req.app;
+    const found = new Set();
+    const stack = app._router?.stack || app.router?.stack || [];
+    for (const layer of stack) {
+      if (!layer.regexp) continue;
+      const src = layer.regexp.toString();
+      // /api/<seg1>[/<seg2>] 패턴 추출
+      const m = src.match(/\\\/api\\\/([a-zA-Z0-9_-]+)(?:\\\/([a-zA-Z0-9_-]+))?/);
+      if (!m) continue;
+      const seg1 = m[1];
+      const seg2 = m[2];
+      // /api/admin/<sub> → 'admin' 통합 (이미 api-admin 존재)
+      if (seg2 && seg1 === 'admin') {
+        found.add('/api/admin');
+      } else if (seg2 && seg1 === 'pipeline') {
+        // /api/pipeline/stages 같은 multi-segment
+        found.add('/api/pipeline/' + seg2);
+      } else {
+        found.add('/api/' + seg1);
+      }
+    }
+    res.json({ success: true, data: { routes: [...found].sort() } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// DFD API 동적 매핑 (테이블 매핑의 거울 구조 — API → 페이지)
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/dfd-api-mappings', devOnly, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT api_id, page_keys, added_by, added_at, updated_at
+       FROM dfd_api_mappings ORDER BY api_id`
+    );
+    const data = rows.map(r => {
+      let pages = [];
+      try {
+        pages = JSON.parse(r.page_keys || '[]');
+      } catch (_) {
+        pages = [];
+      }
+      return { ...r, page_keys: pages };
+    });
+    res.json({ success: true, data });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post('/dev/dfd-api-mappings', devOnly, async (req, res) => {
+  try {
+    const { api_id, page_keys } = req.body || {};
+    if (!api_id || typeof api_id !== 'string') {
+      return res.status(400).json({ success: false, error: 'api_id 필요' });
+    }
+    if (!Array.isArray(page_keys)) {
+      return res.status(400).json({ success: false, error: 'page_keys 배열 필요' });
+    }
+    const cleanKeys = page_keys
+      .filter(k => typeof k === 'string' && /^pg-[a-z0-9-]+$/i.test(k))
+      .slice(0, 50);
+    await pool.query(
+      `INSERT INTO dfd_api_mappings (api_id, page_keys, added_by)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         page_keys = VALUES(page_keys),
+         added_by = COALESCE(VALUES(added_by), added_by)`,
+      [api_id, JSON.stringify(cleanKeys), req.user?.id || null]
+    );
+    res.json({ success: true, data: { api_id, page_keys: cleanKeys } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.delete('/dev/dfd-api-mappings/:apiId', devOnly, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM dfd_api_mappings WHERE api_id = ?', [req.params.apiId]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get('/dev/dfd-api-dismissed', devOnly, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT api_id, dismissed_by, dismissed_at FROM dfd_api_dismissed ORDER BY dismissed_at DESC`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post('/dev/dfd-api-dismissed', devOnly, async (req, res) => {
+  try {
+    const { api_id } = req.body || {};
+    if (!api_id || typeof api_id !== 'string') {
+      return res.status(400).json({ success: false, error: 'api_id 필요' });
+    }
+    await pool.query(
+      `INSERT INTO dfd_api_dismissed (api_id, dismissed_by)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE
+         dismissed_by = COALESCE(VALUES(dismissed_by), dismissed_by),
+         dismissed_at = CURRENT_TIMESTAMP`,
+      [api_id, req.user?.id || null]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.delete('/dev/dfd-api-dismissed/:apiId', devOnly, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM dfd_api_dismissed WHERE api_id = ?', [req.params.apiId]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // DFD 매핑 자동 추론
 //   GET /dev/infer-mappings
 //     src/routes/*.js 파일들을 분석해 SQL 쿼리에서 테이블명 추출 →
