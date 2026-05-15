@@ -734,6 +734,70 @@ router.get('/dev/schema', devOnly, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// DFD 동적 매핑 — 관리자가 미분류 테이블에 API 매핑 추가
+//   GET    /dev/dfd-mappings              전체 매핑 목록
+//   POST   /dev/dfd-mappings              upsert (단일 테이블)
+//   DELETE /dev/dfd-mappings/:tableName   매핑 제거
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/dfd-mappings', devOnly, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT table_name, api_keys, added_by, added_at, updated_at
+       FROM dfd_mappings ORDER BY table_name`
+    );
+    // JSON 파싱 (안전)
+    const data = rows.map(r => {
+      let apis = [];
+      try {
+        apis = JSON.parse(r.api_keys || '[]');
+      } catch (_) {
+        apis = [];
+      }
+      return { ...r, api_keys: apis };
+    });
+    res.json({ success: true, data });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post('/dev/dfd-mappings', devOnly, async (req, res) => {
+  try {
+    const { table_name, api_keys } = req.body || {};
+    if (!table_name || typeof table_name !== 'string') {
+      return res.status(400).json({ success: false, error: 'table_name (string) 필요' });
+    }
+    if (!Array.isArray(api_keys)) {
+      return res.status(400).json({ success: false, error: 'api_keys (array) 필요' });
+    }
+    // 안전: id-like 키만 통과 (api-leads, api-admin 등)
+    const cleanKeys = api_keys
+      .filter(k => typeof k === 'string' && /^api-[a-z0-9-]+$/i.test(k))
+      .slice(0, 50); // 안전 상한
+    await pool.query(
+      `INSERT INTO dfd_mappings (table_name, api_keys, added_by)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         api_keys = VALUES(api_keys),
+         added_by = COALESCE(VALUES(added_by), added_by)`,
+      [table_name, JSON.stringify(cleanKeys), req.user?.id || null]
+    );
+    res.json({ success: true, data: { table_name, api_keys: cleanKeys } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.delete('/dev/dfd-mappings/:tableName', devOnly, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM dfd_mappings WHERE table_name = ?', [req.params.tableName]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // GET  /api/admin/dev/perf  — 최근 24h 성능 지표
 router.get('/dev/perf', devOnly, async (req, res) => {
   try {
@@ -1462,12 +1526,10 @@ router.post('/dev/schema-alter', devOnly, async (req, res) => {
     const BLOCKED = ['DROP TABLE', 'TRUNCATE TABLE', 'DROP DATABASE', 'DROP SCHEMA', 'DELETE FROM'];
     for (const b of BLOCKED) {
       if (trimmed.startsWith(b) || trimmed.includes(' ' + b)) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: `'${b}' 명령은 보안상 허용되지 않습니다. DB 관리자에게 문의하세요.`,
-          });
+        return res.status(400).json({
+          success: false,
+          error: `'${b}' 명령은 보안상 허용되지 않습니다. DB 관리자에게 문의하세요.`,
+        });
       }
     }
 

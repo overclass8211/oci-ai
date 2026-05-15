@@ -152,6 +152,16 @@ async function initTables() {
       INDEX idx_section_order (section_key, display_order)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── DFD 동적 매핑 (관리자가 우클릭 → 매핑 추가) ──────────────
+    // 정적 카탈로그(DFD.tables/a2t) 외의 신규 테이블을 API 와 연결
+    await pool.query(`CREATE TABLE IF NOT EXISTS dfd_mappings (
+      table_name VARCHAR(100) PRIMARY KEY,
+      api_keys   TEXT NOT NULL COMMENT 'JSON array e.g. ["api-leads","api-admin"]',
+      added_by   INT NULL,
+      added_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
     const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
     for (const s of DEFAULT_SECTIONS) {

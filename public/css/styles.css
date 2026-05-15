@@ -5846,3 +5846,140 @@ body,
   box-shadow: 0 0 0 1px color-mix(in srgb, #f59e0b 40%, transparent),
               0 4px 12px rgba(0,0,0,.4);
 }
+
+/* ──────────────────────────────────────────────────────────────
+   DFD 매핑 — 컨텍스트 메뉴 + 모달 + 동적 매핑 노드
+   ────────────────────────────────────────────────────────────── */
+.dfd-ctxmenu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 220px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.15), 0 0 0 1px rgba(0,0,0,.04);
+  padding: 4px;
+  animation: ctxmenuIn .12s ease-out;
+}
+@keyframes ctxmenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.dfd-ctxmenu-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.dfd-ctxmenu-item:hover {
+  background: var(--bg-2, #f5f7fa);
+}
+.dfd-ctxmenu-danger {
+  color: #b45309;
+}
+.dfd-ctxmenu-danger:hover {
+  background: color-mix(in srgb, #ef4444 8%, transparent);
+  color: #991b1b;
+}
+
+/* 동적 매핑된 테이블 (사용자가 우클릭으로 추가) */
+.dfd-node-dynamic-mapped {
+  border-left: 3px solid #0ea5e9 !important;
+  background: color-mix(in srgb, #0ea5e9 4%, var(--surface)) !important;
+}
+.dfd-mapped-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  color: #0c4a6e;
+  background: color-mix(in srgb, #0ea5e9 18%, transparent);
+  border: 1px solid color-mix(in srgb, #0ea5e9 40%, transparent);
+  padding: 1px 5px;
+  border-radius: 6px;
+  margin-left: 4px;
+  letter-spacing: 0.3px;
+}
+[data-theme="dark"] .dfd-node-dynamic-mapped {
+  background: color-mix(in srgb, #0ea5e9 10%, var(--surface)) !important;
+}
+[data-theme="dark"] .dfd-mapped-badge {
+  color: #7dd3fc;
+}
+
+/* 매핑 모달 */
+.dfd-map-body {
+  padding: 4px 0;
+}
+.dfd-map-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.dfd-map-search {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-1);
+}
+.dfd-map-search:focus {
+  outline: none;
+  border-color: var(--primary, #1664E5);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary,#1664E5) 12%, transparent);
+}
+.dfd-map-count {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.dfd-map-api-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+}
+.dfd-map-api-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .1s;
+  font-size: 13px;
+}
+.dfd-map-api-item:hover {
+  background: var(--bg-2, #f5f7fa);
+}
+.dfd-map-api-item input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.dfd-map-api-method {
+  display: inline-block;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+  min-width: 42px;
+  text-align: center;
+}
+.dfd-map-api-method.crud { background: #ddd6fe; color: #5b21b6; }
+.dfd-map-api-method.get  { background: #d1fae5; color: #065f46; }
+.dfd-map-api-method.post { background: #fef3c7; color: #92400e; }
+.dfd-map-api-label {
+  flex: 1;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  color: var(--text-1);
+}
+[data-theme="dark"] .dfd-map-api-method.crud { background: rgba(139,92,246,.25); color: #c4b5fd; }
+[data-theme="dark"] .dfd-map-api-method.get  { background: rgba(16,185,129,.25); color: #6ee7b7; }
+[data-theme="dark"] .dfd-map-api-method.post { background: rgba(245,158,11,.25); color: #fcd34d; }

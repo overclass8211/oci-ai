@@ -460,15 +460,22 @@ const DevPage = {
   // TAB 2: DFD 시각화
   // ══════════════════════════════════════════════════════════
   async renderDFD() {
-    // ── 1) DB 라이브 스키마 fetch (인스펙터와 동일 소스) ──────────
+    // ── 1) DB 라이브 스키마 + DFD 매핑 병렬 fetch ───────────────
     let liveTables = {};
+    let dbMappings = [];   // [{ table_name, api_keys: ['api-leads', ...] }]
     let fetchFailed = false;
     try {
-      const r = await API.get('/admin/dev/schema');
-      liveTables = r.data || {};
+      const [r1, r2] = await Promise.all([
+        API.get('/admin/dev/schema'),
+        API.get('/admin/dev/dfd-mappings').catch(() => ({ data: [] })),
+      ]);
+      liveTables = r1.data || {};
+      dbMappings = r2.data || [];
     } catch (_) {
       fetchFailed = true;
     }
+    const dbMappingByTable = {};
+    dbMappings.forEach(m => { dbMappingByTable[m.table_name] = m.api_keys || []; });
 
     // ── 2) DFD 정적 카탈로그와 라이브 테이블 병합 ────────────────
     // 카탈로그에 있는 테이블 = 기존 a2t 매핑 보존
@@ -487,21 +494,34 @@ const DevPage = {
       // DB 에 없는 카탈로그 항목은 표시 안 함 (stale)
     });
 
-    // DB 에만 있는 테이블 자동 추가 (라이브 컬럼 정보 사용)
+    // DB 동적 a2t 매핑 (영향도 분석에서 사용)
+    const dynamicA2T = [];
+
+    // DB 에만 있는 테이블 자동 추가
     liveTableNames.forEach(name => {
       if (catalogByLabel[name]) return;
       const cols = (liveTables[name].columns || [])
         .slice(0, 6)
         .map(c => c.COLUMN_NAME);
+      const id = 'tbl-auto-' + name.replace(/_/g, '-');
+      const dbApis = dbMappingByTable[name];
+      const isMapped = Array.isArray(dbApis) && dbApis.length > 0;
       const entry = {
-        id: 'tbl-auto-' + name.replace(/_/g, '-'),
-        label: name,
-        cols,
-        _uncategorized: true,
+        id, label: name, cols,
+        _uncategorized: !isMapped,
+        _dynamicMapped: isMapped,  // DB 매핑된 항목 (수정/제거 가능)
+        _dbApis: dbApis || [],     // 현재 매핑된 API 목록
       };
       mergedTables.push(entry);
-      uncategorized.push(entry);
+      if (isMapped) {
+        dbApis.forEach(apiId => dynamicA2T.push([apiId, id]));
+      } else {
+        uncategorized.push(entry);
+      }
     });
+
+    // 동적 매핑을 인스턴스에 저장 (영향도 분석·엣지 그리기에서 사용)
+    this._dynamicA2T = dynamicA2T;
 
     // 카탈로그에 있지만 DB에 없는 stale 항목 (드물지만 마이그레이션 후 가능)
     const stale = this.DFD.tables.filter(t => !liveTableSet.has(t.label));
@@ -591,15 +611,27 @@ const DevPage = {
           </div>
 
           <div class="dfd-col" id="dfd-col-tables">
-            ${mergedTables.map(t => `
-              <div class="dfd-node dfd-node-table ${t._uncategorized ? 'dfd-node-uncategorized' : ''}"
-                   data-id="${t.id}" data-type="table"
-                   ${t._uncategorized ? 'title="DFD 매핑 없음 — Page/API 연결 안 됨"' : ''}>
-                <span class="dfd-table-icon">${t._uncategorized ? '📌' : '🗄'}</span> ${esc(t.label)}
-                ${t._uncategorized ? '<span class="dfd-uncat-badge">미분류</span>' : ''}
+            ${mergedTables.map(t => {
+              const cls = t._uncategorized ? 'dfd-node-uncategorized' :
+                          t._dynamicMapped ? 'dfd-node-dynamic-mapped' : '';
+              const icon = t._uncategorized ? '📌' :
+                           t._dynamicMapped ? '🔗' : '🗄';
+              const tip = t._uncategorized
+                ? 'DFD 매핑 없음 — 우클릭하여 매핑 추가'
+                : (t._dynamicMapped ? '사용자 매핑됨 — 우클릭하여 수정/제거' : '');
+              const badge = t._uncategorized
+                ? '<span class="dfd-uncat-badge">미분류</span>'
+                : (t._dynamicMapped ? '<span class="dfd-mapped-badge">매핑됨</span>' : '');
+              return `
+              <div class="dfd-node dfd-node-table ${cls}"
+                   data-id="${t.id}" data-type="table" data-table-name="${esc(t.label)}"
+                   ${tip ? `title="${esc(tip)}"` : ''}
+                   ${(t._uncategorized || t._dynamicMapped) ? 'data-context-menu="dfd-mapping"' : ''}>
+                <span class="dfd-table-icon">${icon}</span> ${esc(t.label)}
+                ${badge}
                 <div class="dfd-cols-preview">${t.cols.slice(0,4).join(', ')}${t.cols.length>4?'…':''}</div>
-              </div>
-            `).join('')}
+              </div>`;
+            }).join('')}
           </div>
         </div>
 
@@ -708,6 +740,8 @@ const DevPage = {
 
     this.DFD.p2a.forEach(([p, a]) => addEdge(p, a));
     this.DFD.a2t.forEach(([a, t]) => addEdge(a, t));
+    // 동적 매핑 엣지 (관리자 우클릭 → 카탈로그 추가로 생성된 매핑)
+    (this._dynamicA2T || []).forEach(([a, t]) => addEdge(a, t));
 
     svg.innerHTML = paths;
   },
@@ -726,6 +760,19 @@ const DevPage = {
       this._showImpact(id, type);
     });
 
+    // 우클릭 컨텍스트 메뉴 — 미분류/매핑된 테이블 노드에서 매핑 UI 호출
+    board.addEventListener('contextmenu', e => {
+      const node = e.target.closest('.dfd-node[data-context-menu="dfd-mapping"]');
+      if (!node) return;
+      e.preventDefault();
+      const tableName = node.dataset.tableName;
+      const isMapped = node.classList.contains('dfd-node-dynamic-mapped');
+      this._showDfdContextMenu(e.clientX, e.clientY, tableName, isMapped);
+    });
+
+    // 컨텍스트 메뉴 외부 클릭 시 닫기
+    document.addEventListener('click', () => this._hideDfdContextMenu(), { capture: true });
+
     // 검색
     const search = document.getElementById('dfd-search');
     if (search) {
@@ -741,6 +788,149 @@ const DevPage = {
     // 창 리사이즈 시 엣지 재드로잉
     const observer = new ResizeObserver(() => this._drawDFDEdges());
     observer.observe(document.getElementById('dfd-board'));
+  },
+
+  // ──────────────────────────────────────────────────────────────
+  // DFD 매핑 컨텍스트 메뉴 + 모달
+  // ──────────────────────────────────────────────────────────────
+  _showDfdContextMenu(x, y, tableName, isMapped) {
+    this._hideDfdContextMenu();
+    const menu = document.createElement('div');
+    menu.id = '__dfd-ctxmenu';
+    menu.className = 'dfd-ctxmenu';
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+    menu.innerHTML = isMapped ? `
+      <div class="dfd-ctxmenu-item" data-action="edit">✏️ 매핑 수정 (${esc(tableName)})</div>
+      <div class="dfd-ctxmenu-item dfd-ctxmenu-danger" data-action="remove">🗑 매핑 제거</div>
+    ` : `
+      <div class="dfd-ctxmenu-item" data-action="add">📋 카탈로그에 추가 (${esc(tableName)})</div>
+    `;
+    document.body.appendChild(menu);
+    menu.addEventListener('click', e => {
+      const item = e.target.closest('.dfd-ctxmenu-item');
+      if (!item) return;
+      const action = item.dataset.action;
+      this._hideDfdContextMenu();
+      if (action === 'add' || action === 'edit') {
+        this._openDfdMappingModal(tableName);
+      } else if (action === 'remove') {
+        this._removeDfdMapping(tableName);
+      }
+    });
+    // 화면 밖 넘침 방지
+    setTimeout(() => {
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+      if (rect.bottom > window.innerHeight - 8) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+    }, 0);
+  },
+
+  _hideDfdContextMenu() {
+    document.getElementById('__dfd-ctxmenu')?.remove();
+  },
+
+  _openDfdMappingModal(tableName) {
+    // 현재 매핑된 API 키 (수정 모드일 때 체크 표시용)
+    const existingApis = new Set();
+    (this._dynamicA2T || []).forEach(([api, tbl]) => {
+      const tblName = tbl.replace(/^tbl-auto-/, '').replace(/-/g, '_');
+      if (tblName === tableName) existingApis.add(api);
+    });
+
+    const apiCheckboxes = this.DFD.apis.map(a => {
+      const checked = existingApis.has(a.id) ? 'checked' : '';
+      return `
+        <label class="dfd-map-api-item">
+          <input type="checkbox" class="dfd-map-api-cb" value="${esc(a.id)}" ${checked}>
+          <span class="dfd-map-api-method ${a.method.toLowerCase()}">${a.method}</span>
+          <span class="dfd-map-api-label">${esc(a.label)}</span>
+        </label>`;
+    }).join('');
+
+    Modal.open({
+      title: `📋 DFD 매핑 — ${esc(tableName)}`,
+      compact: true,
+      width: 560,
+      confirmOnClose: true,
+      body: `
+        <div class="dfd-map-body">
+          <p style="font-size:12px;color:var(--text-2);margin:0 0 10px;line-height:1.6">
+            <strong>${esc(tableName)}</strong> 테이블이 어떤 API 에서 사용되나요?<br>
+            해당하는 API 를 모두 체크하세요. 저장하면 영향도 분석에 반영됩니다.
+          </p>
+          <div class="dfd-map-search-wrap">
+            <input type="text" id="dfd-map-search" placeholder="🔍 API 필터..." class="dfd-map-search">
+            <span class="dfd-map-count" id="dfd-map-count">${existingApis.size}개 선택됨</span>
+          </div>
+          <div class="dfd-map-api-list">${apiCheckboxes}</div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="dfd-map-cancel">취소</button>
+        <button class="btn btn-primary" id="dfd-map-save">💾 저장</button>
+      `,
+      bind: {
+        '#dfd-map-cancel': () => Modal.close(),
+        '#dfd-map-save': () => this._saveDfdMapping(tableName),
+      },
+      onOpen: () => {
+        // 검색 필터
+        const search = document.getElementById('dfd-map-search');
+        if (search) {
+          search.addEventListener('input', () => {
+            const q = search.value.toLowerCase();
+            document.querySelectorAll('.dfd-map-api-item').forEach(it => {
+              it.style.display = it.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+          });
+        }
+        // 카운트 업데이트
+        document.querySelectorAll('.dfd-map-api-cb').forEach(cb => {
+          cb.addEventListener('change', () => {
+            const n = document.querySelectorAll('.dfd-map-api-cb:checked').length;
+            const elCount = document.getElementById('dfd-map-count');
+            if (elCount) elCount.textContent = `${n}개 선택됨`;
+          });
+        });
+      },
+    });
+  },
+
+  async _saveDfdMapping(tableName) {
+    const apiKeys = [...document.querySelectorAll('.dfd-map-api-cb:checked')].map(cb => cb.value);
+    if (apiKeys.length === 0) {
+      // 빈 매핑 = 제거와 동일 효과지만, UX 일관성을 위해 명시적 제거 권유
+      const ok = confirm('선택된 API 가 없습니다. 매핑을 비우면 미분류로 돌아갑니다. 계속할까요?');
+      if (!ok) return;
+    }
+    try {
+      await API.request('POST', '/admin/dev/dfd-mappings', {
+        table_name: tableName,
+        api_keys: apiKeys,
+      });
+      Modal.close();
+      Toast.success(`${tableName} 매핑이 저장되었습니다 (${apiKeys.length}개 API)`);
+      await this.renderDFD();
+    } catch (e) {
+      Toast.error('저장 실패: ' + (e.message || ''));
+    }
+  },
+
+  _removeDfdMapping(tableName) {
+    Modal.confirm(
+      `<strong>${esc(tableName)}</strong> 의 DFD 매핑을 제거하시겠어요?<br>` +
+      `<span style="font-size:11px;color:var(--text-3)">테이블 자체는 삭제되지 않고, 미분류 그룹으로 돌아갑니다.</span>`,
+      async () => {
+        try {
+          await API.request('DELETE', '/admin/dev/dfd-mappings/' + encodeURIComponent(tableName));
+          Toast.success(`${tableName} 매핑이 제거되었습니다`);
+          await this.renderDFD();
+        } catch (e) {
+          Toast.error('제거 실패: ' + (e.message || ''));
+        }
+      }
+    );
   },
 
   _highlightDFD(id, type) {
@@ -825,6 +1015,23 @@ const DevPage = {
     this.dfdSelected = null;
   },
 
+  // 정적 a2t + 동적 a2t 합본 (영향도 분석에서 사용)
+  _allA2T() {
+    return [...this.DFD.a2t, ...(this._dynamicA2T || [])];
+  },
+  // tbl-auto-xxx ID 에 대응하는 동적 항목 객체 lookup (catalog 에는 없음)
+  _findTableById(id) {
+    const fromCatalog = this.DFD.tables.find(t => t.id === id);
+    if (fromCatalog) return fromCatalog;
+    // 동적 항목은 _dynamicTables 에 저장될 수 있도록 추후 확장 가능
+    // 현재는 라벨 추론
+    if (id.startsWith('tbl-auto-')) {
+      const label = id.slice('tbl-auto-'.length).replace(/-/g, '_');
+      return { id, label, cols: [] };
+    }
+    return null;
+  },
+
   _showImpact(id, type) {
     const panel = document.getElementById('dfd-impact');
     const title = document.getElementById('dfd-impact-title');
@@ -834,13 +1041,15 @@ const DevPage = {
     let nodeLabel = '';
     let pages = [], apis = [], tables = [];
 
+    const a2tAll = this._allA2T();   // 정적 + 동적 매핑 통합
+
     if (type === 'page') {
       const pg = this.DFD.pages.find(p=>p.id===id);
       nodeLabel = `${pg?.icon} ${pg?.label}`;
       apis = this.DFD.p2a.filter(([p])=>p===id).map(([,a])=>this.DFD.apis.find(x=>x.id===a)).filter(Boolean);
       apis.forEach(a => {
-        this.DFD.a2t.filter(([ap])=>ap===a.id).forEach(([,t])=>{
-          const tbl = this.DFD.tables.find(x=>x.id===t);
+        a2tAll.filter(([ap])=>ap===a.id).forEach(([,t])=>{
+          const tbl = this._findTableById(t);
           if (tbl && !tables.find(x=>x.id===t)) tables.push(tbl);
         });
       });
@@ -848,11 +1057,11 @@ const DevPage = {
       const ap = this.DFD.apis.find(a=>a.id===id);
       nodeLabel = ap?.label;
       pages = this.DFD.p2a.filter(([,a])=>a===id).map(([p])=>this.DFD.pages.find(x=>x.id===p)).filter(Boolean);
-      tables = this.DFD.a2t.filter(([a])=>a===id).map(([,t])=>this.DFD.tables.find(x=>x.id===t)).filter(Boolean);
+      tables = a2tAll.filter(([a])=>a===id).map(([,t])=>this._findTableById(t)).filter(Boolean);
     } else {
-      const tbl = this.DFD.tables.find(t=>t.id===id);
+      const tbl = this._findTableById(id);
       nodeLabel = `🗄️ ${tbl?.label}`;
-      apis = this.DFD.a2t.filter(([,t])=>t===id).map(([a])=>this.DFD.apis.find(x=>x.id===a)).filter(Boolean);
+      apis = a2tAll.filter(([,t])=>t===id).map(([a])=>this.DFD.apis.find(x=>x.id===a)).filter(Boolean);
       apis.forEach(a => {
         this.DFD.p2a.filter(([,ap])=>ap===a.id).forEach(([p])=>{
           const pg = this.DFD.pages.find(x=>x.id===p);
