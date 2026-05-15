@@ -1156,6 +1156,11 @@ router.get('/dev/openapi/export/html', devOnly, (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 자체 CSP 명시: blob: 컨텍스트에서 부모 페이지의 strict CSP 가 상속되어
+       Swagger UI 의 inline <script> 가 차단되는 문제 해결.
+       이 페이지는 superadmin 만 접근 가능한 self-contained 문서이므로
+       'unsafe-inline' 허용해도 안전. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; script-src-attr 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self' data: blob: https:;">
   <title>${apiSpec.info?.title || 'API Documentation'}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui.css">
   <style>
