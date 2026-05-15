@@ -185,6 +185,24 @@ async function initTables() {
       dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── DFD 페이지 동적 메타 + 매핑 (API/테이블과 동일 패턴) ─────
+    // 신규 발견된 페이지 파일에 대한 라벨·아이콘·API 매핑 저장
+    await pool.query(`CREATE TABLE IF NOT EXISTS dfd_page_mappings (
+      page_id    VARCHAR(100) PRIMARY KEY,
+      label      VARCHAR(100) NULL COMMENT '사용자 정의 표시명 (NULL=파일명 기반)',
+      icon       VARCHAR(20)  NULL COMMENT '사용자 정의 이모지',
+      api_keys   TEXT NULL COMMENT 'JSON array — 이 페이지가 호출하는 API 들',
+      added_by   INT NULL,
+      added_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS dfd_page_dismissed (
+      page_id      VARCHAR(100) PRIMARY KEY,
+      dismissed_by INT NULL,
+      dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
     const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
     for (const s of DEFAULT_SECTIONS) {

@@ -977,6 +977,138 @@ router.delete('/dev/dfd-api-dismissed/:apiId', devOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// 페이지 파일 자동 발견 (public/js/pages/*.js)
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/registered-pages', devOnly, (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const pagesDir = path.join(__dirname, '..', '..', 'public', 'js', 'pages');
+    if (!fs.existsSync(pagesDir)) return res.json({ success: true, data: { pages: [] } });
+
+    const files = fs
+      .readdirSync(pagesDir)
+      .filter(f => f.endsWith('.js'))
+      .sort();
+    const pages = files.map(f => {
+      const baseName = f.replace(/\.js$/, '');
+      return {
+        file: f,
+        // 파일명 → page_id (예: meeting-list.js → pg-meeting-list)
+        page_id: 'pg-' + baseName,
+        base_name: baseName,
+      };
+    });
+    res.json({ success: true, data: { pages } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// DFD 페이지 매핑 (라벨/아이콘/API 연결)
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/dfd-page-mappings', devOnly, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT page_id, label, icon, api_keys, added_by, added_at, updated_at
+       FROM dfd_page_mappings ORDER BY page_id`
+    );
+    const data = rows.map(r => {
+      let apis = [];
+      try {
+        apis = JSON.parse(r.api_keys || '[]');
+      } catch (_) {
+        apis = [];
+      }
+      return { ...r, api_keys: apis };
+    });
+    res.json({ success: true, data });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post('/dev/dfd-page-mappings', devOnly, async (req, res) => {
+  try {
+    const { page_id, label, icon, api_keys } = req.body || {};
+    if (!page_id || typeof page_id !== 'string') {
+      return res.status(400).json({ success: false, error: 'page_id 필요' });
+    }
+    const cleanLabel = label ? String(label).slice(0, 100) : null;
+    const cleanIcon = icon ? String(icon).slice(0, 20) : null;
+    const cleanApis = Array.isArray(api_keys)
+      ? api_keys.filter(k => typeof k === 'string' && /^api-[a-z0-9-]+$/i.test(k)).slice(0, 50)
+      : [];
+    await pool.query(
+      `INSERT INTO dfd_page_mappings (page_id, label, icon, api_keys, added_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         label    = VALUES(label),
+         icon     = VALUES(icon),
+         api_keys = VALUES(api_keys),
+         added_by = COALESCE(VALUES(added_by), added_by)`,
+      [page_id, cleanLabel, cleanIcon, JSON.stringify(cleanApis), req.user?.id || null]
+    );
+    res.json({
+      success: true,
+      data: { page_id, label: cleanLabel, icon: cleanIcon, api_keys: cleanApis },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.delete('/dev/dfd-page-mappings/:pageId', devOnly, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM dfd_page_mappings WHERE page_id = ?', [req.params.pageId]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get('/dev/dfd-page-dismissed', devOnly, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT page_id, dismissed_by, dismissed_at FROM dfd_page_dismissed ORDER BY dismissed_at DESC`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post('/dev/dfd-page-dismissed', devOnly, async (req, res) => {
+  try {
+    const { page_id } = req.body || {};
+    if (!page_id || typeof page_id !== 'string') {
+      return res.status(400).json({ success: false, error: 'page_id 필요' });
+    }
+    await pool.query(
+      `INSERT INTO dfd_page_dismissed (page_id, dismissed_by)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE
+         dismissed_by = COALESCE(VALUES(dismissed_by), dismissed_by),
+         dismissed_at = CURRENT_TIMESTAMP`,
+      [page_id, req.user?.id || null]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.delete('/dev/dfd-page-dismissed/:pageId', devOnly, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM dfd_page_dismissed WHERE page_id = ?', [req.params.pageId]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // 외부 서비스 자동 발견
 //   GET /dev/external-deps
 //   서버 + 프론트 코드에서 https?:// URL 을 추출하여
@@ -1224,21 +1356,27 @@ router.get('/dev/infer-mappings', devOnly, async (req, res) => {
 
     // ── 6) 페이지 파일 스캔 → p2a (페이지 → API) 추론 ──────────────
     const pagesDir = path.join(__dirname, '..', '..', 'public', 'js', 'pages');
-    // 페이지 파일명 → page_id (DFD.pages 카탈로그와 일치)
-    const PAGE_FILE_TO_ID = {
+    // 카탈로그 페이지 (정확한 매핑 — 일부 파일은 동일 페이지로 통합)
+    const CATALOG_PAGE_MAP = {
       dashboard: 'pg-dashboard',
       pipeline: 'pg-pipeline',
       leads: 'pg-leads',
       customers: 'pg-customers',
       calendar: 'pg-calendar',
       meeting: 'pg-meeting',
-      'meeting-list': 'pg-meeting', // 같은 카탈로그 페이지
+      'meeting-list': 'pg-meeting', // alias
       projects: 'pg-projects',
       team: 'pg-team',
       reports: 'pg-reports',
       board: 'pg-board',
       admin: 'pg-admin',
     };
+    // 동적 페이지 ID 생성기 (카탈로그에 없으면 파일명 기반 ID)
+    const fileToPageId = baseName => CATALOG_PAGE_MAP[baseName] || 'pg-' + baseName;
+
+    // 무시된 페이지는 추론 제외
+    const [dismissedPageRows] = await pool.query('SELECT page_id FROM dfd_page_dismissed');
+    const dismissedPageSet = new Set(dismissedPageRows.map(r => r.page_id));
 
     // 호출 경로 → api_id 변환
     // '/leads' or '/api/leads' → 'api-leads'
@@ -1285,8 +1423,9 @@ router.get('/dev/infer-mappings', devOnly, async (req, res) => {
 
     for (const file of pageFiles) {
       const baseName = file.replace(/\.js$/, '');
-      const pageId = PAGE_FILE_TO_ID[baseName];
-      if (!pageId) continue; // DFD 페이지 카탈로그에 없는 파일 스킵
+      const pageId = fileToPageId(baseName);
+      // 무시된 페이지는 추론 제외 — 신규 페이지도 모두 분석 (이전엔 카탈로그만)
+      if (dismissedPageSet.has(pageId)) continue;
 
       let content;
       try {

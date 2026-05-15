@@ -504,7 +504,7 @@ const DevPage = {
     let apiDismissed = [];   // API 무시
     let fetchFailed = false;
     try {
-      const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
+      const [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10] = await Promise.all([
         API.get('/admin/dev/schema'),
         API.get('/admin/dev/dfd-mappings').catch(() => ({ data: [] })),
         API.get('/admin/dev/dfd-dismissed').catch(() => ({ data: [] })),
@@ -512,6 +512,9 @@ const DevPage = {
         API.get('/admin/dev/dfd-api-mappings').catch(() => ({ data: [] })),
         API.get('/admin/dev/dfd-api-dismissed').catch(() => ({ data: [] })),
         API.get('/admin/dev/external-deps').catch(() => ({ data: { discovered: [] } })),
+        API.get('/admin/dev/registered-pages').catch(() => ({ data: { pages: [] } })),
+        API.get('/admin/dev/dfd-page-mappings').catch(() => ({ data: [] })),
+        API.get('/admin/dev/dfd-page-dismissed').catch(() => ({ data: [] })),
       ]);
       liveTables = r1.data || {};
       dbMappings = r2.data || [];
@@ -520,6 +523,9 @@ const DevPage = {
       apiMappings = r5.data || [];
       apiDismissed = r6.data || [];
       this._externalDeps = r7.data?.discovered || [];
+      this._registeredPages = r8.data?.pages || [];
+      this._pageMappings = r9.data || [];
+      this._pageDismissed = r10.data || [];
     } catch (_) {
       fetchFailed = true;
     }
@@ -658,6 +664,74 @@ const DevPage = {
 
     const apiStale = this.DFD.apis.filter(a => !liveApiIds.has(a.id));
 
+    // ── 페이지 머지 (테이블/API 와 동일 패턴 — 4-state) ─────────
+    const catalogPageById = {};
+    this.DFD.pages.forEach(p => { catalogPageById[p.id] = p; });
+    // 카탈로그 alias 매핑 (meeting-list.js → pg-meeting)
+    const CATALOG_PAGE_ALIAS = {
+      dashboard: 'pg-dashboard', pipeline: 'pg-pipeline', leads: 'pg-leads',
+      customers: 'pg-customers', calendar: 'pg-calendar', meeting: 'pg-meeting',
+      'meeting-list': 'pg-meeting', projects: 'pg-projects', team: 'pg-team',
+      reports: 'pg-reports', board: 'pg-board', admin: 'pg-admin',
+    };
+    const pageMappingById = {};
+    (this._pageMappings || []).forEach(m => { pageMappingById[m.page_id] = m; });
+    const pageDismissedSet = new Set((this._pageDismissed || []).map(d => d.page_id));
+
+    const mergedPages = [];
+    const pageTrulyNew = [];
+    const pageDismissedList = [];
+    const dynamicPageP2A = [];  // 사용자 매핑된 page → API
+
+    // 카탈로그 순서대로 — alias 가 있는 파일은 카탈로그 id 로 통합되어 한 번만 표시
+    const seenCatalogIds = new Set();
+    (this._registeredPages || []).forEach(p => {
+      const aliasId = CATALOG_PAGE_ALIAS[p.base_name];
+      if (aliasId && !seenCatalogIds.has(aliasId)) {
+        const cat = catalogPageById[aliasId];
+        if (cat) {
+          mergedPages.push(cat);
+          seenCatalogIds.add(aliasId);
+        }
+      }
+    });
+
+    // 동적 페이지 (카탈로그 미매칭)
+    (this._registeredPages || []).forEach(p => {
+      const aliasId = CATALOG_PAGE_ALIAS[p.base_name];
+      if (aliasId) return; // 카탈로그 페이지는 이미 추가됨
+      const pageId = p.page_id;
+      const mapping = pageMappingById[pageId];
+      const isMapped = mapping && (mapping.label || (mapping.api_keys && mapping.api_keys.length > 0));
+      const isDismissedPage = pageDismissedSet.has(pageId);
+      const entry = {
+        id: pageId,
+        label: mapping?.label || p.base_name,
+        icon: mapping?.icon || '📄',
+        _uncategorized: !isMapped,
+        _dynamicMapped: !!isMapped,
+        _dismissed: isDismissedPage && !isMapped,
+        _trulyNew: !isMapped && !isDismissedPage,
+        _file: p.file,
+      };
+      mergedPages.push(entry);
+      if (isMapped && mapping.api_keys) {
+        mapping.api_keys.forEach(apiId => dynamicPageP2A.push([pageId, apiId]));
+      } else if (isDismissedPage) {
+        pageDismissedList.push(entry);
+      } else {
+        pageTrulyNew.push(entry);
+      }
+    });
+
+    // 카탈로그에 있지만 파일이 없는 페이지도 카탈로그로 표시 (이론상 없음)
+    this.DFD.pages.forEach(p => {
+      if (!seenCatalogIds.has(p.id)) mergedPages.unshift(p);
+    });
+
+    // 동적 매핑을 인스턴스에 저장 (영향도/엣지 그리기에서 사용)
+    this._dynamicPageP2A = dynamicPageP2A;
+
     // ── 3) 경고 배너 HTML ────────────────────────────────────────
     let warningBanner = '';
     if (fetchFailed) {
@@ -668,6 +742,7 @@ const DevPage = {
     } else if (
       trulyNew.length > 0 || dismissedList.length > 0 || stale.length > 0 ||
       apiTrulyNew.length > 0 || apiDismissedList.length > 0 || apiStale.length > 0 ||
+      pageTrulyNew.length > 0 || pageDismissedList.length > 0 ||
       (this._externalDeps && this._externalDeps.length > 0)
     ) {
       // 3-bucket × 2(테이블/API) — 신규/무시/Stale
@@ -691,11 +766,12 @@ const DevPage = {
             <span class="dfd-warn-hint">(클릭하여 상세 보기)</span>
           </summary>
           <div class="dfd-warn-body">
-            ${(trulyNew.length + apiTrulyNew.length) > 0 ? `
+            ${(trulyNew.length + apiTrulyNew.length + pageTrulyNew.length) > 0 ? `
               <div class="dfd-warn-row">
                 <strong>🆕 신규 미매핑 (우클릭 → 추가 또는 무시):</strong>
                 ${trulyNew.length > 0 ? `<code><strong>🗄 테이블:</strong> ${newList}</code>` : ''}
                 ${apiTrulyNew.length > 0 ? `<code><strong>⚡ API:</strong> ${apiNewList}</code>` : ''}
+                ${pageTrulyNew.length > 0 ? `<code><strong>🖥️ 페이지:</strong> ${pageTrulyNew.map(p => esc(p.label)).join(', ')}</code>` : ''}
               </div>` : ''}
             ${(dismissedList.length + apiDismissedList.length) > 0 ? `
               <div class="dfd-warn-row">
@@ -767,11 +843,32 @@ const DevPage = {
 
           <!-- 컬럼 행 (그리드 2행) -->
           <div class="dfd-col" id="dfd-col-pages">
-            ${this.DFD.pages.map(p => `
-              <div class="dfd-node dfd-node-page" data-id="${p.id}" data-type="page">
-                ${p.icon} ${esc(p.label)}
-              </div>
-            `).join('')}
+            ${mergedPages.map(p => {
+              let cls = '', icon = p.icon || '🖥️', badge = '', tip = '';
+              if (p._dynamicMapped) {
+                cls = 'dfd-node-dynamic-mapped';
+                badge = '<span class="dfd-mapped-badge">매핑됨</span>';
+                tip = '사용자 매핑된 페이지 — 우클릭하여 수정/제거';
+              } else if (p._dismissed) {
+                cls = 'dfd-node-dismissed';
+                icon = '🔕';
+                badge = '<span class="dfd-dismissed-badge">무시됨</span>';
+                tip = '알림 무시 — 우클릭하여 매핑 추가/다시 알림';
+              } else if (p._trulyNew) {
+                cls = 'dfd-node-uncategorized dfd-node-new';
+                icon = '📌';
+                badge = '<span class="dfd-uncat-badge">신규</span>';
+                tip = `신규 발견 페이지 (${p._file || ''}) — 우클릭하여 매핑 추가`;
+              }
+              const interactive = (p._uncategorized || p._dynamicMapped) ? 'data-context-menu="dfd-page-mapping"' : '';
+              return `
+              <div class="dfd-node dfd-node-page ${cls}"
+                   data-id="${p.id}" data-type="page" data-page-id="${esc(p.id)}"
+                   ${tip ? `title="${esc(tip)}"` : ''} ${interactive}>
+                ${icon} ${esc(p.label)}
+                ${badge}
+              </div>`;
+            }).join('')}
           </div>
 
           <div class="dfd-col" id="dfd-col-apis">
@@ -973,6 +1070,8 @@ const DevPage = {
     // 동적 매핑 엣지 (관리자 우클릭 → 카탈로그 추가로 생성된 매핑)
     (this._dynamicA2T || []).forEach(([a, t]) => addEdge(a, t));
     (this._dynamicP2A || []).forEach(([p, a]) => addEdge(p, a));
+    // 동적 페이지 매핑 (페이지 → API) — _dynamicPageP2A
+    (this._dynamicPageP2A || []).forEach(([p, a]) => addEdge(p, a));
 
     svg.innerHTML = paths;
   },
@@ -1015,6 +1114,18 @@ const DevPage = {
           isDismissed: apiNode.classList.contains('dfd-node-dismissed'),
           isNew: apiNode.classList.contains('dfd-node-new'),
         });
+        return;
+      }
+      // 페이지 노드 (신규 발견 페이지)
+      const pageNode = e.target.closest('.dfd-node[data-context-menu="dfd-page-mapping"]');
+      if (pageNode) {
+        e.preventDefault();
+        this._showDfdContextMenu(e.clientX, e.clientY, pageNode.dataset.pageId, {
+          kind: 'page',
+          isMapped: pageNode.classList.contains('dfd-node-dynamic-mapped'),
+          isDismissed: pageNode.classList.contains('dfd-node-dismissed'),
+          isNew: pageNode.classList.contains('dfd-node-new'),
+        });
       }
     });
 
@@ -1051,8 +1162,10 @@ const DevPage = {
     menu.className = 'dfd-ctxmenu';
     menu.style.left = x + 'px';
     menu.style.top  = y + 'px';
-    // state: { kind: 'table'|'api', isMapped, isDismissed, isNew }
-    const labelNoun = state.kind === 'api' ? '페이지 매핑' : '카탈로그';
+    // state: { kind: 'table'|'api'|'page', isMapped, isDismissed, isNew }
+    const labelNoun = state.kind === 'api' ? '페이지 매핑'
+                    : state.kind === 'page' ? '페이지 카탈로그'
+                    : '카탈로그';
     let items = '';
     if (state.isMapped) {
       items = `
@@ -1082,6 +1195,11 @@ const DevPage = {
         else if (action === 'remove') this._removeDfdApiMapping(key);
         else if (action === 'dismiss') this._dismissDfdApi(key);
         else if (action === 'undismiss') this._undismissDfdApi(key);
+      } else if (state.kind === 'page') {
+        if (action === 'add' || action === 'edit') this._openDfdPageMappingModal(key);
+        else if (action === 'remove') this._removeDfdPageMapping(key);
+        else if (action === 'dismiss') this._dismissDfdPage(key);
+        else if (action === 'undismiss') this._undismissDfdPage(key);
       } else {
         if (action === 'add' || action === 'edit') this._openDfdMappingModal(key);
         else if (action === 'remove') this._removeDfdMapping(key);
@@ -1320,6 +1438,111 @@ const DevPage = {
     try {
       await API.request('DELETE', '/admin/dev/dfd-api-dismissed/' + encodeURIComponent(apiId));
       Toast.success(`${apiId} 알림을 다시 활성화했습니다`);
+      await this.renderDFD();
+    } catch (e) { Toast.error('실패: ' + (e.message || '')); }
+  },
+
+  // ─── 페이지 매핑 핸들러 ───────────────────────────────────────
+  _openDfdPageMappingModal(pageId) {
+    const existing = (this._pageMappings || []).find(m => m.page_id === pageId) || {};
+    const existingApis = new Set(existing.api_keys || []);
+    const baseName = pageId.replace(/^pg-/, '');
+    const apiCheckboxes = this.DFD.apis.map(a => {
+      const checked = existingApis.has(a.id) ? 'checked' : '';
+      return `
+        <label class="dfd-map-api-item">
+          <input type="checkbox" class="dfd-page-map-api-cb" value="${esc(a.id)}" ${checked}>
+          <span class="dfd-map-api-method ${a.method.toLowerCase()}">${a.method}</span>
+          <span class="dfd-map-api-label">${esc(a.label)}</span>
+        </label>`;
+    }).join('');
+
+    Modal.open({
+      title: `📋 페이지 카탈로그 — ${esc(pageId)}`,
+      compact: true,
+      width: 560,
+      confirmOnClose: true,
+      body: `
+        <div class="dfd-map-body">
+          <p style="font-size:12px;color:var(--text-2);margin:0 0 12px;line-height:1.6">
+            신규 발견된 페이지 <strong>${esc(baseName)}.js</strong> 를 카탈로그에 추가합니다.
+          </p>
+          <div class="form-row" style="display:flex;gap:8px;margin-bottom:10px">
+            <div style="flex:0 0 70px">
+              <label class="form-label" style="font-size:11px">아이콘</label>
+              <input type="text" id="dfd-page-icon" maxlength="3" value="${esc(existing.icon || '📄')}" style="width:100%;padding:6px;font-size:18px;text-align:center;border:1px solid var(--border);border-radius:6px">
+            </div>
+            <div style="flex:1">
+              <label class="form-label" style="font-size:11px">표시 라벨</label>
+              <input type="text" id="dfd-page-label" maxlength="100" value="${esc(existing.label || baseName)}" placeholder="예: 주문 관리" style="width:100%;padding:6px;font-size:13px;border:1px solid var(--border);border-radius:6px">
+            </div>
+          </div>
+          <div class="dfd-map-search-wrap">
+            <span class="dfd-map-count" id="dfd-page-api-count">${existingApis.size}개 API 선택됨</span>
+          </div>
+          <div class="dfd-map-api-list">${apiCheckboxes}</div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="dfd-page-cancel">취소</button>
+        <button class="btn btn-primary" id="dfd-page-save">💾 저장</button>
+      `,
+      bind: {
+        '#dfd-page-cancel': () => Modal.close(),
+        '#dfd-page-save': () => this._saveDfdPageMapping(pageId),
+      },
+      onOpen: () => {
+        document.querySelectorAll('.dfd-page-map-api-cb').forEach(cb => {
+          cb.addEventListener('change', () => {
+            const n = document.querySelectorAll('.dfd-page-map-api-cb:checked').length;
+            const el = document.getElementById('dfd-page-api-count');
+            if (el) el.textContent = `${n}개 API 선택됨`;
+          });
+        });
+      },
+    });
+  },
+
+  async _saveDfdPageMapping(pageId) {
+    const label = document.getElementById('dfd-page-label')?.value?.trim() || null;
+    const icon  = document.getElementById('dfd-page-icon')?.value?.trim() || null;
+    const apiKeys = [...document.querySelectorAll('.dfd-page-map-api-cb:checked')].map(cb => cb.value);
+    try {
+      await API.request('POST', '/admin/dev/dfd-page-mappings', {
+        page_id: pageId, label, icon, api_keys: apiKeys,
+      });
+      Modal.close();
+      Toast.success(`${pageId} 카탈로그 등록 완료 (API ${apiKeys.length}개 연결)`);
+      await this.renderDFD();
+    } catch (e) { Toast.error('저장 실패: ' + (e.message || '')); }
+  },
+
+  _removeDfdPageMapping(pageId) {
+    Modal.confirm(
+      `<strong>${esc(pageId)}</strong> 페이지 매핑을 제거하시겠어요?<br>` +
+      `<span style="font-size:11px;color:var(--text-3)">파일 자체는 유지되며 미분류로 돌아갑니다.</span>`,
+      async () => {
+        try {
+          await API.request('DELETE', '/admin/dev/dfd-page-mappings/' + encodeURIComponent(pageId));
+          Toast.success(`${pageId} 매핑이 제거되었습니다`);
+          await this.renderDFD();
+        } catch (e) { Toast.error('제거 실패: ' + (e.message || '')); }
+      }
+    );
+  },
+
+  async _dismissDfdPage(pageId) {
+    try {
+      await API.request('POST', '/admin/dev/dfd-page-dismissed', { page_id: pageId });
+      Toast.success(`${pageId} 알림을 껐습니다`);
+      await this.renderDFD();
+    } catch (e) { Toast.error('실패: ' + (e.message || '')); }
+  },
+
+  async _undismissDfdPage(pageId) {
+    try {
+      await API.request('DELETE', '/admin/dev/dfd-page-dismissed/' + encodeURIComponent(pageId));
+      Toast.success(`${pageId} 알림을 다시 활성화했습니다`);
       await this.renderDFD();
     } catch (e) { Toast.error('실패: ' + (e.message || '')); }
   },
@@ -1648,9 +1871,9 @@ const DevPage = {
   _allA2T() {
     return [...this.DFD.a2t, ...(this._dynamicA2T || [])];
   },
-  // 정적 p2a + 동적 p2a 합본
+  // 정적 p2a + 동적 p2a 합본 (API→Page 매핑 + Page→API 매핑 모두 포함)
   _allP2A() {
-    return [...this.DFD.p2a, ...(this._dynamicP2A || [])];
+    return [...this.DFD.p2a, ...(this._dynamicP2A || []), ...(this._dynamicPageP2A || [])];
   },
   // tbl-auto-xxx ID 에 대응하는 동적 항목 객체 lookup (catalog 에는 없음)
   _findTableById(id) {
