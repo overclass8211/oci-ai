@@ -1108,20 +1108,140 @@ router.get('/dev/infer-mappings', devOnly, async (req, res) => {
       }
     }
 
-    // 5) 결과 정리
+    // 5) 결과 정리 (테이블 매핑)
     const suggestions = [];
     for (const [tableName, apis] of accumulator) {
       const apiList = [];
       for (const [apiKey, evidence] of apis) {
         apiList.push({ api_key: apiKey, evidence_files: evidence });
       }
-      // api_key 알파벳 순
       apiList.sort((a, b) => a.api_key.localeCompare(b.api_key));
       suggestions.push({ table_name: tableName, api_keys: apiList });
     }
     suggestions.sort((a, b) => a.table_name.localeCompare(b.table_name));
 
-    res.json({ success: true, data: { suggestions, scanned: files.length } });
+    // ── 6) 페이지 파일 스캔 → p2a (페이지 → API) 추론 ──────────────
+    const pagesDir = path.join(__dirname, '..', '..', 'public', 'js', 'pages');
+    // 페이지 파일명 → page_id (DFD.pages 카탈로그와 일치)
+    const PAGE_FILE_TO_ID = {
+      dashboard: 'pg-dashboard',
+      pipeline: 'pg-pipeline',
+      leads: 'pg-leads',
+      customers: 'pg-customers',
+      calendar: 'pg-calendar',
+      meeting: 'pg-meeting',
+      'meeting-list': 'pg-meeting', // 같은 카탈로그 페이지
+      projects: 'pg-projects',
+      team: 'pg-team',
+      reports: 'pg-reports',
+      board: 'pg-board',
+      admin: 'pg-admin',
+    };
+
+    // 호출 경로 → api_id 변환
+    // '/leads' or '/api/leads' → 'api-leads'
+    // '/admin/users' → 'api-admin' (부모 통합)
+    // '/menu/sidebar' → 'api-menu'
+    // '/pipeline/stages' → 'api-pipeline-stages' (multi-segment)
+    const pathToApiId = callPath => {
+      let p = callPath.trim();
+      if (!p) return null;
+      // /api/ 프리픽스 제거
+      p = p.replace(/^\/?(api\/)?/, '');
+      // 쿼리스트링·해시·파라미터 제거
+      p = p.split(/[?#]/)[0];
+      // 첫 세그먼트
+      const segs = p.split('/').filter(Boolean);
+      if (segs.length === 0) return null;
+      const seg1 = segs[0];
+      const seg2 = segs[1];
+      // /admin/* → api-admin (정적 카탈로그와 일관)
+      if (seg1 === 'admin') return 'api-admin';
+      // /pipeline/<sub> 는 동적 라우트 (api-pipeline-stages 등)
+      if (seg1 === 'pipeline' && seg2) return 'api-pipeline-' + seg2;
+      return 'api-' + seg1;
+    };
+
+    // 이미 매핑된 / 무시된 API
+    const [apiMappedRows] = await pool.query('SELECT api_id FROM dfd_api_mappings');
+    const [apiDismissedRows] = await pool.query('SELECT api_id FROM dfd_api_dismissed');
+    const apiSkipSet = new Set([
+      ...apiMappedRows.map(r => r.api_id),
+      ...apiDismissedRows.map(r => r.api_id),
+    ]);
+
+    let pagesScanned = 0;
+    const pageFiles = fs.existsSync(pagesDir)
+      ? fs.readdirSync(pagesDir).filter(f => f.endsWith('.js'))
+      : [];
+
+    // api_id → Map<page_id, evidenceFile[]>
+    const pageAccumulator = new Map();
+    // API.{get,post,put,delete,patch,request}('/path' ...) 또는 fetch('/api/path' ...)
+    const API_CALL_RE = /\bAPI\.(?:get|post|put|delete|patch|request)\s*\(\s*['"`]([^'"`]+)['"`]/g;
+    const FETCH_RE = /\bfetch\s*\(\s*['"`](\/api\/[^'"`]+)['"`]/g;
+
+    for (const file of pageFiles) {
+      const baseName = file.replace(/\.js$/, '');
+      const pageId = PAGE_FILE_TO_ID[baseName];
+      if (!pageId) continue; // DFD 페이지 카탈로그에 없는 파일 스킵
+
+      let content;
+      try {
+        content = fs.readFileSync(path.join(pagesDir, file), 'utf8');
+      } catch (_) {
+        continue;
+      }
+      pagesScanned++;
+
+      const seenInFile = new Set();
+      const _collectCall = callPath => {
+        const apiId = pathToApiId(callPath);
+        if (!apiId) return;
+        if (apiSkipSet.has(apiId)) return;
+        if (seenInFile.has(`${apiId}:${pageId}`)) return;
+        seenInFile.add(`${apiId}:${pageId}`);
+        if (!pageAccumulator.has(apiId)) pageAccumulator.set(apiId, new Map());
+        const pages = pageAccumulator.get(apiId);
+        if (!pages.has(pageId)) pages.set(pageId, []);
+        pages.get(pageId).push(file);
+      };
+
+      let m;
+      while ((m = API_CALL_RE.exec(content)) !== null) {
+        // API.request('GET', '/path') 의 경우 m[1] 이 'GET' 일 수 있음 — '/' 시작만 통과
+        if (!m[1].startsWith('/')) {
+          // request 함수 케이스 — 두 번째 인자 확인 (직후의 quoted string)
+          const after = content.slice(m.index + m[0].length, m.index + m[0].length + 200);
+          const m2 = after.match(/['"`]([^'"`]+)['"`]/);
+          if (m2 && m2[1].startsWith('/')) _collectCall(m2[1]);
+        } else {
+          _collectCall(m[1]);
+        }
+      }
+      while ((m = FETCH_RE.exec(content)) !== null) _collectCall(m[1]);
+    }
+
+    // p2a 제안 결과 정리
+    const apiSuggestions = [];
+    for (const [apiId, pages] of pageAccumulator) {
+      const pageList = [];
+      for (const [pageId, evidence] of pages) {
+        pageList.push({ page_key: pageId, evidence_files: evidence });
+      }
+      pageList.sort((a, b) => a.page_key.localeCompare(b.page_key));
+      apiSuggestions.push({ api_id: apiId, page_keys: pageList });
+    }
+    apiSuggestions.sort((a, b) => a.api_id.localeCompare(b.api_id));
+
+    res.json({
+      success: true,
+      data: {
+        suggestions,
+        api_suggestions: apiSuggestions,
+        scanned: { routes: files.length, pages: pagesScanned },
+      },
+    });
   } catch (err) {
     handleError(res, err);
   }

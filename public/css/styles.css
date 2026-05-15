@@ -6097,3 +6097,14 @@ body,
   color: var(--text-3);
   font-family: 'Consolas', 'Monaco', monospace;
 }
+
+/* 자동 추론 모달 — 섹션 헤더 (테이블/API 구분) */
+.dfd-infer-section-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  padding: 6px 0 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.3px;
+}
