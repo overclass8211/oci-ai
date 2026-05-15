@@ -844,6 +844,157 @@ router.delete('/dev/dfd-dismissed/:tableName', devOnly, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// DFD 매핑 자동 추론
+//   GET /dev/infer-mappings
+//     src/routes/*.js 파일들을 분석해 SQL 쿼리에서 테이블명 추출 →
+//     실제 DB 테이블과 교차검증 후 제안 매핑 반환.
+//     이미 매핑된/무시된 테이블은 제외.
+//     응답: { suggestions: [{table_name, api_keys:[...], evidence:[...]}, ...] }
+// ─────────────────────────────────────────────────────────────
+// 파일명 → API ID 매핑 (예외: meetings.js → api-meeting)
+const ROUTE_FILE_TO_API = {
+  leads: 'api-leads',
+  customers: 'api-customers',
+  activities: 'api-activities',
+  dashboard: 'api-dashboard',
+  calendar: 'api-calendar',
+  meetings: 'api-meeting',
+  projects: 'api-projects',
+  team: 'api-team',
+  ai: 'api-ai',
+  board: 'api-board',
+  auth: 'api-auth',
+  admin: 'api-admin',
+  notifications: 'api-notifications',
+  products: 'api-products',
+  google: 'api-google',
+};
+
+// SQL 키워드 — table name 추출 시 노이즈로 잡힐 수 있는 단어
+const SQL_NOISE_WORDS = new Set([
+  'select',
+  'where',
+  'and',
+  'or',
+  'on',
+  'using',
+  'as',
+  'is',
+  'not',
+  'null',
+  'order',
+  'group',
+  'by',
+  'having',
+  'limit',
+  'offset',
+  'union',
+  'all',
+  'distinct',
+  'values',
+  'set',
+  'inner',
+  'left',
+  'right',
+  'outer',
+  'cross',
+  'natural',
+  'use',
+  'index',
+  'force',
+  'ignore',
+  'partition',
+  'dual',
+  'tables',
+  'columns',
+  'information_schema',
+  'mysql',
+  'sys',
+  'performance_schema',
+]);
+
+router.get('/dev/infer-mappings', devOnly, async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const routesDir = path.join(__dirname);
+
+    // 1) 실제 DB 테이블 목록 (교차검증용)
+    const [[dbRow]] = await pool.query('SELECT DATABASE() AS db');
+    const [tables] = await pool.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?`,
+      [dbRow.db]
+    );
+    const realTableSet = new Set(tables.map(t => t.TABLE_NAME.toLowerCase()));
+
+    // 2) 이미 매핑되었거나 무시된 테이블 — 제안 대상에서 제외
+    const [mappedRows] = await pool.query('SELECT table_name FROM dfd_mappings');
+    const [dismissedRows] = await pool.query('SELECT table_name FROM dfd_dismissed');
+    const skipSet = new Set([
+      ...mappedRows.map(r => r.table_name),
+      ...dismissedRows.map(r => r.table_name),
+    ]);
+
+    // 3) 정적 카탈로그(DFD.tables)에 이미 있는 테이블은 클라이언트가 알고 있으므로
+    //    서버는 의식하지 않고 모두 추출 — 클라이언트가 필터.
+
+    // 4) 라우트 파일 스캔
+    const files = fs.readdirSync(routesDir).filter(f => f.endsWith('.js'));
+    // table_name → Map<api_key, evidenceFile[]>
+    const accumulator = new Map();
+
+    const TABLE_RE =
+      /\b(?:from|join|into|update|alter\s+table|delete\s+from)\s+`?([a-z_][a-z0-9_]*)`?/gi;
+
+    for (const file of files) {
+      const baseName = file.replace(/\.js$/, '');
+      const apiKey = ROUTE_FILE_TO_API[baseName];
+      if (!apiKey) continue; // ROUTE_FILE_TO_API 에 없는 파일 스킵 (errorHandler 등)
+
+      let content;
+      try {
+        content = fs.readFileSync(path.join(routesDir, file), 'utf8');
+      } catch (_) {
+        continue;
+      }
+
+      const seenInFile = new Set();
+      let m;
+      while ((m = TABLE_RE.exec(content)) !== null) {
+        const tableName = m[1].toLowerCase();
+        if (SQL_NOISE_WORDS.has(tableName)) continue;
+        if (!realTableSet.has(tableName)) continue; // 실제 DB 테이블만
+        if (skipSet.has(tableName)) continue; // 이미 처리됨
+        if (seenInFile.has(`${apiKey}:${tableName}`)) continue;
+        seenInFile.add(`${apiKey}:${tableName}`);
+
+        if (!accumulator.has(tableName)) accumulator.set(tableName, new Map());
+        const apis = accumulator.get(tableName);
+        if (!apis.has(apiKey)) apis.set(apiKey, []);
+        apis.get(apiKey).push(file);
+      }
+    }
+
+    // 5) 결과 정리
+    const suggestions = [];
+    for (const [tableName, apis] of accumulator) {
+      const apiList = [];
+      for (const [apiKey, evidence] of apis) {
+        apiList.push({ api_key: apiKey, evidence_files: evidence });
+      }
+      // api_key 알파벳 순
+      apiList.sort((a, b) => a.api_key.localeCompare(b.api_key));
+      suggestions.push({ table_name: tableName, api_keys: apiList });
+    }
+    suggestions.sort((a, b) => a.table_name.localeCompare(b.table_name));
+
+    res.json({ success: true, data: { suggestions, scanned: files.length } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // GET  /api/admin/dev/perf  — 최근 24h 성능 지표
 router.get('/dev/perf', devOnly, async (req, res) => {
   try {

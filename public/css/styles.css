@@ -6024,3 +6024,76 @@ body,
 [data-theme="dark"] .dfd-dismissed-badge {
   color: #d1d5db;
 }
+
+/* DFD 자동 추론 모달 */
+.dfd-infer-body { padding: 4px 0; }
+.dfd-infer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border);
+}
+.dfd-infer-counter {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.dfd-infer-list {
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dfd-infer-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  transition: border-color .12s;
+}
+.dfd-infer-card:hover { border-color: var(--primary, #1664E5); }
+.dfd-infer-card-head {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dfd-infer-table-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.dfd-infer-count {
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg-2, #f5f7fa);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.dfd-infer-apis {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 24px;
+}
+.dfd-infer-api {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.dfd-infer-api:hover { background: var(--bg-2, #f5f7fa); }
+.dfd-infer-api input[type="checkbox"] { cursor: pointer; }
+.dfd-infer-evidence {
+  margin-left: auto;
+  font-size: 10px;
+  font-style: italic;
+  color: var(--text-3);
+  font-family: 'Consolas', 'Monaco', monospace;
+}

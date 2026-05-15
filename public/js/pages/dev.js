@@ -601,7 +601,12 @@ const DevPage = {
             <span style="color:var(--text-2)">· 총 ${mergedTables.length}개 테이블 표시</span>
           </p>
         </div>
-        <input type="text" id="dfd-search" class="search-input" style="width:200px" placeholder="노드 검색...">
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="dfd-infer-btn" class="btn btn-secondary btn-sm" title="src/routes/*.js 의 SQL 쿼리를 분석하여 미분류 테이블의 API 매핑 제안">
+            🔮 자동 추론
+          </button>
+          <input type="text" id="dfd-search" class="search-input" style="width:200px" placeholder="노드 검색...">
+        </div>
       </div>
 
       ${warningBanner}
@@ -810,6 +815,9 @@ const DevPage = {
     // 컨텍스트 메뉴 외부 클릭 시 닫기
     document.addEventListener('click', () => this._hideDfdContextMenu(), { capture: true });
 
+    // 자동 추론 버튼
+    document.getElementById('dfd-infer-btn')?.addEventListener('click', () => this._runDfdInference());
+
     // 검색
     const search = document.getElementById('dfd-search');
     if (search) {
@@ -1006,6 +1014,168 @@ const DevPage = {
     } catch (e) {
       Toast.error('실패: ' + (e.message || ''));
     }
+  },
+
+  // ──────────────────────────────────────────────────────────────
+  // 자동 추론 — src/routes/*.js 분석 후 매핑 제안 모달
+  // ──────────────────────────────────────────────────────────────
+  async _runDfdInference() {
+    const btn = document.getElementById('dfd-infer-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '🔍 분석 중...'; }
+    let result;
+    try {
+      result = await API.get('/admin/dev/infer-mappings');
+    } catch (e) {
+      Toast.error('자동 추론 실패: ' + (e.message || ''));
+      if (btn) { btn.disabled = false; btn.textContent = '🔮 자동 추론'; }
+      return;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '🔮 자동 추론'; }
+
+    const suggestions = result?.data?.suggestions || [];
+    const scanned = result?.data?.scanned || 0;
+
+    if (suggestions.length === 0) {
+      Toast.info(`자동 추론 결과: ${scanned}개 라우트 파일을 분석했지만 새로운 매핑 제안이 없습니다.`);
+      return;
+    }
+
+    // API 메타 — 라벨/메서드 표시용
+    const apiById = {};
+    this.DFD.apis.forEach(a => { apiById[a.id] = a; });
+
+    // 모달: 테이블별 카드 + 각 API 체크박스
+    const rows = suggestions.map((s, i) => {
+      const apisHtml = s.api_keys.map(ak => {
+        const a = apiById[ak.api_key];
+        if (!a) return '';
+        const ev = (ak.evidence_files || []).slice(0, 3).join(', ');
+        return `
+          <label class="dfd-infer-api">
+            <input type="checkbox" class="dfd-infer-api-cb"
+              data-suggestion="${i}" value="${esc(ak.api_key)}" checked>
+            <span class="dfd-map-api-method ${a.method.toLowerCase()}">${a.method}</span>
+            <span class="dfd-map-api-label">${esc(a.label)}</span>
+            <span class="dfd-infer-evidence" title="근거 파일">${esc(ev)}</span>
+          </label>`;
+      }).join('');
+      return `
+        <div class="dfd-infer-card" data-suggestion="${i}" data-table-name="${esc(s.table_name)}">
+          <div class="dfd-infer-card-head">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" class="dfd-infer-table-cb" data-suggestion="${i}" checked>
+              <span class="dfd-infer-table-name">📌 ${esc(s.table_name)}</span>
+              <span class="dfd-infer-count">${s.api_keys.length}개 API 추론됨</span>
+            </label>
+          </div>
+          <div class="dfd-infer-apis">${apisHtml}</div>
+        </div>`;
+    }).join('');
+
+    Modal.open({
+      title: `🔮 자동 매핑 추론 결과 (${scanned}개 파일 분석, ${suggestions.length}개 테이블 제안)`,
+      compact: true,
+      width: 720,
+      confirmOnClose: true,
+      body: `
+        <div class="dfd-infer-body">
+          <p style="font-size:12px;color:var(--text-2);margin:0 0 12px;line-height:1.6">
+            💡 라우트 파일의 SQL 쿼리를 분석한 결과입니다.
+            체크된 항목만 일괄 적용되며, 부정확한 추론은 체크 해제하세요.
+          </p>
+          <div class="dfd-infer-toolbar">
+            <button type="button" class="btn btn-ghost btn-sm" id="dfd-infer-select-all">모두 선택</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="dfd-infer-select-none">모두 해제</button>
+            <span class="dfd-infer-counter" id="dfd-infer-counter"></span>
+          </div>
+          <div class="dfd-infer-list">${rows}</div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="dfd-infer-cancel">취소</button>
+        <button class="btn btn-primary" id="dfd-infer-apply">✨ 선택한 매핑 일괄 적용</button>
+      `,
+      bind: {
+        '#dfd-infer-cancel': () => Modal.close(),
+        '#dfd-infer-apply':  () => this._applyDfdInference(suggestions),
+        '#dfd-infer-select-all':  () => this._toggleDfdInferenceAll(true),
+        '#dfd-infer-select-none': () => this._toggleDfdInferenceAll(false),
+      },
+      onOpen: () => {
+        // 테이블 체크박스 토글 시 내부 API 체크박스도 동기화
+        document.querySelectorAll('.dfd-infer-table-cb').forEach(cb => {
+          cb.addEventListener('change', e => {
+            const card = e.target.closest('.dfd-infer-card');
+            card.querySelectorAll('.dfd-infer-api-cb').forEach(ac => { ac.checked = e.target.checked; });
+            this._updateDfdInferenceCounter();
+          });
+        });
+        document.querySelectorAll('.dfd-infer-api-cb').forEach(cb => {
+          cb.addEventListener('change', () => this._updateDfdInferenceCounter());
+        });
+        this._updateDfdInferenceCounter();
+      },
+    });
+  },
+
+  _toggleDfdInferenceAll(value) {
+    document.querySelectorAll('.dfd-infer-table-cb, .dfd-infer-api-cb').forEach(cb => {
+      cb.checked = value;
+    });
+    this._updateDfdInferenceCounter();
+  },
+
+  _updateDfdInferenceCounter() {
+    const totalTables = document.querySelectorAll('.dfd-infer-card').length;
+    const checkedApis = document.querySelectorAll('.dfd-infer-api-cb:checked').length;
+    const totalApis = document.querySelectorAll('.dfd-infer-api-cb').length;
+    const checkedTables = new Set();
+    document.querySelectorAll('.dfd-infer-api-cb:checked').forEach(cb => {
+      checkedTables.add(cb.dataset.suggestion);
+    });
+    const el = document.getElementById('dfd-infer-counter');
+    if (el) {
+      el.textContent = `선택: 테이블 ${checkedTables.size}/${totalTables} · API ${checkedApis}/${totalApis}`;
+    }
+  },
+
+  async _applyDfdInference(suggestions) {
+    // 체크된 API 만 모아 테이블별로 묶기
+    const toApply = new Map();   // table_name → [api_key, ...]
+    document.querySelectorAll('.dfd-infer-api-cb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.suggestion);
+      const s = suggestions[idx];
+      if (!s) return;
+      if (!toApply.has(s.table_name)) toApply.set(s.table_name, []);
+      toApply.get(s.table_name).push(cb.value);
+    });
+
+    if (toApply.size === 0) {
+      Toast.info('선택된 항목이 없습니다.');
+      return;
+    }
+
+    const btn = document.getElementById('dfd-infer-apply');
+    if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+
+    let success = 0, fail = 0;
+    for (const [tableName, apiKeys] of toApply) {
+      try {
+        await API.request('POST', '/admin/dev/dfd-mappings', {
+          table_name: tableName,
+          api_keys: apiKeys,
+        });
+        success++;
+      } catch (_) { fail++; }
+    }
+
+    Modal.close();
+    if (fail === 0) {
+      Toast.success(`자동 추론 완료: ${success}개 테이블 매핑 저장됨`);
+    } else {
+      Toast.error(`${success}개 성공, ${fail}개 실패`);
+    }
+    await this.renderDFD();
   },
 
   _highlightDFD(id, type) {
