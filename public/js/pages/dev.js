@@ -1158,11 +1158,19 @@ const DevPage = {
           <!-- SVG 오버레이 (absolute, 엣지용) -->
           <svg id="dfd-svg" class="dfd-svg"></svg>
 
-          <!-- 헤더 행 (그리드 1행) -->
-          <div class="dfd-col-hdr dfd-hdr-page">🖥️ 화면 (Pages)</div>
-          <div class="dfd-col-hdr dfd-hdr-api">⚡ API 라우트</div>
-          <div class="dfd-col-hdr dfd-hdr-table">🗄️ DB 테이블</div>
-          <div class="dfd-col-hdr dfd-hdr-external">🌐 외부 서비스</div>
+          <!-- 헤더 행 (그리드 1행) — 각 카테고리 노드 수 배지 표시 -->
+          <div class="dfd-col-hdr dfd-hdr-page">
+            🖥️ 화면 (Pages) <span class="dfd-hdr-count">${mergedPages.length}</span>
+          </div>
+          <div class="dfd-col-hdr dfd-hdr-api">
+            ⚡ API 라우트 <span class="dfd-hdr-count">${mergedApis.length}</span>
+          </div>
+          <div class="dfd-col-hdr dfd-hdr-table">
+            🗄️ DB 테이블 <span class="dfd-hdr-count">${mergedTables.length}</span>
+          </div>
+          <div class="dfd-col-hdr dfd-hdr-external">
+            🌐 외부 서비스 <span class="dfd-hdr-count">${this.DFD.external.length}</span>
+          </div>
 
           <!-- 컬럼 행 (그리드 2행) -->
           <div class="dfd-col" id="dfd-col-pages">
