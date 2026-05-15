@@ -2120,6 +2120,498 @@ router.get('/dev/source-complexity', devOnly, (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// 소스 모니터 — 스냅샷 (추이 추적)
+//   POST /dev/source-snapshot        — 현재 stats/eslint/audit/complexity 캡처 → DB 저장
+//   GET  /dev/source-snapshots       — 최근 100개 스냅샷 시계열
+//   DELETE /dev/source-snapshots/:id — 단건 삭제
+// ─────────────────────────────────────────────────────────────
+router.post('/dev/source-snapshot', devOnly, async (req, res) => {
+  try {
+    const note = String(req.body?.note || '').slice(0, 200) || null;
+    const userId = req.user?.id || null;
+
+    // 캐시 우선 사용 (없으면 빈 값)
+    const stats = _complexityCache.data; // 복잡도 캐시
+    const elint = _eslintCache.data; // ESLint 캐시
+    const audit = _auditCache.data; // audit 캐시
+
+    // source-stats 는 매번 가벼우니 즉시 재계산 — 메인 통계는 항상 최신값으로 저장
+    // 헬퍼: 인라인 walk
+    const fs = require('fs');
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+
+    let totalFiles = 0,
+      totalLoc = 0,
+      totalSize = 0;
+    const byCategory = {};
+    const _walk = (dir, baseRel = '', depth = 0) => {
+      if (depth > 5) return;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (_) {
+        return;
+      }
+      for (const ent of entries) {
+        if (SRC_EXCLUDE_DIRS.has(ent.name) || ent.name.startsWith('.')) continue;
+        const full = path.join(dir, ent.name);
+        const rel = baseRel ? `${baseRel}/${ent.name}` : ent.name;
+        if (ent.isDirectory()) _walk(full, rel, depth + 1);
+        else {
+          const ext = path.extname(ent.name).toLowerCase();
+          if (!SRC_INCLUDE_EXT.has(ext)) continue;
+          let stat;
+          try {
+            stat = fs.statSync(full);
+          } catch (_) {
+            continue;
+          }
+          if (stat.size > 5 * 1024 * 1024) continue;
+          let content;
+          try {
+            content = fs.readFileSync(full, 'utf8');
+          } catch (_) {
+            continue;
+          }
+          const loc = content.split('\n').filter(l => l.trim().length > 0).length;
+          const cat = _categorizeSource(rel);
+          totalFiles++;
+          totalLoc += loc;
+          totalSize += stat.size;
+          if (!byCategory[cat]) byCategory[cat] = { files: 0, loc: 0 };
+          byCategory[cat].files++;
+          byCategory[cat].loc += loc;
+        }
+      }
+    };
+    _walk(projectRoot);
+
+    const totalFns = stats?.totals?.functions || null;
+    const avgCx = stats?.totals?.avg_complexity || null;
+    const maxCx = stats?.functions?.[0]?.complexity || null;
+    const cxOver10 = stats?.totals?.over_moderate ?? null;
+    const cxOver20 = stats?.totals?.over_complex ?? null;
+    const cxOver50 = stats?.totals?.over_very ?? null;
+
+    const elintErrors = elint?.totals?.errors ?? null;
+    const elintWarn = elint?.totals?.warnings ?? null;
+
+    const auditCrit = audit?.by_severity?.critical ?? null;
+    const auditHigh = audit?.by_severity?.high ?? null;
+    const auditMod = audit?.by_severity?.moderate ?? null;
+    const auditLow = audit?.by_severity?.low ?? null;
+    const auditTot = audit?.by_severity?.total ?? null;
+
+    const [r] = await pool.query(
+      `INSERT INTO source_monitor_snapshots
+        (total_files, total_loc, total_size,
+         total_functions, avg_complexity, max_complexity,
+         cx_over_10, cx_over_20, cx_over_50,
+         eslint_errors, eslint_warnings,
+         audit_critical, audit_high, audit_moderate, audit_low, audit_total,
+         categories_json, recorded_by, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        totalFiles,
+        totalLoc,
+        totalSize,
+        totalFns,
+        avgCx,
+        maxCx,
+        cxOver10,
+        cxOver20,
+        cxOver50,
+        elintErrors,
+        elintWarn,
+        auditCrit,
+        auditHigh,
+        auditMod,
+        auditLow,
+        auditTot,
+        JSON.stringify(byCategory),
+        userId,
+        note,
+      ]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        id: r.insertId,
+        totals: { files: totalFiles, loc: totalLoc, size: totalSize },
+        captured: {
+          complexity: !!stats,
+          eslint: !!elint,
+          audit: !!audit,
+        },
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get('/dev/source-snapshots', devOnly, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const [rows] = await pool.query(
+      `SELECT id, total_files, total_loc, total_size,
+              total_functions, avg_complexity, max_complexity,
+              cx_over_10, cx_over_20, cx_over_50,
+              eslint_errors, eslint_warnings,
+              audit_critical, audit_high, audit_moderate, audit_low, audit_total,
+              categories_json, recorded_at, recorded_by, note
+         FROM source_monitor_snapshots
+        ORDER BY recorded_at DESC
+        LIMIT ?`,
+      [limit]
+    );
+    // categories_json 파싱
+    const out = rows.map(r => {
+      let cats = null;
+      try {
+        cats = r.categories_json ? JSON.parse(r.categories_json) : null;
+      } catch (_) {
+        /* ignore */
+      }
+      return { ...r, categories: cats, categories_json: undefined };
+    });
+    res.json({ success: true, data: out });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.delete('/dev/source-snapshots/:id', devOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ success: false, error: '잘못된 id' });
+    await pool.query(`DELETE FROM source_monitor_snapshots WHERE id = ?`, [id]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 소스 모니터 — 리포트 생성 (JSON / HTML)
+//   GET /dev/source-report?format=json|html
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/source-report', devOnly, async (req, res) => {
+  try {
+    const format = (req.query.format || 'json').toLowerCase();
+
+    // 현재 캐시된 값을 모아 리포트 구성
+    const payload = {
+      generated_at: new Date().toISOString(),
+      project: 'oci-crm',
+      sections: {
+        stats: null, // source-stats 즉시 계산
+        complexity: _complexityCache.data || null,
+        eslint: _eslintCache.data || null,
+        audit: _auditCache.data || null,
+      },
+      recent_snapshots: [],
+    };
+
+    // 즉시 통계 계산
+    const fs = require('fs');
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+    let totalFiles = 0,
+      totalLoc = 0,
+      totalSize = 0;
+    const byCategory = {};
+    const _walk = (dir, baseRel = '', depth = 0) => {
+      if (depth > 5) return;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (_) {
+        return;
+      }
+      for (const ent of entries) {
+        if (SRC_EXCLUDE_DIRS.has(ent.name) || ent.name.startsWith('.')) continue;
+        const full = path.join(dir, ent.name);
+        const rel = baseRel ? `${baseRel}/${ent.name}` : ent.name;
+        if (ent.isDirectory()) _walk(full, rel, depth + 1);
+        else {
+          const ext = path.extname(ent.name).toLowerCase();
+          if (!SRC_INCLUDE_EXT.has(ext)) continue;
+          let stat;
+          try {
+            stat = fs.statSync(full);
+          } catch (_) {
+            continue;
+          }
+          if (stat.size > 5 * 1024 * 1024) continue;
+          let content;
+          try {
+            content = fs.readFileSync(full, 'utf8');
+          } catch (_) {
+            continue;
+          }
+          const loc = content.split('\n').filter(l => l.trim().length > 0).length;
+          const cat = _categorizeSource(rel);
+          totalFiles++;
+          totalLoc += loc;
+          totalSize += stat.size;
+          if (!byCategory[cat]) byCategory[cat] = { files: 0, loc: 0 };
+          byCategory[cat].files++;
+          byCategory[cat].loc += loc;
+        }
+      }
+    };
+    _walk(projectRoot);
+    payload.sections.stats = {
+      total_files: totalFiles,
+      total_loc: totalLoc,
+      total_size: totalSize,
+      by_category: byCategory,
+    };
+
+    // 최근 스냅샷 (시계열)
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, total_files, total_loc, total_functions, avg_complexity,
+                cx_over_10, cx_over_20, cx_over_50,
+                eslint_errors, eslint_warnings,
+                audit_critical, audit_high, audit_moderate, audit_low,
+                recorded_at, note
+           FROM source_monitor_snapshots
+          ORDER BY recorded_at DESC LIMIT 30`
+      );
+      payload.recent_snapshots = rows;
+    } catch (_) {
+      /* 테이블 없으면 무시 */
+    }
+
+    if (format === 'json') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="source-report-${Date.now()}.json"`
+      );
+      return res.send(JSON.stringify(payload, null, 2));
+    }
+
+    // HTML 리포트
+    const fmtBytes = b => {
+      if (b == null) return '-';
+      if (b < 1024) return `${b} B`;
+      if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+      return `${(b / 1024 / 1024).toFixed(2)} MB`;
+    };
+    const fmtNum = n => Number(n || 0).toLocaleString();
+    const escHtml = s =>
+      String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const cx = payload.sections.complexity;
+    const el = payload.sections.eslint;
+    const au = payload.sections.audit;
+    const cats = Object.entries(byCategory)
+      .map(([k, v]) => ({ name: k, ...v }))
+      .sort((a, b) => b.loc - a.loc);
+
+    const html = `<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+<title>Source Monitor Report — ${escHtml(new Date(payload.generated_at).toLocaleString('ko-KR'))}</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; color: #111; line-height: 1.5; }
+  h1 { font-size: 22px; border-bottom: 2px solid #e63329; padding-bottom: 6px; }
+  h2 { font-size: 17px; margin-top: 28px; color: #1f2937; border-left: 3px solid #e63329; padding-left: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+  th { background: #f9fafb; font-weight: 600; font-size: 11px; text-transform: uppercase; color: #6b7280; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 12px; }
+  .card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px; }
+  .card-label { font-size: 11px; color: #6b7280; text-transform: uppercase; }
+  .card-value { font-size: 22px; font-weight: 700; color: #111; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .meta { color: #6b7280; font-size: 12px; }
+  .red { color: #dc2626; } .orange { color: #f59e0b; } .green { color: #10b981; }
+</style></head><body>
+  <h1>📊 Source Monitor Report</h1>
+  <div class="meta">생성: ${escHtml(new Date(payload.generated_at).toLocaleString('ko-KR'))} · 프로젝트: ${escHtml(payload.project)}</div>
+
+  <h2>📦 코드베이스 통계</h2>
+  <div class="grid">
+    <div class="card"><div class="card-label">총 파일</div><div class="card-value">${fmtNum(totalFiles)}</div></div>
+    <div class="card"><div class="card-label">총 LOC</div><div class="card-value">${fmtNum(totalLoc)}</div></div>
+    <div class="card"><div class="card-label">총 용량</div><div class="card-value">${fmtBytes(totalSize)}</div></div>
+    <div class="card"><div class="card-label">카테고리</div><div class="card-value">${cats.length}</div></div>
+  </div>
+
+  <h3>카테고리 분포</h3>
+  <table>
+    <thead><tr><th>카테고리</th><th class="num">파일</th><th class="num">LOC</th><th class="num">%</th></tr></thead>
+    <tbody>
+      ${cats
+        .map(
+          c => `<tr>
+        <td>${escHtml(c.name)}</td>
+        <td class="num">${fmtNum(c.files)}</td>
+        <td class="num">${fmtNum(c.loc)}</td>
+        <td class="num">${((c.loc / totalLoc) * 100).toFixed(1)}%</td>
+      </tr>`
+        )
+        .join('')}
+    </tbody>
+  </table>
+
+  ${
+    cx?.available
+      ? `
+  <h2>🧠 복잡도 분석</h2>
+  <div class="grid">
+    <div class="card"><div class="card-label">총 함수</div><div class="card-value">${fmtNum(cx.totals.functions)}</div></div>
+    <div class="card"><div class="card-label">평균 복잡도</div><div class="card-value">${cx.totals.avg_complexity}</div></div>
+    <div class="card"><div class="card-label orange">> 10 (보통)</div><div class="card-value orange">${fmtNum(cx.totals.over_moderate)}</div></div>
+    <div class="card"><div class="card-label red">> 20 (복잡)</div><div class="card-value red">${fmtNum(cx.totals.over_complex)}</div></div>
+    <div class="card"><div class="card-label red">> 50 (매우복잡)</div><div class="card-value red">${fmtNum(cx.totals.over_very)}</div></div>
+  </div>
+  <h3>상위 20개 복잡 함수</h3>
+  <table>
+    <thead><tr><th class="num">CX</th><th>함수</th><th>위치</th><th class="num">줄</th><th class="num">깊이</th></tr></thead>
+    <tbody>
+      ${cx.functions
+        .slice(0, 20)
+        .map(
+          f => `<tr>
+        <td class="num"><strong class="${f.complexity > 20 ? 'red' : f.complexity > 10 ? 'orange' : 'green'}">${f.complexity}</strong></td>
+        <td><code>${escHtml(f.name || '(anon)')}</code></td>
+        <td><code>${escHtml(f.path)}:${f.startLine}</code></td>
+        <td class="num">${fmtNum(f.lines)}</td>
+        <td class="num">${f.depth}</td>
+      </tr>`
+        )
+        .join('')}
+    </tbody>
+  </table>
+  `
+      : ''
+  }
+
+  ${
+    el?.available
+      ? `
+  <h2>🔍 ESLint 품질</h2>
+  <div class="grid">
+    <div class="card"><div class="card-label red">오류</div><div class="card-value red">${fmtNum(el.totals.errors)}</div></div>
+    <div class="card"><div class="card-label orange">경고</div><div class="card-value orange">${fmtNum(el.totals.warnings)}</div></div>
+    <div class="card"><div class="card-label green">자동수정 가능</div><div class="card-value green">${fmtNum(el.totals.fixable)}</div></div>
+    <div class="card"><div class="card-label">이슈 있는 파일</div><div class="card-value">${fmtNum(el.totals.files_with_issues)}</div></div>
+  </div>
+  <h3>상위 15개 규칙별 위반</h3>
+  <table>
+    <thead><tr><th>규칙</th><th class="num">오류</th><th class="num">경고</th><th class="num">파일</th></tr></thead>
+    <tbody>
+      ${el.rules
+        .slice(0, 15)
+        .map(
+          r => `<tr>
+        <td><code>${escHtml(r.rule)}</code></td>
+        <td class="num red">${fmtNum(r.errors)}</td>
+        <td class="num orange">${fmtNum(r.warnings)}</td>
+        <td class="num">${fmtNum(r.files)}</td>
+      </tr>`
+        )
+        .join('')}
+    </tbody>
+  </table>
+  `
+      : ''
+  }
+
+  ${
+    au?.available
+      ? `
+  <h2>🔒 보안 (npm audit)</h2>
+  <div class="grid">
+    <div class="card"><div class="card-label red">치명적</div><div class="card-value red">${fmtNum(au.by_severity.critical)}</div></div>
+    <div class="card"><div class="card-label red">높음</div><div class="card-value red">${fmtNum(au.by_severity.high)}</div></div>
+    <div class="card"><div class="card-label orange">중간</div><div class="card-value orange">${fmtNum(au.by_severity.moderate)}</div></div>
+    <div class="card"><div class="card-label">낮음</div><div class="card-value">${fmtNum(au.by_severity.low)}</div></div>
+    <div class="card"><div class="card-label">합계</div><div class="card-value">${fmtNum(au.by_severity.total)}</div></div>
+  </div>
+  ${
+    au.packages.length > 0
+      ? `
+  <h3>취약 패키지 (상위 20)</h3>
+  <table>
+    <thead><tr><th>심각도</th><th>패키지</th><th>버전</th><th>직접</th><th>수정 가능</th></tr></thead>
+    <tbody>
+      ${au.packages
+        .slice(0, 20)
+        .map(
+          p => `<tr>
+        <td><span class="pill ${p.severity === 'critical' || p.severity === 'high' ? 'red' : p.severity === 'moderate' ? 'orange' : ''}">${escHtml(p.severity)}</span></td>
+        <td><code>${escHtml(p.name)}</code></td>
+        <td><code>${escHtml(p.range || '-')}</code></td>
+        <td>${p.is_direct ? '✓' : '-'}</td>
+        <td>${p.fixAvailable ? '✓' : '-'}</td>
+      </tr>`
+        )
+        .join('')}
+    </tbody>
+  </table>
+  `
+      : '<p class="green">✅ 취약점이 발견되지 않았습니다.</p>'
+  }
+  `
+      : ''
+  }
+
+  ${
+    payload.recent_snapshots.length > 0
+      ? `
+  <h2>📈 추이 (최근 30개 스냅샷)</h2>
+  <table>
+    <thead><tr><th>시각</th><th class="num">파일</th><th class="num">LOC</th><th class="num">함수</th><th class="num">평균 CX</th><th class="num">>20</th><th class="num">오류</th><th class="num">취약</th><th>메모</th></tr></thead>
+    <tbody>
+      ${payload.recent_snapshots
+        .map(
+          s => `<tr>
+        <td>${escHtml(new Date(s.recorded_at).toLocaleString('ko-KR'))}</td>
+        <td class="num">${fmtNum(s.total_files)}</td>
+        <td class="num">${fmtNum(s.total_loc)}</td>
+        <td class="num">${fmtNum(s.total_functions || 0)}</td>
+        <td class="num">${s.avg_complexity ?? '-'}</td>
+        <td class="num">${s.cx_over_20 ?? '-'}</td>
+        <td class="num red">${fmtNum(s.eslint_errors || 0)}</td>
+        <td class="num">${fmtNum((s.audit_critical || 0) + (s.audit_high || 0))}</td>
+        <td class="meta">${escHtml(s.note || '')}</td>
+      </tr>`
+        )
+        .join('')}
+    </tbody>
+  </table>
+  `
+      : ''
+  }
+
+  <p class="meta" style="margin-top:32px;border-top:1px solid #e5e7eb;padding-top:10px">
+    OCI CRM Source Monitor · 자동 생성 리포트
+  </p>
+</body></html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="source-report-${Date.now()}.html"`);
+    res.send(html);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/dev/external-deps', devOnly, (req, res) => {
   try {
     const fs = require('fs');

@@ -5672,6 +5672,55 @@ body,
   box-shadow: 0 2px 8px rgba(0,0,0,.06);
 }
 
+/* Trend — 스파크라인 카드 */
+.src-spark-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.src-spark-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.src-spark-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.src-spark-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.src-spark {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 2px;
+}
+.src-spark-delta {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+/* Trend 표의 작은 삭제 버튼 */
+.src-snap-del.btn-xs {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+
 /* 반응형 */
 @media (max-width: 900px) {
   .src-cat-row {

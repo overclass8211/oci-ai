@@ -213,6 +213,33 @@ async function initTables() {
       INDEX idx_recorded (recorded_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── 소스 모니터 스냅샷 (추이 추적용) ──────────────────────
+    // Phase 1-3 의 통계를 시계열로 저장 → 그래프/리포트 생성
+    await pool.query(`CREATE TABLE IF NOT EXISTS source_monitor_snapshots (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      total_files     INT NOT NULL DEFAULT 0,
+      total_loc       INT NOT NULL DEFAULT 0,
+      total_size      BIGINT NOT NULL DEFAULT 0,
+      total_functions INT NULL,
+      avg_complexity  DECIMAL(6,2) NULL,
+      max_complexity  INT NULL,
+      cx_over_10      INT NULL,
+      cx_over_20      INT NULL,
+      cx_over_50      INT NULL,
+      eslint_errors   INT NULL,
+      eslint_warnings INT NULL,
+      audit_critical  INT NULL,
+      audit_high      INT NULL,
+      audit_moderate  INT NULL,
+      audit_low       INT NULL,
+      audit_total     INT NULL,
+      categories_json TEXT NULL,    -- by_category 압축 JSON
+      recorded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      recorded_by     INT NULL,
+      note            VARCHAR(200) NULL,
+      INDEX idx_recorded (recorded_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
     const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
     for (const s of DEFAULT_SECTIONS) {

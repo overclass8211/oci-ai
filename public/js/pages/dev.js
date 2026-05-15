@@ -5441,7 +5441,8 @@ const DevPage = {
     eslint:  null,           // ESLint 결과 (lazy)
     audit:   null,           // npm audit 결과 (lazy)
     complexity: null,        // 복잡도 분석 결과 (lazy)
-    subTab:  'overview',     // overview | quality | security | complexity
+    snapshots: null,         // 시계열 스냅샷 (lazy)
+    subTab:  'overview',     // overview | quality | security | complexity | trend
     filter:  'all',          // 카테고리 필터
     search:  '',             // 경로 검색
     sort:    'loc-desc',     // loc-desc | loc-asc | size-desc | size-asc | path-asc
@@ -5523,6 +5524,7 @@ const DevPage = {
           <button class="src-subtab ${sub === 'quality'    ? 'active' : ''}" data-sub="quality">🔍 Quality (ESLint)</button>
           <button class="src-subtab ${sub === 'security'   ? 'active' : ''}" data-sub="security">🔒 Security (npm audit)</button>
           <button class="src-subtab ${sub === 'complexity' ? 'active' : ''}" data-sub="complexity">🧠 Complexity</button>
+          <button class="src-subtab ${sub === 'trend'      ? 'active' : ''}" data-sub="trend">📈 Trend & Report</button>
         </div>
         <div id="src-sub-content">
           <div class="loading" style="padding:60px;text-align:center">로딩 중...</div>
@@ -5548,6 +5550,7 @@ const DevPage = {
     else if (sub === 'quality')    await this._renderSrcQuality(host);
     else if (sub === 'security')   await this._renderSrcSecurity(host);
     else if (sub === 'complexity') await this._renderSrcComplexity(host);
+    else if (sub === 'trend')      await this._renderSrcTrend(host);
   },
 
   // (구) 단일-뷰 진입점 — Overview 서브 탭의 갱신을 위해 호출
@@ -6469,6 +6472,244 @@ const DevPage = {
         this._paintSrcComplexity(host);
       });
     });
+  },
+
+  // ─── Trend & Report 서브 탭 ──────────────────────────────
+  async _renderSrcTrend(host) {
+    host.innerHTML = '<div class="loading" style="padding:60px;text-align:center">스냅샷 불러오는 중...</div>';
+    try {
+      const r = await API.get('/admin/dev/source-snapshots?limit=100');
+      this.srcMonitor.snapshots = r.data || [];
+    } catch (e) {
+      host.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        스냅샷 불러오기 실패: ${esc(e.message || '')}
+      </div>`;
+      return;
+    }
+    this._paintSrcTrend(host);
+  },
+
+  // 간단한 SVG 스파크라인 — 외부 라이브러리 없이 그리기
+  _renderSparkline(values, opts = {}) {
+    const w = opts.width  || 260;
+    const h = opts.height || 56;
+    const pad = 4;
+    const stroke = opts.color || '#3b82f6';
+    if (!values || values.length === 0) {
+      return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><text x="${w/2}" y="${h/2}" text-anchor="middle" fill="#94a3b8" font-size="10">데이터 없음</text></svg>`;
+    }
+    const nums = values.map(v => Number(v ?? 0));
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    const range = max - min || 1;
+    const xs = w - pad * 2;
+    const ys = h - pad * 2;
+    const points = nums.map((v, i) => {
+      const x = pad + (nums.length === 1 ? xs / 2 : (i / (nums.length - 1)) * xs);
+      const y = pad + (1 - (v - min) / range) * ys;
+      return [x, y];
+    });
+    const path = points.map((p, i) => (i === 0 ? `M${p[0].toFixed(1)} ${p[1].toFixed(1)}` : `L${p[0].toFixed(1)} ${p[1].toFixed(1)}`)).join(' ');
+    const areaPath = path + ` L${points[points.length - 1][0].toFixed(1)} ${h - pad} L${points[0][0].toFixed(1)} ${h - pad} Z`;
+    const last = points[points.length - 1];
+    return `
+      <svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" class="src-spark">
+        <path d="${areaPath}" fill="${stroke}" opacity="0.12"/>
+        <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+        <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.5" fill="${stroke}"/>
+        <title>min ${min} · max ${max} · 최근 ${nums[nums.length - 1]}</title>
+      </svg>
+    `;
+  },
+
+  _paintSrcTrend(host) {
+    const snaps = this.srcMonitor.snapshots || [];
+
+    // 시계열 그리기: 오래된 → 최근 순으로 (현재 DESC 정렬 → 역순)
+    const series = [...snaps].reverse();
+
+    const sparks = [
+      { key: 'total_files',     label: '파일 수',       color: '#3b82f6', fmt: v => Number(v).toLocaleString() },
+      { key: 'total_loc',       label: '총 LOC',        color: '#0ea5e9', fmt: v => Number(v).toLocaleString() },
+      { key: 'total_functions', label: '총 함수',       color: '#10b981', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
+      { key: 'avg_complexity',  label: '평균 복잡도',   color: '#8b5cf6', fmt: v => v == null ? '-' : Number(v).toFixed(1) },
+      { key: 'cx_over_20',      label: '복잡 함수 (>20)', color: '#ef4444', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
+      { key: 'eslint_errors',   label: 'ESLint 오류',   color: '#dc2626', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
+      { key: 'eslint_warnings', label: 'ESLint 경고',   color: '#f59e0b', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
+      { key: 'audit_total',     label: '취약점 합계',   color: '#a855f7', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
+    ];
+
+    host.innerHTML = `
+      <div class="dev-section-header">
+        <div>
+          <h3 style="margin:0;font-size:15px">📈 추이 & 리포트</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
+            스냅샷 ${Fmt.number(snaps.length)}개 ·
+            ${snaps.length > 0 ? `최근 ${esc(new Date(snaps[0].recorded_at).toLocaleString('ko-KR'))}` : '아직 캡처된 스냅샷이 없습니다'}
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-primary" id="src-snap-capture">📸 지금 스냅샷</button>
+          <button class="btn btn-sm btn-secondary" id="src-report-json">📄 JSON 리포트</button>
+          <button class="btn btn-sm btn-secondary" id="src-report-html">📑 HTML 리포트</button>
+        </div>
+      </div>
+
+      ${snaps.length === 0 ? `
+        <div class="card" style="margin-top:12px">
+          <div class="card-body" style="text-align:center;padding:60px 20px">
+            <div style="font-size:48px;opacity:.3;margin-bottom:12px">📊</div>
+            <h3 style="margin:0 0 6px;font-size:15px">아직 스냅샷이 없습니다</h3>
+            <p style="margin:0;color:var(--text-3);font-size:13px">
+              위쪽 <strong>📸 지금 스냅샷</strong> 버튼으로 현재 상태를 저장하세요.<br>
+              저장된 스냅샷으로 시간 흐름에 따른 추이를 시각화합니다.
+            </p>
+          </div>
+        </div>
+      ` : `
+        <div class="src-spark-grid">
+          ${sparks.map(s => {
+            const values = series.map(p => p[s.key]);
+            const last = values[values.length - 1];
+            const first = values.find(v => v != null);
+            const delta = (last != null && first != null) ? (last - first) : null;
+            const trend = delta == null ? '' : (delta > 0 ? '▲' : (delta < 0 ? '▼' : '—'));
+            const trendColor = delta == null ? 'var(--text-3)' :
+              (s.key === 'total_loc' || s.key === 'total_files' || s.key === 'total_functions'
+                ? (delta > 0 ? '#10b981' : '#94a3b8')   // 증가는 긍정
+                : (delta > 0 ? '#ef4444' : '#10b981')); // 감소가 긍정
+            return `
+              <div class="src-spark-card">
+                <div class="src-spark-label">${esc(s.label)}</div>
+                <div class="src-spark-value">${esc(s.fmt(last))}</div>
+                ${this._renderSparkline(values, { color: s.color, width: 240, height: 50 })}
+                <div class="src-spark-delta" style="color:${trendColor}">
+                  ${trend} ${delta != null ? esc(s.fmt(Math.abs(delta))) : '-'} (${series.length}개)
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <div class="card-header">
+            <div class="card-title">📋 스냅샷 이력 (${Fmt.number(snaps.length)})</div>
+          </div>
+          <div class="card-body" style="padding:0">
+            <table class="data-table src-file-table">
+              <thead>
+                <tr>
+                  <th style="width:140px">시각</th>
+                  <th style="width:70px;text-align:right">파일</th>
+                  <th style="width:90px;text-align:right">LOC</th>
+                  <th style="width:70px;text-align:right">함수</th>
+                  <th style="width:70px;text-align:right">평균 CX</th>
+                  <th style="width:50px;text-align:right">>20</th>
+                  <th style="width:60px;text-align:right">오류</th>
+                  <th style="width:60px;text-align:right">취약</th>
+                  <th>메모</th>
+                  <th style="width:50px"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${snaps.map(s => `
+                  <tr data-snap-id="${s.id}">
+                    <td style="font-size:11px">${esc(new Date(s.recorded_at).toLocaleString('ko-KR'))}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums">${Fmt.number(s.total_files)}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums">${Fmt.number(s.total_loc)}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums">${s.total_functions != null ? Fmt.number(s.total_functions) : '-'}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums">${s.avg_complexity ?? '-'}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums;${(s.cx_over_20 || 0) > 0 ? 'color:#ef4444' : 'color:var(--text-3)'}">${s.cx_over_20 ?? '-'}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums;${(s.eslint_errors || 0) > 0 ? 'color:#ef4444;font-weight:600' : 'color:var(--text-3)'}">${s.eslint_errors ?? '-'}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums;${((s.audit_critical||0)+(s.audit_high||0)) > 0 ? 'color:#dc2626;font-weight:600' : 'color:var(--text-3)'}">${((s.audit_critical||0)+(s.audit_high||0)) || (s.audit_total ?? '-')}</td>
+                    <td style="font-size:11px;color:var(--text-2)">${esc(s.note || '')}</td>
+                    <td><button class="btn btn-xs btn-danger src-snap-del" data-id="${s.id}" title="삭제">✕</button></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `}
+    `;
+
+    // 이벤트
+    document.getElementById('src-snap-capture')?.addEventListener('click', async () => {
+      Modal.open({
+        title: '📸 스냅샷 캡처',
+        body: `
+          <p style="margin:0 0 8px;font-size:13px;color:var(--text-2)">
+            현재 시점의 통계를 저장합니다. 캐시된 ESLint/audit/complexity 데이터가 함께 기록됩니다.<br>
+            <span style="color:var(--text-3);font-size:11px">※ 최신 데이터를 원하면 먼저 각 탭에서 새로고침하세요.</span>
+          </p>
+          <input type="text" id="snap-note" class="form-input" maxlength="200"
+                 placeholder="메모 (선택, 예: '리팩토링 직전', 'v1.2 릴리즈')">
+        `,
+        footer: `
+          <button class="btn btn-secondary" id="snap-cancel">취소</button>
+          <button class="btn btn-primary" id="snap-ok">캡처</button>
+        `,
+        bind: {
+          '#snap-cancel': () => Modal.close(),
+          '#snap-ok': async () => {
+            const note = document.getElementById('snap-note')?.value?.trim() || '';
+            try {
+              const r = await API.post('/admin/dev/source-snapshot', { note });
+              Modal.close();
+              Toast?.show?.(`스냅샷 #${r.data.id} 저장됨`, 'success');
+              await this._renderSrcTrend(host);
+            } catch (e) {
+              Toast?.show?.(`실패: ${e.message}`, 'error');
+            }
+          },
+        },
+      });
+    });
+
+    document.getElementById('src-report-json')?.addEventListener('click', () => {
+      this._downloadSrcReport('json');
+    });
+    document.getElementById('src-report-html')?.addEventListener('click', () => {
+      this._downloadSrcReport('html');
+    });
+
+    document.querySelectorAll('.src-snap-del').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.id;
+        if (!confirm('이 스냅샷을 삭제하시겠습니까?')) return;
+        try {
+          await API.del(`/admin/dev/source-snapshots/${id}`);
+          Toast?.show?.('스냅샷 삭제됨', 'success');
+          await this._renderSrcTrend(host);
+        } catch (err) {
+          Toast?.show?.(`삭제 실패: ${err.message}`, 'error');
+        }
+      });
+    });
+  },
+
+  // 인증된 다운로드 (Bearer 토큰 포함) — JSON/HTML 리포트
+  async _downloadSrcReport(format) {
+    try {
+      const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '';
+      const resp = await fetch(`/api/admin/dev/source-report?format=${format}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `source-report-${Date.now()}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      Toast?.show?.(`${format.toUpperCase()} 리포트 다운로드 완료`, 'success');
+    } catch (e) {
+      Toast?.show?.(`다운로드 실패: ${e.message}`, 'error');
+    }
   },
 
   // ══════════════════════════════════════════════════════════
