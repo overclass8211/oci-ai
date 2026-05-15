@@ -3791,45 +3791,85 @@ const DevPage = {
   },
 
   // [스키마 동기화] 버튼 클릭 시 실행
+  //
+  // 변경 감지 흐름 (영구 스냅샷 기반):
+  //   1) DB 에 저장된 마지막 스냅샷 fetch
+  //   2) 현재 DB 스키마 fetch (refresh=1)
+  //   3) 두 스냅 비교 → 변경 분석
+  //   4) 변경 있으면 schema_change_log 에 기록
+  //   5) 현재 스냅을 DB 에 저장 (is_first=true 면 백필 모드)
+  //
+  // 메모리 기반 _lastSnap 의 문제 (페이지 새로고침 시 초기화) 해결.
   async _syncSchema() {
     if (this.activeTab !== 'schema') return;
     this._setSyncBtnState('syncing');
 
-    const oldSnap = this.schemaMap._lastSnap
-      ? JSON.parse(JSON.stringify(this.schemaMap._lastSnap))
-      : null;
+    // 1) DB 에 저장된 마지막 스냅샷 가져오기
+    let dbSnap = null;
+    let isFirstEverSync = false;
+    try {
+      const r = await API.get('/admin/dev/schema/snapshot/latest');
+      if (r.data && r.data.snapshot) dbSnap = r.data.snapshot;
+      else isFirstEverSync = true;
+    } catch (e) {
+      console.warn('DB 스냅샷 fetch 실패 — 메모리 fallback:', e.message);
+      dbSnap = this.schemaMap._lastSnap || null;
+      isFirstEverSync = !dbSnap;
+    }
 
-    // 서버 캐시 우회하여 최신 스키마 fetch
+    // 2) 현재 DB 스키마 fetch (서버 캐시 우회)
     await this._takeSchemaSnap();
-    const changes = oldSnap
-      ? this._analyzeSchemaChanges(oldSnap, this.schemaMap._lastSnap)
+    const currentSnap = this.schemaMap._lastSnap;
+
+    // 3) 변경 분석 (dbSnap 가 있을 때만)
+    const changes = dbSnap
+      ? this._analyzeSchemaChanges(dbSnap, currentSnap)
       : [];
 
-    // 스키마 데이터 갱신
+    // 스키마 데이터 갱신 (인덱스/FK 등 포함)
     await this.loadSchema();
 
+    // 4) 변경 이력 기록 (있을 때만)
+    let recordedCount = 0;
     if (changes.length > 0) {
-      // 변경된 테이블 drift 하이라이트
       const changedTables = [...new Set(changes.map(c => c.table))];
       this.schemaMap._driftTables = new Set(changedTables);
       this._markDriftNodes(changedTables);
       this._showImpactPanel(changes);
-      // 카드 뷰도 갱신
       this._refreshSchemaListView();
-
-      // 변경 이력 영구 저장 (공통 헬퍼 사용)
       try {
-        const r = await this._recordSchemaChanges(changes, oldSnap, this.schemaMap._lastSnap);
-        if (r.recorded > 0) {
-          Toast.success(`📜 변경 이력 ${r.recorded}건 기록됨`);
-        }
+        const r = await this._recordSchemaChanges(changes, dbSnap, currentSnap);
+        recordedCount = r.recorded || 0;
       } catch (e) {
         console.warn('스키마 이력 기록 실패:', e.message);
       }
     } else {
-      // 변경 없음 — drift 초기화
       this.schemaMap._driftTables = new Set();
       this._clearDriftNodes();
+    }
+
+    // 5) 새 스냅샷을 DB 에 저장 (is_first 면 백필 자동 수행)
+    let backfilled = 0;
+    try {
+      const r = await API.post('/admin/dev/schema/snapshot', {
+        snapshot: currentSnap,
+        is_first: isFirstEverSync,
+      });
+      backfilled = r.backfilled || 0;
+    } catch (e) {
+      console.warn('스냅샷 저장 실패:', e.message);
+    }
+
+    // 6) 결과 토스트
+    const parts = [];
+    if (backfilled > 0) parts.push(`📥 백필 ${backfilled}건`);
+    if (recordedCount > 0) parts.push(`📜 변경 ${recordedCount}건 기록`);
+    if (parts.length > 0) {
+      Toast.success('스키마 동기화: ' + parts.join(' · '));
+    } else if (isFirstEverSync) {
+      Toast.info('스키마 동기화: baseline 저장 완료 (변경 없음)');
+    } else {
+      Toast.info('스키마 동기화: 변경 없음');
     }
 
     // 연관도 표시 중이면 노드 재렌더
@@ -3837,13 +3877,12 @@ const DevPage = {
       this._drawSchemaNodes();
       requestAnimationFrame(() => requestAnimationFrame(() => {
         this._drawSchemaEdges();
-        // 재렌더 후 drift 재적용 (drawSchemaNodes가 클래스를 초기화하므로)
         this._markDriftNodes([...this.schemaMap._driftTables]);
       }));
     }
 
     this.schemaMap._pendingChanges = [];
-    this._setSyncBtnState(changes.length > 0 ? 'changed' : 'clean');
+    this._setSyncBtnState(changes.length > 0 || backfilled > 0 ? 'changed' : 'clean');
   },
 
   // 변경된 테이블의 노드·카드에 .schema-drift 클래스 추가

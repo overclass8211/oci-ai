@@ -2282,6 +2282,84 @@ router.post('/dev/error-logs/auto-classify', devOnly, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+// 스키마 스냅샷 영구 저장 (페이지 새로고침/서버 재시작 견딤)
+//   GET  /dev/schema/snapshot/latest   — 마지막 스냅샷 조회
+//   POST /dev/schema/snapshot          — 새 스냅샷 저장 + 백필
+//                                         body: { snapshot, is_first }
+//                                         is_first=true 면 backfill 모드:
+//                                           current 의 모든 테이블 중
+//                                           schema_change_log 에 한 번도 등장
+//                                           안 한 테이블을 'new_table' 로 기록
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/schema/snapshot/latest', devOnly, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, snapshot_json, recorded_at FROM schema_snapshots ORDER BY id DESC LIMIT 1`
+    );
+    if (rows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+    const row = rows[0];
+    let snapshot = null;
+    try {
+      snapshot = JSON.parse(row.snapshot_json);
+    } catch (_) {
+      snapshot = null;
+    }
+    res.json({ success: true, data: { id: row.id, snapshot, recorded_at: row.recorded_at } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post('/dev/schema/snapshot', devOnly, async (req, res) => {
+  try {
+    const { snapshot, is_first } = req.body || {};
+    if (!snapshot || typeof snapshot !== 'object') {
+      return res.status(400).json({ success: false, error: 'snapshot 객체 필요' });
+    }
+    let backfilled = 0;
+    if (is_first === true) {
+      // 백필: schema_change_log 에 한 번도 등장하지 않은 테이블 식별 → 기록
+      const [logged] = await pool.query(
+        `SELECT DISTINCT table_name FROM schema_change_log WHERE table_name IS NOT NULL`
+      );
+      const loggedSet = new Set(logged.map(r => r.table_name));
+      const currentTables = Object.keys(snapshot);
+      const untracked = currentTables.filter(t => !loggedSet.has(t));
+      if (untracked.length > 0) {
+        for (const t of untracked) {
+          await pool.query(
+            `INSERT INTO schema_change_log
+               (change_type, table_name, column_name, risk, message, mitigation,
+                before_def, after_def, detected_by)
+             VALUES ('new_table', ?, NULL, 'LOW',
+                     CONCAT('신규 테이블 감지(백필): ', ?),
+                     '백필: 영구 스냅샷 도입 이전에 추가된 테이블이 후행 기록됨. 관련 API/페이지 매핑 점검 권장.',
+                     NULL, NULL, ?)`,
+            [t, t, req.user?.id || null]
+          );
+          backfilled++;
+        }
+      }
+    }
+    // 새 스냅샷 저장 (최근 10개만 유지)
+    await pool.query(`INSERT INTO schema_snapshots (snapshot_json, recorded_by) VALUES (?, ?)`, [
+      JSON.stringify(snapshot),
+      req.user?.id || null,
+    ]);
+    await pool.query(`
+      DELETE FROM schema_snapshots WHERE id NOT IN (
+        SELECT id FROM (SELECT id FROM schema_snapshots ORDER BY id DESC LIMIT 10) t
+      )
+    `);
+    res.json({ success: true, backfilled });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // POST /api/admin/dev/schema/history  — 스키마 변경 이력 기록
 //   body: { changes: [{ type, table, col, risk, msg, mitigation, before, after }] }
 // ══════════════════════════════════════════════════════════════

@@ -203,6 +203,16 @@ async function initTables() {
       dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── 스키마 스냅샷 영구 저장 (변경 이력 비교 baseline) ──────────
+    // 메모리 기반 _lastSnap 의 단점(페이지 새로고침 시 초기화) 해결
+    await pool.query(`CREATE TABLE IF NOT EXISTS schema_snapshots (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      snapshot_json LONGTEXT NOT NULL,
+      recorded_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      recorded_by   INT NULL,
+      INDEX idx_recorded (recorded_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
     const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
     for (const s of DEFAULT_SECTIONS) {
