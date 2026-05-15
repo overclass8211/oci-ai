@@ -505,17 +505,83 @@ const DevPage = {
       });
     });
 
-    // 다운로드 버튼
-    document.getElementById('apidoc-dl-json')?.addEventListener('click', () => {
-      window.open('/api/admin/dev/openapi/spec', '_blank');
-    });
-    document.getElementById('apidoc-dl-html')?.addEventListener('click', () => {
-      window.open('/api/admin/dev/openapi/export/html', '_blank');
-    });
-    document.getElementById('apidoc-dl-pdf')?.addEventListener('click', () => {
-      Toast.info('PDF 다운로드는 HTML 페이지에서 "PDF로 저장" (Ctrl+P) 을 사용하세요.');
-      window.open('/api/admin/dev/openapi/export/html', '_blank');
-    });
+    // 다운로드 버튼 — fetch + blob 으로 인증 토큰 전달
+    document.getElementById('apidoc-dl-json')?.addEventListener('click',
+      () => this._downloadOpenApi('json'));
+    document.getElementById('apidoc-dl-html')?.addEventListener('click',
+      () => this._downloadOpenApi('html'));
+    document.getElementById('apidoc-dl-pdf')?.addEventListener('click',
+      () => this._downloadOpenApi('pdf'));
+  },
+
+  /**
+   * OpenAPI 스펙 다운로드 — JSON / HTML / PDF
+   * window.open() 은 인증 헤더 미전송 → fetch 로 직접 받아 blob 변환
+   */
+  async _downloadOpenApi(format) {
+    const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
+    if (!token) {
+      Toast.error('로그인이 필요합니다');
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const config = {
+      json: {
+        url:      '/api/admin/dev/openapi/spec?download=1',
+        filename: `openapi-spec-${today}.json`,
+        view:     false,
+      },
+      html: {
+        url:      '/api/admin/dev/openapi/export/html?download=1',
+        filename: `api-docs-${today}.html`,
+        view:     false,
+      },
+      pdf: {
+        // PDF 는 HTML 을 새 탭에서 열고 사용자가 Ctrl+P (서버 의존성 회피)
+        url:      '/api/admin/dev/openapi/export/html',
+        filename: null,
+        view:     true,
+      },
+    };
+    const cfg = config[format];
+    if (!cfg) return;
+
+    try {
+      const res = await fetch(cfg.url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`서버 응답 오류 ${res.status}${txt ? ': ' + txt.slice(0, 200) : ''}`);
+      }
+      const blob = await res.blob();
+
+      if (cfg.view) {
+        // PDF: HTML 을 새 탭에 표시 → 사용자가 인쇄로 PDF 저장
+        const blobUrl = URL.createObjectURL(blob);
+        const w = window.open(blobUrl, '_blank');
+        if (!w) {
+          Toast.error('팝업 차단됨 — 팝업을 허용한 뒤 다시 시도해주세요.');
+        } else {
+          Toast.info('새 탭에서 Ctrl+P 로 PDF 저장하세요.');
+        }
+        // 메모리 정리 (잠시 후)
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      } else {
+        // 파일 다운로드 — <a download> 트리거
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = cfg.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        Toast.success(`${format.toUpperCase()} 파일 다운로드 완료`);
+      }
+    } catch (e) {
+      Toast.error('다운로드 실패: ' + (e.message || ''));
+    }
   },
 
   _showOperationDetail(op) {
