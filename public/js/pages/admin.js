@@ -597,9 +597,12 @@ const AdminPage = {
         desc: '로컬 파일시스템 정상'
       },
       {
+        // 이 앱은 native `ws` 라이브러리 사용 (Socket.IO 아님) — App.socket.readyState 로 판정
         name: 'WebSocket',
-        ok: typeof io !== 'undefined',
-        desc: typeof io !== 'undefined' ? 'Socket.IO 연결 활성' : 'Socket.IO 비활성'
+        ok: typeof App !== 'undefined' && App.socket?.readyState === 1,
+        desc: (typeof App !== 'undefined' && App.socket?.readyState === 1)
+          ? `WebSocket 연결 활성${d.ws_connections != null ? ` · 활성 클라이언트 ${d.ws_connections}개` : ''}`
+          : 'WebSocket 연결 끊김 또는 미초기화'
       }
     ];
 

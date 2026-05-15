@@ -1,26 +1,44 @@
 const router = require('express').Router();
-const pool   = require('../db');
+const pool = require('../db');
 const { handleError, friendlyError } = require('../middleware/errorHandler');
 const { getClientCount } = require('../ws');
 const { genAI, MODEL_FAST, SAFETY_SETTINGS } = require('../services/gemini');
 
 // ── DB 자동 마이그레이션 ───────────────────────────────────────
-pool.query(`
+pool
+  .query(
+    `
   CREATE TABLE IF NOT EXISTS announcement_views (
     announcement_id INT NOT NULL,
     viewer_id       INT NOT NULL,
     viewed_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (announcement_id, viewer_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-`).catch(() => {});
+`
+  )
+  .catch(() => {});
 
 // 토큰 자동충전 설정 컬럼
-pool.query(`ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_enabled   TINYINT(1) DEFAULT 0`).catch(()=>{});
-pool.query(`ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_threshold INT DEFAULT 80 COMMENT '% 사용시 충전 트리거'`).catch(()=>{});
-pool.query(`ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_amount    INT DEFAULT 100000 COMMENT '1회 충전 토큰 수'`).catch(()=>{});
+pool
+  .query(
+    `ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_enabled   TINYINT(1) DEFAULT 0`
+  )
+  .catch(() => {});
+pool
+  .query(
+    `ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_threshold INT DEFAULT 80 COMMENT '% 사용시 충전 트리거'`
+  )
+  .catch(() => {});
+pool
+  .query(
+    `ALTER TABLE team_members ADD COLUMN IF NOT EXISTS auto_recharge_amount    INT DEFAULT 100000 COMMENT '1회 충전 토큰 수'`
+  )
+  .catch(() => {});
 
 // 토큰 충전 로그
-pool.query(`
+pool
+  .query(
+    `
   CREATE TABLE IF NOT EXISTS token_recharge_log (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     user_id         INT         NOT NULL,
@@ -31,7 +49,9 @@ pool.query(`
     created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_user_date (user_id, created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-`).catch(()=>{});
+`
+  )
+  .catch(() => {});
 
 // GET /api/admin/users — 사용자 목록 (404 패턴 해소)
 router.get('/users', async (req, res) => {
@@ -42,40 +62,77 @@ router.get('/users', async (req, res) => {
        ORDER BY is_active DESC, name ASC`
     );
     res.json({ success: true, data: rows });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/stats', async (req, res) => {
   try {
-    const [[teamRow]] = await pool.query('SELECT COUNT(*) AS cnt FROM team_members WHERE is_active=1');
-    const [[logRow]]  = await pool.query(`SELECT COUNT(*) AS cnt FROM access_logs WHERE DATE(created_at)=CURRENT_DATE()`);
+    const [[teamRow]] = await pool.query(
+      'SELECT COUNT(*) AS cnt FROM team_members WHERE is_active=1'
+    );
+    const [[logRow]] = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM access_logs WHERE DATE(created_at)=CURRENT_DATE()`
+    );
     const [[leadRow]] = await pool.query('SELECT COUNT(*) AS cnt FROM leads');
-    const [[actRow]]  = await pool.query('SELECT COUNT(*) AS cnt FROM activities');
-    const uptimeHours = Math.floor(process.uptime() / 3600);
-    const uptimeMin   = Math.floor((process.uptime() % 3600) / 60);
+    const [[actRow]] = await pool.query('SELECT COUNT(*) AS cnt FROM activities');
+
+    // DB 크기 조회 (information_schema) — 헬스체크 + 통계 카드용
+    let dbSizeMb = null;
+    try {
+      const [[sizeRow]] = await pool.query(`
+        SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS size_mb
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+      `);
+      dbSizeMb = sizeRow?.size_mb ?? null;
+    } catch (_) {
+      /* DB 권한 부족 등으로 실패 시 null — 헬스체크에서 '이상' 표시 */
+    }
+
+    const uptimeSec = process.uptime();
+    const uptimeHours = Math.floor(uptimeSec / 3600);
+    const uptimeMin = Math.floor((uptimeSec % 3600) / 60);
+
     res.json({
       success: true,
       data: {
-        total_team:       teamRow.cnt,
-        api_calls_today:  logRow.cnt,
-        total_leads:      leadRow.cnt,
+        // 사용자 수 — UI 호환 위해 두 필드 모두 제공
+        total_team: teamRow.cnt,
+        total_users: teamRow.cnt,
+        // API 호출
+        api_calls_today: logRow.cnt,
+        // 도메인 카운터
+        total_leads: leadRow.cnt,
         total_activities: actRow.cnt,
-        uptime:           `${uptimeHours}시간 ${uptimeMin}분`,
-        ws_connections:   getClientCount(),
-        node_version:     process.version,
-        memory_mb:        Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
-      }
+        // DB 크기 (MB)
+        db_size_mb: dbSizeMb,
+        // 가동 시간 — 문자열 + 숫자 둘 다 제공
+        uptime: `${uptimeHours}시간 ${uptimeMin}분`,
+        uptime_hours: uptimeSec / 3600,
+        // 런타임
+        ws_connections: getClientCount(),
+        node_version: process.version,
+        memory_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      },
     });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/settings', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT setting_key, setting_value FROM system_settings');
     const data = {};
-    rows.forEach(r => { data[r.setting_key] = r.setting_value; });
+    rows.forEach(r => {
+      data[r.setting_key] = r.setting_value;
+    });
     res.json({ success: true, data });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.put('/settings', async (req, res) => {
@@ -85,16 +142,20 @@ router.put('/settings', async (req, res) => {
       await pool.query(
         `INSERT INTO system_settings (setting_key, setting_value) VALUES (?,?)
          ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-        [key, String(value)]);
+        [key, String(value)]
+      );
     }
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/token-usage-by-user', async (req, res) => {
   try {
     const [[def]] = await pool.query(
-      `SELECT setting_value FROM system_settings WHERE setting_key = 'default_monthly_token_limit'`);
+      `SELECT setting_value FROM system_settings WHERE setting_key = 'default_monthly_token_limit'`
+    );
     const defaultLimit = def ? parseInt(def.setting_value) : 0;
     const [rows] = await pool.query(`
       SELECT t.id, t.name, t.role, t.email, t.monthly_token_limit,
@@ -102,34 +163,50 @@ router.get('/token-usage-by-user', async (req, res) => {
         COALESCE((SELECT COUNT(*) FROM ai_usage WHERE user_id=t.id AND YEAR(created_at)=YEAR(CURRENT_DATE()) AND MONTH(created_at)=MONTH(CURRENT_DATE())), 0) AS calls_this_month
       FROM team_members t WHERE t.is_active=1 ORDER BY used_this_month DESC, t.name`);
     res.json({ success: true, data: rows, defaultLimit });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.patch('/team-members/:id/token-limit', async (req, res) => {
   try {
     const { monthly_token_limit } = req.body;
-    const limit = monthly_token_limit === '' || monthly_token_limit == null
-      ? null : parseInt(monthly_token_limit);
-    await pool.query('UPDATE team_members SET monthly_token_limit=? WHERE id=?', [limit, req.params.id]);
+    const limit =
+      monthly_token_limit === '' || monthly_token_limit == null
+        ? null
+        : parseInt(monthly_token_limit);
+    await pool.query('UPDATE team_members SET monthly_token_limit=? WHERE id=?', [
+      limit,
+      req.params.id,
+    ]);
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/access-logs', async (req, res) => {
   try {
-    const limit  = parseInt(req.query.limit)  || 100;
+    const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
-    const [rows]   = await pool.query('SELECT * FROM access_logs ORDER BY created_at DESC LIMIT ? OFFSET ?', [limit, offset]);
+    const [rows] = await pool.query(
+      'SELECT * FROM access_logs ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [limit, offset]
+    );
     const [[total]] = await pool.query('SELECT COUNT(*) AS cnt FROM access_logs');
     res.json({ success: true, data: rows, total: total.cnt });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.delete('/access-logs', async (req, res) => {
   try {
     await pool.query('DELETE FROM access_logs');
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/team-stats', async (req, res) => {
@@ -141,7 +218,9 @@ router.get('/team-stats', async (req, res) => {
         (SELECT MAX(performed_at) FROM activities WHERE performed_by=t.id) AS last_active
       FROM team_members t WHERE t.is_active=1 ORDER BY t.name`);
     res.json({ success: true, data: rows });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/daily-logs', async (req, res) => {
@@ -151,7 +230,9 @@ router.get('/daily-logs', async (req, res) => {
       FROM access_logs WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
       GROUP BY day ORDER BY day ASC`);
     res.json({ success: true, data: rows });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/top-paths', async (req, res) => {
@@ -160,14 +241,16 @@ router.get('/top-paths', async (req, res) => {
       SELECT path, COUNT(*) AS cnt, ROUND(AVG(duration_ms)) AS avg_ms
       FROM access_logs GROUP BY path ORDER BY cnt DESC LIMIT 10`);
     res.json({ success: true, data: rows });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── 게시판 통계 (월별/조직별) ──────────────────────────────────
 router.get('/board-stats', async (req, res) => {
   try {
-    const year  = parseInt(req.query.year)  || new Date().getFullYear();
-    const month = parseInt(req.query.month) || (new Date().getMonth() + 1);
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const month = parseInt(req.query.month) || new Date().getMonth() + 1;
 
     // ① 팀원 전체 목록 (role=본부 구분, team=팀 구분)
     const [members] = await pool.query(
@@ -204,49 +287,54 @@ router.get('/board-stats', async (req, res) => {
     );
 
     // 맵 변환
-    const postMap    = Object.fromEntries(posts.map(r    => [r.member_id, Number(r.cnt)]));
+    const postMap = Object.fromEntries(posts.map(r => [r.member_id, Number(r.cnt)]));
     const commentMap = Object.fromEntries(comments.map(r => [r.member_id, Number(r.cnt)]));
-    const viewMap    = Object.fromEntries(views.map(r    => [r.member_id, Number(r.cnt)]));
+    const viewMap = Object.fromEntries(views.map(r => [r.member_id, Number(r.cnt)]));
 
     // 팀원별 집계
     const memberStats = members.map(m => ({
-      id:       m.id,
-      name:     m.name,
-      role:     m.role || '미지정',
-      team:     m.team || '미지정',
-      posts:    postMap[m.id]    || 0,
+      id: m.id,
+      name: m.name,
+      role: m.role || '미지정',
+      team: m.team || '미지정',
+      posts: postMap[m.id] || 0,
       comments: commentMap[m.id] || 0,
-      views:    viewMap[m.id]    || 0,
+      views: viewMap[m.id] || 0,
     }));
 
     // 팀별 소계
     const teamMap2 = {};
     memberStats.forEach(m => {
       const key = `${m.role}||${m.team}`;
-      if (!teamMap2[key]) teamMap2[key] = { role: m.role, team: m.team, posts:0, comments:0, views:0 };
-      teamMap2[key].posts    += m.posts;
+      if (!teamMap2[key])
+        teamMap2[key] = { role: m.role, team: m.team, posts: 0, comments: 0, views: 0 };
+      teamMap2[key].posts += m.posts;
       teamMap2[key].comments += m.comments;
-      teamMap2[key].views    += m.views;
+      teamMap2[key].views += m.views;
     });
 
     // 본부별 소계
     const roleMap = {};
     memberStats.forEach(m => {
-      if (!roleMap[m.role]) roleMap[m.role] = { role: m.role, posts:0, comments:0, views:0 };
-      roleMap[m.role].posts    += m.posts;
+      if (!roleMap[m.role]) roleMap[m.role] = { role: m.role, posts: 0, comments: 0, views: 0 };
+      roleMap[m.role].posts += m.posts;
       roleMap[m.role].comments += m.comments;
-      roleMap[m.role].views    += m.views;
+      roleMap[m.role].views += m.views;
     });
 
     // 전체 합계
-    const total = memberStats.reduce((a, m) => ({
-      posts:    a.posts    + m.posts,
-      comments: a.comments + m.comments,
-      views:    a.views    + m.views,
-    }), { posts:0, comments:0, views:0 });
+    const total = memberStats.reduce(
+      (a, m) => ({
+        posts: a.posts + m.posts,
+        comments: a.comments + m.comments,
+        views: a.views + m.views,
+      }),
+      { posts: 0, comments: 0, views: 0 }
+    );
 
     // 월별 트렌드 (12개월치, 연도 고정)
-    const [monthly] = await pool.query(`
+    const [monthly] = await pool.query(
+      `
       SELECT
         m_val AS month,
         COALESCE(p.cnt, 0) AS posts,
@@ -276,15 +364,18 @@ router.get('/board-stats', async (req, res) => {
     res.json({
       success: true,
       data: {
-        year, month,
-        members:  memberStats,
-        teams:    Object.values(teamMap2),
-        roles:    Object.values(roleMap),
+        year,
+        month,
+        members: memberStats,
+        teams: Object.values(teamMap2),
+        roles: Object.values(roleMap),
         total,
         monthly,
-      }
+      },
     });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -293,11 +384,11 @@ router.get('/board-stats', async (req, res) => {
 
 // 모델별 단가 (USD / 1M tokens)
 const MODEL_PRICE = {
-  'gemini-2.5-flash':  { input: 0.15, output: 0.60 },
-  'gemini-2.0-flash':  { input: 0.10, output: 0.40 },
-  'gemini-1.5-flash':  { input: 0.075, output: 0.30 },
-  'gemini-1.5-pro':    { input: 1.25,  output: 5.00 },
-  'default':           { input: 0.15, output: 0.60 },
+  'gemini-2.5-flash': { input: 0.15, output: 0.6 },
+  'gemini-2.0-flash': { input: 0.1, output: 0.4 },
+  'gemini-1.5-flash': { input: 0.075, output: 0.3 },
+  'gemini-1.5-pro': { input: 1.25, output: 5.0 },
+  default: { input: 0.15, output: 0.6 },
 };
 function calcCost(model, promptTok, completionTok) {
   const p = MODEL_PRICE[model] || MODEL_PRICE['default'];
@@ -307,21 +398,25 @@ function calcCost(model, promptTok, completionTok) {
 // ── 종합 통계 ────────────────────────────────────────────────
 router.get('/token-monitor', async (req, res) => {
   try {
-    const year  = parseInt(req.query.year)  || new Date().getFullYear();
-    const month = parseInt(req.query.month) || (new Date().getMonth() + 1);
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const month = parseInt(req.query.month) || new Date().getMonth() + 1;
     const [[def]] = await pool.query(
-      `SELECT setting_value FROM system_settings WHERE setting_key='default_monthly_token_limit'`);
+      `SELECT setting_value FROM system_settings WHERE setting_key='default_monthly_token_limit'`
+    );
     const defaultLimit = def ? parseInt(def.setting_value) : 500000;
 
     // ① 이번 달 전체 요약
-    const [[summary]] = await pool.query(`
+    const [[summary]] = await pool.query(
+      `
       SELECT
         COALESCE(SUM(total_tokens),0)      AS month_tokens,
         COALESCE(SUM(prompt_tokens),0)     AS month_prompt,
         COALESCE(SUM(completion_tokens),0) AS month_completion,
         COALESCE(COUNT(*),0)               AS month_calls,
         COALESCE(COUNT(DISTINCT user_id),0) AS month_active_users
-      FROM ai_usage WHERE YEAR(created_at)=? AND MONTH(created_at)=?`, [year, month]);
+      FROM ai_usage WHERE YEAR(created_at)=? AND MONTH(created_at)=?`,
+      [year, month]
+    );
 
     // ② 오늘 요약
     const [[today]] = await pool.query(`
@@ -357,25 +452,32 @@ router.get('/token-monitor', async (req, res) => {
       GROUP BY yr, mo ORDER BY yr, mo`);
 
     // ⑤ 기능별(endpoint) 사용량
-    const [byEndpoint] = await pool.query(`
+    const [byEndpoint] = await pool.query(
+      `
       SELECT endpoint,
              SUM(total_tokens) AS total, COUNT(*) AS calls,
              ROUND(AVG(total_tokens)) AS avg_per_call
       FROM ai_usage WHERE YEAR(created_at)=? AND MONTH(created_at)=?
-      GROUP BY endpoint ORDER BY total DESC`, [year, month]);
+      GROUP BY endpoint ORDER BY total DESC`,
+      [year, month]
+    );
 
     // ⑥ 모델별 사용량
-    const [byModel] = await pool.query(`
+    const [byModel] = await pool.query(
+      `
       SELECT model,
              SUM(prompt_tokens)     AS prompt,
              SUM(completion_tokens) AS completion,
              SUM(total_tokens)      AS total,
              COUNT(*)               AS calls
       FROM ai_usage WHERE YEAR(created_at)=? AND MONTH(created_at)=?
-      GROUP BY model ORDER BY total DESC`, [year, month]);
+      GROUP BY model ORDER BY total DESC`,
+      [year, month]
+    );
 
     // ⑦ 사용자별 이번 달 사용량 + 한도 + 자동충전 설정
-    const [users] = await pool.query(`
+    const [users] = await pool.query(
+      `
       SELECT t.id, t.name, t.role, t.email,
              t.monthly_token_limit,
              t.auto_recharge_enabled,
@@ -399,73 +501,87 @@ router.get('/token-monitor', async (req, res) => {
         GROUP BY user_id
       ) u ON u.user_id = t.id
       WHERE t.is_active=1
-      ORDER BY COALESCE(u.total,0) DESC`, [year, month]);
+      ORDER BY COALESCE(u.total,0) DESC`,
+      [year, month]
+    );
 
     // ⑧ 최근 충전 로그 20건
-    const [rechargeLogs] = await pool.query(`
+    const [rechargeLogs] = await pool
+      .query(
+        `
       SELECT r.*, t.name AS user_name
       FROM token_recharge_log r
       LEFT JOIN team_members t ON r.user_id = t.id
-      ORDER BY r.created_at DESC LIMIT 20`).catch(() => [[]]);
+      ORDER BY r.created_at DESC LIMIT 20`
+      )
+      .catch(() => [[]]);
 
     // 비용 계산
     const modelCosts = byModel.map(m => ({
       ...m,
-      cost_usd: calcCost(m.model, Number(m.prompt), Number(m.completion))
+      cost_usd: calcCost(m.model, Number(m.prompt), Number(m.completion)),
     }));
     const totalCostUsd = modelCosts.reduce((s, m) => s + m.cost_usd, 0);
 
     // 일별 비용 (model 기준)
     const dailyCostMap = {};
     daily.forEach(r => {
-      const day = String(r.day).slice(0,10);
-      if (!dailyCostMap[day]) dailyCostMap[day] = { day, prompt:0, completion:0, total:0, calls:0, cost_usd:0 };
-      dailyCostMap[day].prompt     += Number(r.prompt);
+      const day = String(r.day).slice(0, 10);
+      if (!dailyCostMap[day])
+        dailyCostMap[day] = { day, prompt: 0, completion: 0, total: 0, calls: 0, cost_usd: 0 };
+      dailyCostMap[day].prompt += Number(r.prompt);
       dailyCostMap[day].completion += Number(r.completion);
-      dailyCostMap[day].total      += Number(r.total);
-      dailyCostMap[day].calls      += Number(r.calls);
-      dailyCostMap[day].cost_usd   += calcCost(r.model||'default', Number(r.prompt), Number(r.completion));
+      dailyCostMap[day].total += Number(r.total);
+      dailyCostMap[day].calls += Number(r.calls);
+      dailyCostMap[day].cost_usd += calcCost(
+        r.model || 'default',
+        Number(r.prompt),
+        Number(r.completion)
+      );
     });
-    const dailyAgg = Object.values(dailyCostMap).sort((a,b) => a.day.localeCompare(b.day));
+    const dailyAgg = Object.values(dailyCostMap).sort((a, b) => a.day.localeCompare(b.day));
 
     // 이번 달 예상 비용 (월 진행률로 환산)
     const today2 = new Date();
-    const daysInMonth = new Date(today2.getFullYear(), today2.getMonth()+1, 0).getDate();
-    const dayOfMonth  = today2.getDate();
-    const projectedCost = dayOfMonth < daysInMonth
-      ? totalCostUsd * (daysInMonth / dayOfMonth)
-      : totalCostUsd;
+    const daysInMonth = new Date(today2.getFullYear(), today2.getMonth() + 1, 0).getDate();
+    const dayOfMonth = today2.getDate();
+    const projectedCost =
+      dayOfMonth < daysInMonth ? totalCostUsd * (daysInMonth / dayOfMonth) : totalCostUsd;
 
     res.json({
       success: true,
       data: {
-        year, month, defaultLimit,
+        year,
+        month,
+        defaultLimit,
         summary: {
           ...summary,
           today_tokens: Number(today.today_tokens),
-          today_calls:  Number(today.today_calls),
-          today_users:  Number(today.today_users),
-          cost_usd:     totalCostUsd,
+          today_calls: Number(today.today_calls),
+          today_users: Number(today.today_users),
+          cost_usd: totalCostUsd,
           projected_cost_usd: projectedCost,
         },
-        daily:     dailyAgg,
+        daily: dailyAgg,
         monthly,
         byEndpoint,
-        byModel:   modelCosts,
-        users:     users.map(u => ({
+        byModel: modelCosts,
+        users: users.map(u => ({
           ...u,
-          used_tokens:      Number(u.used_tokens),
-          used_prompt:      Number(u.used_prompt),
-          used_completion:  Number(u.used_completion),
-          calls:            Number(u.calls),
+          used_tokens: Number(u.used_tokens),
+          used_prompt: Number(u.used_prompt),
+          used_completion: Number(u.used_completion),
+          calls: Number(u.calls),
           eff_limit: u.monthly_token_limit != null ? u.monthly_token_limit : defaultLimit,
           cost_usd: calcCost('default', Number(u.used_prompt), Number(u.used_completion)),
         })),
         rechargeLogs,
         totalCostUsd,
-      }
+      },
     });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── 자동충전 설정 저장 ────────────────────────────────────────
@@ -478,13 +594,17 @@ router.put('/token-recharge-settings/:id', async (req, res) => {
          auto_recharge_threshold = ?,
          auto_recharge_amount    = ?
        WHERE id = ?`,
-      [auto_recharge_enabled ? 1 : 0,
-       parseInt(auto_recharge_threshold) || 80,
-       parseInt(auto_recharge_amount)    || 100000,
-       req.params.id]
+      [
+        auto_recharge_enabled ? 1 : 0,
+        parseInt(auto_recharge_threshold) || 80,
+        parseInt(auto_recharge_amount) || 100000,
+        req.params.id,
+      ]
     );
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── 수동 충전 (관리자가 직접 토큰 추가) ─────────────────────────
@@ -492,23 +612,31 @@ router.post('/token-recharge/:id', async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const amount = parseInt(req.body.amount) || 0;
-    if (amount <= 0) return res.status(400).json({ success:false, message: '충전량을 입력하세요' });
+    if (amount <= 0)
+      return res.status(400).json({ success: false, message: '충전량을 입력하세요' });
 
-    const [[member]] = await pool.query(
-      `SELECT monthly_token_limit FROM team_members WHERE id=?`, [userId]);
+    const [[member]] = await pool.query(`SELECT monthly_token_limit FROM team_members WHERE id=?`, [
+      userId,
+    ]);
     const [[def]] = await pool.query(
-      `SELECT setting_value FROM system_settings WHERE setting_key='default_monthly_token_limit'`);
+      `SELECT setting_value FROM system_settings WHERE setting_key='default_monthly_token_limit'`
+    );
     const current = member?.monthly_token_limit ?? parseInt(def?.setting_value || 500000);
     const newLimit = current + amount;
 
-    await pool.query(`UPDATE team_members SET monthly_token_limit=? WHERE id=?`, [newLimit, userId]);
+    await pool.query(`UPDATE team_members SET monthly_token_limit=? WHERE id=?`, [
+      newLimit,
+      userId,
+    ]);
     await pool.query(
       `INSERT INTO token_recharge_log (user_id, recharge_amount, new_limit, reason, triggered_by)
        VALUES (?,?,?,?,?)`,
       [userId, amount, newLimit, '수동충전', 'admin']
     );
     res.json({ success: true, new_limit: newLimit });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -528,42 +656,48 @@ router.get('/dev/features', devOnly, async (req, res) => {
       'SELECT * FROM dev_features ORDER BY category, feature_key'
     );
     res.json({ success: true, data: features });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // GET  /api/admin/dev/features/public  — 로그인 후 전체 유저가 읽는 플래그 (enabled 여부만)
 router.get('/dev/features/public', async (req, res) => {
   try {
-    const [features] = await pool.query(
-      'SELECT feature_key, is_enabled FROM dev_features'
-    );
+    const [features] = await pool.query('SELECT feature_key, is_enabled FROM dev_features');
     const flags = {};
-    features.forEach(f => { flags[f.feature_key] = !!f.is_enabled; });
+    features.forEach(f => {
+      flags[f.feature_key] = !!f.is_enabled;
+    });
     res.json({ success: true, data: flags });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // PUT  /api/admin/dev/features/:key
 router.put('/dev/features/:key', devOnly, async (req, res) => {
   try {
     const { is_enabled } = req.body;
-    await pool.query(
-      'UPDATE dev_features SET is_enabled=? WHERE feature_key=?',
-      [is_enabled ? 1 : 0, req.params.key]
-    );
+    await pool.query('UPDATE dev_features SET is_enabled=? WHERE feature_key=?', [
+      is_enabled ? 1 : 0,
+      req.params.key,
+    ]);
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── 스키마 서버사이드 캐시 (30초 TTL) ──────────────────────────
 const _schemaCache = { schema: null, relations: null, ts: 0, relTs: 0 };
-const SCHEMA_TTL = 30_000;   // 30s
+const SCHEMA_TTL = 30_000; // 30s
 
 // GET  /api/admin/dev/schema  — 실시간 DB 스키마 조회 (캐시 30s)
 router.get('/dev/schema', devOnly, async (req, res) => {
   try {
     const force = req.query.refresh === '1';
-    if (!force && _schemaCache.schema && (Date.now() - _schemaCache.ts) < SCHEMA_TTL) {
+    if (!force && _schemaCache.schema && Date.now() - _schemaCache.ts < SCHEMA_TTL) {
       return res.json({ success: true, data: _schemaCache.schema, cached: true });
     }
     const [[dbRow]] = await pool.query('SELECT DATABASE() AS db');
@@ -574,24 +708,30 @@ router.get('/dev/schema', devOnly, async (req, res) => {
         `SELECT TABLE_NAME, IFNULL(TABLE_ROWS,0) AS TABLE_ROWS,
                 IFNULL(DATA_LENGTH,0) AS DATA_LENGTH, CREATE_TIME
          FROM information_schema.TABLES
-         WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, [dbName]
+         WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`,
+        [dbName]
       ),
       pool.query(
         `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE,
                 COLUMN_KEY, COLUMN_DEFAULT, EXTRA
          FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION`, [dbName]
+         WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+        [dbName]
       ),
     ]);
     const schema = {};
-    tables.forEach(t => { schema[t.TABLE_NAME] = { meta: t, columns: [] }; });
+    tables.forEach(t => {
+      schema[t.TABLE_NAME] = { meta: t, columns: [] };
+    });
     columns.forEach(c => {
       if (schema[c.TABLE_NAME]) schema[c.TABLE_NAME].columns.push(c);
     });
     _schemaCache.schema = schema;
     _schemaCache.ts = Date.now();
     res.json({ success: true, data: schema });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // GET  /api/admin/dev/perf  — 최근 24h 성능 지표
@@ -617,14 +757,24 @@ router.get('/dev/perf', devOnly, async (req, res) => {
        GROUP BY method, path ORDER BY calls DESC LIMIT 20`
     );
     res.json({ success: true, data: { hourly, topRoutes } });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── access_logs 조치 상태 컬럼 자동 마이그레이션 ───────────────
-pool.query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolved      TINYINT(1)   DEFAULT 0`).catch(()=>{});
-pool.query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolved_by   INT          DEFAULT NULL`).catch(()=>{});
-pool.query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolved_at   TIMESTAMP    DEFAULT NULL`).catch(()=>{});
-pool.query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolve_note  VARCHAR(255) DEFAULT NULL`).catch(()=>{});
+pool
+  .query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolved      TINYINT(1)   DEFAULT 0`)
+  .catch(() => {});
+pool
+  .query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolved_by   INT          DEFAULT NULL`)
+  .catch(() => {});
+pool
+  .query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolved_at   TIMESTAMP    DEFAULT NULL`)
+  .catch(() => {});
+pool
+  .query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolve_note  VARCHAR(255) DEFAULT NULL`)
+  .catch(() => {});
 
 // ══════════════════════════════════════════════════════════════
 // GET /api/admin/dev/error-logs  — 에러 로그 조회 (4xx/5xx, 페이지네이션)
@@ -638,23 +788,24 @@ pool.query(`ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS resolve_note  VARCH
 // ══════════════════════════════════════════════════════════════
 router.get('/dev/error-logs', devOnly, async (req, res) => {
   try {
-    const page         = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit        = Math.min(100, parseInt(req.query.limit) || 50);
-    const offset       = (page - 1) * limit;
-    const filter       = req.query.filter   || 'all';    // 'all' | '4xx' | '5xx'
-    const scFilter     = parseInt(req.query.sc)  || null; // 특정 상태코드
-    const resolvedFilter = req.query.resolved || 'all';  // 'all' | 'pending' | 'resolved'
-    const pathQ        = req.query.path     || '';
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 50);
+    const offset = (page - 1) * limit;
+    const filter = req.query.filter || 'all'; // 'all' | '4xx' | '5xx'
+    const scFilter = parseInt(req.query.sc) || null; // 특정 상태코드
+    const resolvedFilter = req.query.resolved || 'all'; // 'all' | 'pending' | 'resolved'
+    const pathQ = req.query.path || '';
     // hours: 0이면 전체 기간, 그 외 최대 8760(=1년)로 상한
-    const rawHours     = parseInt(req.query.hours);
-    const hours        = Number.isFinite(rawHours) && rawHours === 0
-      ? 0
-      : Math.min(8760, rawHours > 0 ? rawHours : 24);
-    const allTime      = (hours === 0);
+    const rawHours = parseInt(req.query.hours);
+    const hours =
+      Number.isFinite(rawHours) && rawHours === 0
+        ? 0
+        : Math.min(8760, rawHours > 0 ? rawHours : 24);
+    const allTime = hours === 0;
 
     // WHERE 절 — al. prefix로 JOIN ambiguous 방지
     const conditions = [];
-    const params     = [];
+    const params = [];
     if (!allTime) {
       conditions.push(`al.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)`);
       params.push(hours);
@@ -739,7 +890,7 @@ router.get('/dev/error-logs', devOnly, async (req, res) => {
         totalPages: Math.ceil(total / limit),
         dist,
         summary: {
-          pending:  Number(summaryRow?.pending_cnt  ?? total),
+          pending: Number(summaryRow?.pending_cnt ?? total),
           resolved: Number(summaryRow?.resolved_cnt ?? 0),
         },
         hours,
@@ -748,7 +899,9 @@ router.get('/dev/error-logs', devOnly, async (req, res) => {
         resolvedFilter,
       },
     });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -765,15 +918,21 @@ router.patch('/dev/error-logs/resolve', devOnly, async (req, res) => {
 
     if (resolveAll) {
       // 현재 필터 기준 미조치 전체 조치완료
-      const cond = ['status_code >= 400',
+      const cond = [
+        'status_code >= 400',
         `created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)`,
-        '(resolved IS NULL OR resolved = 0)'];
+        '(resolved IS NULL OR resolved = 0)',
+      ];
       const p = [hours];
-      if (filter === '4xx') { cond.push('status_code < 500'); }
-      else if (filter === '5xx') { cond.push('status_code >= 500'); }
+      if (filter === '4xx') {
+        cond.push('status_code < 500');
+      } else if (filter === '5xx') {
+        cond.push('status_code >= 500');
+      }
       const [r] = await pool.query(
         `UPDATE access_logs SET resolved=1, resolved_by=?, resolved_at=NOW(), resolve_note=?
-         WHERE ${cond.join(' AND ')}`, [userId, note || null, ...p]
+         WHERE ${cond.join(' AND ')}`,
+        [userId, note || null, ...p]
       );
       affected = r.affectedRows;
     } else if (pattern) {
@@ -792,11 +951,15 @@ router.patch('/dev/error-logs/resolve', devOnly, async (req, res) => {
       );
       affected = r.affectedRows;
     } else {
-      return res.status(400).json({ success: false, error: 'ids, pattern, resolveAll 중 하나 필요' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'ids, pattern, resolveAll 중 하나 필요' });
     }
 
     res.json({ success: true, affected });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -815,7 +978,9 @@ router.patch('/dev/error-logs/unresolve', devOnly, async (req, res) => {
       ids
     );
     res.json({ success: true, affected: r.affectedRows });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -828,7 +993,7 @@ router.post('/dev/error-logs/detect', devOnly, async (req, res) => {
   try {
     const http = require('http');
     const auth = req.headers.authorization || '';
-    const port = req.socket?.localPort || (require('../../config').port || 3001);
+    const port = req.socket?.localPort || require('../../config').port || 3001;
 
     // 시스템 핵심 GET 엔드포인트 — 4xx/5xx 응답은 미들웨어가 access_logs 자동 INSERT
     const endpoints = [
@@ -849,22 +1014,36 @@ router.post('/dev/error-logs/detect', devOnly, async (req, res) => {
       ['GET', '/api/admin/users'],
     ];
 
-    const probe = (method, path) => new Promise(resolve => {
-      const r = http.request(
-        { host: '127.0.0.1', port, method, path, headers: { Authorization: auth }, timeout: 4000 },
-        resp => { resp.on('data', () => {}); resp.on('end', () => resolve({ status: resp.statusCode })); }
-      );
-      r.on('error',   e => resolve({ status: 0, error: e.message }));
-      r.on('timeout', () => { r.destroy(); resolve({ status: 0, error: 'timeout' }); });
-      r.end();
-    });
+    const probe = (method, path) =>
+      new Promise(resolve => {
+        const r = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            method,
+            path,
+            headers: { Authorization: auth },
+            timeout: 4000,
+          },
+          resp => {
+            resp.on('data', () => {});
+            resp.on('end', () => resolve({ status: resp.statusCode }));
+          }
+        );
+        r.on('error', e => resolve({ status: 0, error: e.message }));
+        r.on('timeout', () => {
+          r.destroy();
+          resolve({ status: 0, error: 'timeout' });
+        });
+        r.end();
+      });
 
     // ID 기반 카운팅 — timezone 영향 없이 정확
     const [[beforeRow]] = await pool.query('SELECT COALESCE(MAX(id),0) AS max_id FROM access_logs');
     const beforeMaxId = Number(beforeRow.max_id);
 
     const probedAt = new Date();
-    const results  = await Promise.all(endpoints.map(([m, p]) => probe(m, p)));
+    const results = await Promise.all(endpoints.map(([m, p]) => probe(m, p)));
 
     const errors = results
       .map((r, i) => ({ endpoint: endpoints[i].join(' '), status: r.status, error: r.error }))
@@ -875,7 +1054,8 @@ router.post('/dev/error-logs/detect', devOnly, async (req, res) => {
 
     const [[newRow]] = await pool.query(
       `SELECT COUNT(*) AS cnt FROM access_logs
-       WHERE id > ? AND status_code >= 400`, [beforeMaxId]
+       WHERE id > ? AND status_code >= 400`,
+      [beforeMaxId]
     );
 
     res.json({
@@ -886,7 +1066,9 @@ router.post('/dev/error-logs/detect', devOnly, async (req, res) => {
       probedAt,
       errors,
     });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -896,33 +1078,33 @@ router.post('/dev/error-logs/detect', devOnly, async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 router.post('/dev/error-logs/auto-classify', devOnly, async (req, res) => {
   try {
-    const userId  = req.user?.id || null;
-    const dryRun  = req.body?.dryRun !== false;   // default: dryRun=true (미리보기)
-    const hours   = Math.min(168, parseInt(req.body?.hours) || 24 * 7);
+    const userId = req.user?.id || null;
+    const dryRun = req.body?.dryRun !== false; // default: dryRun=true (미리보기)
+    const hours = Math.min(168, parseInt(req.body?.hours) || 24 * 7);
 
     // ── 자동 분류 규칙 정의 ─────────────────────────────────────
     // { label, note, conditions: [sql_fragment, ...params] }
     const rules = [
       {
         label: '로그아웃 상태 폴링 (근본 원인: SKIP_LOG_PATHS 적용 완료)',
-        note:  '폴링 경로 SKIP 처리로 신규 발생 차단됨',
-        sql:   `status_code=401 AND method='GET'
+        note: '폴링 경로 SKIP 처리로 신규 발생 차단됨',
+        sql: `status_code=401 AND method='GET'
                 AND path IN ('/api/ai/usage/today','/api/notifications','/api/briefing/today')
                 AND (resolved IS NULL OR resolved=0)`,
         params: [],
       },
       {
         label: '개발·테스트 중 발생한 인증 오류 (현재 정상)',
-        note:  '서버 재시작 및 개발 테스트 세션 중 발생',
-        sql:   `status_code=401
+        note: '서버 재시작 및 개발 테스트 세션 중 발생',
+        sql: `status_code=401
                 AND path LIKE '/api/admin/dev/%'
                 AND (resolved IS NULL OR resolved=0)`,
         params: [],
       },
       {
         label: '테스트 데이터로 인한 404 (존재하지 않는 ID·경로)',
-        note:  '테스트 코드의 더미 ID/경로 요청',
-        sql:   `status_code=404
+        note: '테스트 코드의 더미 ID/경로 요청',
+        sql: `status_code=404
                 AND (path LIKE '%99999%' OR path LIKE '%nonexistent%'
                      OR path REGEXP '^/api/[0-9]+$')
                 AND (resolved IS NULL OR resolved=0)`,
@@ -930,8 +1112,8 @@ router.post('/dev/error-logs/auto-classify', devOnly, async (req, res) => {
       },
       {
         label: '테스트 데이터로 인한 400 (잘못된 경로)',
-        note:  '테스트 코드의 유효하지 않은 경로 요청',
-        sql:   `status_code=400
+        note: '테스트 코드의 유효하지 않은 경로 요청',
+        sql: `status_code=400
                 AND (path='/api/abc' OR path='/api/0' OR path='/api/-1'
                      OR path='/api/' OR path='/api')
                 AND (resolved IS NULL OR resolved=0)`,
@@ -942,10 +1124,11 @@ router.post('/dev/error-logs/auto-classify', devOnly, async (req, res) => {
     const results = [];
     for (const rule of rules) {
       const timeCond = `created_at >= DATE_SUB(NOW(), INTERVAL ${hours} HOUR)`;
-      const fullSql  = `${rule.sql} AND ${timeCond}`;
+      const fullSql = `${rule.sql} AND ${timeCond}`;
 
       const [[{ cnt }]] = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM access_logs WHERE ${fullSql}`, rule.params
+        `SELECT COUNT(*) AS cnt FROM access_logs WHERE ${fullSql}`,
+        rule.params
       );
       const count = Number(cnt);
 
@@ -961,16 +1144,18 @@ router.post('/dev/error-logs/auto-classify', devOnly, async (req, res) => {
     }
 
     const totalAffected = results.reduce((s, r) => s + (r.applied ? r.count : 0), 0);
-    const totalPreview  = results.reduce((s, r) => s + r.count, 0);
+    const totalPreview = results.reduce((s, r) => s + r.count, 0);
 
     res.json({
-      success:  true,
+      success: true,
       dryRun,
       totalAffected,
       totalPreview,
       results,
     });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -980,17 +1165,21 @@ router.post('/dev/error-logs/auto-classify', devOnly, async (req, res) => {
 router.post('/dev/schema/history', devOnly, async (req, res) => {
   try {
     const { changes } = req.body || {};
-    if (!Array.isArray(changes) || !changes.length)
-      return res.json({ success: true, recorded: 0 });
+    if (!Array.isArray(changes) || !changes.length) return res.json({ success: true, recorded: 0 });
     const userId = req.user?.id || null;
 
     // 인코딩 깨진 데이터(U+FFFD replacement char) INSERT 거부
-    const hasMojibake = (s) => typeof s === 'string' && /�/.test(s);
+    const hasMojibake = s => typeof s === 'string' && /�/.test(s);
 
     let recorded = 0;
     for (const c of changes) {
       if (!c.type || !c.table || !c.msg) continue;
-      if (hasMojibake(c.msg) || hasMojibake(c.mitigation) || hasMojibake(c.table) || hasMojibake(c.col)) {
+      if (
+        hasMojibake(c.msg) ||
+        hasMojibake(c.mitigation) ||
+        hasMojibake(c.table) ||
+        hasMojibake(c.col)
+      ) {
         console.warn('[schema-history] 인코딩 깨진 데이터 INSERT 거부:', c.msg);
         continue;
       }
@@ -1008,17 +1197,24 @@ router.post('/dev/schema/history', devOnly, async (req, res) => {
         `INSERT INTO schema_change_log
          (change_type, table_name, column_name, risk, message, mitigation, before_def, after_def, detected_by)
          VALUES (?,?,?,?,?,?,?,?,?)`,
-        [c.type, String(c.table).slice(0,100), c.col ? String(c.col).slice(0,100) : null,
-         c.risk || 'LOW', String(c.msg).slice(0,500),
-         c.mitigation ? String(c.mitigation).slice(0,2000) : null,
-         c.before ? String(c.before).slice(0,500) : null,
-         c.after  ? String(c.after).slice(0,500)  : null,
-         userId]
+        [
+          c.type,
+          String(c.table).slice(0, 100),
+          c.col ? String(c.col).slice(0, 100) : null,
+          c.risk || 'LOW',
+          String(c.msg).slice(0, 500),
+          c.mitigation ? String(c.mitigation).slice(0, 2000) : null,
+          c.before ? String(c.before).slice(0, 500) : null,
+          c.after ? String(c.after).slice(0, 500) : null,
+          userId,
+        ]
       );
       recorded++;
     }
     res.json({ success: true, recorded });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -1028,10 +1224,20 @@ router.post('/dev/schema/history', devOnly, async (req, res) => {
 router.get('/dev/schema/history', devOnly, async (req, res) => {
   try {
     const limit = Math.min(500, parseInt(req.query.limit) || 100);
-    const cond = []; const params = [];
-    if (req.query.table) { cond.push('table_name=?'); params.push(req.query.table); }
-    if (req.query.type)  { cond.push('change_type=?'); params.push(req.query.type); }
-    if (req.query.risk)  { cond.push('risk=?'); params.push(req.query.risk); }
+    const cond = [];
+    const params = [];
+    if (req.query.table) {
+      cond.push('table_name=?');
+      params.push(req.query.table);
+    }
+    if (req.query.type) {
+      cond.push('change_type=?');
+      params.push(req.query.type);
+    }
+    if (req.query.risk) {
+      cond.push('risk=?');
+      params.push(req.query.risk);
+    }
     const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
 
     const [rows] = await pool.query(
@@ -1050,10 +1256,13 @@ router.get('/dev/schema/history', devOnly, async (req, res) => {
               SUM(CASE WHEN risk='MEDIUM' THEN 1 ELSE 0 END) AS medium_cnt,
               SUM(CASE WHEN risk='LOW' THEN 1 ELSE 0 END) AS low_cnt,
               MIN(changed_at) AS first_at, MAX(changed_at) AS last_at
-       FROM schema_change_log`);
+       FROM schema_change_log`
+    );
 
     res.json({ success: true, data: rows, stats });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -1066,8 +1275,7 @@ router.post('/dev/schema/coach', devOnly, async (req, res) => {
     if (!Number.isFinite(Number(change_id)))
       return res.status(400).json({ success: false, error: 'change_id 필요' });
 
-    const [[change]] = await pool.query(
-      'SELECT * FROM schema_change_log WHERE id=?', [change_id]);
+    const [[change]] = await pool.query('SELECT * FROM schema_change_log WHERE id=?', [change_id]);
     if (!change) return res.status(404).json({ success: false, error: '변경 이력 없음' });
 
     // 영향 영역 자동 수집: FK 관계 + 컬럼 동시 보유 테이블
@@ -1160,15 +1368,20 @@ ${ctx}
     const r = await model.generateContent(prompt);
     const txt = r.response.text();
     let parsed;
-    try { parsed = JSON.parse(txt); }
-    catch { return res.status(502).json({ success: false, error: 'AI 파싱 실패', raw: txt.slice(0, 200) }); }
+    try {
+      parsed = JSON.parse(txt);
+    } catch {
+      return res
+        .status(502)
+        .json({ success: false, error: 'AI 파싱 실패', raw: txt.slice(0, 200) });
+    }
 
     res.json({
       success: true,
       data: {
         ...parsed,
         meta: {
-          fk_in_count:  fkIn.length,
+          fk_in_count: fkIn.length,
           fk_out_count: fkOut.length,
           same_name_count: sameNameTables.length,
         },
@@ -1186,7 +1399,7 @@ ${ctx}
 router.get('/dev/schema-relations', devOnly, async (req, res) => {
   try {
     const force = req.query.refresh === '1';
-    if (!force && _schemaCache.relations && (Date.now() - _schemaCache.relTs) < SCHEMA_TTL) {
+    if (!force && _schemaCache.relations && Date.now() - _schemaCache.relTs < SCHEMA_TTL) {
       return res.json({ success: true, data: _schemaCache.relations, cached: true });
     }
     const [[dbRow]] = await pool.query('SELECT DATABASE() AS db');
@@ -1194,7 +1407,8 @@ router.get('/dev/schema-relations', devOnly, async (req, res) => {
 
     // 3개 쿼리 병렬 실행 (information_schema 직렬 → 병렬, ~90ms → ~35ms)
     const [[fks], [indexes], [colComments]] = await Promise.all([
-      pool.query(`
+      pool.query(
+        `
         SELECT kcu.TABLE_NAME, kcu.COLUMN_NAME, kcu.CONSTRAINT_NAME,
                kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME,
                rc.UPDATE_RULE, rc.DELETE_RULE
@@ -1203,25 +1417,35 @@ router.get('/dev/schema-relations', devOnly, async (req, res) => {
           ON rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
          AND rc.CONSTRAINT_SCHEMA = kcu.TABLE_SCHEMA
         WHERE kcu.TABLE_SCHEMA = ? AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
-        ORDER BY kcu.TABLE_NAME, kcu.COLUMN_NAME`, [dbName]),
-      pool.query(`
+        ORDER BY kcu.TABLE_NAME, kcu.COLUMN_NAME`,
+        [dbName]
+      ),
+      pool.query(
+        `
         SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME,
                NON_UNIQUE, INDEX_TYPE, SEQ_IN_INDEX
         FROM information_schema.STATISTICS
         WHERE TABLE_SCHEMA = ?
-        ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`, [dbName]),
-      pool.query(`
+        ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`,
+        [dbName]
+      ),
+      pool.query(
+        `
         SELECT TABLE_NAME, COLUMN_NAME, COLUMN_COMMENT
         FROM information_schema.COLUMNS
         WHERE TABLE_SCHEMA = ? AND COLUMN_COMMENT != ''
-        ORDER BY TABLE_NAME, ORDINAL_POSITION`, [dbName]),
+        ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+        [dbName]
+      ),
     ]);
 
     const result = { fks, indexes, colComments };
     _schemaCache.relations = result;
     _schemaCache.relTs = Date.now();
     res.json({ success: true, data: result });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -1238,15 +1462,28 @@ router.post('/dev/schema-alter', devOnly, async (req, res) => {
     const BLOCKED = ['DROP TABLE', 'TRUNCATE TABLE', 'DROP DATABASE', 'DROP SCHEMA', 'DELETE FROM'];
     for (const b of BLOCKED) {
       if (trimmed.startsWith(b) || trimmed.includes(' ' + b)) {
-        return res.status(400).json({ success: false, error: `'${b}' 명령은 보안상 허용되지 않습니다. DB 관리자에게 문의하세요.` });
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error: `'${b}' 명령은 보안상 허용되지 않습니다. DB 관리자에게 문의하세요.`,
+          });
       }
     }
 
     // 허용 명령만 통과
-    const ALLOWED = ['ALTER TABLE', 'CREATE TABLE', 'CREATE INDEX', 'CREATE UNIQUE INDEX', 'DROP INDEX'];
+    const ALLOWED = [
+      'ALTER TABLE',
+      'CREATE TABLE',
+      'CREATE INDEX',
+      'CREATE UNIQUE INDEX',
+      'DROP INDEX',
+    ];
     const allowed = ALLOWED.some(a => trimmed.startsWith(a));
     if (!allowed) {
-      return res.status(400).json({ success: false, error: `허용된 DDL: ALTER TABLE / CREATE TABLE / CREATE INDEX` });
+      return res
+        .status(400)
+        .json({ success: false, error: `허용된 DDL: ALTER TABLE / CREATE TABLE / CREATE INDEX` });
     }
 
     // Dry-run: 트랜잭션 내 실행 후 ROLLBACK → 실제 변경 없이 구문/권한 검증
@@ -1254,8 +1491,8 @@ router.post('/dev/schema-alter', devOnly, async (req, res) => {
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
-        await conn.query(sql);          // 구문 오류면 여기서 throw
-        await conn.rollback();          // 성공해도 즉시 롤백
+        await conn.query(sql); // 구문 오류면 여기서 throw
+        await conn.rollback(); // 성공해도 즉시 롤백
         return res.json({ success: true, dryRun: true, sql });
       } catch (dryErr) {
         await conn.rollback().catch(() => {});
@@ -1278,7 +1515,9 @@ router.post('/dev/schema-alter', devOnly, async (req, res) => {
     } catch (_) {}
 
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 module.exports = router;
