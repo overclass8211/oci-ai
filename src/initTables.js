@@ -19,7 +19,13 @@ async function initTables() {
       created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
-    try { await pool.query(`ALTER TABLE calendar_events ADD COLUMN status VARCHAR(20) DEFAULT 'planned'`); } catch (_) { /* column may already exist */ }
+    try {
+      await pool.query(
+        `ALTER TABLE calendar_events ADD COLUMN status VARCHAR(20) DEFAULT 'planned'`
+      );
+    } catch (_) {
+      /* column may already exist */
+    }
 
     await pool.query(`CREATE TABLE IF NOT EXISTS announcements (
       id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -95,8 +101,16 @@ async function initTables() {
       INDEX idx_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
-    try { await pool.query(`ALTER TABLE ai_usage ADD COLUMN user_id INT NULL AFTER id`); } catch (_) { /* column may already exist */ }
-    try { await pool.query(`ALTER TABLE ai_usage ADD INDEX idx_user (user_id)`); } catch (_) { /* index may already exist */ }
+    try {
+      await pool.query(`ALTER TABLE ai_usage ADD COLUMN user_id INT NULL AFTER id`);
+    } catch (_) {
+      /* column may already exist */
+    }
+    try {
+      await pool.query(`ALTER TABLE ai_usage ADD INDEX idx_user (user_id)`);
+    } catch (_) {
+      /* index may already exist */
+    }
 
     await pool.query(`CREATE TABLE IF NOT EXISTS system_settings (
       setting_key   VARCHAR(50) PRIMARY KEY,
@@ -110,7 +124,50 @@ async function initTables() {
         ('default_monthly_token_limit', '500000')`
     );
 
-    try { await pool.query(`ALTER TABLE team_members ADD COLUMN monthly_token_limit INT NULL`); } catch (_) { /* column may already exist */ }
+    try {
+      await pool.query(`ALTER TABLE team_members ADD COLUMN monthly_token_limit INT NULL`);
+    } catch (_) {
+      /* column may already exist */
+    }
+
+    // ── 메뉴 구조 설정 (관리자가 사이드바 순서/가시성/라벨 커스터마이즈) ──
+    await pool.query(`CREATE TABLE IF NOT EXISTS menu_sections (
+      section_key   VARCHAR(50) PRIMARY KEY,
+      section_label VARCHAR(100) NOT NULL,
+      display_order INT DEFAULT 0,
+      is_visible    TINYINT DEFAULT 1,
+      is_system     TINYINT DEFAULT 0,
+      updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS menu_items (
+      menu_key       VARCHAR(50) PRIMARY KEY,
+      section_key    VARCHAR(50) NOT NULL,
+      display_order  INT DEFAULT 0,
+      is_visible     TINYINT DEFAULT 1,
+      label_override VARCHAR(100) DEFAULT NULL,
+      is_system      TINYINT DEFAULT 0,
+      updated_by     INT NULL,
+      updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_section_order (section_key, display_order)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
+    const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
+    for (const s of DEFAULT_SECTIONS) {
+      await pool.query(
+        `INSERT IGNORE INTO menu_sections (section_key, section_label, display_order, is_visible, is_system)
+         VALUES (?, ?, ?, 1, ?)`,
+        [s.section_key, s.section_label, s.display_order, s.is_system]
+      );
+    }
+    for (const it of DEFAULT_ITEMS) {
+      await pool.query(
+        `INSERT IGNORE INTO menu_items (menu_key, section_key, display_order, is_visible, is_system)
+         VALUES (?, ?, ?, 1, ?)`,
+        [it.menu_key, it.section_key, it.display_order, it.is_system]
+      );
+    }
 
     // 성능 인덱스 (idempotent)
     const idx = [
@@ -121,11 +178,14 @@ async function initTables() {
       `ALTER TABLE leads ADD INDEX idx_stage_updated (stage, updated_at)`,
       `ALTER TABLE leads ADD INDEX idx_assigned_stage (assigned_to, stage)`,
       `ALTER TABLE activities ADD INDEX idx_lead_performed (lead_id, performed_at)`,
-      `ALTER TABLE activities ADD INDEX idx_performed_at (performed_at)`
+      `ALTER TABLE activities ADD INDEX idx_performed_at (performed_at)`,
     ];
     for (const sql of idx) {
-      try { await pool.query(sql); } catch (e) {
-        if (!String(e.message).includes('Duplicate')) console.warn('⚠ 인덱스 추가 경고:', e.message);
+      try {
+        await pool.query(sql);
+      } catch (e) {
+        if (!String(e.message).includes('Duplicate'))
+          console.warn('⚠ 인덱스 추가 경고:', e.message);
       }
     }
 
@@ -135,8 +195,7 @@ async function initTables() {
     const aiGuards = ['leads'];
     for (const t of aiGuards) {
       try {
-        const [cols] = await pool.query(
-          "SHOW COLUMNS FROM `" + t + "` WHERE Field='id'");
+        const [cols] = await pool.query('SHOW COLUMNS FROM `' + t + "` WHERE Field='id'");
         if (!cols.length) continue;
         const hasAI = (cols[0].Extra || '').toLowerCase().includes('auto_increment');
         if (!hasAI) {
@@ -145,7 +204,9 @@ async function initTables() {
           await pool.query('ALTER TABLE `' + t + '` AUTO_INCREMENT = ' + m.next);
           console.log('  ✓ ' + t + '.id AUTO_INCREMENT 자가 복구 (시작값=' + m.next + ')');
         }
-      } catch (e) { console.warn('⚠ AI 가드 경고(' + t + '):', e.message); }
+      } catch (e) {
+        console.warn('⚠ AI 가드 경고(' + t + '):', e.message);
+      }
     }
 
     // ── DB 스키마 변경 이력 테이블 ────────────────────────
@@ -181,14 +242,14 @@ async function initTables() {
 
     // 기본 시드 (idempotent — stage_key UNIQUE)
     const defaultStages = [
-      { key:'lead',        label:'리드 발굴',  role:'active',  order:10, color:'#93B4F9' },
-      { key:'review',      label:'검토/미팅',  role:'active',  order:20, color:'#5585F5' },
-      { key:'proposal',    label:'제안/견적',  role:'active',  order:30, color:'#2357E8' },
-      { key:'bidding',     label:'입찰',       role:'active',  order:40, color:'#F59C00' },
-      { key:'negotiation', label:'협상/계약',  role:'active',  order:50, color:'#17A85A' },
-      { key:'won',         label:'수주 완료',  role:'won',     order:90, color:'#0F7A3F' },
-      { key:'lost',        label:'실주',       role:'lost',    order:95, color:'#6B7280' },
-      { key:'dropped',     label:'드롭',       role:'dropped', order:99, color:'#E63329' },
+      { key: 'lead', label: '리드 발굴', role: 'active', order: 10, color: '#93B4F9' },
+      { key: 'review', label: '검토/미팅', role: 'active', order: 20, color: '#5585F5' },
+      { key: 'proposal', label: '제안/견적', role: 'active', order: 30, color: '#2357E8' },
+      { key: 'bidding', label: '입찰', role: 'active', order: 40, color: '#F59C00' },
+      { key: 'negotiation', label: '협상/계약', role: 'active', order: 50, color: '#17A85A' },
+      { key: 'won', label: '수주 완료', role: 'won', order: 90, color: '#0F7A3F' },
+      { key: 'lost', label: '실주', role: 'lost', order: 95, color: '#6B7280' },
+      { key: 'dropped', label: '드롭', role: 'dropped', order: 99, color: '#E63329' },
     ];
     for (const s of defaultStages) {
       await pool.query(
@@ -207,7 +268,9 @@ async function initTables() {
         await pool.query(`ALTER TABLE leads MODIFY stage VARCHAR(50) DEFAULT 'lead'`);
         console.log('  ✓ leads.stage ENUM → VARCHAR(50) 마이그레이션 완료');
       }
-    } catch (e) { console.warn('⚠ leads.stage 마이그레이션:', e.message); }
+    } catch (e) {
+      console.warn('⚠ leads.stage 마이그레이션:', e.message);
+    }
 
     // ── 환율 시계열 캐시 테이블 ──────────────────────────
     // 수출입은행(primary) + frankfurter(fallback) 통합 캐시
@@ -234,7 +297,9 @@ async function initTables() {
       `ALTER TABLE leads ADD COLUMN IF NOT EXISTS fx_lock_policy VARCHAR(20)  DEFAULT 'live'`,
     ];
     for (const sql of leadsFxCols) {
-      try { await pool.query(sql); } catch (e) {
+      try {
+        await pool.query(sql);
+      } catch (e) {
         if (!String(e.message).includes('Duplicate')) console.warn('⚠ FX 컬럼:', e.message);
       }
     }
@@ -280,7 +345,7 @@ async function initTables() {
     );
     if (!adminExists) {
       const bcrypt = require('bcryptjs');
-      const hash   = await bcrypt.hash('admin1234!', 12);
+      const hash = await bcrypt.hash('admin1234!', 12);
       await pool.query(
         `INSERT INTO users (username, email, full_name, password_hash, role)
          VALUES ('admin', 'admin@oci.com', 'IT운영 관리자', ?, 'superadmin')`,

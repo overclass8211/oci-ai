@@ -264,6 +264,8 @@ app.use('/api/notifications', require('./src/routes/notifications'));
 app.use('/api/exchange', require('./src/routes/exchange'));
 app.use('/api/pipeline/stages', require('./src/routes/pipeline-stages'));
 app.use('/api/admin/dev/schema', require('./src/routes/schema-export'));
+app.use('/api/admin/menu-config', require('./src/routes/menu-config'));
+app.use('/api/menu', require('./src/routes/menu'));
 
 // 로그인 페이지
 app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
