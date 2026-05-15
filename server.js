@@ -41,11 +41,15 @@ app.use(
           'https://cdnjs.cloudflare.com',
           'https://cdn.jsdelivr.net',
           'https://unpkg.com', // pptxgenjs CDN
-          // 카카오 주소 검색 + 지도 SDK
+          // 카카오 주소 검색 + 지도 SDK (postcode.v2.js / kakao.js 등)
           'https://*.daumcdn.net',
           'https://*.daum.net',
           'https://*.kakao.com',
           'https://dapi.kakao.com',
+          // 카카오맵 SDK가 HTTP(http://t1.daumcdn.net/mapjsapi/...) 로 로드되므로 HTTP 도 허용
+          'http://*.daumcdn.net',
+          'http://*.daum.net',
+          'http://*.kakao.com',
         ],
         styleSrc: [
           "'self'",
@@ -54,6 +58,8 @@ app.use(
           'https://cdn.jsdelivr.net',
           'https://cdnjs.cloudflare.com',
           'https://*.daumcdn.net',
+          // 카카오맵 SDK 가 함께 로드하는 스타일시트 (HTTP variant)
+          'http://*.daumcdn.net',
         ],
         fontSrc: [
           "'self'",
@@ -69,7 +75,10 @@ app.use(
           'https://*.daumcdn.net',
           'https://*.daum.net',
           'https://*.kakao.com',
+          // 카카오맵 타일 이미지가 HTTP 로 서빙됨
           'http://*.daumcdn.net',
+          'http://*.daum.net',
+          'http://*.kakao.com',
         ],
         connectSrc: [
           "'self'",
