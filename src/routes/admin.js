@@ -1632,6 +1632,207 @@ router.get('/dev/source-stats', devOnly, (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// 소스 모니터 — ESLint 품질 분석
+//   GET /dev/source-eslint?refresh=1
+//   - Node API 로 ESLint 실행 → 메시지 집계
+//   - 60초 캐싱 (refresh=1 강제 재실행)
+// ─────────────────────────────────────────────────────────────
+let _eslintCache = { at: 0, data: null };
+const ESLINT_CACHE_MS = 60 * 1000;
+
+router.get('/dev/source-eslint', devOnly, async (req, res) => {
+  try {
+    const force = req.query.refresh === '1';
+    if (!force && _eslintCache.data && Date.now() - _eslintCache.at < ESLINT_CACHE_MS) {
+      return res.json({ success: true, data: _eslintCache.data, cached: true });
+    }
+
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+
+    let ESLint;
+    try {
+      ({ ESLint } = require('eslint'));
+    } catch (_) {
+      return res.json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'ESLint 모듈을 찾을 수 없습니다 (npm install --save-dev eslint).',
+        },
+      });
+    }
+
+    const eslint = new ESLint({ cwd: projectRoot, errorOnUnmatchedPattern: false });
+    const results = await eslint.lintFiles(['src/**/*.js', 'server.js', 'public/js/**/*.js']);
+
+    // 집계
+    let totalErrors = 0,
+      totalWarnings = 0,
+      totalFixable = 0,
+      totalFiles = 0;
+    const byRule = {}; // ruleId → { errors, warnings, files: Set }
+    const byFile = []; // { path, errors, warnings, fixable }
+    const topMessages = []; // 상위 메시지 샘플
+
+    for (const r of results) {
+      const rel = path.relative(projectRoot, r.filePath).replace(/\\/g, '/');
+      const fErrors = r.errorCount || 0;
+      const fWarn = r.warningCount || 0;
+      const fFix = (r.fixableErrorCount || 0) + (r.fixableWarningCount || 0);
+      if (fErrors + fWarn === 0) continue;
+      totalFiles++;
+      totalErrors += fErrors;
+      totalWarnings += fWarn;
+      totalFixable += fFix;
+      byFile.push({ path: rel, errors: fErrors, warnings: fWarn, fixable: fFix });
+
+      for (const m of r.messages || []) {
+        const rid = m.ruleId || '(parse)';
+        if (!byRule[rid])
+          byRule[rid] = { errors: 0, warnings: 0, files: new Set(), severity_max: 0 };
+        if (m.severity === 2) byRule[rid].errors++;
+        else byRule[rid].warnings++;
+        if (m.severity > byRule[rid].severity_max) byRule[rid].severity_max = m.severity;
+        byRule[rid].files.add(rel);
+        if (topMessages.length < 200) {
+          topMessages.push({
+            path: rel,
+            line: m.line || 0,
+            col: m.column || 0,
+            rule: rid,
+            severity: m.severity,
+            message: String(m.message || '').slice(0, 240),
+          });
+        }
+      }
+    }
+
+    // Set → count 로 변환
+    const rules = Object.entries(byRule)
+      .map(([rule, v]) => ({
+        rule,
+        errors: v.errors,
+        warnings: v.warnings,
+        total: v.errors + v.warnings,
+        files: v.files.size,
+        severity_max: v.severity_max,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    byFile.sort((a, b) => b.errors * 10 + b.warnings - (a.errors * 10 + a.warnings));
+
+    const payload = {
+      available: true,
+      totals: {
+        files_with_issues: totalFiles,
+        errors: totalErrors,
+        warnings: totalWarnings,
+        fixable: totalFixable,
+      },
+      rules, // 규칙별 위반 (내림차순)
+      files: byFile, // 파일별 위반 (errors 가중치)
+      messages: topMessages, // 샘플 메시지 (최대 200)
+      scanned_at: new Date().toISOString(),
+    };
+
+    _eslintCache = { at: Date.now(), data: payload };
+    res.json({ success: true, data: payload, cached: false });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 소스 모니터 — npm audit 보안 취약점
+//   GET /dev/source-audit?refresh=1
+//   - npm audit --json 실행 → 심각도별 집계
+//   - 10분 캐싱
+// ─────────────────────────────────────────────────────────────
+let _auditCache = { at: 0, data: null };
+const AUDIT_CACHE_MS = 10 * 60 * 1000;
+
+router.get('/dev/source-audit', devOnly, (req, res) => {
+  try {
+    const force = req.query.refresh === '1';
+    if (!force && _auditCache.data && Date.now() - _auditCache.at < AUDIT_CACHE_MS) {
+      return res.json({ success: true, data: _auditCache.data, cached: true });
+    }
+
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+    const { exec } = require('child_process');
+
+    // Windows / Linux 모두 npm 실행 — 절대 경로 인자 없이 cwd 만 지정
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    // exec 사용 — shell 통해 안전한 인자 (사용자 입력 없음)
+    exec(
+      `${npmCmd} audit --json`,
+      { cwd: projectRoot, maxBuffer: 8 * 1024 * 1024, timeout: 60000 },
+      (err, stdout, stderr) => {
+        // npm audit 은 취약점이 있으면 exit code 1+ 반환 → err 가 와도 stdout 은 정상
+        let parsed;
+        try {
+          parsed = JSON.parse(stdout || '{}');
+        } catch (_) {
+          const payload = {
+            available: false,
+            reason: 'npm audit 출력을 파싱할 수 없습니다.',
+            stderr: String(stderr || '').slice(0, 500),
+          };
+          _auditCache = { at: Date.now(), data: payload };
+          return res.json({ success: true, data: payload, cached: false });
+        }
+
+        // npm audit v7+ 구조: { vulnerabilities: { pkg: { severity, via, fixAvailable, range, ... } }, metadata: { vulnerabilities: { info, low, moderate, high, critical, total }, dependencies: {...} } }
+        const metaVuln = parsed.metadata?.vulnerabilities || {};
+        const vulns = parsed.vulnerabilities || {};
+
+        const packages = Object.entries(vulns)
+          .map(([name, v]) => ({
+            name,
+            severity: v.severity || 'unknown',
+            range: v.range || '',
+            via: Array.isArray(v.via)
+              ? v.via
+                  .map(x => (typeof x === 'string' ? x : x.title || x.name || ''))
+                  .filter(Boolean)
+                  .slice(0, 5)
+              : [],
+            effects: Array.isArray(v.effects) ? v.effects.slice(0, 10) : [],
+            fixAvailable: !!v.fixAvailable,
+            is_direct: !!v.isDirect,
+          }))
+          .sort((a, b) => {
+            const order = { critical: 4, high: 3, moderate: 2, low: 1, info: 0, unknown: -1 };
+            return (order[b.severity] ?? -1) - (order[a.severity] ?? -1);
+          });
+
+        const payload = {
+          available: true,
+          by_severity: {
+            critical: metaVuln.critical || 0,
+            high: metaVuln.high || 0,
+            moderate: metaVuln.moderate || 0,
+            low: metaVuln.low || 0,
+            info: metaVuln.info || 0,
+            total: metaVuln.total || 0,
+          },
+          dependencies: parsed.metadata?.dependencies || {},
+          packages,
+          scanned_at: new Date().toISOString(),
+        };
+
+        _auditCache = { at: Date.now(), data: payload };
+        res.json({ success: true, data: payload, cached: false });
+      }
+    );
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/dev/external-deps', devOnly, (req, res) => {
   try {
     const fs = require('fs');

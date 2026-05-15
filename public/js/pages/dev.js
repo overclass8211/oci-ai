@@ -5438,10 +5438,16 @@ const DevPage = {
   // ══════════════════════════════════════════════════════════
   srcMonitor: {
     data:    null,
+    eslint:  null,           // ESLint 결과 (lazy)
+    audit:   null,           // npm audit 결과 (lazy)
+    subTab:  'overview',     // overview | quality | security
     filter:  'all',          // 카테고리 필터
     search:  '',             // 경로 검색
     sort:    'loc-desc',     // loc-desc | loc-asc | size-desc | size-asc | path-asc
     treemap: 'all',          // Metro 영역 필터 (all | category name)
+    qualityFilter: 'all',    // all | errors | warnings
+    qualitySearch: '',
+    auditSeverity: 'all',    // all | critical | high | moderate | low
   },
 
   _fmtBytes(bytes) {
@@ -5499,11 +5505,54 @@ const DevPage = {
       return;
     }
 
-    this._renderSrcMonitorView();
+    this._renderSrcShell();
+    await this._renderSrcSubTab(this.srcMonitor.subTab);
   },
 
-  _renderSrcMonitorView() {
+  // Source Monitor 외곽 (서브 탭 바 + 콘텐츠 영역)
+  _renderSrcShell() {
     const el = document.getElementById('dev-content');
+    const sub = this.srcMonitor.subTab;
+    el.innerHTML = `
+      <div class="src-shell">
+        <div class="src-subtabs">
+          <button class="src-subtab ${sub === 'overview' ? 'active' : ''}" data-sub="overview">📊 Overview</button>
+          <button class="src-subtab ${sub === 'quality'  ? 'active' : ''}" data-sub="quality">🔍 Quality (ESLint)</button>
+          <button class="src-subtab ${sub === 'security' ? 'active' : ''}" data-sub="security">🔒 Security (npm audit)</button>
+        </div>
+        <div id="src-sub-content">
+          <div class="loading" style="padding:60px;text-align:center">로딩 중...</div>
+        </div>
+      </div>
+    `;
+    // 서브 탭 바 이벤트
+    document.querySelectorAll('.src-subtab').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const next = btn.dataset.sub;
+        if (next === this.srcMonitor.subTab) return;
+        this.srcMonitor.subTab = next;
+        document.querySelectorAll('.src-subtab').forEach(b => b.classList.toggle('active', b === btn));
+        await this._renderSrcSubTab(next);
+      });
+    });
+  },
+
+  async _renderSrcSubTab(sub) {
+    const host = document.getElementById('src-sub-content');
+    if (!host) return;
+    if (sub === 'overview')      this._renderSrcOverview(host);
+    else if (sub === 'quality')  await this._renderSrcQuality(host);
+    else if (sub === 'security') await this._renderSrcSecurity(host);
+  },
+
+  // (구) 단일-뷰 진입점 — Overview 서브 탭의 갱신을 위해 호출
+  _renderSrcMonitorView() {
+    const host = document.getElementById('src-sub-content');
+    if (!host) return;
+    this._renderSrcOverview(host);
+  },
+
+  _renderSrcOverview(el) {
     const d  = this.srcMonitor.data;
     if (!d) { el.innerHTML = '<div class="empty">데이터 없음</div>'; return; }
 
@@ -5827,6 +5876,378 @@ const DevPage = {
         if (input) input.value = path;
         this._renderSrcFileTable(this.srcMonitor.data.files);
         document.getElementById('src-file-table-host')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  },
+
+  // ─── Quality 서브 탭 (ESLint) ─────────────────────────────
+  async _renderSrcQuality(host, opts = {}) {
+    const { force = false } = opts;
+    host.innerHTML = '<div class="loading" style="padding:60px;text-align:center">ESLint 분석 중... (수초 소요)</div>';
+    try {
+      const r = await API.get('/admin/dev/source-eslint' + (force ? '?refresh=1' : ''));
+      this.srcMonitor.eslint = r.data;
+      this.srcMonitor.eslintCached = r.cached;
+    } catch (e) {
+      host.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        ESLint 결과 불러오기 실패: ${esc(e.message || '')}
+      </div>`;
+      return;
+    }
+    this._paintSrcQuality(host);
+  },
+
+  _paintSrcQuality(host) {
+    const d = this.srcMonitor.eslint;
+    if (!d) { host.innerHTML = '<div class="empty">데이터 없음</div>'; return; }
+    if (!d.available) {
+      host.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        ESLint 사용 불가: ${esc(d.reason || '')}
+      </div>`;
+      return;
+    }
+    const { totals, rules, files, messages, scanned_at } = d;
+    const cached = this.srcMonitor.eslintCached;
+
+    const maxRule = Math.max(...rules.map(r => r.total), 1);
+
+    // 파일/메시지 필터링
+    const qFilter = this.srcMonitor.qualityFilter;
+    const qSearch = (this.srcMonitor.qualitySearch || '').toLowerCase();
+
+    const filteredFiles = files.filter(f => {
+      if (qFilter === 'errors'   && f.errors === 0)   return false;
+      if (qFilter === 'warnings' && f.warnings === 0) return false;
+      if (qSearch && !f.path.toLowerCase().includes(qSearch)) return false;
+      return true;
+    }).slice(0, 200);
+
+    const filteredMsgs = messages.filter(m => {
+      if (qFilter === 'errors'   && m.severity !== 2) return false;
+      if (qFilter === 'warnings' && m.severity !== 1) return false;
+      if (qSearch && !(m.path.toLowerCase().includes(qSearch) || (m.rule || '').toLowerCase().includes(qSearch))) return false;
+      return true;
+    }).slice(0, 100);
+
+    host.innerHTML = `
+      <div class="dev-section-header">
+        <div>
+          <h3 style="margin:0;font-size:15px">🔍 ESLint 품질 분석</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
+            마지막 스캔: ${esc(new Date(scanned_at).toLocaleString('ko-KR'))}
+            ${cached ? ' · <span style="color:#f59e0b">⚡ 캐시</span>' : ''}
+          </p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm btn-secondary" id="src-eslint-refresh">🔄 강제 재실행</button>
+        </div>
+      </div>
+
+      <div class="src-stats-grid">
+        <div class="src-stat-card" style="border-left:3px solid #ef4444">
+          <div class="src-stat-label">오류</div>
+          <div class="src-stat-value" style="color:#ef4444">${Fmt.number(totals.errors)}</div>
+          <div class="src-stat-sub">즉시 수정 필요</div>
+        </div>
+        <div class="src-stat-card" style="border-left:3px solid #f59e0b">
+          <div class="src-stat-label">경고</div>
+          <div class="src-stat-value" style="color:#f59e0b">${Fmt.number(totals.warnings)}</div>
+          <div class="src-stat-sub">개선 권장</div>
+        </div>
+        <div class="src-stat-card" style="border-left:3px solid #10b981">
+          <div class="src-stat-label">자동 수정 가능</div>
+          <div class="src-stat-value" style="color:#10b981">${Fmt.number(totals.fixable)}</div>
+          <div class="src-stat-sub">eslint --fix 로 처리</div>
+        </div>
+        <div class="src-stat-card">
+          <div class="src-stat-label">이슈 있는 파일</div>
+          <div class="src-stat-value">${Fmt.number(totals.files_with_issues)}</div>
+          <div class="src-stat-sub">전체 중</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><div class="card-title">📜 규칙별 위반 (상위 ${Math.min(20, rules.length)})</div></div>
+        <div class="card-body">
+          ${rules.length === 0
+            ? '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">✅ 위반 없음 — 코드가 깨끗합니다.</div>'
+            : `<div class="src-rule-list">
+                ${rules.slice(0, 20).map(r => {
+                  const isError = r.errors > 0;
+                  const color = isError ? '#ef4444' : '#f59e0b';
+                  const pct = (r.total / maxRule) * 100;
+                  return `
+                    <div class="src-rule-row">
+                      <div class="src-rule-name">
+                        <code>${esc(r.rule)}</code>
+                        <span class="src-rule-files">${r.files}개 파일</span>
+                      </div>
+                      <div class="src-rule-bar-track">
+                        <div class="src-rule-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+                      </div>
+                      <div class="src-rule-counts">
+                        ${r.errors > 0 ? `<span class="src-rule-pill" style="background:#fee2e2;color:#dc2626">${r.errors} err</span>` : ''}
+                        ${r.warnings > 0 ? `<span class="src-rule-pill" style="background:#fef3c7;color:#d97706">${r.warnings} warn</span>` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>`}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">📂 파일별 위반</div>
+          <div class="src-file-filters">
+            <input type="text" class="form-input form-input-sm" id="src-q-search"
+                   placeholder="🔍 파일/규칙 검색..." value="${esc(this.srcMonitor.qualitySearch)}"
+                   style="width:200px">
+            <select class="form-select form-select-sm" id="src-q-filter" style="width:140px">
+              <option value="all"      ${qFilter === 'all'      ? 'selected' : ''}>전체</option>
+              <option value="errors"   ${qFilter === 'errors'   ? 'selected' : ''}>오류만</option>
+              <option value="warnings" ${qFilter === 'warnings' ? 'selected' : ''}>경고만</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          ${filteredFiles.length === 0
+            ? '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">조건에 맞는 파일 없음</div>'
+            : `<table class="data-table src-file-table">
+                <thead>
+                  <tr>
+                    <th style="width:36px">#</th>
+                    <th>파일</th>
+                    <th style="width:80px;text-align:right">오류</th>
+                    <th style="width:80px;text-align:right">경고</th>
+                    <th style="width:100px;text-align:right">수정가능</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filteredFiles.map((f, i) => `
+                    <tr>
+                      <td style="color:var(--text-3);font-size:11px">${i + 1}</td>
+                      <td><code style="font-size:12px">${esc(f.path)}</code></td>
+                      <td style="text-align:right;font-variant-numeric:tabular-nums;${f.errors ? 'color:#ef4444;font-weight:700' : 'color:var(--text-3)'}">${Fmt.number(f.errors)}</td>
+                      <td style="text-align:right;font-variant-numeric:tabular-nums;${f.warnings ? 'color:#f59e0b;font-weight:600' : 'color:var(--text-3)'}">${Fmt.number(f.warnings)}</td>
+                      <td style="text-align:right;font-variant-numeric:tabular-nums;${f.fixable ? 'color:#10b981' : 'color:var(--text-3)'}">${Fmt.number(f.fixable)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>`}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">💬 메시지 샘플 (상위 ${filteredMsgs.length})</div>
+        </div>
+        <div class="card-body" style="padding:0">
+          ${filteredMsgs.length === 0
+            ? '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">메시지 없음</div>'
+            : `<table class="data-table src-file-table">
+                <thead>
+                  <tr>
+                    <th style="width:60px">심각도</th>
+                    <th>파일:줄</th>
+                    <th style="width:200px">규칙</th>
+                    <th>메시지</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${filteredMsgs.map(m => {
+                    const sevLabel = m.severity === 2 ? 'error' : (m.severity === 1 ? 'warn' : 'info');
+                    const sevColor = m.severity === 2 ? '#ef4444' : '#f59e0b';
+                    return `
+                      <tr>
+                        <td><span class="src-rule-pill" style="background:${sevColor}1a;color:${sevColor}">${sevLabel}</span></td>
+                        <td><code style="font-size:11px">${esc(m.path)}<span style="color:var(--text-3)">:${m.line}:${m.col}</span></code></td>
+                        <td><code style="font-size:11px;color:var(--text-2)">${esc(m.rule)}</code></td>
+                        <td style="font-size:12px">${esc(m.message)}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>`}
+        </div>
+      </div>
+    `;
+
+    // 이벤트 바인딩
+    document.getElementById('src-eslint-refresh')?.addEventListener('click', async () => {
+      await this._renderSrcQuality(host, { force: true });
+      Toast?.show?.('ESLint 재실행 완료', 'success');
+    });
+    let qTimer;
+    document.getElementById('src-q-search')?.addEventListener('input', e => {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(() => {
+        this.srcMonitor.qualitySearch = e.target.value.trim();
+        this._paintSrcQuality(host);
+      }, 250);
+    });
+    document.getElementById('src-q-filter')?.addEventListener('change', e => {
+      this.srcMonitor.qualityFilter = e.target.value;
+      this._paintSrcQuality(host);
+    });
+  },
+
+  // ─── Security 서브 탭 (npm audit) ─────────────────────────
+  async _renderSrcSecurity(host, opts = {}) {
+    const { force = false } = opts;
+    host.innerHTML = '<div class="loading" style="padding:60px;text-align:center">npm audit 실행 중... (수십 초 소요 가능)</div>';
+    try {
+      const r = await API.get('/admin/dev/source-audit' + (force ? '?refresh=1' : ''));
+      this.srcMonitor.audit = r.data;
+      this.srcMonitor.auditCached = r.cached;
+    } catch (e) {
+      host.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        npm audit 실행 실패: ${esc(e.message || '')}
+      </div>`;
+      return;
+    }
+    this._paintSrcSecurity(host);
+  },
+
+  _paintSrcSecurity(host) {
+    const d = this.srcMonitor.audit;
+    if (!d) { host.innerHTML = '<div class="empty">데이터 없음</div>'; return; }
+    if (!d.available) {
+      host.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        npm audit 사용 불가: ${esc(d.reason || '')}
+        ${d.stderr ? `<pre style="margin-top:8px;font-size:11px;text-align:left">${esc(d.stderr)}</pre>` : ''}
+      </div>`;
+      return;
+    }
+    const { by_severity, dependencies, packages, scanned_at } = d;
+    const cached = this.srcMonitor.auditCached;
+
+    const sevColors = {
+      critical: '#dc2626',
+      high:     '#ef4444',
+      moderate: '#f59e0b',
+      low:      '#facc15',
+      info:     '#06b6d4',
+    };
+    const sevLabels = {
+      critical: '치명적', high: '높음', moderate: '중간', low: '낮음', info: '정보',
+    };
+
+    const sevFilter = this.srcMonitor.auditSeverity;
+    const filteredPkgs = packages.filter(p => sevFilter === 'all' || p.severity === sevFilter);
+
+    host.innerHTML = `
+      <div class="dev-section-header">
+        <div>
+          <h3 style="margin:0;font-size:15px">🔒 npm audit 보안 분석</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
+            마지막 스캔: ${esc(new Date(scanned_at).toLocaleString('ko-KR'))}
+            ${cached ? ' · <span style="color:#f59e0b">⚡ 캐시</span>' : ''}
+            · 의존성: prod ${Fmt.number(dependencies.prod || 0)} / dev ${Fmt.number(dependencies.dev || 0)} / 전체 ${Fmt.number(dependencies.total || 0)}
+          </p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm btn-secondary" id="src-audit-refresh">🔄 강제 재실행</button>
+        </div>
+      </div>
+
+      <div class="src-stats-grid">
+        ${['critical', 'high', 'moderate', 'low', 'info'].map(sev => {
+          const count = by_severity[sev] || 0;
+          const color = sevColors[sev];
+          const label = sevLabels[sev];
+          const active = sevFilter === sev;
+          return `
+            <div class="src-stat-card src-sev-card ${active ? 'is-active' : ''}"
+                 data-sev="${sev}"
+                 style="border-left:3px solid ${color};cursor:pointer">
+              <div class="src-stat-label">${label}</div>
+              <div class="src-stat-value" style="color:${color}">${Fmt.number(count)}</div>
+              <div class="src-stat-sub">${esc(sev)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">📦 취약 패키지 (${filteredPkgs.length} / 전체 ${packages.length})</div>
+          <div class="src-file-filters">
+            <select class="form-select form-select-sm" id="src-sev-filter" style="width:160px">
+              <option value="all"      ${sevFilter === 'all'      ? 'selected' : ''}>전체 심각도</option>
+              <option value="critical" ${sevFilter === 'critical' ? 'selected' : ''}>치명적</option>
+              <option value="high"     ${sevFilter === 'high'     ? 'selected' : ''}>높음</option>
+              <option value="moderate" ${sevFilter === 'moderate' ? 'selected' : ''}>중간</option>
+              <option value="low"      ${sevFilter === 'low'      ? 'selected' : ''}>낮음</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          ${filteredPkgs.length === 0 ? `
+            <div class="empty" style="padding:30px;text-align:center;color:var(--text-3)">
+              ${by_severity.total === 0
+                ? '✅ 취약점이 발견되지 않았습니다.'
+                : '조건에 맞는 패키지가 없습니다.'}
+            </div>
+          ` : `
+            <table class="data-table src-file-table">
+              <thead>
+                <tr>
+                  <th style="width:90px">심각도</th>
+                  <th>패키지</th>
+                  <th style="width:120px">버전 범위</th>
+                  <th>원인 (via)</th>
+                  <th style="width:90px">직접</th>
+                  <th style="width:90px">수정</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filteredPkgs.map(p => {
+                  const color = sevColors[p.severity] || '#94a3b8';
+                  const label = sevLabels[p.severity] || p.severity;
+                  return `
+                    <tr>
+                      <td><span class="src-rule-pill" style="background:${color}1a;color:${color}">${esc(label)}</span></td>
+                      <td><code style="font-size:12px;font-weight:600">${esc(p.name)}</code></td>
+                      <td><code style="font-size:11px;color:var(--text-3)">${esc(p.range || '-')}</code></td>
+                      <td style="font-size:11px;color:var(--text-2)">${esc((p.via || []).join(', ') || '-')}</td>
+                      <td>${p.is_direct ? '<span class="src-rule-pill" style="background:#fee2e2;color:#dc2626">직접</span>' : '<span style="color:var(--text-3);font-size:11px">간접</span>'}</td>
+                      <td>${p.fixAvailable ? '<span class="src-rule-pill" style="background:#d1fae5;color:#059669">✓ 가능</span>' : '<span style="color:var(--text-3);font-size:11px">수동</span>'}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><div class="card-title">🛠️ 권장 조치</div></div>
+        <div class="card-body" style="font-size:12px;line-height:1.7">
+          <p style="margin:0 0 8px"><strong>로컬:</strong> <code>npm audit fix</code> — 자동 수정 가능한 항목을 처리합니다.</p>
+          <p style="margin:0 0 8px"><strong>주의 필요:</strong> <code>npm audit fix --force</code> — breaking change 포함 (테스트 필수).</p>
+          <p style="margin:0;color:var(--text-3)">
+            ※ 외부 보안 도구(Semgrep / OWASP ZAP / Snyk)는 향후 import 인터페이스로 통합 예정입니다.
+          </p>
+        </div>
+      </div>
+    `;
+
+    // 이벤트
+    document.getElementById('src-audit-refresh')?.addEventListener('click', async () => {
+      await this._renderSrcSecurity(host, { force: true });
+      Toast?.show?.('npm audit 재실행 완료', 'success');
+    });
+    document.getElementById('src-sev-filter')?.addEventListener('change', e => {
+      this.srcMonitor.auditSeverity = e.target.value;
+      this._paintSrcSecurity(host);
+    });
+    document.querySelectorAll('.src-sev-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const sev = card.dataset.sev;
+        this.srcMonitor.auditSeverity = (this.srcMonitor.auditSeverity === sev) ? 'all' : sev;
+        this._paintSrcSecurity(host);
       });
     });
   },
