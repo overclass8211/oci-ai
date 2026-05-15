@@ -158,18 +158,25 @@ const BUSINESS_COLORS = {
 const MODAL_STANDARD_WIDTH = 1080;
 
 const Modal = {
+  // 현재 열린 모달의 dirty 상태 추적 (입력값 변경 여부)
+  _isDirty: false,
+  // 닫기 시 컨펌 표시 여부 (open 옵션에서 false 로 끌 수 있음)
+  _confirmOnClose: true,
+
   /**
    * Modal 열기
    * @param {object} opts
-   *   title   - 제목
-   *   body    - 본문 HTML 문자열
-   *   footer  - 푸터 HTML 문자열 (버튼에 id 부여 후 bind로 연결)
-   *   width   - 최대 너비 (px). 기본값은 시스템 표준(1080)
-   *   compact - true면 width 인자를 그대로 사용 (확인 다이얼로그·짧은 알림용)
-   *   bind    - { '#btn-id': handler, '[data-x]': handler } CSP-safe 이벤트 바인딩
-   *   onOpen  - (box) => {} 추가 초기화 콜백
+   *   title           - 제목
+   *   body            - 본문 HTML 문자열
+   *   footer          - 푸터 HTML 문자열 (버튼에 id 부여 후 bind로 연결)
+   *   width           - 최대 너비 (px). 기본값은 시스템 표준(1080)
+   *   compact         - true면 width 인자를 그대로 사용 (확인 다이얼로그·짧은 알림용)
+   *   bind            - { '#btn-id': handler, '[data-x]': handler } CSP-safe 이벤트 바인딩
+   *   onOpen          - (box) => {} 추가 초기화 콜백
+   *   confirmOnClose  - 사용자가 입력 중일 때 바깥 클릭/× 로 닫으면 컨펌 표시 (기본 true)
+   *                     확인 다이얼로그·알림 모달은 false 로 옵트아웃
    */
-  open({ title, body, footer, width, compact = false, bind = {}, onOpen }) {
+  open({ title, body, footer, width, compact = false, bind = {}, onOpen, confirmOnClose = true }) {
     const overlay = document.getElementById('modal-overlay');
     const box = document.getElementById('modal-box');
     // compact=true 면 인자 width 우선, 아니면 시스템 표준 강제
@@ -183,24 +190,81 @@ const Modal = {
       <div class="modal-body">${body}</div>
       ${footer ? `<div class="modal-footer">${footer}</div>` : ''}
     `;
-    // × 버튼 — inline onclick 제거 (CSP 대응)
-    document.getElementById('__modal-x-btn').addEventListener('click', () => Modal.close());
+    // 새 모달 열 때마다 dirty 플래그 리셋
+    Modal._isDirty = false;
+    Modal._confirmOnClose = confirmOnClose;
+    // 입력 감지: input/textarea/select 가 변경되면 dirty 표시
+    // (input 이벤트 = 글자 입력, change 이벤트 = select/checkbox/radio 변경)
+    const markDirty = () => { Modal._isDirty = true; };
+    box.addEventListener('input', markDirty);
+    box.addEventListener('change', markDirty);
+    // × 버튼 — inline onclick 제거 (CSP 대응) + dirty 시 컨펌
+    document.getElementById('__modal-x-btn').addEventListener('click', () => Modal._tryClose());
     // bind 맵으로 버튼·요소에 이벤트 바인딩 (CSP-safe)
     for (const [sel, fn] of Object.entries(bind)) {
       box.querySelectorAll(sel).forEach(el => el.addEventListener('click', fn));
     }
     overlay.classList.add('active');
-    overlay.onclick = (e) => { if (e.target === overlay) Modal.close(); };
+    // 바깥 영역 클릭 — dirty 시 컨펌, 아니면 즉시 닫힘
+    overlay.onclick = (e) => { if (e.target === overlay) Modal._tryClose(); };
     if (onOpen) onOpen(box);
+  },
+  /**
+   * 닫기 시도 — dirty 상태면 컨펌, 아니면 즉시 닫힘
+   * (× 버튼 / 바깥 클릭 공통 진입점)
+   */
+  _tryClose() {
+    if (Modal._confirmOnClose && Modal._isDirty) {
+      Modal._confirmDiscard(() => Modal.close());
+    } else {
+      Modal.close();
+    }
+  },
+  /**
+   * "변경사항을 버리고 닫으시겠습니까?" 컨펌 오버레이
+   * 현재 모달 위에 추가로 표시되는 작은 다이얼로그 (z-index 1100)
+   */
+  _confirmDiscard(onDiscard) {
+    // 이미 열려있으면 중복 방지
+    if (document.getElementById('__modal-discard-overlay')) return;
+    const wrap = document.createElement('div');
+    wrap.id = '__modal-discard-overlay';
+    wrap.className = 'modal-discard-overlay';
+    wrap.innerHTML = `
+      <div class="modal-discard-box" role="alertdialog" aria-modal="true">
+        <div class="modal-discard-title">⚠️ 변경사항이 저장되지 않습니다</div>
+        <div class="modal-discard-body">정말 닫으시겠습니까?<br><span class="modal-discard-hint">작성 중이던 내용이 모두 사라집니다.</span></div>
+        <div class="modal-discard-footer">
+          <button type="button" class="btn btn-ghost" id="__modal-discard-stay">계속 편집</button>
+          <button type="button" class="btn btn-primary" id="__modal-discard-leave">닫기</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(wrap);
+    const cleanup = () => wrap.remove();
+    // "계속 편집" — 컨펌만 닫힘, 모달은 그대로
+    document.getElementById('__modal-discard-stay').addEventListener('click', cleanup);
+    // "닫기" — 컨펌 닫고 모달도 닫음
+    document.getElementById('__modal-discard-leave').addEventListener('click', () => {
+      cleanup();
+      onDiscard();
+    });
+    // 오버레이 바깥 클릭 = "계속 편집" 과 동일 (실수 방지)
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) cleanup(); });
+    // 포커스를 "계속 편집" 에 둠 (실수로 Enter 눌렀을 때 안전한 쪽으로)
+    setTimeout(() => document.getElementById('__modal-discard-stay')?.focus(), 50);
   },
   close() {
     document.getElementById('modal-overlay').classList.remove('active');
+    // 닫을 때 dirty 플래그도 리셋
+    Modal._isDirty = false;
   },
   confirm(message, onConfirm) {
     Modal.open({
       title: '확인',
       compact: true,           // 확인 다이얼로그는 작게 유지
       width: 440,
+      confirmOnClose: false,   // 확인 다이얼로그 자체엔 컨펌 불필요
       body: `<p style="font-size:13px;color:var(--text-2);line-height:1.6">${message}</p>`,
       footer: `
         <button class="btn btn-ghost" id="modal-cfm-cancel">취소</button>
