@@ -33,7 +33,7 @@ const spaGlobals = {
   // api.js
   API: 'readonly',
   // app.js
-  App: 'readonly',
+  App: 'readonly', WS: 'readonly',
   // 외부 라이브러리
   Chart: 'readonly', FullCalendar: 'readonly', Quill: 'readonly', Sortable: 'readonly',
   // pages/*.js (app.js 에서 참조)

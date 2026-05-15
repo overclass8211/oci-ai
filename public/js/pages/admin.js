@@ -597,12 +597,16 @@ const AdminPage = {
         desc: '로컬 파일시스템 정상'
       },
       {
-        // 이 앱은 native `ws` 라이브러리 사용 (Socket.IO 아님) — App.socket.readyState 로 판정
+        // 이 앱은 native `ws` 라이브러리 사용 (Socket.IO 아님)
+        // 클라이언트 측: 전역 WS 객체의 WS.socket.readyState 로 판정
+        // 서버 측: getClientCount() 가 d.ws_connections 에 활성 클라이언트 수 반환
         name: 'WebSocket',
-        ok: typeof App !== 'undefined' && App.socket?.readyState === 1,
-        desc: (typeof App !== 'undefined' && App.socket?.readyState === 1)
+        ok: typeof WS !== 'undefined' && WS.socket?.readyState === 1,
+        desc: (typeof WS !== 'undefined' && WS.socket?.readyState === 1)
           ? `WebSocket 연결 활성${d.ws_connections != null ? ` · 활성 클라이언트 ${d.ws_connections}개` : ''}`
-          : 'WebSocket 연결 끊김 또는 미초기화'
+          : (d.ws_connections > 0
+              ? `서버 측 WebSocket 활성(${d.ws_connections}개 연결) · 현재 브라우저 연결 끊김`
+              : 'WebSocket 연결 끊김 또는 미초기화')
       }
     ];
 
