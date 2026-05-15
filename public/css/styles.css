@@ -5724,3 +5724,100 @@ body,
   color: var(--text-2, #999);
   background: var(--surface-2, #2a2a32);
 }
+
+/* ──────────────────────────────────────────────────────────────
+   DFD 시각화 — 미매핑/Stale 경고 배너 + 미분류 노드 표시
+   ────────────────────────────────────────────────────────────── */
+.dfd-warn {
+  margin: 8px 0 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.dfd-warn-info {
+  background: color-mix(in srgb, #f59e0b 8%, var(--surface));
+  border-color: color-mix(in srgb, #f59e0b 35%, transparent);
+  color: var(--text-1);
+}
+.dfd-warn-error {
+  background: color-mix(in srgb, #ef4444 8%, var(--surface));
+  border-color: color-mix(in srgb, #ef4444 35%, transparent);
+  color: var(--text-1);
+  font-weight: 500;
+}
+.dfd-warn summary {
+  cursor: pointer;
+  font-weight: 500;
+  user-select: none;
+}
+.dfd-warn-hint {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: normal;
+}
+.dfd-warn-body {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, #f59e0b 30%, transparent);
+}
+.dfd-warn-row {
+  margin-bottom: 10px;
+}
+.dfd-warn-row:last-child { margin-bottom: 0; }
+.dfd-warn-row > code {
+  display: block;
+  margin: 4px 0 6px;
+  padding: 6px 10px;
+  background: var(--bg-2, #f5f7fa);
+  border-radius: 6px;
+  font-size: 11.5px;
+  word-break: break-all;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+.dfd-warn-tip {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.dfd-warn-tip code {
+  background: var(--bg-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+/* 미분류 테이블 노드 — 카탈로그 매핑이 없는 자동 감지 항목 */
+.dfd-node-uncategorized {
+  border-left: 3px solid #f59e0b !important;
+  background: color-mix(in srgb, #f59e0b 4%, var(--surface)) !important;
+}
+.dfd-node-uncategorized .dfd-cols-preview {
+  color: var(--text-3);
+  font-style: italic;
+}
+.dfd-uncat-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
+  padding: 1px 5px;
+  border-radius: 6px;
+  margin-left: 4px;
+  letter-spacing: 0.3px;
+}
+[data-theme="dark"] .dfd-warn-info {
+  background: color-mix(in srgb, #f59e0b 12%, var(--surface));
+}
+[data-theme="dark"] .dfd-warn-error {
+  background: color-mix(in srgb, #ef4444 14%, var(--surface));
+}
+[data-theme="dark"] .dfd-node-uncategorized {
+  background: color-mix(in srgb, #f59e0b 8%, var(--surface)) !important;
+}
+[data-theme="dark"] .dfd-uncat-badge {
+  color: #fbbf24;
+}

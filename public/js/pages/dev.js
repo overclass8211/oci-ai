@@ -459,7 +459,93 @@ const DevPage = {
   // ══════════════════════════════════════════════════════════
   // TAB 2: DFD 시각화
   // ══════════════════════════════════════════════════════════
-  renderDFD() {
+  async renderDFD() {
+    // ── 1) DB 라이브 스키마 fetch (인스펙터와 동일 소스) ──────────
+    let liveTables = {};
+    let fetchFailed = false;
+    try {
+      const r = await API.get('/admin/dev/schema');
+      liveTables = r.data || {};
+    } catch (_) {
+      fetchFailed = true;
+    }
+
+    // ── 2) DFD 정적 카탈로그와 라이브 테이블 병합 ────────────────
+    // 카탈로그에 있는 테이블 = 기존 a2t 매핑 보존
+    // DB에만 있는 테이블 = "📌 미분류" 로 자동 추가 (라이브 컬럼 사용)
+    const catalogByLabel = {};
+    this.DFD.tables.forEach(t => { catalogByLabel[t.label] = t; });
+
+    const liveTableNames = Object.keys(liveTables).sort();
+    const liveTableSet = new Set(liveTableNames);
+    const mergedTables = [];
+    const uncategorized = [];
+
+    // 카탈로그 순서대로 표시 (의미론 그룹 보존)
+    this.DFD.tables.forEach(t => {
+      if (liveTableSet.has(t.label)) mergedTables.push(t);
+      // DB 에 없는 카탈로그 항목은 표시 안 함 (stale)
+    });
+
+    // DB 에만 있는 테이블 자동 추가 (라이브 컬럼 정보 사용)
+    liveTableNames.forEach(name => {
+      if (catalogByLabel[name]) return;
+      const cols = (liveTables[name].columns || [])
+        .slice(0, 6)
+        .map(c => c.COLUMN_NAME);
+      const entry = {
+        id: 'tbl-auto-' + name.replace(/_/g, '-'),
+        label: name,
+        cols,
+        _uncategorized: true,
+      };
+      mergedTables.push(entry);
+      uncategorized.push(entry);
+    });
+
+    // 카탈로그에 있지만 DB에 없는 stale 항목 (드물지만 마이그레이션 후 가능)
+    const stale = this.DFD.tables.filter(t => !liveTableSet.has(t.label));
+
+    // ── 3) 경고 배너 HTML ────────────────────────────────────────
+    let warningBanner = '';
+    if (fetchFailed) {
+      warningBanner = `
+        <div class="dfd-warn dfd-warn-error">
+          ⚠️ 라이브 스키마 조회 실패 — 정적 카탈로그 ${this.DFD.tables.length}개 테이블만 표시됩니다.
+        </div>`;
+    } else if (uncategorized.length > 0 || stale.length > 0) {
+      const uncatList = uncategorized.map(t => esc(t.label)).join(', ');
+      const staleList = stale.map(t => esc(t.label)).join(', ');
+      warningBanner = `
+        <details class="dfd-warn dfd-warn-info">
+          <summary>
+            ⚠️ DFD-스키마 불일치 감지:
+            ${uncategorized.length > 0 ? `<strong>${uncategorized.length}개 미매핑</strong>` : ''}
+            ${uncategorized.length > 0 && stale.length > 0 ? ' · ' : ''}
+            ${stale.length > 0 ? `<strong>${stale.length}개 stale</strong>` : ''}
+            <span class="dfd-warn-hint">(클릭하여 상세 보기)</span>
+          </summary>
+          <div class="dfd-warn-body">
+            ${uncategorized.length > 0 ? `
+              <div class="dfd-warn-row">
+                <strong>📌 미매핑 (DB 에 있지만 a2t 매핑 없음):</strong>
+                <code>${uncatList}</code>
+                <div class="dfd-warn-tip">
+                  💡 <code>dev.js</code> 의 <code>DFD.tables</code> 와 <code>DFD.a2t</code> 에 추가하면 영향도 분석 가능
+                </div>
+              </div>` : ''}
+            ${stale.length > 0 ? `
+              <div class="dfd-warn-row">
+                <strong>🗑 Stale (카탈로그에 있지만 DB 에 없음):</strong>
+                <code>${staleList}</code>
+                <div class="dfd-warn-tip">
+                  💡 마이그레이션으로 DROP 되었을 수 있음 — <code>dev.js</code> 의 <code>DFD.tables</code> 에서 제거 권장
+                </div>
+              </div>` : ''}
+          </div>
+        </details>`;
+    }
+
     document.getElementById('dev-content').innerHTML = `
       <div class="dev-section-header">
         <div>
@@ -467,10 +553,13 @@ const DevPage = {
           <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
             노드를 클릭하면 해당 화면·API·테이블의 연결 경로를 강조합니다.
             테이블/컬럼 변경 시 영향 범위를 한눈에 파악하세요.
+            <span style="color:var(--text-2)">· 총 ${mergedTables.length}개 테이블 표시</span>
           </p>
         </div>
         <input type="text" id="dfd-search" class="search-input" style="width:200px" placeholder="노드 검색...">
       </div>
+
+      ${warningBanner}
 
       <div class="dfd-container">
         <!-- dfd-board: 헤더 + 컬럼을 하나의 그리드로 통합 → CSS가 자동 정렬 -->
@@ -502,9 +591,12 @@ const DevPage = {
           </div>
 
           <div class="dfd-col" id="dfd-col-tables">
-            ${this.DFD.tables.map(t => `
-              <div class="dfd-node dfd-node-table" data-id="${t.id}" data-type="table">
-                <span class="dfd-table-icon">🗄</span> ${esc(t.label)}
+            ${mergedTables.map(t => `
+              <div class="dfd-node dfd-node-table ${t._uncategorized ? 'dfd-node-uncategorized' : ''}"
+                   data-id="${t.id}" data-type="table"
+                   ${t._uncategorized ? 'title="DFD 매핑 없음 — Page/API 연결 안 됨"' : ''}>
+                <span class="dfd-table-icon">${t._uncategorized ? '📌' : '🗄'}</span> ${esc(t.label)}
+                ${t._uncategorized ? '<span class="dfd-uncat-badge">미분류</span>' : ''}
                 <div class="dfd-cols-preview">${t.cols.slice(0,4).join(', ')}${t.cols.length>4?'…':''}</div>
               </div>
             `).join('')}
