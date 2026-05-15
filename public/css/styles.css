@@ -5362,6 +5362,225 @@ body,
   gap: 2px;
 }
 
+/* ── 소스 모니터 ─────────────────────────────────────────────── */
+.src-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.src-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+.src-stat-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-2);
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+.src-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.src-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.src-stat-sub {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* 카테고리 막대 */
+.src-cat-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.src-cat-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 320px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.src-cat-row:hover { background: var(--surface-2); }
+.src-cat-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.src-cat-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.src-cat-key {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 400;
+}
+.src-cat-bar-track {
+  height: 8px;
+  background: var(--surface-3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.src-cat-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 250ms ease;
+}
+.src-cat-stat {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  justify-content: flex-end;
+}
+.src-cat-stat .src-cat-loc {
+  font-weight: 700;
+  color: var(--text-1);
+}
+.src-cat-stat .src-cat-size {
+  color: var(--text-3);
+}
+
+/* Metro Treemap — CSS grid 기반 */
+.src-treemap {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: 56px;
+  grid-auto-flow: dense;
+  gap: 6px;
+}
+.src-tile {
+  background: var(--tile-color, #94a3b8);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+  position: relative;
+}
+.src-tile:hover {
+  transform: translateY(-1px) scale(1.01);
+  filter: brightness(1.08);
+  box-shadow: 0 4px 12px rgba(0,0,0,.18);
+  z-index: 1;
+}
+.src-tile-name {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.src-tile-loc {
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.src-tile-cat {
+  font-size: 9px;
+  opacity: 0.85;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* 타일 크기 단계 — Metro 스타일 */
+.src-tile-xl { grid-column: span 4; grid-row: span 3; }
+.src-tile-lg { grid-column: span 3; grid-row: span 2; }
+.src-tile-md { grid-column: span 2; grid-row: span 2; }
+.src-tile-sm { grid-column: span 2; grid-row: span 1; }
+.src-tile-xs { grid-column: span 1; grid-row: span 1; }
+
+.src-tile-xl .src-tile-loc { font-size: 32px; }
+.src-tile-lg .src-tile-loc { font-size: 24px; }
+.src-tile-md .src-tile-loc { font-size: 18px; }
+.src-tile-sm .src-tile-loc { font-size: 14px; }
+.src-tile-xs .src-tile-loc { font-size: 11px; }
+.src-tile-xs .src-tile-cat { display: none; }
+
+/* 파일 목록 */
+.src-file-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.src-file-table {
+  font-size: 12px;
+}
+.src-file-table th {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-3);
+  background: var(--surface-2);
+}
+.src-file-table td {
+  vertical-align: middle;
+  padding: 8px 12px;
+}
+.src-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 다크 테마 — Metro 카테고리 색 조정 (배경 대비 유지) */
+[data-theme='dark'] .src-stat-card { background: var(--surface); }
+[data-theme='dark'] .src-cat-row:hover { background: rgba(255,255,255,.04); }
+
+/* 반응형 */
+@media (max-width: 900px) {
+  .src-cat-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .src-cat-stat { justify-content: flex-start; }
+  .src-treemap { grid-template-columns: repeat(6, 1fr); }
+  .src-tile-xl { grid-column: span 6; grid-row: span 2; }
+  .src-tile-lg { grid-column: span 4; grid-row: span 2; }
+  .src-tile-md { grid-column: span 3; }
+  .src-file-filters { flex-wrap: wrap; }
+}
+
 /* ── 개발 로드맵 ─────────────────────────────────────────────── */
 .roadmap-grid {
   display: grid;

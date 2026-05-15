@@ -1495,6 +1495,143 @@ const EXTERNAL_URL_NOISE = new Set([
   'raw.githubusercontent.com',
 ]);
 
+// ─────────────────────────────────────────────────────────────
+// 소스 모니터 — 코드베이스 통계 (LOC, 파일 수, 카테고리 분포)
+//   GET /dev/source-stats
+// ─────────────────────────────────────────────────────────────
+const SRC_EXCLUDE_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'coverage',
+  'dist',
+  '.claude',
+  '.husky',
+  '.vscode',
+  '.idea',
+]);
+const SRC_INCLUDE_EXT = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.sql', '.json']);
+
+function _categorizeSource(relPath) {
+  // OS 경로 구분자 정규화
+  const p = relPath.replace(/\\/g, '/');
+  if (p.startsWith('src/routes/')) return 'routes';
+  if (p.startsWith('src/services/')) return 'services';
+  if (p.startsWith('src/middleware/')) return 'middleware';
+  if (p.startsWith('src/docs/')) return 'docs';
+  if (p.startsWith('src/data/')) return 'data';
+  if (p.startsWith('src/utils/')) return 'utils';
+  if (p.startsWith('src/')) return 'backend';
+  if (p.startsWith('public/js/pages/')) return 'pages';
+  if (p.startsWith('public/js/')) return 'client-utils';
+  if (p.startsWith('public/css/')) return 'styles';
+  if (p.startsWith('public/')) return 'public';
+  if (p.startsWith('tests/')) return 'tests';
+  if (p.startsWith('migrations/')) return 'migrations';
+  if (p.startsWith('config/')) return 'config';
+  if (p === 'server.js') return 'config';
+  if (p === 'schema.sql') return 'schema';
+  if (p.endsWith('.sql')) return 'schema';
+  return 'other';
+}
+
+router.get('/dev/source-stats', devOnly, (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+
+    const walk = (dir, baseRel = '', depth = 0) => {
+      const out = [];
+      if (depth > 5) return out;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (_) {
+        return out;
+      }
+      for (const ent of entries) {
+        if (SRC_EXCLUDE_DIRS.has(ent.name)) continue;
+        if (ent.name.startsWith('.')) continue; // 숨김 파일 스킵
+        const fullPath = path.join(dir, ent.name);
+        const relPath = baseRel ? `${baseRel}/${ent.name}` : ent.name;
+        if (ent.isDirectory()) {
+          out.push(...walk(fullPath, relPath, depth + 1));
+        } else {
+          const ext = path.extname(ent.name).toLowerCase();
+          if (!SRC_INCLUDE_EXT.has(ext)) continue;
+          let stat;
+          try {
+            stat = fs.statSync(fullPath);
+          } catch (_) {
+            continue;
+          }
+          if (stat.size > 5 * 1024 * 1024) continue; // 5MB 초과 스킵
+          let content;
+          try {
+            content = fs.readFileSync(fullPath, 'utf8');
+          } catch (_) {
+            continue;
+          }
+          const allLines = content.split('\n');
+          const totalLines = allLines.length;
+          const nonBlankLines = allLines.filter(l => l.trim().length > 0).length;
+          out.push({
+            path: relPath.replace(/\\/g, '/'),
+            ext,
+            category: _categorizeSource(relPath),
+            loc: nonBlankLines,
+            total_lines: totalLines,
+            size: stat.size,
+          });
+        }
+      }
+      return out;
+    };
+
+    const files = walk(projectRoot);
+
+    // 통계
+    const totals = files.reduce(
+      (acc, f) => ({
+        files: acc.files + 1,
+        loc: acc.loc + f.loc,
+        total_lines: acc.total_lines + f.total_lines,
+        size: acc.size + f.size,
+      }),
+      { files: 0, loc: 0, total_lines: 0, size: 0 }
+    );
+
+    const byExtension = {};
+    files.forEach(f => {
+      if (!byExtension[f.ext]) byExtension[f.ext] = { files: 0, loc: 0, size: 0 };
+      byExtension[f.ext].files++;
+      byExtension[f.ext].loc += f.loc;
+      byExtension[f.ext].size += f.size;
+    });
+
+    const byCategory = {};
+    files.forEach(f => {
+      if (!byCategory[f.category]) byCategory[f.category] = { files: 0, loc: 0, size: 0 };
+      byCategory[f.category].files++;
+      byCategory[f.category].loc += f.loc;
+      byCategory[f.category].size += f.size;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        totals,
+        by_extension: byExtension,
+        by_category: byCategory,
+        files,
+        scanned_at: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/dev/external-deps', devOnly, (req, res) => {
   try {
     const fs = require('fs');

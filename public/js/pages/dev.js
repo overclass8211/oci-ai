@@ -308,6 +308,7 @@ const DevPage = {
           <button class="dev-tab" data-tab="schema">🗄️ DB 스키마</button>
           <button class="dev-tab" data-tab="apidocs">📡 API 관리</button>
           <button class="dev-tab" data-tab="perf">📡 성능 모니터</button>
+          <button class="dev-tab" data-tab="source">📊 소스 모니터</button>
           <button class="dev-tab" data-tab="jwt">🔐 JWT 인스펙터</button>
           <button class="dev-tab" data-tab="roadmap">🚀 개발 로드맵</button>
         </div>
@@ -344,6 +345,7 @@ const DevPage = {
     else if (tab === 'schema') { await this.loadSchema(); this.renderSchema(); }
     else if (tab === 'apidocs') { await this.renderApiDocs(); }
     else if (tab === 'perf')   { await this.loadPerf(); this.renderPerf(); }
+    else if (tab === 'source') { await this.renderSourceMonitor(); }
     else if (tab === 'jwt')    { this.renderJWT(); }
     else if (tab === 'roadmap'){ this.renderRoadmap(); }
   },
@@ -5429,6 +5431,404 @@ const DevPage = {
         </div>
       </div>
     `;
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // TAB: 소스 모니터 (LOC, 파일 수, 카테고리 분포, Metro 시각화)
+  // ══════════════════════════════════════════════════════════
+  srcMonitor: {
+    data:    null,
+    filter:  'all',          // 카테고리 필터
+    search:  '',             // 경로 검색
+    sort:    'loc-desc',     // loc-desc | loc-asc | size-desc | size-asc | path-asc
+    treemap: 'all',          // Metro 영역 필터 (all | category name)
+  },
+
+  _fmtBytes(bytes) {
+    if (bytes == null || bytes < 0) return '-';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+  },
+
+  _srcCategoryColor(cat) {
+    const palette = {
+      routes:       '#3b82f6',  // blue
+      services:     '#10b981',  // green
+      middleware:   '#8b5cf6',  // violet
+      pages:        '#f59e0b',  // amber
+      'client-utils': '#06b6d4',// cyan
+      styles:       '#ec4899',  // pink
+      public:       '#64748b',  // slate
+      backend:      '#0ea5e9',  // sky
+      docs:         '#6366f1',  // indigo
+      data:         '#84cc16',  // lime
+      utils:        '#14b8a6',  // teal
+      tests:        '#f97316',  // orange
+      migrations:   '#a855f7',  // purple
+      config:       '#71717a',  // zinc
+      schema:       '#eab308',  // yellow
+      other:        '#94a3b8',  // slate-400
+    };
+    return palette[cat] || '#94a3b8';
+  },
+
+  _srcCategoryLabel(cat) {
+    const labels = {
+      routes: '라우트', services: '서비스', middleware: '미들웨어',
+      pages: '페이지', 'client-utils': '클라이언트', styles: '스타일',
+      public: '정적 자원', backend: '백엔드', docs: '문서',
+      data: '데이터', utils: '유틸', tests: '테스트',
+      migrations: '마이그레이션', config: '설정',
+      schema: 'DB 스키마', other: '기타',
+    };
+    return labels[cat] || cat;
+  },
+
+  async renderSourceMonitor() {
+    const el = document.getElementById('dev-content');
+    el.innerHTML = '<div class="loading" style="padding:60px;text-align:center">소스 분석 중...</div>';
+
+    try {
+      const r = await API.get('/admin/dev/source-stats');
+      this.srcMonitor.data = r.data;
+    } catch (e) {
+      el.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        소스 통계 불러오기 실패: ${esc(e.message || '')}
+      </div>`;
+      return;
+    }
+
+    this._renderSrcMonitorView();
+  },
+
+  _renderSrcMonitorView() {
+    const el = document.getElementById('dev-content');
+    const d  = this.srcMonitor.data;
+    if (!d) { el.innerHTML = '<div class="empty">데이터 없음</div>'; return; }
+
+    const { totals, by_extension, by_category, files, scanned_at } = d;
+    const avgLoc = totals.files ? Math.round(totals.loc / totals.files) : 0;
+
+    // 카테고리 정렬 (LOC 내림차순)
+    const cats = Object.entries(by_category)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.loc - a.loc);
+    const maxCatLoc = Math.max(...cats.map(c => c.loc), 1);
+
+    // 확장자 정렬
+    const exts = Object.entries(by_extension)
+      .map(([ext, v]) => ({ ext, ...v }))
+      .sort((a, b) => b.loc - a.loc);
+
+    el.innerHTML = `
+      <div class="dev-section-header">
+        <div>
+          <h3 style="margin:0;font-size:15px">📊 소스 모니터 — 코드베이스 통계</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
+            마지막 스캔: ${esc(new Date(scanned_at).toLocaleString('ko-KR'))} ·
+            확장자: ${exts.map(e => `${e.ext} (${Fmt.number(e.files)})`).join(', ')}
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-sm btn-secondary" id="src-refresh-btn">🔄 새로고침</button>
+        </div>
+      </div>
+
+      <!-- 통계 카드 -->
+      <div class="src-stats-grid">
+        <div class="src-stat-card">
+          <div class="src-stat-label">총 파일</div>
+          <div class="src-stat-value">${Fmt.number(totals.files)}</div>
+          <div class="src-stat-sub">${exts.length}개 확장자</div>
+        </div>
+        <div class="src-stat-card">
+          <div class="src-stat-label">총 LOC</div>
+          <div class="src-stat-value">${Fmt.number(totals.loc)}</div>
+          <div class="src-stat-sub">전체 ${Fmt.number(totals.total_lines)} 줄</div>
+        </div>
+        <div class="src-stat-card">
+          <div class="src-stat-label">총 용량</div>
+          <div class="src-stat-value">${this._fmtBytes(totals.size)}</div>
+          <div class="src-stat-sub">${cats.length}개 카테고리</div>
+        </div>
+        <div class="src-stat-card">
+          <div class="src-stat-label">평균 LOC/파일</div>
+          <div class="src-stat-value">${Fmt.number(avgLoc)}</div>
+          <div class="src-stat-sub">코드 밀도 지표</div>
+        </div>
+      </div>
+
+      <!-- 카테고리 분포 -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><div class="card-title">📁 카테고리 분포 (${cats.length})</div></div>
+        <div class="card-body">
+          <div class="src-cat-bars">
+            ${cats.map(c => {
+              const pct = (c.loc / maxCatLoc) * 100;
+              const color = this._srcCategoryColor(c.name);
+              const label = this._srcCategoryLabel(c.name);
+              return `
+                <div class="src-cat-row" data-cat="${esc(c.name)}" title="클릭: ${esc(label)} 필터링">
+                  <div class="src-cat-name">
+                    <span class="src-cat-dot" style="background:${color}"></span>
+                    <span>${esc(label)}</span>
+                    <span class="src-cat-key">${esc(c.name)}</span>
+                  </div>
+                  <div class="src-cat-stat">
+                    <span>${Fmt.number(c.files)} 파일</span>
+                    <span class="src-cat-loc">${Fmt.number(c.loc)} LOC</span>
+                    <span class="src-cat-size">${this._fmtBytes(c.size)}</span>
+                  </div>
+                  <div class="src-cat-bar-track">
+                    <div class="src-cat-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Metro Treemap -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">🗺️ Metro Treemap (LOC 비례)</div>
+          <div style="font-size:11px;color:var(--text-3)">
+            상위 60개 파일 · 색상은 카테고리 · 크기는 LOC 비례
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="src-treemap" id="src-treemap-host"></div>
+        </div>
+      </div>
+
+      <!-- 파일 목록 -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">📋 파일 목록</div>
+          <div class="src-file-filters">
+            <input type="text" class="form-input form-input-sm" id="src-search"
+                   placeholder="🔍 경로 검색..." value="${esc(this.srcMonitor.search)}"
+                   style="width:200px">
+            <select class="form-select form-select-sm" id="src-cat-filter" style="width:160px">
+              <option value="all">📂 전체 카테고리</option>
+              ${cats.map(c => `
+                <option value="${esc(c.name)}" ${this.srcMonitor.filter === c.name ? 'selected' : ''}>
+                  ${esc(this._srcCategoryLabel(c.name))} (${Fmt.number(c.files)})
+                </option>
+              `).join('')}
+            </select>
+            <select class="form-select form-select-sm" id="src-sort" style="width:160px">
+              <option value="loc-desc"  ${this.srcMonitor.sort === 'loc-desc'  ? 'selected' : ''}>LOC ↓ (높은순)</option>
+              <option value="loc-asc"   ${this.srcMonitor.sort === 'loc-asc'   ? 'selected' : ''}>LOC ↑ (낮은순)</option>
+              <option value="size-desc" ${this.srcMonitor.sort === 'size-desc' ? 'selected' : ''}>용량 ↓</option>
+              <option value="size-asc"  ${this.srcMonitor.sort === 'size-asc'  ? 'selected' : ''}>용량 ↑</option>
+              <option value="path-asc"  ${this.srcMonitor.sort === 'path-asc'  ? 'selected' : ''}>경로 ↑ (A→Z)</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div id="src-file-table-host"></div>
+        </div>
+      </div>
+    `;
+
+    this._renderSrcTreemap(files);
+    this._renderSrcFileTable(files);
+    this._bindSrcMonitorEvents();
+  },
+
+  _renderSrcTreemap(files) {
+    const host = document.getElementById('src-treemap-host');
+    if (!host) return;
+
+    // 상위 60개 LOC 파일 — Metro 시각화
+    const top = [...files]
+      .filter(f => f.loc > 0)
+      .sort((a, b) => b.loc - a.loc)
+      .slice(0, 60);
+
+    if (top.length === 0) {
+      host.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3)">표시할 파일이 없습니다.</div>';
+      return;
+    }
+
+    const maxLoc = top[0].loc;
+
+    // 크기 단계 (5단계) — LOC 기반 grid-row/col span 결정
+    const tierFor = (loc) => {
+      const ratio = loc / maxLoc;
+      if (ratio >= 0.6) return 'xl';
+      if (ratio >= 0.3) return 'lg';
+      if (ratio >= 0.15) return 'md';
+      if (ratio >= 0.06) return 'sm';
+      return 'xs';
+    };
+
+    host.innerHTML = top.map(f => {
+      const tier  = tierFor(f.loc);
+      const color = this._srcCategoryColor(f.category);
+      const name  = f.path.split('/').pop();
+      return `
+        <div class="src-tile src-tile-${tier}" style="--tile-color:${color}"
+             data-path="${esc(f.path)}" title="${esc(f.path)}  —  ${Fmt.number(f.loc)} LOC  ·  ${this._fmtBytes(f.size)}">
+          <div class="src-tile-name">${esc(name)}</div>
+          <div class="src-tile-loc">${Fmt.number(f.loc)}</div>
+          <div class="src-tile-cat">${esc(this._srcCategoryLabel(f.category))}</div>
+        </div>
+      `;
+    }).join('');
+  },
+
+  _renderSrcFileTable(files) {
+    const host = document.getElementById('src-file-table-host');
+    if (!host) return;
+
+    let rows = [...files];
+
+    // 카테고리 필터
+    if (this.srcMonitor.filter !== 'all') {
+      rows = rows.filter(f => f.category === this.srcMonitor.filter);
+    }
+    // 검색
+    if (this.srcMonitor.search) {
+      const q = this.srcMonitor.search.toLowerCase();
+      rows = rows.filter(f => f.path.toLowerCase().includes(q));
+    }
+    // 정렬
+    const sort = this.srcMonitor.sort;
+    rows.sort((a, b) => {
+      if (sort === 'loc-desc')  return b.loc - a.loc;
+      if (sort === 'loc-asc')   return a.loc - b.loc;
+      if (sort === 'size-desc') return b.size - a.size;
+      if (sort === 'size-asc')  return a.size - b.size;
+      if (sort === 'path-asc')  return a.path.localeCompare(b.path);
+      return 0;
+    });
+
+    if (rows.length === 0) {
+      host.innerHTML = '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">조건에 맞는 파일이 없습니다.</div>';
+      return;
+    }
+
+    const limit = 200;
+    const truncated = rows.length > limit;
+    const display = rows.slice(0, limit);
+
+    host.innerHTML = `
+      <table class="data-table src-file-table">
+        <thead>
+          <tr>
+            <th style="width:36px">#</th>
+            <th>경로</th>
+            <th style="width:110px">카테고리</th>
+            <th style="width:70px">확장자</th>
+            <th style="width:90px;text-align:right">LOC</th>
+            <th style="width:100px;text-align:right">전체 줄</th>
+            <th style="width:100px;text-align:right">용량</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${display.map((f, i) => {
+            const color = this._srcCategoryColor(f.category);
+            return `
+              <tr>
+                <td style="color:var(--text-3);font-size:11px">${i + 1}</td>
+                <td><code style="font-size:12px">${esc(f.path)}</code></td>
+                <td>
+                  <span class="src-cat-pill" style="background:${color}1a;color:${color}">
+                    <span class="src-cat-dot" style="background:${color}"></span>
+                    ${esc(this._srcCategoryLabel(f.category))}
+                  </span>
+                </td>
+                <td><code style="font-size:11px;color:var(--text-3)">${esc(f.ext)}</code></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums"><strong>${Fmt.number(f.loc)}</strong></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-3)">${Fmt.number(f.total_lines)}</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">${this._fmtBytes(f.size)}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+      ${truncated ? `
+        <div style="padding:12px;text-align:center;color:var(--text-3);font-size:12px;border-top:1px solid var(--border-1)">
+          ⚠️ 상위 ${limit}개만 표시 (전체 ${Fmt.number(rows.length)}개) — 검색/필터로 좁혀보세요.
+        </div>
+      ` : `
+        <div style="padding:12px;text-align:center;color:var(--text-3);font-size:12px;border-top:1px solid var(--border-1)">
+          ${Fmt.number(rows.length)}개 파일 표시
+        </div>
+      `}
+    `;
+  },
+
+  _bindSrcMonitorEvents() {
+    // 새로고침
+    const refresh = document.getElementById('src-refresh-btn');
+    if (refresh) {
+      refresh.addEventListener('click', async () => {
+        await this.renderSourceMonitor();
+        Toast?.show?.('소스 통계를 새로고침했습니다.', 'success');
+      });
+    }
+
+    // 카테고리 막대 클릭 → 필터 토글
+    document.querySelectorAll('.src-cat-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const cat = row.dataset.cat;
+        if (this.srcMonitor.filter === cat) {
+          this.srcMonitor.filter = 'all';
+        } else {
+          this.srcMonitor.filter = cat;
+        }
+        this._renderSrcMonitorView();
+      });
+    });
+
+    // 검색
+    const search = document.getElementById('src-search');
+    if (search) {
+      let timer;
+      search.addEventListener('input', e => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          this.srcMonitor.search = e.target.value.trim();
+          this._renderSrcFileTable(this.srcMonitor.data.files);
+        }, 250);
+      });
+    }
+
+    // 카테고리 필터
+    const catFilter = document.getElementById('src-cat-filter');
+    if (catFilter) {
+      catFilter.addEventListener('change', e => {
+        this.srcMonitor.filter = e.target.value;
+        this._renderSrcFileTable(this.srcMonitor.data.files);
+      });
+    }
+
+    // 정렬
+    const sort = document.getElementById('src-sort');
+    if (sort) {
+      sort.addEventListener('change', e => {
+        this.srcMonitor.sort = e.target.value;
+        this._renderSrcFileTable(this.srcMonitor.data.files);
+      });
+    }
+
+    // Metro 타일 클릭 → 검색 박스에 파일명 채우기
+    document.querySelectorAll('.src-tile').forEach(tile => {
+      tile.addEventListener('click', () => {
+        const path = tile.dataset.path;
+        if (!path) return;
+        this.srcMonitor.search = path;
+        const input = document.getElementById('src-search');
+        if (input) input.value = path;
+        this._renderSrcFileTable(this.srcMonitor.data.files);
+        document.getElementById('src-file-table-host')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
   },
 
   // ══════════════════════════════════════════════════════════
