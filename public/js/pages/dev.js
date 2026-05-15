@@ -354,12 +354,14 @@ const DevPage = {
   async renderApiDocs() {
     const el = document.getElementById('dev-content');
     try {
-      const [opsR, covR] = await Promise.all([
+      const [opsR, covR, syncR] = await Promise.all([
         API.get('/admin/dev/openapi/operations'),
         API.get('/admin/dev/openapi/coverage'),
+        API.get('/admin/dev/openapi/sync-status').catch(() => ({ data: null })),
       ]);
       this._apiOps = opsR.data;
       this._apiCov = covR.data;
+      this._apiSync = syncR.data;
     } catch (e) {
       el.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">불러오기 실패: ${esc(e.message || '')}</div>`;
       return;
@@ -368,7 +370,7 @@ const DevPage = {
     const { operations, by_tag, total, documented_count } = this._apiOps;
     const { coverage, totals } = this._apiCov;
 
-    // 메서드별 색상 클래스
+    // 메서드별 색상 클래스 — DFD 연관 표시도 함께
     const tagSections = Object.entries(by_tag).map(([tag, ops]) => `
       <details class="apidoc-tag-section" open>
         <summary>
@@ -377,19 +379,54 @@ const DevPage = {
           <span class="apidoc-tag-doc">${ops.filter(o=>o.documented).length}/${ops.length} 문서화</span>
         </summary>
         <div class="apidoc-op-list">
-          ${ops.map(op => `
+          ${ops.map(op => {
+            const dfdPages = op['x-dfd-pages'] || [];
+            const dfdTables = op['x-dfd-tables'] || [];
+            const hasDfd = dfdPages.length + dfdTables.length > 0;
+            const dfdBadge = hasDfd
+              ? `<span class="apidoc-dfd-badge" title="DFD 연결: 페이지 ${dfdPages.length}개, 테이블 ${dfdTables.length}개">🔗 ${dfdPages.length}P · ${dfdTables.length}T</span>`
+              : '';
+            return `
             <div class="apidoc-op ${op.documented ? 'is-documented' : 'is-stub'}"
                  data-method="${esc(op.method)}" data-path="${esc(op.path)}"
                  title="${op.documented ? '문서화됨' : '미문서화 — JSDoc 또는 openapi.js 에 정의 필요'}">
               <span class="apidoc-method ${op.method.toLowerCase()}">${op.method}</span>
               <span class="apidoc-path">${esc(op.full_path)}</span>
               <span class="apidoc-summary">${esc(op.summary)}</span>
+              ${dfdBadge}
               ${op.documented ? '<span class="apidoc-doc-badge">📄</span>' : '<span class="apidoc-stub-badge">⚠</span>'}
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>
       </details>
     `).join('');
+
+    // Sync-status 경고 배너 (DFD 매핑은 있지만 OpenAPI 미문서화)
+    const sync = this._apiSync;
+    const syncWarning = sync && (sync.dfd_mapped_no_doc.length > 0 || sync.spec_only.length > 0) ? `
+      <details class="apidoc-sync-banner" open>
+        <summary>
+          ⚠️ DFD ↔ OpenAPI 불일치 감지
+          ${sync.dfd_mapped_no_doc.length > 0 ? `<strong style="color:#b45309">DFD 매핑 ${sync.dfd_mapped_no_doc.length}개 문서화 없음</strong>` : ''}
+          ${sync.dfd_mapped_no_doc.length > 0 && sync.spec_only.length > 0 ? ' · ' : ''}
+          ${sync.spec_only.length > 0 ? `<strong style="color:#dc2626">Stale ${sync.spec_only.length}개 (라우트 없음)</strong>` : ''}
+        </summary>
+        <div class="apidoc-sync-body">
+          ${sync.dfd_mapped_no_doc.length > 0 ? `
+            <div class="apidoc-sync-row">
+              <strong>🔗 DFD 매핑 있지만 문서화 없음:</strong>
+              <code>${sync.dfd_mapped_no_doc.map(esc).join(', ')}</code>
+              <div class="apidoc-sync-tip">💡 사용자가 DFD에서 매핑한 API 입니다. OpenAPI 스펙에도 추가하면 외부 시스템에서 활용 가능합니다.</div>
+            </div>` : ''}
+          ${sync.spec_only.length > 0 ? `
+            <div class="apidoc-sync-row">
+              <strong>🗑 Stale (스펙엔 있지만 라우트 없음):</strong>
+              <code>${sync.spec_only.map(esc).join(', ')}</code>
+              <div class="apidoc-sync-tip">💡 라우트가 제거되었거나 잘못 정의되었을 수 있습니다. <code>openapi.js</code> 점검 필요.</div>
+            </div>` : ''}
+        </div>
+      </details>
+    ` : '';
 
     const coverageColor = coverage >= 80 ? '#10b981' : coverage >= 50 ? '#f59e0b' : '#ef4444';
 
@@ -433,6 +470,8 @@ const DevPage = {
           <div class="apidoc-stat-value" style="color:#ef4444">${totals.stale}</div>
         </div>
       </div>
+
+      ${syncWarning}
 
       <!-- 태그별 섹션 -->
       <div class="apidoc-list">
@@ -522,16 +561,45 @@ const DevPage = {
             </div>
           </div>`}
           <div class="apidoc-detail-section">
-            <div class="apidoc-section-label">DFD 연관</div>
-            <div class="apidoc-section-content" style="font-size:12px;color:var(--text-2)">
-              💡 이 API 의 호출 페이지와 사용 테이블은 <strong>DFD 시각화</strong> 탭에서 확인하세요.
-              (Phase 4 에서 양방향 자동 연동 예정)
+            <div class="apidoc-section-label">🔗 DFD 연관</div>
+            <div class="apidoc-section-content" style="font-size:12px">
+              ${(() => {
+                const pages = op['x-dfd-pages'] || [];
+                const tables = op['x-dfd-tables'] || [];
+                if (pages.length === 0 && tables.length === 0) {
+                  return `<span style="color:var(--text-3)">DFD에 매핑 없음 — DFD 시각화 탭에서 매핑 추가 가능</span>`;
+                }
+                const pageList = pages.length
+                  ? `<div><strong>🖥️ 호출 페이지 (${pages.length}):</strong> ${pages.map(esc).join(', ')}</div>`
+                  : '';
+                const tableList = tables.length
+                  ? `<div><strong>🗄️ 사용 테이블 (${tables.length}):</strong> ${tables.map(esc).join(', ')}</div>`
+                  : '';
+                return pageList + tableList;
+              })()}
+              <button type="button" class="btn btn-ghost btn-sm" id="apidoc-goto-dfd" style="margin-top:8px;font-size:11px">
+                🗺️ DFD 시각화에서 보기
+              </button>
             </div>
           </div>
         </div>
       `,
       footer: `<button class="btn btn-primary" id="apidoc-detail-close">닫기</button>`,
-      bind: { '#apidoc-detail-close': () => Modal.close() },
+      bind: {
+        '#apidoc-detail-close': () => Modal.close(),
+        '#apidoc-goto-dfd': () => {
+          Modal.close();
+          this.switchTab('dfd');
+          // 클릭 후 DFD에서 해당 API 노드 강조 (선택)
+          setTimeout(() => {
+            const apiId = op['x-dfd-api-id'];
+            if (apiId) {
+              const node = document.querySelector(`.dfd-node-api[data-id="${apiId}"]`);
+              if (node) node.click();
+            }
+          }, 600);
+        },
+      },
     });
   },
 

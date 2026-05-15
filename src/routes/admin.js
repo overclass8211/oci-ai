@@ -1278,12 +1278,52 @@ router.get('/dev/openapi/coverage', devOnly, (req, res) => {
   }
 });
 
-router.get('/dev/openapi/operations', devOnly, (req, res) => {
+router.get('/dev/openapi/operations', devOnly, async (req, res) => {
   try {
     const apiSpec = require('../docs/openapi');
     const specPaths = apiSpec.paths || {};
+
+    // ── DFD 매핑 미리 로드 (양방향 동기화) ──────────────────────
+    const [apiMaps] = await pool.query('SELECT api_id, page_keys FROM dfd_api_mappings');
+    const [tblMaps] = await pool.query('SELECT table_name, api_keys FROM dfd_mappings');
+    const apiToPages = {};
+    apiMaps.forEach(r => {
+      try {
+        apiToPages[r.api_id] = JSON.parse(r.page_keys || '[]');
+      } catch (_) {
+        apiToPages[r.api_id] = [];
+      }
+    });
+    const apiToTables = {};
+    tblMaps.forEach(r => {
+      try {
+        JSON.parse(r.api_keys || '[]').forEach(apiId => {
+          if (!apiToTables[apiId]) apiToTables[apiId] = [];
+          apiToTables[apiId].push(r.table_name);
+        });
+      } catch (_) {
+        /* skip */
+      }
+    });
+    const pathToApiId = specPath => {
+      const segs = specPath.split('/').filter(Boolean);
+      if (segs.length === 0) return null;
+      if (segs[0] === 'admin') return 'api-admin';
+      if (segs[0] === 'pipeline' && segs[1]) return 'api-pipeline-' + segs[1];
+      return 'api-' + segs[0];
+    };
+    const enrichWithDFD = pathKey => {
+      const apiId = pathToApiId(pathKey);
+      return {
+        'x-dfd-api-id': apiId,
+        'x-dfd-pages': apiToPages[apiId] || [],
+        'x-dfd-tables': apiToTables[apiId] || [],
+      };
+    };
+
     const ops = [];
     for (const [pathKey, pathItem] of Object.entries(specPaths)) {
+      const dfdMeta = enrichWithDFD(pathKey);
       for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
         if (pathItem[method]) {
           const op = pathItem[method];
@@ -1295,6 +1335,7 @@ router.get('/dev/openapi/operations', devOnly, (req, res) => {
             summary: op.summary || '',
             description: op.description || '',
             documented: true,
+            ...dfdMeta,
           });
         }
       }
@@ -1311,6 +1352,7 @@ router.get('/dev/openapi/operations', devOnly, (req, res) => {
         if (docKeys.has(key) || seenAuto.has(key)) return;
         seenAuto.add(key);
         const seg = stripPath.split('/').filter(Boolean)[0] || 'misc';
+        const dfdMeta = enrichWithDFD(stripPath);
         ops.push({
           method: r.method,
           path: stripPath,
@@ -1319,6 +1361,7 @@ router.get('/dev/openapi/operations', devOnly, (req, res) => {
           summary: '(미문서화)',
           description: '',
           documented: false,
+          ...dfdMeta,
         });
       });
     ops.sort((a, b) => {
@@ -1338,6 +1381,90 @@ router.get('/dev/openapi/operations', devOnly, (req, res) => {
         by_tag: byTag,
         total: ops.length,
         documented_count: ops.filter(o => o.documented).length,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// DFD ↔ OpenAPI 양방향 동기화 상태
+//   GET /dev/openapi/sync-status
+//   양쪽에서 발견되는 API 의 일관성 검증:
+//     - both: 양쪽 모두에 있음 ✅
+//     - spec_only: OpenAPI 에만 있음 (라우트 stale)
+//     - route_only: 라우트만 있음 (OpenAPI 미문서화)
+//     - dfd_mapped_no_doc: DFD 매핑은 있지만 OpenAPI 문서화 없음
+// ─────────────────────────────────────────────────────────────
+router.get('/dev/openapi/sync-status', devOnly, async (req, res) => {
+  try {
+    const apiSpec = require('../docs/openapi');
+    const specPaths = apiSpec.paths || {};
+
+    // 1) Spec API IDs (path → api-id 변환)
+    const pathToApiId = specPath => {
+      const segs = specPath.split('/').filter(Boolean);
+      if (segs.length === 0) return null;
+      if (segs[0] === 'admin') return 'api-admin';
+      if (segs[0] === 'pipeline' && segs[1]) return 'api-pipeline-' + segs[1];
+      return 'api-' + segs[0];
+    };
+    const specApiIds = new Set();
+    Object.keys(specPaths).forEach(p => {
+      const id = pathToApiId(p);
+      if (id) specApiIds.add(id);
+    });
+
+    // 2) 등록 라우트 API IDs
+    const stack = req.app._router?.stack || req.app.router?.stack || [];
+    const allRoutes = _walkExpressRoutes(stack, '');
+    const routeApiIds = new Set();
+    allRoutes.forEach(r => {
+      if (!r.path.startsWith('/api/')) return;
+      const id = pathToApiId(r.path.replace(/^\/api/, ''));
+      if (id) routeApiIds.add(id);
+    });
+
+    // 3) DFD 매핑된 API IDs
+    const [mappedRows] = await pool.query('SELECT api_id FROM dfd_api_mappings');
+    const dfdMappedIds = new Set(mappedRows.map(r => r.api_id));
+
+    // 4) 카테고리별 분류
+    const allIds = new Set([...specApiIds, ...routeApiIds, ...dfdMappedIds]);
+    const both = [];
+    const specOnly = []; // OpenAPI 에만 있음 — stale
+    const routeOnly = []; // 라우트만 있음 — OpenAPI 미문서화
+    const dfdMappedNoDoc = []; // DFD 매핑은 있지만 OpenAPI 미문서화
+
+    allIds.forEach(id => {
+      const inSpec = specApiIds.has(id);
+      const inRoute = routeApiIds.has(id);
+      const inDFD = dfdMappedIds.has(id);
+      if (inSpec && inRoute) both.push(id);
+      else if (inSpec && !inRoute) specOnly.push(id);
+      else if (!inSpec && inRoute) routeOnly.push(id);
+      // DFD 매핑이 있는데 spec 에 없으면 → 강한 경고
+      if (inDFD && !inSpec) dfdMappedNoDoc.push(id);
+    });
+
+    const totalApis = routeApiIds.size;
+    const coveragePct = totalApis > 0 ? Math.round((both.length / totalApis) * 100) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        coverage_pct: coveragePct,
+        totals: {
+          all: allIds.size,
+          spec: specApiIds.size,
+          route: routeApiIds.size,
+          dfd_mapped: dfdMappedIds.size,
+        },
+        both: both.sort(),
+        spec_only: specOnly.sort(),
+        route_only: routeOnly.sort(),
+        dfd_mapped_no_doc: dfdMappedNoDoc.sort(),
       },
     });
   } catch (err) {
