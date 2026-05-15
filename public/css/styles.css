@@ -5821,3 +5821,28 @@ body,
 [data-theme="dark"] .dfd-uncat-badge {
   color: #fbbf24;
 }
+
+/* 연관도 — 미분류 테이블 노드 시각 (DFD 와 동일 톤) */
+.schema-map-node.is-uncategorized {
+  border: 2px solid #f59e0b !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f59e0b 30%, transparent),
+              0 4px 12px rgba(0,0,0,.08);
+}
+.schema-map-node.is-uncategorized::before {
+  content: '미분류';
+  position: absolute;
+  top: -8px;
+  right: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: #f59e0b;
+  padding: 1px 6px;
+  border-radius: 8px;
+  letter-spacing: 0.3px;
+  z-index: 2;
+}
+[data-theme="dark"] .schema-map-node.is-uncategorized {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f59e0b 40%, transparent),
+              0 4px 12px rgba(0,0,0,.4);
+}

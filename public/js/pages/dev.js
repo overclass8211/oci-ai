@@ -910,12 +910,33 @@ const DevPage = {
     // 이전 오버레이 body에서 제거 (탭 재진입 시 중복 방지)
     document.getElementById('schema-detail-overlay')?.remove();
 
+    // 미분류 테이블 감지 (연관도 레이아웃에 없는 테이블)
+    const uncategorized = this._getUncategorizedTables();
+    const uncatBanner = uncategorized.length > 0 ? `
+      <details class="dfd-warn dfd-warn-info" style="margin-bottom:12px">
+        <summary>
+          ⚠️ 연관도 카테고리 미분류: <strong>${uncategorized.length}개 테이블</strong>
+          <span class="dfd-warn-hint">(클릭하여 상세 보기)</span>
+        </summary>
+        <div class="dfd-warn-body">
+          <div class="dfd-warn-row">
+            <strong>📌 카테고리 미정의 테이블:</strong>
+            <code>${uncategorized.map(esc).join(', ')}</code>
+            <div class="dfd-warn-tip">
+              💡 <code>dev.js</code> 의 <code>_SCHEMA_LAYOUT</code> 배열에 추가하면
+              카테고리 색상·위치가 적용됩니다. (인스펙터·연관도·DFD 셋 다 자동 반영)
+            </div>
+          </div>
+        </div>
+      </details>` : '';
+
     document.getElementById('dev-content').innerHTML = `
       <div class="dev-section-header">
         <div>
           <h3 style="margin:0;font-size:15px">DB 스키마 인스펙터</h3>
           <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
             ${tables.length}개 테이블 · information_schema 실시간 조회
+            ${uncategorized.length > 0 ? `<span style="color:#b45309;font-weight:600;margin-left:6px">(미분류 ${uncategorized.length}개)</span>` : ''}
           </p>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -936,6 +957,8 @@ const DevPage = {
           </button>
         </div>
       </div>
+
+      ${uncatBanner}
 
       <!-- ① 리스트 뷰 -->
       <div id="schema-list-wrap">
@@ -1232,6 +1255,27 @@ const DevPage = {
     return fks;
   },
 
+  // 카테고리 레이아웃 — _getDefaultPositions() 와 renderSchema() 양쪽에서 사용
+  _SCHEMA_LAYOUT: [
+    ['leads','customers','activities','projects'],
+    ['calendar_events','meeting_minutes','products','cost_history'],
+    ['announcements','announcement_views','comments','faq'],
+    ['users','refresh_tokens','token_blacklist','team_members'],
+    ['ai_usage','token_recharge_log','dev_features','system_settings','access_logs','google_oauth_tokens','google_meet_sessions'],
+  ],
+
+  // 레이아웃에 정의된 테이블 Set (카테고리화됨)
+  _getCategorizedTableSet() {
+    return new Set(this._SCHEMA_LAYOUT.flat());
+  },
+
+  // 라이브 스키마의 미분류 테이블 (레이아웃에 없는 신규 테이블) 리스트
+  _getUncategorizedTables() {
+    if (!this.schema) return [];
+    const categorized = this._getCategorizedTableSet();
+    return Object.keys(this.schema).filter(t => !categorized.has(t)).sort();
+  },
+
   // ── 노드 초기 위치 계산 ───────────────────────────────────
   _getDefaultPositions() {
     const sm = this.schemaMap;
@@ -1239,14 +1283,8 @@ const DevPage = {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(_){}
 
-    // 카테고리별 5열 배치
-    const layout = [
-      ['leads','customers','activities','projects'],
-      ['calendar_events','meeting_minutes','products','cost_history'],
-      ['announcements','announcement_views','comments','faq'],
-      ['users','refresh_tokens','token_blacklist','team_members'],
-      ['ai_usage','token_recharge_log','dev_features','system_settings','access_logs','google_oauth_tokens','google_meet_sessions'],
-    ];
+    // 카테고리별 5열 배치 (단일 출처: _SCHEMA_LAYOUT)
+    const layout = this._SCHEMA_LAYOUT;
     const NODE_W = 250, GAP_X = 70, GAP_Y = 40;
 
     const positions = {};
@@ -1292,16 +1330,20 @@ const DevPage = {
       google_oauth_tokens:'#0F7A3F', google_meet_sessions:'#0F7A3F',
     };
 
+    const categorized = this._getCategorizedTableSet();
+
     Object.entries(this.schema).forEach(([tname, tdata]) => {
       const pos   = sm.positions[tname] || { x:30, y:30 };
-      const color = COLORS[tname] || '#6B7280';
+      const isUncategorized = !categorized.has(tname);
+      const color = COLORS[tname] || (isUncategorized ? '#F59E0B' : '#6B7280');
       // TABLE_KO에 없는 신규 테이블: 테이블명에서 자동 추정 (snake_case → 공백)
       const koName = this.TABLE_KO[tname] || tname.replace(/_/g, ' ');
       const cols   = tdata.columns || [];
 
       const node = document.createElement('div');
-      node.className   = 'schema-map-node';
+      node.className   = 'schema-map-node' + (isUncategorized ? ' is-uncategorized' : '');
       node.dataset.table = tname;
+      if (isUncategorized) node.title = '미분류 테이블 — _SCHEMA_LAYOUT 에 추가하면 색상·위치 분류 가능';
       node.style.cssText = `left:${pos.x}px;top:${pos.y}px`;
 
       // 실제 FK 컬럼 Set (이 테이블의 진짜 FK만)
