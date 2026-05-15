@@ -26,6 +26,7 @@ const AdminPage = {
         <button class="tab-btn"        data-tab="usage">사용 통계</button>
         <button class="tab-btn"        data-tab="board">📋 게시판 통계</button>
         <button class="tab-btn"        data-tab="pipeline">🔀 파이프라인 설정</button>
+        <button class="tab-btn"        data-tab="menu-config">🧭 메뉴 구조</button>
         ${(App.currentUser?.role === 'superadmin') ? `
         <button class="tab-btn" data-tab="token-monitor"
           style="color:#d93025;border-bottom-color:transparent">
@@ -42,6 +43,7 @@ const AdminPage = {
       <div id="admin-tab-usage"         class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-board"         class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-pipeline"      class="admin-tab-panel" style="display:none"></div>
+      <div id="admin-tab-menu-config"   class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-token-monitor" class="admin-tab-panel" style="display:none"></div>
     `;
     document.getElementById('content').innerHTML = html;
@@ -179,6 +181,7 @@ const AdminPage = {
       else if (tab === 'usage') this.loadUsage();
       else if (tab === 'board') this.loadBoardStats();
       else if (tab === 'pipeline') this.loadPipelineStages();
+      else if (tab === 'menu-config') this.loadMenuConfig();
       else if (tab === 'token-monitor') this.loadTokenMonitor();
     }
   },
@@ -2037,5 +2040,294 @@ const AdminPage = {
       delete panel.dataset.loaded;
       await this.loadPipelineStages();
     }
+  },
+
+  // ============================================================
+  // Tab — 메뉴 구조 설정 (사이드바 순서/가시성/라벨)
+  // ============================================================
+  // 원본 라벨/아이콘 매핑 — label_override 가 NULL 일 때 폴백
+  _menuMeta: {
+    sections: {
+      main:     { label: '메인',     icon: '🏠' },
+      erp:      { label: 'ERP',      icon: '🛒' },
+      sales:    { label: '영업관리', icon: '📁' },
+      analysis: { label: '분석',     icon: '📊' },
+      comm:     { label: '소통',     icon: '💬' },
+      ai:       { label: 'AI 기능',  icon: '🤖' },
+      system:   { label: '시스템',   icon: '⚙️' },
+    },
+    items: {
+      dashboard:      { label: '대시보드',     icon: '📊' },
+      pipeline:       { label: '파이프라인',   icon: '📈' },
+      orders:         { label: 'ERP 연계',     icon: '🛒' },
+      leads:          { label: '영업 리드',    icon: '🎯' },
+      projects:       { label: '프로젝트',     icon: '📁' },
+      customers:      { label: '고객사',       icon: '🏢' },
+      calendar:       { label: '영업 캘린더',  icon: '📅' },
+      team:           { label: '팀 현황',      icon: '👥' },
+      reports:        { label: '리포트',       icon: '📋' },
+      board:          { label: '커뮤니케이션', icon: '💬' },
+      'ai-assistant': { label: 'AI 어시스턴트', icon: '🤖' },
+      meeting:        { label: '회의록 AI',    icon: '🎤' },
+      'meeting-list': { label: '회의록 목록',  icon: '📝' },
+      admin:          { label: '관리자',       icon: '🛡️' },
+      settings:       { label: '설정',         icon: '⚙️' },
+      dev:            { label: '개발자 옵션',  icon: '🔧' },
+    },
+  },
+  _menuConfigData: null,        // { sections: [...], items: [...] }
+  _menuConfigDirty: false,
+  _sortableInstances: [],       // 정리용
+
+  async loadMenuConfig() {
+    const panel = document.getElementById('admin-tab-menu-config');
+    panel.innerHTML = '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
+    try {
+      const r = await API.request('GET', '/admin/menu-config');
+      this._menuConfigData = r.data || { sections: [], items: [] };
+      this._menuConfigDirty = false;
+      this._renderMenuConfig();
+      panel.dataset.loaded = '1';
+    } catch (e) {
+      panel.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">불러오기 실패: ${esc(e.message || '')}</div>`;
+    }
+  },
+
+  _renderMenuConfig() {
+    const panel = document.getElementById('admin-tab-menu-config');
+    if (!panel || !this._menuConfigData) return;
+    const { sections, items } = this._menuConfigData;
+    const meta = this._menuMeta;
+
+    // 섹션별로 항목 그룹핑
+    const itemsBySection = {};
+    items.forEach(it => {
+      if (!itemsBySection[it.section_key]) itemsBySection[it.section_key] = [];
+      itemsBySection[it.section_key].push(it);
+    });
+    // 각 섹션 내 정렬 (display_order ASC)
+    Object.values(itemsBySection).forEach(arr => arr.sort((a, b) => (a.display_order || 0) - (b.display_order || 0)));
+
+    const sectionCards = sections.map(s => {
+      const sMeta = meta.sections[s.section_key] || { label: s.section_label, icon: '📌' };
+      const sLabel = s.section_label || sMeta.label;
+      const sysSec = s.is_system ? 'is-system' : '';
+      const sysLockHtml = s.is_system
+        ? '<span class="mc-lock" title="시스템 섹션 — 라벨/가시성 변경 불가">🔒</span>'
+        : '';
+      const visBtn = s.is_system
+        ? ''
+        : `<button type="button" class="mc-vis-btn" data-section="${esc(s.section_key)}" data-visible="${s.is_visible ? 1 : 0}" title="가시성">${s.is_visible ? '👁' : '🚫'}</button>`;
+      const labelInput = s.is_system
+        ? `<span class="mc-section-label">${sMeta.icon} ${esc(sLabel)}</span>`
+        : `<input type="text" class="mc-section-input" data-section="${esc(s.section_key)}" value="${esc(sLabel)}" placeholder="${esc(sMeta.label)}" maxlength="100">`;
+
+      const itemRows = (itemsBySection[s.section_key] || []).map(it => {
+        const iMeta = meta.items[it.menu_key] || { label: it.menu_key, icon: '📄' };
+        const curLabel = it.label_override || iMeta.label;
+        const sysItem = it.is_system ? 'is-system' : '';
+        const sysLockI = it.is_system ? '<span class="mc-lock" title="시스템 항목 — 가시성/라벨 변경 불가">🔒</span>' : '';
+        const visBtnI = it.is_system
+          ? ''
+          : `<button type="button" class="mc-vis-btn" data-menu="${esc(it.menu_key)}" data-visible="${it.is_visible ? 1 : 0}" title="가시성">${it.is_visible ? '👁' : '🚫'}</button>`;
+        const labelI = it.is_system
+          ? `<span class="mc-item-label">${esc(curLabel)}</span>`
+          : `<input type="text" class="mc-item-input" data-menu="${esc(it.menu_key)}" value="${esc(curLabel)}" placeholder="${esc(iMeta.label)}" maxlength="100">`;
+        return `
+          <div class="mc-item ${sysItem} ${it.is_visible ? '' : 'is-hidden'}" data-menu-key="${esc(it.menu_key)}">
+            <span class="mc-handle ${it.is_system ? 'is-disabled' : ''}" title="드래그">≡</span>
+            <span class="mc-icon">${iMeta.icon}</span>
+            ${labelI}
+            ${sysLockI}
+            ${visBtnI}
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="mc-section ${sysSec} ${s.is_visible ? '' : 'is-hidden'}" data-section-key="${esc(s.section_key)}">
+          <div class="mc-section-header">
+            <span class="mc-handle mc-section-handle ${s.is_system ? 'is-disabled' : ''}" title="섹션 드래그">≡</span>
+            <span class="mc-icon">${sMeta.icon}</span>
+            ${labelInput}
+            ${sysLockHtml}
+            ${visBtn}
+          </div>
+          <div class="mc-items" data-section-items="${esc(s.section_key)}">
+            ${itemRows || '<div class="mc-empty">(빈 섹션 — 다른 메뉴를 드래그해서 추가 가능)</div>'}
+          </div>
+        </div>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <div class="mc-toolbar">
+        <button type="button" class="btn btn-ghost btn-sm" id="mc-reset-btn">🔄 기본값으로 복원</button>
+        <span class="mc-changes" id="mc-changes-badge">변경 없음</span>
+        <button type="button" class="btn btn-primary btn-sm" id="mc-save-btn" disabled>💾 저장</button>
+      </div>
+      <div class="mc-hint">
+        💡 ≡ 핸들로 드래그하여 순서 변경 · 👁 클릭으로 가시성 토글 · 라벨 클릭하여 이름 변경
+        <br>🔒 시스템 메뉴(관리자/설정/개발자 옵션)는 순서만 변경 가능하며 숨김 처리는 차단됩니다.
+      </div>
+      <div class="mc-list" id="mc-section-list">
+        ${sectionCards}
+      </div>
+    `;
+
+    this._wireMenuConfigEvents();
+    this._initMenuConfigSortable();
+  },
+
+  _wireMenuConfigEvents() {
+    const panel = document.getElementById('admin-tab-menu-config');
+    if (!panel) return;
+    // 저장 / 리셋
+    panel.querySelector('#mc-save-btn')?.addEventListener('click', () => this._saveMenuConfig());
+    panel.querySelector('#mc-reset-btn')?.addEventListener('click', () => this._resetMenuConfig());
+
+    // 가시성 토글 (이벤트 위임)
+    panel.addEventListener('click', (e) => {
+      const btn = e.target.closest('.mc-vis-btn');
+      if (!btn) return;
+      const cur = btn.dataset.visible === '1';
+      const next = cur ? 0 : 1;
+      btn.dataset.visible = String(next);
+      btn.textContent = next ? '👁' : '🚫';
+      // 데이터 모델 반영
+      if (btn.dataset.section) {
+        const s = this._menuConfigData.sections.find(x => x.section_key === btn.dataset.section);
+        if (s) s.is_visible = next;
+        btn.closest('.mc-section')?.classList.toggle('is-hidden', !next);
+      } else if (btn.dataset.menu) {
+        const it = this._menuConfigData.items.find(x => x.menu_key === btn.dataset.menu);
+        if (it) it.is_visible = next;
+        btn.closest('.mc-item')?.classList.toggle('is-hidden', !next);
+      }
+      this._markMenuConfigDirty();
+    });
+
+    // 라벨 입력 변경
+    panel.addEventListener('input', (e) => {
+      const t = e.target;
+      if (t.classList.contains('mc-section-input')) {
+        const s = this._menuConfigData.sections.find(x => x.section_key === t.dataset.section);
+        if (s) s.section_label = t.value;
+        this._markMenuConfigDirty();
+      } else if (t.classList.contains('mc-item-input')) {
+        const it = this._menuConfigData.items.find(x => x.menu_key === t.dataset.menu);
+        const original = this._menuMeta.items[it?.menu_key]?.label;
+        if (it) it.label_override = (t.value && t.value !== original) ? t.value : null;
+        this._markMenuConfigDirty();
+      }
+    });
+  },
+
+  _initMenuConfigSortable() {
+    // 기존 인스턴스 정리
+    this._sortableInstances.forEach(s => { try { s.destroy(); } catch (_) {} });
+    this._sortableInstances = [];
+
+    if (typeof Sortable === 'undefined') {
+      console.warn('[menu-config] Sortable.js 미로드 — 드래그 비활성');
+      return;
+    }
+
+    // 1) 섹션 자체 정렬 (외부 리스트)
+    const sectionList = document.getElementById('mc-section-list');
+    if (sectionList) {
+      const inst = new Sortable(sectionList, {
+        handle: '.mc-section-handle:not(.is-disabled)',
+        animation: 150,
+        ghostClass: 'mc-drag-ghost',
+        filter: '.mc-section.is-system .mc-section-handle',
+        onEnd: () => this._rebuildOrderFromDOM(),
+      });
+      this._sortableInstances.push(inst);
+    }
+
+    // 2) 각 섹션 내부 항목 정렬 (그룹으로 묶어 cross-section 이동 허용)
+    document.querySelectorAll('.mc-items').forEach(list => {
+      const inst = new Sortable(list, {
+        group: {
+          name: 'menu-items',
+          put: (to) => {
+            // 시스템 섹션으로는 시스템 항목만 받음 (역방향 가능)
+            const toSec = to.el.dataset.sectionItems;
+            return toSec !== 'system' || true; // 일단 모두 허용, 서버측에서 시스템 항목은 시스템에서만 정렬 적용
+          },
+        },
+        handle: '.mc-handle:not(.is-disabled)',
+        animation: 150,
+        ghostClass: 'mc-drag-ghost',
+        filter: '.mc-item.is-system .mc-handle',
+        onEnd: () => this._rebuildOrderFromDOM(),
+      });
+      this._sortableInstances.push(inst);
+    });
+  },
+
+  _rebuildOrderFromDOM() {
+    // DOM 순서를 데이터 모델에 반영
+    const sectionList = document.getElementById('mc-section-list');
+    if (!sectionList) return;
+    const sectionNodes = [...sectionList.querySelectorAll('.mc-section')];
+    sectionNodes.forEach((sn, idx) => {
+      const key = sn.dataset.sectionKey;
+      const s = this._menuConfigData.sections.find(x => x.section_key === key);
+      if (s) s.display_order = idx + 1;
+      // 항목 순서
+      const itemNodes = [...sn.querySelectorAll('.mc-item')];
+      itemNodes.forEach((it, j) => {
+        const mk = it.dataset.menuKey;
+        const item = this._menuConfigData.items.find(x => x.menu_key === mk);
+        if (item) {
+          item.section_key = key;          // cross-section 이동 반영
+          item.display_order = j + 1;
+        }
+      });
+    });
+    this._markMenuConfigDirty();
+  },
+
+  _markMenuConfigDirty() {
+    this._menuConfigDirty = true;
+    const badge = document.getElementById('mc-changes-badge');
+    const saveBtn = document.getElementById('mc-save-btn');
+    if (badge) {
+      badge.textContent = '● 저장되지 않은 변경 있음';
+      badge.classList.add('is-dirty');
+    }
+    if (saveBtn) saveBtn.disabled = false;
+  },
+
+  async _saveMenuConfig() {
+    if (!this._menuConfigDirty || !this._menuConfigData) return;
+    const saveBtn = document.getElementById('mc-save-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '저장 중...'; }
+    try {
+      await API.request('PUT', '/admin/menu-config', this._menuConfigData);
+      this._menuConfigDirty = false;
+      const badge = document.getElementById('mc-changes-badge');
+      if (badge) { badge.textContent = '✓ 저장 완료'; badge.classList.remove('is-dirty'); }
+      if (saveBtn) saveBtn.textContent = '💾 저장';
+      Toast.success('메뉴 구조가 저장되었습니다. 새로고침 시 사이드바에 반영됩니다.');
+    } catch (e) {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 저장'; }
+      Toast.error('저장 실패: ' + (e.message || ''));
+    }
+  },
+
+  _resetMenuConfig() {
+    Modal.confirm(
+      '메뉴 구조를 기본값으로 복원합니다.<br>현재 설정(순서·라벨·가시성)이 모두 초기화되며 되돌릴 수 없습니다.<br><br>계속하시겠습니까?',
+      async () => {
+        try {
+          await API.request('POST', '/admin/menu-config/reset');
+          Toast.success('기본값으로 복원되었습니다.');
+          await this.loadMenuConfig();  // 다시 불러옴
+        } catch (e) {
+          Toast.error('복원 실패: ' + (e.message || ''));
+        }
+      }
+    );
   },
 };
