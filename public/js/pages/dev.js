@@ -120,7 +120,42 @@ const DevPage = {
       ['api-notifications','tbl-leads'],['api-notifications','tbl-calendar'],['api-notifications','tbl-activities'],['api-notifications','tbl-meetings'],
       ['api-products','tbl-products'],['api-products','tbl-cost-history'],
       ['api-google','tbl-google-tokens'],['api-google','tbl-google-meet'],['api-google','tbl-calendar'],
-    ]
+    ],
+    // ── 외부 서비스 (3rd-party) ──────────────────────────────
+    external: [
+      // 지도 / 주소
+      { id: 'ext-kakao-maps',     label: '카카오맵 SDK',     category: 'map',     icon: '🗺️', url: 'dapi.kakao.com' },
+      { id: 'ext-kakao-postcode', label: '카카오 우편번호',   category: 'map',     icon: '📍', url: 'postcode.map.kakao.com' },
+      // 환율
+      { id: 'ext-frankfurter',    label: 'Frankfurter (ECB)', category: 'fx',      icon: '💱', url: 'api.frankfurter.app' },
+      { id: 'ext-korea-exim',     label: '한국수출입은행',     category: 'fx',      icon: '🏦', url: 'oapi.koreaexim.go.kr' },
+      // AI
+      { id: 'ext-gemini',         label: 'Google Gemini AI', category: 'ai',      icon: '🤖', url: 'generativelanguage.googleapis.com' },
+      // Google
+      { id: 'ext-google-oauth',   label: 'Google OAuth',     category: 'auth',    icon: '🔐', url: 'oauth2.googleapis.com' },
+      { id: 'ext-google-cal',     label: 'Google Calendar',  category: 'calendar',icon: '📅', url: 'googleapis.com/calendar' },
+      { id: 'ext-google-meet',    label: 'Google Meet',      category: 'meeting', icon: '🎥', url: 'meet.google.com' },
+      // CDN 라이브러리
+      { id: 'ext-cdn-chartjs',    label: 'Chart.js',          category: 'cdn',     icon: '📊', url: 'cdnjs.cloudflare.com (chart.js)' },
+      { id: 'ext-cdn-fullcal',    label: 'FullCalendar',      category: 'cdn',     icon: '📆', url: 'cdn.jsdelivr.net (fullcalendar)' },
+      { id: 'ext-cdn-quill',      label: 'Quill 에디터',       category: 'cdn',     icon: '✍️', url: 'cdn.jsdelivr.net (quill)' },
+      { id: 'ext-cdn-pptxgenjs',  label: 'pptxgenjs',         category: 'cdn',     icon: '📃', url: 'unpkg.com (pptxgenjs)' },
+      { id: 'ext-cdn-sortable',   label: 'Sortable.js',       category: 'cdn',     icon: '↕️', url: 'cdn.jsdelivr.net (sortable)' },
+      { id: 'ext-cdn-fonts',      label: 'Google Fonts',      category: 'cdn',     icon: '🔤', url: 'fonts.googleapis.com' },
+    ],
+    // ── API → 외부 서비스 매핑 ────────────────────────────────
+    a2e: [
+      ['api-exchange',  'ext-frankfurter'],
+      ['api-exchange',  'ext-korea-exim'],
+      ['api-ai',        'ext-gemini'],
+      ['api-auth',      'ext-google-oauth'],
+      ['api-google',    'ext-google-oauth'],
+      ['api-google',    'ext-google-cal'],
+      ['api-google',    'ext-google-meet'],
+      ['api-meeting',   'ext-google-meet'],
+      ['api-customers', 'ext-kakao-postcode'],
+      ['api-customers', 'ext-kakao-maps'],
+    ],
   },
 
   // 추가 제안 기능 목록
@@ -707,6 +742,7 @@ const DevPage = {
           <div class="dfd-col-hdr dfd-hdr-page">🖥️ 화면 (Pages)</div>
           <div class="dfd-col-hdr dfd-hdr-api">⚡ API 라우트</div>
           <div class="dfd-col-hdr dfd-hdr-table">🗄️ DB 테이블</div>
+          <div class="dfd-col-hdr dfd-hdr-external">🌐 외부 서비스</div>
 
           <!-- 컬럼 행 (그리드 2행) -->
           <div class="dfd-col" id="dfd-col-pages">
@@ -780,6 +816,18 @@ const DevPage = {
                 <div class="dfd-cols-preview">${t.cols.slice(0,4).join(', ')}${t.cols.length>4?'…':''}</div>
               </div>`;
             }).join('')}
+          </div>
+
+          <div class="dfd-col" id="dfd-col-external">
+            ${this.DFD.external.map(e => `
+              <div class="dfd-node dfd-node-external dfd-ext-cat-${esc(e.category)}"
+                   data-id="${e.id}" data-type="external"
+                   title="${esc(e.url)}">
+                <span class="dfd-ext-icon">${e.icon}</span>
+                <span class="dfd-ext-label">${esc(e.label)}</span>
+                <span class="dfd-ext-cat">${esc(e.category)}</span>
+              </div>
+            `).join('')}
           </div>
         </div>
 
@@ -888,6 +936,8 @@ const DevPage = {
 
     this.DFD.p2a.forEach(([p, a]) => addEdge(p, a));
     this.DFD.a2t.forEach(([a, t]) => addEdge(a, t));
+    // 외부 서비스 엣지 (API → External)
+    (this.DFD.a2e || []).forEach(([a, e]) => addEdge(a, e));
     // 동적 매핑 엣지 (관리자 우클릭 → 카탈로그 추가로 생성된 매핑)
     (this._dynamicA2T || []).forEach(([a, t]) => addEdge(a, t));
     (this._dynamicP2A || []).forEach(([p, a]) => addEdge(p, a));
@@ -1491,6 +1541,21 @@ const DevPage = {
         related.add(t);
         activeEdgeKeys.add(`${id}→${t}`);
       });
+      // API → 외부 서비스 엣지도 강조
+      (this.DFD.a2e || []).filter(([a]) => a === id).forEach(([, e]) => {
+        related.add(e);
+        activeEdgeKeys.add(`${id}→${e}`);
+      });
+    } else if (type === 'external') {
+      // 외부 서비스 → 어떤 API 가 사용하는지 표시
+      (this.DFD.a2e || []).filter(([, e]) => e === id).forEach(([a]) => {
+        related.add(a);
+        activeEdgeKeys.add(`${a}→${id}`);
+        p2aAll.filter(([, ap]) => ap === a).forEach(([p]) => {
+          related.add(p);
+          activeEdgeKeys.add(`${p}→${a}`);
+        });
+      });
     } else {
       // table
       a2tAll.filter(([, t]) => t === id).forEach(([a]) => {
@@ -1575,14 +1640,16 @@ const DevPage = {
     panel.style.display = '';
 
     let nodeLabel = '';
-    let pages = [], apis = [], tables = [];
+    let pages = [], apis = [], tables = [], externals = [];
 
     const a2tAll = this._allA2T();   // 정적 + 동적 매핑 통합 (a2t)
     const p2aAll = this._allP2A();   // 정적 + 동적 매핑 통합 (p2a)
+    const a2eAll = this.DFD.a2e || [];
 
     // 동적 API 노드를 위한 lookup
     const _findApiById = (apiId) => this.DFD.apis.find(x => x.id === apiId)
       || (apiId.startsWith('api-') ? { id: apiId, label: '/api/' + apiId.slice(4), method: 'CRUD' } : null);
+    const _findExtById = (extId) => this.DFD.external?.find(x => x.id === extId);
 
     if (type === 'page') {
       const pg = this.DFD.pages.find(p=>p.id===id);
@@ -1593,12 +1660,49 @@ const DevPage = {
           const tbl = this._findTableById(t);
           if (tbl && !tables.find(x=>x.id===t)) tables.push(tbl);
         });
+        a2eAll.filter(([ap])=>ap===a.id).forEach(([,e])=>{
+          const ext = _findExtById(e);
+          if (ext && !externals.find(x=>x.id===e)) externals.push(ext);
+        });
       });
     } else if (type === 'api') {
       const ap = _findApiById(id);
       nodeLabel = ap?.label;
       pages = p2aAll.filter(([,a])=>a===id).map(([p])=>this.DFD.pages.find(x=>x.id===p)).filter(Boolean);
       tables = a2tAll.filter(([a])=>a===id).map(([,t])=>this._findTableById(t)).filter(Boolean);
+      externals = a2eAll.filter(([a])=>a===id).map(([,e])=>_findExtById(e)).filter(Boolean);
+    } else if (type === 'external') {
+      const ext = _findExtById(id);
+      nodeLabel = `${ext?.icon || '🌐'} ${ext?.label || id}`;
+      // 외부 → API → Page 역추적
+      const linkedApis = a2eAll.filter(([,e])=>e===id).map(([a])=>_findApiById(a)).filter(Boolean);
+      apis = linkedApis;
+      linkedApis.forEach(a => {
+        p2aAll.filter(([,ap])=>ap===a.id).forEach(([p])=>{
+          const pg = this.DFD.pages.find(x=>x.id===p);
+          if (pg && !pages.find(x=>x.id===p)) pages.push(pg);
+        });
+      });
+      // 외부는 자체 정보 표시
+      title.textContent = `영향도: ${nodeLabel}`;
+      body.innerHTML = `
+        <div class="impact-section">
+          <div class="impact-label">🌐 외부 서비스 정보</div>
+          <div style="font-size:11px;color:var(--text-2);line-height:1.7">
+            <strong>카테고리:</strong> ${esc(ext?.category || '-')}<br>
+            <strong>URL:</strong> <code style="font-size:10px">${esc(ext?.url || '-')}</code>
+          </div>
+        </div>
+        ${apis.length ? `<div class="impact-section">
+          <div class="impact-label impact-api">⚡ 사용 API (${apis.length}개)</div>
+          ${apis.map(a=>`<div class="impact-item">${esc(a.label)}</div>`).join('')}
+        </div>` : ''}
+        ${pages.length ? `<div class="impact-section">
+          <div class="impact-label impact-page">🖥️ 간접 영향 화면 (${pages.length}개)</div>
+          ${pages.map(p=>`<div class="impact-item">${p.icon} ${esc(p.label)}</div>`).join('')}
+        </div>` : ''}
+      `;
+      return;
     } else {
       const tbl = this._findTableById(id);
       nodeLabel = `🗄️ ${tbl?.label}`;
@@ -1635,6 +1739,10 @@ const DevPage = {
       ${tables.length ? `<div class="impact-section">
         <div class="impact-label impact-table">🗄️ 관련 테이블 (${tables.length}개)</div>
         ${tables.map(t=>`<div class="impact-item">${esc(t.label)}</div>`).join('')}
+      </div>` : ''}
+      ${externals.length ? `<div class="impact-section">
+        <div class="impact-label impact-external">🌐 관련 외부 서비스 (${externals.length}개)</div>
+        ${externals.map(e=>`<div class="impact-item">${e.icon} ${esc(e.label)} <span style="color:var(--text-3);font-size:10px">(${esc(e.category)})</span></div>`).join('')}
       </div>` : ''}
     `;
   },

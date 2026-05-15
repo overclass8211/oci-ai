@@ -4002,11 +4002,11 @@ body,
 
 .dfd-board {
   position: relative;
-  /* 헤더 + 컬럼 2행 × 3열 그리드: 헤더가 board 안에 있어 자동 정렬 */
+  /* 헤더 + 컬럼 2행 × 4열 그리드 (페이지/API/테이블/외부) */
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   grid-template-rows: auto 1fr;
-  column-gap: 100px;  /* 엣지 S-커브를 위한 충분한 간격 */
+  column-gap: 70px;  /* 4열로 늘어남 — 간격 축소 */
   row-gap: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -6107,4 +6107,70 @@ body,
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border);
   letter-spacing: 0.3px;
+}
+
+/* DFD 4번째 컬럼 — 외부 서비스 */
+.dfd-hdr-external {
+  background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%);
+  color: #fff;
+}
+.dfd-node-external {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid #06b6d4;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, transform .12s;
+}
+.dfd-node-external:hover {
+  background: color-mix(in srgb, #06b6d4 5%, var(--surface));
+  border-color: #06b6d4;
+  transform: translateX(-1px);
+}
+.dfd-ext-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.dfd-ext-label {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dfd-ext-cat {
+  font-size: 9px;
+  font-weight: 700;
+  color: #0c4a6e;
+  background: color-mix(in srgb, #06b6d4 18%, transparent);
+  padding: 1px 6px;
+  border-radius: 6px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* 카테고리별 보더 색상 (선택적 시각 구분) */
+.dfd-ext-cat-map     { border-left-color: #f59e0b; }
+.dfd-ext-cat-fx      { border-left-color: #10b981; }
+.dfd-ext-cat-ai      { border-left-color: #8b5cf6; }
+.dfd-ext-cat-auth    { border-left-color: #ef4444; }
+.dfd-ext-cat-calendar{ border-left-color: #3b82f6; }
+.dfd-ext-cat-meeting { border-left-color: #ec4899; }
+.dfd-ext-cat-cdn     { border-left-color: #6b7280; }
+
+/* 영향도 패널 — 외부 라벨 */
+.impact-label.impact-external {
+  color: #0c4a6e;
+}
+[data-theme="dark"] .dfd-node-external {
+  background: color-mix(in srgb, #06b6d4 6%, var(--surface));
+}
+[data-theme="dark"] .dfd-ext-cat {
+  color: #67e8f9;
 }
