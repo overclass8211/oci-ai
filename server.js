@@ -57,6 +57,7 @@ app.use(
         ],
         fontSrc: [
           "'self'",
+          'data:', // Quill 등 일부 라이브러리가 폰트를 data: URI 로 인라인 로드
           'https://fonts.gstatic.com',
           'https://cdnjs.cloudflare.com',
           'https://*.daumcdn.net',
@@ -78,10 +79,31 @@ app.use(
           'https://*.daum.net',
           'https://*.kakao.com',
           'https://dapi.kakao.com',
+          // 카카오 postcode iframe 의 부모-자식 origin 체크용 (HTTP 환경)
+          'http://*.daumcdn.net',
+          'http://*.daum.net',
+          'http://*.kakao.com',
         ],
         // ⚠️ frame-src + child-src 둘 다 명시 (브라우저별 호환)
-        frameSrc: ["'self'", 'https://*.daum.net', 'https://*.daumcdn.net', 'https://*.kakao.com'],
-        childSrc: ["'self'", 'https://*.daum.net', 'https://*.daumcdn.net', 'https://*.kakao.com'],
+        // 카카오 postcode 서비스가 HTTP(http://postcode.map.kakao.com) 로 동작하므로 HTTP variants 도 허용
+        frameSrc: [
+          "'self'",
+          'https://*.daum.net',
+          'https://*.daumcdn.net',
+          'https://*.kakao.com',
+          'http://*.daum.net',
+          'http://*.daumcdn.net',
+          'http://*.kakao.com',
+        ],
+        childSrc: [
+          "'self'",
+          'https://*.daum.net',
+          'https://*.daumcdn.net',
+          'https://*.kakao.com',
+          'http://*.daum.net',
+          'http://*.daumcdn.net',
+          'http://*.kakao.com',
+        ],
         mediaSrc: ["'self'", 'blob:'], // 오디오 녹음
         workerSrc: ["'self'", 'blob:'], // Web Worker
         objectSrc: ["'none'"],
@@ -242,13 +264,11 @@ app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.h
 
 // 404
 app.use('/api', (_req, res) => {
-  res
-    .status(404)
-    .json({
-      success: false,
-      error: '요청한 API 엔드포인트를 찾을 수 없습니다.',
-      code: 'NOT_FOUND',
-    });
+  res.status(404).json({
+    success: false,
+    error: '요청한 API 엔드포인트를 찾을 수 없습니다.',
+    code: 'NOT_FOUND',
+  });
 });
 
 // 글로벌 에러 핸들러
