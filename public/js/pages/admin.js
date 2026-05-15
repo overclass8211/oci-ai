@@ -2046,6 +2046,7 @@ const AdminPage = {
   // Tab — 메뉴 구조 설정 (사이드바 순서/가시성/라벨)
   // ============================================================
   // 원본 라벨/아이콘 매핑 — label_override 가 NULL 일 때 폴백
+  // minRole: 백엔드 ROLE_PAGES + dev 특례를 시각적으로 안내 (실제 차단은 서버 측)
   _menuMeta: {
     sections: {
       main:     { label: '메인',     icon: '🏠' },
@@ -2061,18 +2062,18 @@ const AdminPage = {
       pipeline:       { label: '파이프라인',   icon: '📈' },
       orders:         { label: 'ERP 연계',     icon: '🛒' },
       leads:          { label: '영업 리드',    icon: '🎯' },
-      projects:       { label: '프로젝트',     icon: '📁' },
+      projects:       { label: '프로젝트',     icon: '📁', minRole: '팀장+' },
       customers:      { label: '고객사',       icon: '🏢' },
       calendar:       { label: '영업 캘린더',  icon: '📅' },
-      team:           { label: '팀 현황',      icon: '👥' },
-      reports:        { label: '리포트',       icon: '📋' },
+      team:           { label: '팀 현황',      icon: '👥', minRole: '팀장+' },
+      reports:        { label: '리포트',       icon: '📋', minRole: '팀장+' },
       board:          { label: '커뮤니케이션', icon: '💬' },
       'ai-assistant': { label: 'AI 어시스턴트', icon: '🤖' },
       meeting:        { label: '회의록 AI',    icon: '🎤' },
       'meeting-list': { label: '회의록 목록',  icon: '📝' },
-      admin:          { label: '관리자',       icon: '🛡️' },
+      admin:          { label: '관리자',       icon: '🛡️', minRole: '경영진+' },
       settings:       { label: '설정',         icon: '⚙️' },
-      dev:            { label: '개발자 옵션',  icon: '🔧' },
+      dev:            { label: '개발자 옵션',  icon: '🔧', minRole: '슈퍼관리자' },
     },
   },
   _menuConfigData: null,        // { sections: [...], items: [...] }
@@ -2133,11 +2134,15 @@ const AdminPage = {
         const labelI = it.is_system
           ? `<span class="mc-item-label">${esc(curLabel)}</span>`
           : `<input type="text" class="mc-item-input" data-menu="${esc(it.menu_key)}" value="${esc(curLabel)}" placeholder="${esc(iMeta.label)}" maxlength="100">`;
+        const roleBadge = iMeta.minRole
+          ? `<span class="mc-role-badge" title="이 메뉴는 ${esc(iMeta.minRole)} 권한 이상만 볼 수 있습니다">${esc(iMeta.minRole)}</span>`
+          : '';
         return `
           <div class="mc-item ${sysItem} ${it.is_visible ? '' : 'is-hidden'}" data-menu-key="${esc(it.menu_key)}">
             <span class="mc-handle ${it.is_system ? 'is-disabled' : ''}" title="드래그">≡</span>
             <span class="mc-icon">${iMeta.icon}</span>
             ${labelI}
+            ${roleBadge}
             ${sysLockI}
             ${visBtnI}
           </div>`;
@@ -2167,6 +2172,7 @@ const AdminPage = {
       <div class="mc-hint">
         💡 ≡ 핸들로 드래그하여 순서 변경 · 👁 클릭으로 가시성 토글 · 라벨 클릭하여 이름 변경
         <br>🔒 시스템 메뉴(관리자/설정/개발자 옵션)는 순서만 변경 가능하며 숨김 처리는 차단됩니다.
+        <br>👤 이 설정은 모든 사용자에게 적용되지만, 권한이 없는 사용자에게는 해당 메뉴가 자동으로 숨겨집니다.
       </div>
       <div class="mc-list" id="mc-section-list">
         ${sectionCards}
@@ -2309,7 +2315,11 @@ const AdminPage = {
       const badge = document.getElementById('mc-changes-badge');
       if (badge) { badge.textContent = '✓ 저장 완료'; badge.classList.remove('is-dirty'); }
       if (saveBtn) saveBtn.textContent = '💾 저장';
-      Toast.success('메뉴 구조가 저장되었습니다. 새로고침 시 사이드바에 반영됩니다.');
+      // 즉시 사이드바에 반영 (본인 화면 — 다른 사용자는 새로고침 시 반영)
+      if (typeof App?.applyMenuConfig === 'function') {
+        try { await App.applyMenuConfig(); } catch (_) { /* non-critical */ }
+      }
+      Toast.success('메뉴 구조가 저장되었습니다.');
     } catch (e) {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 저장'; }
       Toast.error('저장 실패: ' + (e.message || ''));

@@ -50,6 +50,10 @@ const App = {
     // 사이드바 카운트 배지
     this.updateNavBadges();
 
+    // 사이드바 메뉴 구조 동적 적용 (관리자 설정 반영)
+    // — 비동기, 실패 시 하드코딩 폴백으로 안전하게 유지
+    this.applyMenuConfig();
+
     // 알림 로드
     Notifications.load();
     setInterval(() => Notifications.load(), 5 * 60 * 1000);
@@ -263,6 +267,99 @@ const App = {
       if (elPipe) elPipe.textContent = active;
       if (elLeads) elLeads.textContent = total;
     } catch (_) { /* nav badge update is non-critical */ }
+  },
+
+  // ─────────────────────────────────────────────────────────────
+  // applyMenuConfig — DB의 메뉴 설정(/api/menu/sidebar)으로 사이드바 재구성
+  //   1) 라벨 오버라이드 적용
+  //   2) 섹션 내부 항목 순서 재배치 + 섹션 간 이동 반영
+  //   3) 섹션 자체 순서 재배치
+  //   4) is_visible=0 항목/섹션 숨김
+  // 실패 시 하드코딩 사이드바 그대로 유지 (안전 폴백)
+  // ─────────────────────────────────────────────────────────────
+  async applyMenuConfig() {
+    try {
+      const r = await API.request('GET', '/menu/sidebar');
+      const data = r?.data || {};
+      const sections = Array.isArray(data.sections) ? data.sections : [];
+      const items    = Array.isArray(data.items)    ? data.items    : [];
+      if (!sections.length) return;  // 데이터 없으면 폴백 유지
+
+      const navEl = document.querySelector('.sidebar-nav');
+      if (!navEl) return;
+
+      // 현재 DOM 의 섹션/항목을 key 로 매핑
+      const sectionEls = {};
+      document.querySelectorAll('.sidebar-nav .nav-section[data-section-key]').forEach(el => {
+        sectionEls[el.dataset.sectionKey] = el;
+      });
+      const itemEls = {};
+      document.querySelectorAll('.sidebar-nav .nav-item[data-menu-key]').forEach(el => {
+        itemEls[el.dataset.menuKey] = el;
+      });
+
+      // 1) 항목별: 라벨 오버라이드 + 섹션별로 그룹화
+      const itemsBySection = {};
+      items.forEach(it => {
+        const el = itemEls[it.menu_key];
+        if (!el) return;
+        // 라벨 오버라이드: 첫 번째 .nav-badge 가 아닌 span 교체
+        if (it.label_override) {
+          const span = [...el.children].find(c => c.tagName === 'SPAN' && !c.classList.contains('nav-badge'));
+          if (span) span.textContent = it.label_override;
+        }
+        if (!itemsBySection[it.section_key]) itemsBySection[it.section_key] = [];
+        itemsBySection[it.section_key].push(it.menu_key);
+      });
+
+      // 2) 각 섹션 내부에 항목을 순서대로 append (cross-section 이동도 자동 처리)
+      sections.forEach(s => {
+        const secEl = sectionEls[s.section_key];
+        if (!secEl) return;
+        const keys = itemsBySection[s.section_key] || [];
+        keys.forEach(k => {
+          const itemEl = itemEls[k];
+          if (itemEl) secEl.appendChild(itemEl);  // 이미 다른 섹션에 있어도 옮김
+        });
+      });
+
+      // 3) 섹션 자체 순서 적용 (display_order ASC)
+      [...sections]
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+        .forEach(s => {
+          const secEl = sectionEls[s.section_key];
+          if (secEl) navEl.appendChild(secEl);
+        });
+
+      // 4) 응답에 없는 항목은 숨김 (서버가 is_visible=1 만 보냄)
+      const visibleItemKeys = new Set(items.map(it => it.menu_key));
+      Object.keys(itemEls).forEach(k => {
+        const el = itemEls[k];
+        // 개발자 옵션은 별도 RBAC 토글로 처리됨 (style.display 보존)
+        if (k === 'dev') return;
+        if (!visibleItemKeys.has(k)) {
+          el.style.display = 'none';
+        } else if (el.style.display === 'none') {
+          el.style.display = '';
+        }
+      });
+
+      // 5) 응답에 없거나 비어있는 섹션 숨김
+      const visibleSectionKeys = new Set(sections.map(s => s.section_key));
+      const sectionHasItems = {};
+      items.forEach(it => { sectionHasItems[it.section_key] = true; });
+      Object.keys(sectionEls).forEach(k => {
+        const el = sectionEls[k];
+        const empty = !sectionHasItems[k];
+        if (!visibleSectionKeys.has(k) || empty) {
+          el.style.display = 'none';
+        } else if (el.style.display === 'none') {
+          el.style.display = '';
+        }
+      });
+    } catch (_) {
+      // API 실패 시 하드코딩 사이드바 그대로 유지 (안전 폴백)
+    }
   },
 
   updateTopbarDate() {

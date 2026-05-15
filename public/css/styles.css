@@ -5705,3 +5705,22 @@ body,
 [data-theme="dark"] .mc-section { background: var(--surface, #1c1c24); }
 [data-theme="dark"] .mc-section.is-system { background: var(--surface-2, #1a1a22); }
 [data-theme="dark"] .mc-hint { background: var(--surface-2, #1a1a22); }
+
+/* 메뉴 구조 — 역할 권한 안내 뱃지 */
+.mc-role-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3, #777);
+  background: var(--bg-2, #f5f7fa);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 4px;
+  letter-spacing: 0.2px;
+}
+[data-theme="dark"] .mc-role-badge {
+  color: var(--text-2, #999);
+  background: var(--surface-2, #2a2a32);
+}
