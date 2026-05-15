@@ -6214,3 +6214,178 @@ body,
   background: var(--surface-2);
   color: var(--text-3);
 }
+
+/* ──────────────────────────────────────────────────────────────
+   개발자 옵션 > API 관리 (OpenAPI 통합 뷰)
+   ────────────────────────────────────────────────────────────── */
+.apidoc-coverage-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid;
+  border-radius: 10px;
+}
+.apidoc-download-group {
+  display: flex;
+  gap: 4px;
+}
+.apidoc-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+.apidoc-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.apidoc-stat-label { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.apidoc-stat-value { font-size: 22px; font-weight: 700; color: var(--text-1); }
+
+.apidoc-list { display: flex; flex-direction: column; gap: 8px; }
+.apidoc-tag-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.apidoc-tag-section > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg-2,#f8f9fb) 100%);
+  border-bottom: 1px solid var(--border);
+}
+.apidoc-tag-section[open] > summary { border-bottom-color: var(--border); }
+.apidoc-tag-section > summary::-webkit-details-marker { display: none; }
+.apidoc-tag-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  flex: 0 0 auto;
+}
+.apidoc-tag-count {
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg-2);
+  padding: 1px 7px;
+  border-radius: 8px;
+}
+.apidoc-tag-doc {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.apidoc-op-list { display: flex; flex-direction: column; }
+.apidoc-op {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background .1s;
+}
+.apidoc-op:first-child { border-top: none; }
+.apidoc-op:hover { background: var(--bg-2, #f8f9fb); }
+.apidoc-op.is-stub { background: color-mix(in srgb, #f59e0b 5%, transparent); }
+.apidoc-op.is-stub:hover { background: color-mix(in srgb, #f59e0b 10%, transparent); }
+
+.apidoc-method {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 3px 8px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 4px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+.apidoc-method.get    { background: #10b981; }
+.apidoc-method.post   { background: #3b82f6; }
+.apidoc-method.put    { background: #f59e0b; }
+.apidoc-method.patch  { background: #8b5cf6; }
+.apidoc-method.delete { background: #ef4444; }
+.apidoc-method.crud   { background: #6366f1; }
+
+.apidoc-path {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  color: var(--text-1);
+  font-weight: 500;
+  min-width: 200px;
+  word-break: break-all;
+}
+.apidoc-summary {
+  flex: 1;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.apidoc-doc-badge {
+  font-size: 11px;
+  color: #10b981;
+  flex-shrink: 0;
+}
+.apidoc-stub-badge {
+  font-size: 11px;
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
+/* Operation 상세 모달 */
+.apidoc-detail { padding: 4px 0; }
+.apidoc-detail-meta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.apidoc-detail-section { margin-bottom: 12px; }
+.apidoc-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.apidoc-section-content {
+  font-size: 13px;
+  color: var(--text-1);
+  line-height: 1.6;
+}
+.apidoc-code-example {
+  background: var(--bg-2);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  margin-top: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 1100px) {
+  .apidoc-stats-grid { grid-template-columns: 1fr 1fr; }
+}

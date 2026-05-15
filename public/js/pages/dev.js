@@ -306,6 +306,7 @@ const DevPage = {
           <button class="dev-tab active" data-tab="features">⚙️ 기능 토글</button>
           <button class="dev-tab" data-tab="dfd">🗺️ DFD 시각화</button>
           <button class="dev-tab" data-tab="schema">🗄️ DB 스키마</button>
+          <button class="dev-tab" data-tab="apidocs">📡 API 관리</button>
           <button class="dev-tab" data-tab="perf">📡 성능 모니터</button>
           <button class="dev-tab" data-tab="jwt">🔐 JWT 인스펙터</button>
           <button class="dev-tab" data-tab="roadmap">🚀 개발 로드맵</button>
@@ -341,9 +342,197 @@ const DevPage = {
     if (tab === 'features') { await this.loadFeatures(); this.renderFeatures(); }
     else if (tab === 'dfd')  { this.renderDFD(); }
     else if (tab === 'schema') { await this.loadSchema(); this.renderSchema(); }
+    else if (tab === 'apidocs') { await this.renderApiDocs(); }
     else if (tab === 'perf')   { await this.loadPerf(); this.renderPerf(); }
     else if (tab === 'jwt')    { this.renderJWT(); }
     else if (tab === 'roadmap'){ this.renderRoadmap(); }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // TAB: API 관리 (OpenAPI 통합 뷰)
+  // ══════════════════════════════════════════════════════════
+  async renderApiDocs() {
+    const el = document.getElementById('dev-content');
+    try {
+      const [opsR, covR] = await Promise.all([
+        API.get('/admin/dev/openapi/operations'),
+        API.get('/admin/dev/openapi/coverage'),
+      ]);
+      this._apiOps = opsR.data;
+      this._apiCov = covR.data;
+    } catch (e) {
+      el.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">불러오기 실패: ${esc(e.message || '')}</div>`;
+      return;
+    }
+
+    const { operations, by_tag, total, documented_count } = this._apiOps;
+    const { coverage, totals } = this._apiCov;
+
+    // 메서드별 색상 클래스
+    const tagSections = Object.entries(by_tag).map(([tag, ops]) => `
+      <details class="apidoc-tag-section" open>
+        <summary>
+          <span class="apidoc-tag-name">${esc(tag)}</span>
+          <span class="apidoc-tag-count">${ops.length}개</span>
+          <span class="apidoc-tag-doc">${ops.filter(o=>o.documented).length}/${ops.length} 문서화</span>
+        </summary>
+        <div class="apidoc-op-list">
+          ${ops.map(op => `
+            <div class="apidoc-op ${op.documented ? 'is-documented' : 'is-stub'}"
+                 data-method="${esc(op.method)}" data-path="${esc(op.path)}"
+                 title="${op.documented ? '문서화됨' : '미문서화 — JSDoc 또는 openapi.js 에 정의 필요'}">
+              <span class="apidoc-method ${op.method.toLowerCase()}">${op.method}</span>
+              <span class="apidoc-path">${esc(op.full_path)}</span>
+              <span class="apidoc-summary">${esc(op.summary)}</span>
+              ${op.documented ? '<span class="apidoc-doc-badge">📄</span>' : '<span class="apidoc-stub-badge">⚠</span>'}
+            </div>
+          `).join('')}
+        </div>
+      </details>
+    `).join('');
+
+    const coverageColor = coverage >= 80 ? '#10b981' : coverage >= 50 ? '#f59e0b' : '#ef4444';
+
+    el.innerHTML = `
+      <div class="dev-section-header">
+        <div>
+          <h3 style="margin:0;font-size:15px">📡 API 관리 — OpenAPI 통합 뷰</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
+            ${total}개 엔드포인트 · 문서화 ${documented_count}/${total}
+            <span class="apidoc-coverage-pill" style="background:${coverageColor}22;color:${coverageColor};border-color:${coverageColor}55">
+              ${coverage}% 커버리지
+            </span>
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="apidoc-search" class="search-input" style="width:220px" placeholder="🔍 method/path/summary 검색...">
+          <div class="apidoc-download-group">
+            <button class="btn btn-secondary btn-sm" id="apidoc-dl-json" title="OpenAPI JSON 다운로드">📄 JSON</button>
+            <button class="btn btn-secondary btn-sm" id="apidoc-dl-html" title="단일 HTML 파일로 다운로드 (Phase 3)">🌐 HTML</button>
+            <button class="btn btn-secondary btn-sm" id="apidoc-dl-pdf" title="PDF 다운로드 (Phase 3)">📕 PDF</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 통계 카드 -->
+      <div class="apidoc-stats-grid">
+        <div class="apidoc-stat">
+          <div class="apidoc-stat-label">총 엔드포인트</div>
+          <div class="apidoc-stat-value">${total}</div>
+        </div>
+        <div class="apidoc-stat">
+          <div class="apidoc-stat-label">문서화 완료</div>
+          <div class="apidoc-stat-value" style="color:#10b981">${documented_count}</div>
+        </div>
+        <div class="apidoc-stat">
+          <div class="apidoc-stat-label">미문서화</div>
+          <div class="apidoc-stat-value" style="color:#f59e0b">${totals.undocumented}</div>
+        </div>
+        <div class="apidoc-stat">
+          <div class="apidoc-stat-label">Stale (문서만 있음)</div>
+          <div class="apidoc-stat-value" style="color:#ef4444">${totals.stale}</div>
+        </div>
+      </div>
+
+      <!-- 태그별 섹션 -->
+      <div class="apidoc-list">
+        ${tagSections}
+      </div>
+    `;
+
+    this._bindApiDocsEvents(operations);
+  },
+
+  _bindApiDocsEvents(operations) {
+    const opsByKey = {};
+    operations.forEach(op => { opsByKey[`${op.method} ${op.path}`] = op; });
+
+    // 검색 필터
+    const search = document.getElementById('apidoc-search');
+    search?.addEventListener('input', () => {
+      const q = search.value.toLowerCase();
+      document.querySelectorAll('.apidoc-op').forEach(el => {
+        const matches = !q || el.textContent.toLowerCase().includes(q);
+        el.style.display = matches ? '' : 'none';
+      });
+    });
+
+    // operation 클릭 → 상세 모달
+    document.querySelectorAll('.apidoc-op').forEach(el => {
+      el.addEventListener('click', () => {
+        const key = `${el.dataset.method} ${el.dataset.path}`;
+        const op = opsByKey[key];
+        if (op) this._showOperationDetail(op);
+      });
+    });
+
+    // 다운로드 버튼
+    document.getElementById('apidoc-dl-json')?.addEventListener('click', () => {
+      window.open('/api/admin/dev/openapi/spec', '_blank');
+    });
+    document.getElementById('apidoc-dl-html')?.addEventListener('click', () => {
+      window.open('/api/admin/dev/openapi/export/html', '_blank');
+    });
+    document.getElementById('apidoc-dl-pdf')?.addEventListener('click', () => {
+      Toast.info('PDF 다운로드는 HTML 페이지에서 "PDF로 저장" (Ctrl+P) 을 사용하세요.');
+      window.open('/api/admin/dev/openapi/export/html', '_blank');
+    });
+  },
+
+  _showOperationDetail(op) {
+    // Swagger UI 스타일 상세 (재구현)
+    const security = op.security && op.security.length > 0 ? '🔒 인증 필요' : '🌐 공개';
+    const docBadge = op.documented
+      ? '<span class="apidoc-doc-badge">📄 문서화 완료</span>'
+      : '<span class="apidoc-stub-badge">⚠ 미문서화 — JSDoc 추가 권장</span>';
+    Modal.open({
+      title: `<span class="apidoc-method ${op.method.toLowerCase()}">${op.method}</span> ${esc(op.full_path)}`,
+      compact: true,
+      width: 760,
+      confirmOnClose: false,
+      body: `
+        <div class="apidoc-detail">
+          <div class="apidoc-detail-meta">
+            <div><strong>태그:</strong> ${esc(op.tag)}</div>
+            <div><strong>보안:</strong> ${security}</div>
+            <div><strong>상태:</strong> ${docBadge}</div>
+          </div>
+          <div class="apidoc-detail-section">
+            <div class="apidoc-section-label">요약</div>
+            <div class="apidoc-section-content">${op.summary || '<span style="color:var(--text-3)">(없음)</span>'}</div>
+          </div>
+          ${op.description ? `
+          <div class="apidoc-detail-section">
+            <div class="apidoc-section-label">설명</div>
+            <div class="apidoc-section-content">${esc(op.description)}</div>
+          </div>` : ''}
+          ${op.documented ? '' : `
+          <div class="apidoc-detail-section">
+            <div class="apidoc-section-label">⚠️ 미문서화 경고</div>
+            <div class="apidoc-section-content" style="font-size:12px;color:var(--text-2)">
+              이 엔드포인트는 OpenAPI 스펙에 정의되어 있지 않습니다.<br>
+              <code>src/docs/openapi.js</code> 에 다음 형식으로 추가하세요:
+              <pre class="apidoc-code-example">'${esc(op.path)}': {
+  ${op.method.toLowerCase()}: {
+    tags: ['${esc(op.tag)}'],
+    summary: '...',
+    responses: { 200: { description: '...' } }
+  }
+}</pre>
+            </div>
+          </div>`}
+          <div class="apidoc-detail-section">
+            <div class="apidoc-section-label">DFD 연관</div>
+            <div class="apidoc-section-content" style="font-size:12px;color:var(--text-2)">
+              💡 이 API 의 호출 페이지와 사용 테이블은 <strong>DFD 시각화</strong> 탭에서 확인하세요.
+              (Phase 4 에서 양방향 자동 연동 예정)
+            </div>
+          </div>
+        </div>
+      `,
+      footer: `<button class="btn btn-primary" id="apidoc-detail-close">닫기</button>`,
+      bind: { '#apidoc-detail-close': () => Modal.close() },
+    });
   },
 
   // ══════════════════════════════════════════════════════════

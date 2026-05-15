@@ -1109,6 +1109,243 @@ router.delete('/dev/dfd-page-dismissed/:pageId', devOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// OpenAPI 통합 — 스펙 + 커버리지 + Operation 평탄화
+// ─────────────────────────────────────────────────────────────
+function _walkExpressRoutes(stack, basePath = '') {
+  const results = [];
+  for (const layer of stack) {
+    if (layer.route) {
+      const fullPath = basePath + (layer.route.path || '');
+      const methods = Object.keys(layer.route.methods || {}).filter(m => layer.route.methods[m]);
+      for (const method of methods) {
+        results.push({ method: method.toUpperCase(), path: fullPath });
+      }
+    } else if (layer.name === 'router' && layer.handle?.stack) {
+      const src = layer.regexp.toString();
+      const m = src.match(/\\\/([^\\?]+(?:\\\/[^\\?]+)*)/);
+      let mountPath = '';
+      if (m) mountPath = '/' + m[1].replace(/\\\//g, '/');
+      results.push(..._walkExpressRoutes(layer.handle.stack, basePath + mountPath));
+    }
+  }
+  return results;
+}
+
+router.get('/dev/openapi/spec', devOnly, (req, res) => {
+  try {
+    const apiSpec = require('../docs/openapi');
+    // ?download=1 일 때만 attachment, 그 외엔 inline JSON
+    if (req.query.download === '1') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename="openapi-spec.json"');
+      return res.send(JSON.stringify(apiSpec, null, 2));
+    }
+    res.json({ success: true, data: apiSpec });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// HTML 형식 OpenAPI 문서 다운로드 — Swagger UI 단독 HTML 생성
+router.get('/dev/openapi/export/html', devOnly, (req, res) => {
+  try {
+    const apiSpec = require('../docs/openapi');
+    // Swagger UI CDN 기반 단독 HTML — 외부 사용자에게 전달 가능
+    const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${apiSpec.info?.title || 'API Documentation'}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui.css">
+  <style>
+    body { margin: 0; padding: 0; }
+    .download-bar {
+      position: sticky; top: 0; z-index: 1000;
+      background: linear-gradient(135deg, #1664E5 0%, #4A90E2 100%);
+      color: #fff; padding: 10px 20px;
+      display: flex; align-items: center; gap: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    .download-bar strong { font-size: 14px; }
+    .download-bar .meta { font-size: 11px; opacity: 0.85; }
+    .download-bar button {
+      margin-left: auto; padding: 6px 14px;
+      background: rgba(255,255,255,0.2); color: #fff;
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 6px;
+      cursor: pointer; font-size: 12px; font-weight: 500;
+    }
+    .download-bar button:hover { background: rgba(255,255,255,0.3); }
+    @media print {
+      .download-bar { display: none !important; }
+      .swagger-ui .topbar { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="download-bar">
+    <strong>📡 ${apiSpec.info?.title || 'API Documentation'}</strong>
+    <span class="meta">v${apiSpec.info?.version || '1.0.0'} · 생성일: ${new Date().toLocaleDateString('ko-KR')}</span>
+    <button onclick="window.print()">📕 PDF로 저장 (Ctrl+P)</button>
+  </div>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = function() {
+      const spec = ${JSON.stringify(apiSpec).replace(/</g, '\\u003c')};
+      SwaggerUIBundle({
+        spec,
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        layout: 'BaseLayout',
+        docExpansion: 'list',
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
+      });
+    };
+  </script>
+</body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (req.query.download === '1') {
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="api-docs-${new Date().toISOString().slice(0, 10)}.html"`
+      );
+    }
+    res.send(html);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get('/dev/openapi/coverage', devOnly, (req, res) => {
+  try {
+    const apiSpec = require('../docs/openapi');
+    const specPaths = apiSpec.paths || {};
+    const documented = [];
+    for (const [pathKey, pathItem] of Object.entries(specPaths)) {
+      for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+        if (pathItem[method]) {
+          documented.push({
+            method: method.toUpperCase(),
+            path: pathKey,
+            tag: pathItem[method].tags?.[0] || null,
+            summary: pathItem[method].summary || '',
+          });
+        }
+      }
+    }
+    const docSet = new Set(documented.map(d => `${d.method} ${d.path}`));
+    const stack = req.app._router?.stack || req.app.router?.stack || [];
+    const allRoutes = _walkExpressRoutes(stack, '');
+    const routesNormalized = allRoutes
+      .filter(r => r.path.startsWith('/api/'))
+      .map(r => ({ method: r.method, path: r.path.replace(/^\/api/, '') }));
+    const routeSet = new Set();
+    const undocumented = [];
+    routesNormalized.forEach(r => {
+      const key = `${r.method} ${r.path}`;
+      if (routeSet.has(key)) return;
+      routeSet.add(key);
+      if (!docSet.has(key)) undocumented.push(r);
+    });
+    const stale = documented.filter(d => !routeSet.has(`${d.method} ${d.path}`));
+    const totalRoutes = routeSet.size;
+    const documentedAndExisting = documented.filter(d =>
+      routeSet.has(`${d.method} ${d.path}`)
+    ).length;
+    const coverage = totalRoutes > 0 ? Math.round((documentedAndExisting / totalRoutes) * 100) : 0;
+    res.json({
+      success: true,
+      data: {
+        coverage,
+        totals: {
+          documented: documented.length,
+          undocumented: undocumented.length,
+          stale: stale.length,
+          routes: totalRoutes,
+        },
+        documented,
+        undocumented,
+        stale,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get('/dev/openapi/operations', devOnly, (req, res) => {
+  try {
+    const apiSpec = require('../docs/openapi');
+    const specPaths = apiSpec.paths || {};
+    const ops = [];
+    for (const [pathKey, pathItem] of Object.entries(specPaths)) {
+      for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+        if (pathItem[method]) {
+          const op = pathItem[method];
+          ops.push({
+            method: method.toUpperCase(),
+            path: pathKey,
+            full_path: '/api' + pathKey,
+            tag: op.tags?.[0] || 'Misc',
+            summary: op.summary || '',
+            description: op.description || '',
+            documented: true,
+          });
+        }
+      }
+    }
+    const stack = req.app._router?.stack || req.app.router?.stack || [];
+    const allRoutes = _walkExpressRoutes(stack, '');
+    const docKeys = new Set(ops.map(o => `${o.method} ${o.path}`));
+    const seenAuto = new Set();
+    allRoutes
+      .filter(r => r.path.startsWith('/api/'))
+      .forEach(r => {
+        const stripPath = r.path.replace(/^\/api/, '');
+        const key = `${r.method} ${stripPath}`;
+        if (docKeys.has(key) || seenAuto.has(key)) return;
+        seenAuto.add(key);
+        const seg = stripPath.split('/').filter(Boolean)[0] || 'misc';
+        ops.push({
+          method: r.method,
+          path: stripPath,
+          full_path: r.path,
+          tag: seg.charAt(0).toUpperCase() + seg.slice(1),
+          summary: '(미문서화)',
+          description: '',
+          documented: false,
+        });
+      });
+    ops.sort((a, b) => {
+      if (a.tag !== b.tag) return a.tag.localeCompare(b.tag);
+      if (a.path !== b.path) return a.path.localeCompare(b.path);
+      return a.method.localeCompare(b.method);
+    });
+    const byTag = {};
+    ops.forEach(op => {
+      if (!byTag[op.tag]) byTag[op.tag] = [];
+      byTag[op.tag].push(op);
+    });
+    res.json({
+      success: true,
+      data: {
+        operations: ops,
+        by_tag: byTag,
+        total: ops.length,
+        documented_count: ops.filter(o => o.documented).length,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // 외부 서비스 자동 발견
 //   GET /dev/external-deps
 //   서버 + 프론트 코드에서 https?:// URL 을 추출하여
