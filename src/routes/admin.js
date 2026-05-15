@@ -1833,6 +1833,293 @@ router.get('/dev/source-audit', devOnly, (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// 소스 모니터 — 복잡도 분석 (espree AST 기반, zero-dep)
+//   GET /dev/source-complexity?refresh=1
+//   - 함수별 cyclomatic complexity, 길이, 중첩 깊이
+//   - 60초 캐싱
+// ─────────────────────────────────────────────────────────────
+let _complexityCache = { at: 0, data: null };
+const COMPLEXITY_CACHE_MS = 60 * 1000;
+
+const _COMPLEXITY_NODES = new Set([
+  'IfStatement',
+  'ConditionalExpression',
+  'SwitchCase', // case 라벨 (default 는 라벨 없음)
+  'ForStatement',
+  'ForInStatement',
+  'ForOfStatement',
+  'WhileStatement',
+  'DoWhileStatement',
+  'CatchClause',
+]);
+const _LOGICAL_OPS = new Set(['&&', '||', '??']);
+
+function _analyzeFunction(fnNode) {
+  let complexity = 1;
+  let maxDepth = 0;
+  let nestedFns = 0;
+
+  // 분기 + 논리연산자 + 중첩 함수 카운트
+  const _walkBranch = node => {
+    if (!node || typeof node !== 'object') return;
+    if (_COMPLEXITY_NODES.has(node.type)) {
+      complexity++;
+    } else if (node.type === 'LogicalExpression' && _LOGICAL_OPS.has(node.operator)) {
+      complexity++;
+    } else if (
+      (node.type === 'FunctionDeclaration' ||
+        node.type === 'FunctionExpression' ||
+        node.type === 'ArrowFunctionExpression') &&
+      node !== fnNode
+    ) {
+      nestedFns++;
+      return; // 중첩 함수 내부는 별도로 분석되므로 깊이 들어가지 않음
+    }
+    for (const k of Object.keys(node)) {
+      if (
+        k === 'loc' ||
+        k === 'range' ||
+        k === 'parent' ||
+        k === '_parentNode' ||
+        k === '_parentKey'
+      )
+        continue;
+      const v = node[k];
+      if (Array.isArray(v)) {
+        for (const c of v) if (c && typeof c.type === 'string') _walkBranch(c);
+      } else if (v && typeof v === 'object' && typeof v.type === 'string') {
+        _walkBranch(v);
+      }
+    }
+  };
+  _walkBranch(fnNode.body || fnNode);
+
+  // 중첩 깊이
+  const depthIncreasers = new Set([
+    'IfStatement',
+    'ForStatement',
+    'ForInStatement',
+    'ForOfStatement',
+    'WhileStatement',
+    'DoWhileStatement',
+    'SwitchStatement',
+    'TryStatement',
+  ]);
+  const _measureDepth = (node, d = 0) => {
+    if (!node || typeof node !== 'object') return;
+    const nextD = depthIncreasers.has(node.type) ? d + 1 : d;
+    if (nextD > maxDepth) maxDepth = nextD;
+    // 중첩 함수 내부는 별도로 처리되므로 진입 X
+    if (
+      node !== fnNode &&
+      (node.type === 'FunctionDeclaration' ||
+        node.type === 'FunctionExpression' ||
+        node.type === 'ArrowFunctionExpression')
+    )
+      return;
+    for (const k of Object.keys(node)) {
+      if (
+        k === 'loc' ||
+        k === 'range' ||
+        k === 'parent' ||
+        k === '_parentNode' ||
+        k === '_parentKey'
+      )
+        continue;
+      const v = node[k];
+      if (Array.isArray(v)) {
+        for (const c of v) if (c && typeof c.type === 'string') _measureDepth(c, nextD);
+      } else if (v && typeof v === 'object' && typeof v.type === 'string') {
+        _measureDepth(v, nextD);
+      }
+    }
+  };
+  _measureDepth(fnNode.body || fnNode, 0);
+
+  const startLine = fnNode.loc?.start?.line || 0;
+  const endLine = fnNode.loc?.end?.line || startLine;
+  const lines = Math.max(1, endLine - startLine + 1);
+
+  // 함수 이름 추론
+  let name = '(anonymous)';
+  if (fnNode.id?.name) name = fnNode.id.name;
+  else if (fnNode._parentKey === 'value' && fnNode._parentNode?.key) {
+    // ObjectMethod, Property 등의 value
+    name = fnNode._parentNode.key.name || fnNode._parentNode.key.value || name;
+  } else if (fnNode._parentKey === 'init' && fnNode._parentNode?.id?.name) {
+    name = fnNode._parentNode.id.name;
+  } else if (fnNode._parentNode?.type === 'MethodDefinition' && fnNode._parentNode.key?.name) {
+    name = fnNode._parentNode.key.name;
+  }
+
+  return { name, complexity, depth: maxDepth, lines, nestedFns, startLine };
+}
+
+router.get('/dev/source-complexity', devOnly, (req, res) => {
+  try {
+    const force = req.query.refresh === '1';
+    if (!force && _complexityCache.data && Date.now() - _complexityCache.at < COMPLEXITY_CACHE_MS) {
+      return res.json({ success: true, data: _complexityCache.data, cached: true });
+    }
+
+    let espree;
+    try {
+      espree = require('espree');
+    } catch (_) {
+      return res.json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'espree 모듈을 찾을 수 없습니다 (eslint가 설치되어 있어야 함).',
+        },
+      });
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '..', '..');
+
+    // 분석 대상 파일 수집 — JS 파일만
+    const targets = [];
+    const walk = (dir, baseRel = '', depth = 0) => {
+      if (depth > 5) return;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (_) {
+        return;
+      }
+      for (const ent of entries) {
+        if (SRC_EXCLUDE_DIRS.has(ent.name) || ent.name.startsWith('.')) continue;
+        const full = path.join(dir, ent.name);
+        const rel = baseRel ? `${baseRel}/${ent.name}` : ent.name;
+        if (ent.isDirectory()) walk(full, rel, depth + 1);
+        else if (/\.(js|mjs|cjs)$/i.test(ent.name)) {
+          let stat;
+          try {
+            stat = fs.statSync(full);
+          } catch (_) {
+            continue;
+          }
+          if (stat.size > 2 * 1024 * 1024) continue;
+          targets.push({ full, rel: rel.replace(/\\/g, '/') });
+        }
+      }
+    };
+    walk(projectRoot);
+
+    const fileResults = [];
+    const allFunctions = [];
+    let parseErrors = 0;
+
+    for (const { full, rel } of targets) {
+      let src;
+      try {
+        src = fs.readFileSync(full, 'utf8');
+      } catch (_) {
+        continue;
+      }
+      const isBrowser = rel.startsWith('public/');
+      let ast;
+      try {
+        ast = espree.parse(src, {
+          ecmaVersion: 2022,
+          sourceType: isBrowser ? 'script' : 'commonjs',
+          loc: true,
+          allowReturnOutsideFunction: true,
+        });
+      } catch (_) {
+        try {
+          ast = espree.parse(src, { ecmaVersion: 2022, sourceType: 'module', loc: true });
+        } catch (_e2) {
+          parseErrors++;
+          continue;
+        }
+      }
+
+      const fns = [];
+      const collect = (node, parent, parentKey) => {
+        if (!node || typeof node !== 'object') return;
+        if (
+          node.type === 'FunctionDeclaration' ||
+          node.type === 'FunctionExpression' ||
+          node.type === 'ArrowFunctionExpression'
+        ) {
+          node._parentNode = parent;
+          node._parentKey = parentKey;
+          fns.push(node);
+        }
+        for (const k of Object.keys(node)) {
+          if (
+            k === 'loc' ||
+            k === 'range' ||
+            k === 'parent' ||
+            k === '_parentNode' ||
+            k === '_parentKey'
+          )
+            continue;
+          const v = node[k];
+          if (Array.isArray(v)) for (const c of v) collect(c, node, k);
+          else if (v && typeof v === 'object' && typeof v.type === 'string') collect(v, node, k);
+        }
+      };
+      collect(ast, null, null);
+
+      let fileMaxCx = 0,
+        fileSumCx = 0,
+        fileMaxDepth = 0,
+        fileSumLines = 0;
+      for (const fn of fns) {
+        const info = _analyzeFunction(fn);
+        if (info.complexity > fileMaxCx) fileMaxCx = info.complexity;
+        if (info.depth > fileMaxDepth) fileMaxDepth = info.depth;
+        fileSumCx += info.complexity;
+        fileSumLines += info.lines;
+        allFunctions.push({ ...info, path: rel });
+      }
+
+      fileResults.push({
+        path: rel,
+        functions: fns.length,
+        max_complexity: fileMaxCx,
+        avg_complexity: fns.length ? +(fileSumCx / fns.length).toFixed(1) : 0,
+        max_depth: fileMaxDepth,
+        total_fn_lines: fileSumLines,
+      });
+    }
+
+    fileResults.sort((a, b) => b.max_complexity - a.max_complexity);
+    allFunctions.sort((a, b) => b.complexity - a.complexity);
+
+    const totalFns = allFunctions.length;
+    const avgComplexity = totalFns
+      ? +(allFunctions.reduce((s, f) => s + f.complexity, 0) / totalFns).toFixed(1)
+      : 0;
+
+    const payload = {
+      available: true,
+      totals: {
+        files: fileResults.length,
+        functions: totalFns,
+        avg_complexity: avgComplexity,
+        over_moderate: allFunctions.filter(f => f.complexity > 10).length,
+        over_complex: allFunctions.filter(f => f.complexity > 20).length,
+        over_very: allFunctions.filter(f => f.complexity > 50).length,
+        parse_errors: parseErrors,
+      },
+      files: fileResults,
+      functions: allFunctions.slice(0, 200),
+      scanned_at: new Date().toISOString(),
+    };
+
+    _complexityCache = { at: Date.now(), data: payload };
+    res.json({ success: true, data: payload, cached: false });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/dev/external-deps', devOnly, (req, res) => {
   try {
     const fs = require('fs');

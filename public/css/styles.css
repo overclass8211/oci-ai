@@ -5663,6 +5663,15 @@ body,
   outline-offset: -2px;
 }
 
+/* Complexity 카드 — 동일한 호버 효과 */
+.src-cx-card {
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.src-cx-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+
 /* 반응형 */
 @media (max-width: 900px) {
   .src-cat-row {

@@ -5440,7 +5440,8 @@ const DevPage = {
     data:    null,
     eslint:  null,           // ESLint 결과 (lazy)
     audit:   null,           // npm audit 결과 (lazy)
-    subTab:  'overview',     // overview | quality | security
+    complexity: null,        // 복잡도 분석 결과 (lazy)
+    subTab:  'overview',     // overview | quality | security | complexity
     filter:  'all',          // 카테고리 필터
     search:  '',             // 경로 검색
     sort:    'loc-desc',     // loc-desc | loc-asc | size-desc | size-asc | path-asc
@@ -5448,6 +5449,8 @@ const DevPage = {
     qualityFilter: 'all',    // all | errors | warnings
     qualitySearch: '',
     auditSeverity: 'all',    // all | critical | high | moderate | low
+    cxLevel:       'all',    // all | simple | moderate | complex | very
+    cxSearch:      '',
   },
 
   _fmtBytes(bytes) {
@@ -5516,9 +5519,10 @@ const DevPage = {
     el.innerHTML = `
       <div class="src-shell">
         <div class="src-subtabs">
-          <button class="src-subtab ${sub === 'overview' ? 'active' : ''}" data-sub="overview">📊 Overview</button>
-          <button class="src-subtab ${sub === 'quality'  ? 'active' : ''}" data-sub="quality">🔍 Quality (ESLint)</button>
-          <button class="src-subtab ${sub === 'security' ? 'active' : ''}" data-sub="security">🔒 Security (npm audit)</button>
+          <button class="src-subtab ${sub === 'overview'   ? 'active' : ''}" data-sub="overview">📊 Overview</button>
+          <button class="src-subtab ${sub === 'quality'    ? 'active' : ''}" data-sub="quality">🔍 Quality (ESLint)</button>
+          <button class="src-subtab ${sub === 'security'   ? 'active' : ''}" data-sub="security">🔒 Security (npm audit)</button>
+          <button class="src-subtab ${sub === 'complexity' ? 'active' : ''}" data-sub="complexity">🧠 Complexity</button>
         </div>
         <div id="src-sub-content">
           <div class="loading" style="padding:60px;text-align:center">로딩 중...</div>
@@ -5540,9 +5544,10 @@ const DevPage = {
   async _renderSrcSubTab(sub) {
     const host = document.getElementById('src-sub-content');
     if (!host) return;
-    if (sub === 'overview')      this._renderSrcOverview(host);
-    else if (sub === 'quality')  await this._renderSrcQuality(host);
-    else if (sub === 'security') await this._renderSrcSecurity(host);
+    if (sub === 'overview')        this._renderSrcOverview(host);
+    else if (sub === 'quality')    await this._renderSrcQuality(host);
+    else if (sub === 'security')   await this._renderSrcSecurity(host);
+    else if (sub === 'complexity') await this._renderSrcComplexity(host);
   },
 
   // (구) 단일-뷰 진입점 — Overview 서브 탭의 갱신을 위해 호출
@@ -6248,6 +6253,220 @@ const DevPage = {
         const sev = card.dataset.sev;
         this.srcMonitor.auditSeverity = (this.srcMonitor.auditSeverity === sev) ? 'all' : sev;
         this._paintSrcSecurity(host);
+      });
+    });
+  },
+
+  // ─── Complexity 서브 탭 (espree AST 기반) ─────────────────
+  async _renderSrcComplexity(host, opts = {}) {
+    const { force = false } = opts;
+    host.innerHTML = '<div class="loading" style="padding:60px;text-align:center">함수별 복잡도 분석 중...</div>';
+    try {
+      const r = await API.get('/admin/dev/source-complexity' + (force ? '?refresh=1' : ''));
+      this.srcMonitor.complexity = r.data;
+      this.srcMonitor.complexityCached = r.cached;
+    } catch (e) {
+      host.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        복잡도 분석 실패: ${esc(e.message || '')}
+      </div>`;
+      return;
+    }
+    this._paintSrcComplexity(host);
+  },
+
+  _cxLevel(cx) {
+    if (cx <= 10) return { key: 'simple',   label: '단순',     color: '#10b981' };
+    if (cx <= 20) return { key: 'moderate', label: '보통',     color: '#f59e0b' };
+    if (cx <= 50) return { key: 'complex',  label: '복잡',     color: '#ef4444' };
+    return                { key: 'very',    label: '매우복잡', color: '#dc2626' };
+  },
+
+  _paintSrcComplexity(host) {
+    const d = this.srcMonitor.complexity;
+    if (!d) { host.innerHTML = '<div class="empty">데이터 없음</div>'; return; }
+    if (!d.available) {
+      host.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        복잡도 분석 사용 불가: ${esc(d.reason || '')}
+      </div>`;
+      return;
+    }
+    const { totals, files, functions, scanned_at } = d;
+    const cached = this.srcMonitor.complexityCached;
+
+    // 함수 필터링
+    const lvl    = this.srcMonitor.cxLevel;
+    const search = (this.srcMonitor.cxSearch || '').toLowerCase();
+    const filteredFns = functions.filter(f => {
+      const k = this._cxLevel(f.complexity).key;
+      if (lvl !== 'all' && k !== lvl) return false;
+      if (search && !(f.path.toLowerCase().includes(search) || (f.name || '').toLowerCase().includes(search))) return false;
+      return true;
+    }).slice(0, 100);
+
+    // 파일 정렬 (max_complexity desc) — 상위 30개
+    const topFiles = files.slice(0, 30);
+    const maxFileCx = topFiles[0]?.max_complexity || 1;
+
+    host.innerHTML = `
+      <div class="dev-section-header">
+        <div>
+          <h3 style="margin:0;font-size:15px">🧠 함수 복잡도 분석 (Cyclomatic Complexity)</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
+            마지막 스캔: ${esc(new Date(scanned_at).toLocaleString('ko-KR'))}
+            ${cached ? ' · <span style="color:#f59e0b">⚡ 캐시</span>' : ''}
+            · 파싱 실패: ${Fmt.number(totals.parse_errors)}
+          </p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm btn-secondary" id="src-cx-refresh">🔄 강제 재실행</button>
+        </div>
+      </div>
+
+      <div class="src-stats-grid">
+        <div class="src-stat-card">
+          <div class="src-stat-label">분석 파일</div>
+          <div class="src-stat-value">${Fmt.number(totals.files)}</div>
+          <div class="src-stat-sub">JS / MJS / CJS</div>
+        </div>
+        <div class="src-stat-card">
+          <div class="src-stat-label">총 함수</div>
+          <div class="src-stat-value">${Fmt.number(totals.functions)}</div>
+          <div class="src-stat-sub">평균 복잡도 ${totals.avg_complexity}</div>
+        </div>
+        <div class="src-stat-card src-cx-card" data-level="moderate" style="border-left:3px solid #f59e0b;cursor:pointer">
+          <div class="src-stat-label">보통 이상 (>10)</div>
+          <div class="src-stat-value" style="color:#f59e0b">${Fmt.number(totals.over_moderate)}</div>
+          <div class="src-stat-sub">리팩토링 검토</div>
+        </div>
+        <div class="src-stat-card src-cx-card" data-level="complex" style="border-left:3px solid #ef4444;cursor:pointer">
+          <div class="src-stat-label">복잡 (>20)</div>
+          <div class="src-stat-value" style="color:#ef4444">${Fmt.number(totals.over_complex)}</div>
+          <div class="src-stat-sub">분리 권장</div>
+        </div>
+        <div class="src-stat-card src-cx-card" data-level="very" style="border-left:3px solid #dc2626;cursor:pointer">
+          <div class="src-stat-label">매우 복잡 (>50)</div>
+          <div class="src-stat-value" style="color:#dc2626">${Fmt.number(totals.over_very)}</div>
+          <div class="src-stat-sub">긴급 리팩토링</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><div class="card-title">📁 파일별 최대 복잡도 (상위 30)</div></div>
+        <div class="card-body">
+          ${topFiles.length === 0 ? `
+            <div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">분석된 파일이 없습니다.</div>
+          ` : `
+            <div class="src-rule-list">
+              ${topFiles.map(f => {
+                const lvl = this._cxLevel(f.max_complexity);
+                const pct = (f.max_complexity / maxFileCx) * 100;
+                return `
+                  <div class="src-rule-row">
+                    <div class="src-rule-name">
+                      <code>${esc(f.path)}</code>
+                      <span class="src-rule-files">${f.functions}개 함수 · 깊이 ${f.max_depth}</span>
+                    </div>
+                    <div class="src-rule-bar-track">
+                      <div class="src-rule-bar-fill" style="width:${pct.toFixed(1)}%;background:${lvl.color}"></div>
+                    </div>
+                    <div class="src-rule-counts">
+                      <span class="src-rule-pill" style="background:${lvl.color}1a;color:${lvl.color}">max ${f.max_complexity}</span>
+                      <span class="src-rule-pill" style="background:var(--surface-3);color:var(--text-2)">avg ${f.avg_complexity}</span>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">🧩 함수별 복잡도 (${filteredFns.length} / 전체 ${functions.length})</div>
+          <div class="src-file-filters">
+            <input type="text" class="form-input form-input-sm" id="src-cx-search"
+                   placeholder="🔍 함수/경로..." value="${esc(this.srcMonitor.cxSearch)}"
+                   style="width:200px">
+            <select class="form-select form-select-sm" id="src-cx-level" style="width:160px">
+              <option value="all"      ${lvl === 'all'      ? 'selected' : ''}>전체 레벨</option>
+              <option value="simple"   ${lvl === 'simple'   ? 'selected' : ''}>단순 (≤10)</option>
+              <option value="moderate" ${lvl === 'moderate' ? 'selected' : ''}>보통 (11-20)</option>
+              <option value="complex"  ${lvl === 'complex'  ? 'selected' : ''}>복잡 (21-50)</option>
+              <option value="very"     ${lvl === 'very'     ? 'selected' : ''}>매우 복잡 (>50)</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          ${filteredFns.length === 0 ? `
+            <div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">조건에 맞는 함수 없음</div>
+          ` : `
+            <table class="data-table src-file-table">
+              <thead>
+                <tr>
+                  <th style="width:36px">#</th>
+                  <th style="width:90px;text-align:right">복잡도</th>
+                  <th style="width:60px">레벨</th>
+                  <th>함수명</th>
+                  <th>위치</th>
+                  <th style="width:70px;text-align:right">줄</th>
+                  <th style="width:70px;text-align:right">깊이</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filteredFns.map((f, i) => {
+                  const lvl = this._cxLevel(f.complexity);
+                  return `
+                    <tr>
+                      <td style="color:var(--text-3);font-size:11px">${i + 1}</td>
+                      <td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:${lvl.color}">${f.complexity}</td>
+                      <td><span class="src-rule-pill" style="background:${lvl.color}1a;color:${lvl.color}">${esc(lvl.label)}</span></td>
+                      <td><code style="font-size:12px;font-weight:600">${esc(f.name || '(anon)')}</code></td>
+                      <td><code style="font-size:11px;color:var(--text-3)">${esc(f.path)}:${f.startLine}</code></td>
+                      <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-3)">${Fmt.number(f.lines)}</td>
+                      <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-3)">${f.depth}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><div class="card-title">📚 복잡도 기준</div></div>
+        <div class="card-body" style="font-size:12px;line-height:1.7">
+          <p style="margin:0 0 6px"><strong style="color:#10b981">1-10 단순</strong> — 안전, 테스트 가능, 유지보수 용이</p>
+          <p style="margin:0 0 6px"><strong style="color:#f59e0b">11-20 보통</strong> — 주의 필요, 가능하면 분리 권장</p>
+          <p style="margin:0 0 6px"><strong style="color:#ef4444">21-50 복잡</strong> — 테스트 어려움, 리팩토링 강력 권장</p>
+          <p style="margin:0;color:#dc2626"><strong>>50 매우 복잡</strong> — 버그 위험 高, 즉시 분리 필요</p>
+        </div>
+      </div>
+    `;
+
+    // 이벤트
+    document.getElementById('src-cx-refresh')?.addEventListener('click', async () => {
+      await this._renderSrcComplexity(host, { force: true });
+      Toast?.show?.('복잡도 재분석 완료', 'success');
+    });
+    let cxTimer;
+    document.getElementById('src-cx-search')?.addEventListener('input', e => {
+      clearTimeout(cxTimer);
+      cxTimer = setTimeout(() => {
+        this.srcMonitor.cxSearch = e.target.value.trim();
+        this._paintSrcComplexity(host);
+      }, 250);
+    });
+    document.getElementById('src-cx-level')?.addEventListener('change', e => {
+      this.srcMonitor.cxLevel = e.target.value;
+      this._paintSrcComplexity(host);
+    });
+    document.querySelectorAll('.src-cx-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const next = card.dataset.level;
+        this.srcMonitor.cxLevel = (this.srcMonitor.cxLevel === next) ? 'all' : next;
+        this._paintSrcComplexity(host);
       });
     });
   },
