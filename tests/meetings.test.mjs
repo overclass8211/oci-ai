@@ -47,4 +47,14 @@ describe('Meetings API', () => {
     expect(res.body.success).toBe(true);
     createdMeetingId = null;
   });
+
+  // ─ STT 견고성 (장시간 녹음 504 회귀) ───────────────────────
+  // 프론트가 항상 JSON.parse 할 수 있도록, 에러 경로에서도 JSON 응답 보장
+  it('POST /transcribe — 파일 누락 시 JSON 400', async () => {
+    const res = await api().post('/api/meeting/transcribe');
+    expect(res.status).toBe(400);
+    expect(res.headers['content-type']).toMatch(/json/);
+    expect(res.body.success).toBe(false);
+    expect(typeof res.body.error).toBe('string');
+  });
 });

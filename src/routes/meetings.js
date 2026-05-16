@@ -29,6 +29,13 @@ const MEETING_COLS = [
 router.post(
   '/transcribe',
   (req, res, next) => {
+    // 장시간 (20분+) 녹음 → Gemini 처리시간 길어짐.
+    // Node http 기본 requestTimeout (5분) 으로 끊기지 않도록 라우트별 15분 override.
+    // (앞단 nginx 의 proxy_read_timeout 도 별도로 600s+ 권장 — README/배포 가이드 참조)
+    try {
+      req.setTimeout(15 * 60 * 1000);
+      res.setTimeout(15 * 60 * 1000);
+    } catch (_) {}
     upload.single('audio')(req, res, err => {
       if (err && err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({ success: false, error: '파일 크기가 25MB를 초과합니다' });
@@ -50,7 +57,14 @@ router.post(
       res.json({ success: true, data: result });
     } catch (err) {
       console.error('STT error:', err);
-      res.status(500).json({ success: false, error: err.message });
+      // 에러는 반드시 JSON — 프론트에서 sttRes.json() 파싱이 깨지지 않도록 보장
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: err.message || '음성 인식 처리 중 오류',
+          code: 'STT_ERROR',
+        });
+      }
     } finally {
       fs.unlink(audioPath, () => {});
     }

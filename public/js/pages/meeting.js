@@ -650,10 +650,43 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       const headers = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
       if (uid)   headers['X-User-Id']     = uid;
-      const sttRes = await fetch('/api/meeting/transcribe', { method: 'POST', body: fd, headers });
-      const sttJson = await sttRes.json();
+
+      // 장시간 녹음(20분+) 대응 — 명시적 10분 AbortController.
+      // 서버는 라우트별 15분, Gemini 자체 12분 timeout 으로 더 짧은 쪽이 먼저 친절한 에러 응답.
+      const aborter = new AbortController();
+      const abortTimer = setTimeout(() => aborter.abort(), 10 * 60 * 1000);
+
+      let sttRes;
+      try {
+        sttRes = await fetch('/api/meeting/transcribe', {
+          method: 'POST', body: fd, headers, signal: aborter.signal,
+        });
+      } catch (netErr) {
+        clearTimeout(abortTimer);
+        const msg = netErr.name === 'AbortError'
+          ? '음성 인식 시간이 초과되었습니다 (10분). 더 짧게 녹음하거나 파일을 분할해서 업로드해 주세요.'
+          : `네트워크 오류: ${netErr.message}`;
+        speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(msg)}</div>`;
+        summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+        return;
+      }
+      clearTimeout(abortTimer);
+
+      // 견고한 JSON 파싱 — 프록시 504(HTML) 등 비정상 응답 시 친절한 메시지
+      let sttJson;
+      try {
+        sttJson = await sttRes.json();
+      } catch (_) {
+        const status = sttRes.status;
+        const hint = status === 504 || status === 502
+          ? '서버 응답 시간이 초과되었습니다 (게이트웨이 504). 녹음을 더 짧게 (10~15분 이내) 또는 파일을 분할해 주세요.'
+          : `서버 응답을 해석할 수 없습니다 (HTTP ${status}).`;
+        speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(hint)}</div>`;
+        summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+        return;
+      }
       if (!sttJson.success) {
-        speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(sttJson.error)}</div>`;
+        speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(sttJson.error || '알 수 없는 오류')}</div>`;
         summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
         return;
       }

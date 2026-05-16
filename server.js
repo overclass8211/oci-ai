@@ -322,6 +322,9 @@ if (require.main === module) {
           cert: fs.readFileSync(config.sslCertPath),
         };
         const httpsServer = https.createServer(sslOptions, app);
+        // 장시간 STT 라우트 보호 — 라우트별 req.setTimeout 과 동기화
+        httpsServer.requestTimeout = 16 * 60 * 1000;
+        httpsServer.headersTimeout = 65 * 1000;
 
         // WebSocket을 HTTPS 서버에도 연결
         const ws = require('./src/ws');
@@ -350,6 +353,10 @@ if (require.main === module) {
 
     // HTTP (개발 기본)
     const httpServer = http.createServer(app);
+    // Node 기본 requestTimeout(5분) 으로 인해 장시간 STT (20분+ 녹음) 가
+    // 끊기지 않도록 16분으로 확장. 라우트별 req.setTimeout 과 함께 동작.
+    httpServer.requestTimeout = 16 * 60 * 1000;
+    httpServer.headersTimeout = 65 * 1000;
     const ws = require('./src/ws');
     ws.init(httpServer);
 
