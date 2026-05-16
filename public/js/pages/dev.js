@@ -684,7 +684,7 @@ const DevPage = {
     try {
       const r = await API.get('/admin/dev/features');
       this.features = r.data || [];
-    } catch (e) { this.features = []; }
+    } catch { this.features = []; }
   },
 
   renderFeatures() {
@@ -1505,7 +1505,7 @@ const DevPage = {
     const labelNoun = state.kind === 'api' ? '페이지 매핑'
                     : state.kind === 'page' ? '페이지 카탈로그'
                     : '카탈로그';
-    let items = '';
+    let items;
     if (state.isMapped) {
       items = `
         <div class="dfd-ctxmenu-item" data-action="edit">✏️ 매핑 수정 (${esc(key)})</div>
@@ -2233,7 +2233,7 @@ const DevPage = {
     const body  = document.getElementById('dfd-impact-body');
     panel.style.display = '';
 
-    let nodeLabel = '';
+    let nodeLabel;
     let pages = [], apis = [], tables = [], externals = [];
 
     const a2tAll = this._allA2T();   // 정적 + 동적 매핑 통합 (a2t)
@@ -2361,7 +2361,7 @@ const DevPage = {
       // 인덱스·FK 정보도 함께 로드 (카드 상세 모달에서 사용)
       // 연관도(🗺️) 버튼을 클릭하지 않아도 "인덱스" 컬럼이 정상 표시되도록
       await this._loadSchemaRelations();
-    } catch (e) { this.schema = {}; }
+    } catch { this.schema = {}; }
   },
 
   renderSchema() {
@@ -3127,7 +3127,8 @@ const DevPage = {
   },
 
   // ── 스키마 내보내기 (PDF / PPTX / DOCX) ─────────────────────
-  async _exportSchema(fmt) {
+  // 내부 함수들이 이미 async — Promise 그대로 반환
+  _exportSchema(fmt) {
     if (fmt === 'docx') return this._exportDocx();
     if (fmt === 'pdf')  return this._exportPdf();
     if (fmt === 'pptx') return this._exportPptx();
@@ -3718,7 +3719,7 @@ const DevPage = {
                                : '—';
                 const idxEntries = colIdxMap[c.COLUMN_NAME] || [];
                 const idxBadges = idxEntries.map(idx =>
-                  `<span class="schema-col-badge idx" title="${esc(idx.INDEX_NAME)}">${idx.NON_UNIQUE==0?'🔷':'🔸'}${esc(idx.INDEX_NAME)}</span>`
+                  `<span class="schema-col-badge idx" title="${esc(idx.INDEX_NAME)}">${idx.NON_UNIQUE === 0 ? '🔷' : '🔸'}${esc(idx.INDEX_NAME)}</span>`
                 ).join(' ') || '—';
                 const defVal = (c.COLUMN_DEFAULT !== null && c.COLUMN_DEFAULT !== undefined)
                   ? `<code style="font-size:11px">${esc(String(c.COLUMN_DEFAULT))}</code>` : '—';
@@ -3903,7 +3904,7 @@ const DevPage = {
 
   // 변경된 테이블의 노드·카드에 .schema-drift 클래스 추가
   // ── 스키마 변경 이력 모달 ──────────────────────────────────
-  async _openSchemaHistoryModal() {
+  _openSchemaHistoryModal() {
     Modal.open({
       title: '📜 스키마 변경 이력',
       width: 1080,
@@ -4481,7 +4482,7 @@ const DevPage = {
     try {
       const r = await API.get('/admin/dev/perf');
       this.perfData = r.data;
-    } catch (e) { this.perfData = null; }
+    } catch { this.perfData = null; }
   },
 
   renderPerf() {
@@ -4952,7 +4953,7 @@ const DevPage = {
           총 <strong>${totalPreview.toLocaleString()}건</strong>의 에러가 아래 기준으로 자동 조치완료 처리될 예정입니다.
         </div>
         <div class="errlog-auto-rules">
-          ${r.results.map((rule, i) => `
+          ${r.results.map((rule) => `
             <div class="errlog-auto-rule ${rule.count > 0 ? 'has-items' : 'no-items'}">
               <div class="errlog-auto-rule-header">
                 <span class="errlog-auto-rule-label">${esc(rule.label)}</span>
@@ -5030,7 +5031,6 @@ const DevPage = {
                      : sc === 401 ? 'errlog-badge-401'
                      : sc === 404 ? 'errlog-badge-404' : 'errlog-badge-4xx';
           const isActive = scFilter === sc;
-          const pending  = parseInt(item.cnt) - parseInt(item.resolved_cnt || 0);
           return `<span class="errlog-dist-badge errlog-badge ${cls} ${isActive?'active':''}"
                         data-sc="${sc}" title="${info.type} — 클릭하여 필터">
             <span class="errlog-badge-sc">${sc}</span>
@@ -5402,7 +5402,7 @@ const DevPage = {
       card.classList.remove('hm-st-up', 'hm-st-warn', 'hm-st-critical', 'hm-st-down');
       card.classList.add('hm-st-' + node.status);
       // 트래픽 활성 — 1초 내 호출이 있던 노드
-      const recent = node.metrics?.lastSeenAgoSec != null && node.metrics.lastSeenAgoSec <= 2;
+      const recent = node.metrics?.lastSeenAgoSec !== null && node.metrics?.lastSeenAgoSec !== undefined && node.metrics.lastSeenAgoSec <= 2;
       card.classList.toggle('hm-active', !!recent);
       // 메트릭 갱신
       const meta = card.querySelector('.hm-node-meta');
@@ -5565,7 +5565,7 @@ const DevPage = {
   },
 
   // ─── 노드 상세 사이드패널 (Phase 4) ──────────────────────
-  async _hmOpenDetail(node) {
+  _hmOpenDetail(node) {
     this.hmState.selected = node;
     // 사이드패널 이미 있으면 재사용, 없으면 만들기
     let panel = document.getElementById('hm-side-panel');
@@ -5764,7 +5764,6 @@ const DevPage = {
   },
 
   _hmRenderNode(n) {
-    const st  = this.HM_STATUS[n.status] || this.HM_STATUS.up;
     const m   = n.metrics || {};
     // 노드 타입별 메트릭 요약 (1-2개 핵심값만)
     let meta = '';
@@ -5925,7 +5924,7 @@ const DevPage = {
   },
 
   _fmtBytes(bytes) {
-    if (bytes == null || bytes < 0) return '-';
+    if (bytes === null || bytes === undefined || bytes < 0) return '-';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
@@ -7001,12 +7000,12 @@ const DevPage = {
     const sparks = [
       { key: 'total_files',     label: '파일 수',       color: '#3b82f6', fmt: v => Number(v).toLocaleString() },
       { key: 'total_loc',       label: '총 LOC',        color: '#0ea5e9', fmt: v => Number(v).toLocaleString() },
-      { key: 'total_functions', label: '총 함수',       color: '#10b981', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
-      { key: 'avg_complexity',  label: '평균 복잡도',   color: '#8b5cf6', fmt: v => v == null ? '-' : Number(v).toFixed(1) },
-      { key: 'cx_over_20',      label: '복잡 함수 (>20)', color: '#ef4444', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
-      { key: 'eslint_errors',   label: 'ESLint 오류',   color: '#dc2626', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
-      { key: 'eslint_warnings', label: 'ESLint 경고',   color: '#f59e0b', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
-      { key: 'audit_total',     label: '취약점 합계',   color: '#a855f7', fmt: v => v == null ? '-' : Number(v).toLocaleString() },
+      { key: 'total_functions', label: '총 함수',       color: '#10b981', fmt: v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString() },
+      { key: 'avg_complexity',  label: '평균 복잡도',   color: '#8b5cf6', fmt: v => (v === null || v === undefined) ? '-' : Number(v).toFixed(1) },
+      { key: 'cx_over_20',      label: '복잡 함수 (>20)', color: '#ef4444', fmt: v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString() },
+      { key: 'eslint_errors',   label: 'ESLint 오류',   color: '#dc2626', fmt: v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString() },
+      { key: 'eslint_warnings', label: 'ESLint 경고',   color: '#f59e0b', fmt: v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString() },
+      { key: 'audit_total',     label: '취약점 합계',   color: '#a855f7', fmt: v => (v === null || v === undefined) ? '-' : Number(v).toLocaleString() },
     ];
 
     host.innerHTML = `
@@ -7041,10 +7040,10 @@ const DevPage = {
           ${sparks.map(s => {
             const values = series.map(p => p[s.key]);
             const last = values[values.length - 1];
-            const first = values.find(v => v != null);
-            const delta = (last != null && first != null) ? (last - first) : null;
-            const trend = delta == null ? '' : (delta > 0 ? '▲' : (delta < 0 ? '▼' : '—'));
-            const trendColor = delta == null ? 'var(--text-3)' :
+            const first = values.find(v => v !== null && v !== undefined);
+            const delta = (last !== null && last !== undefined && first !== null && first !== undefined) ? (last - first) : null;
+            const trend = (delta === null || delta === undefined) ? '' : (delta > 0 ? '▲' : (delta < 0 ? '▼' : '—'));
+            const trendColor = (delta === null || delta === undefined) ? 'var(--text-3)' :
               (s.key === 'total_loc' || s.key === 'total_files' || s.key === 'total_functions'
                 ? (delta > 0 ? '#10b981' : '#94a3b8')   // 증가는 긍정
                 : (delta > 0 ? '#ef4444' : '#10b981')); // 감소가 긍정
@@ -7054,7 +7053,7 @@ const DevPage = {
                 <div class="src-spark-value">${esc(s.fmt(last))}</div>
                 ${this._renderSparkline(values, { color: s.color, width: 240, height: 50 })}
                 <div class="src-spark-delta" style="color:${trendColor}">
-                  ${trend} ${delta != null ? esc(s.fmt(Math.abs(delta))) : '-'} (${series.length}개)
+                  ${trend} ${(delta !== null && delta !== undefined) ? esc(s.fmt(Math.abs(delta))) : '-'} (${series.length}개)
                 </div>
               </div>
             `;
@@ -7087,7 +7086,7 @@ const DevPage = {
                     <td style="font-size:11px">${esc(new Date(s.recorded_at).toLocaleString('ko-KR'))}</td>
                     <td style="text-align:right;font-variant-numeric:tabular-nums">${Fmt.number(s.total_files)}</td>
                     <td style="text-align:right;font-variant-numeric:tabular-nums">${Fmt.number(s.total_loc)}</td>
-                    <td style="text-align:right;font-variant-numeric:tabular-nums">${s.total_functions != null ? Fmt.number(s.total_functions) : '-'}</td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums">${(s.total_functions !== null && s.total_functions !== undefined) ? Fmt.number(s.total_functions) : '-'}</td>
                     <td style="text-align:right;font-variant-numeric:tabular-nums">${s.avg_complexity ?? '-'}</td>
                     <td style="text-align:right;font-variant-numeric:tabular-nums;${(s.cx_over_20 || 0) > 0 ? 'color:#ef4444' : 'color:var(--text-3)'}">${s.cx_over_20 ?? '-'}</td>
                     <td style="text-align:right;font-variant-numeric:tabular-nums;${(s.eslint_errors || 0) > 0 ? 'color:#ef4444;font-weight:600' : 'color:var(--text-3)'}">${s.eslint_errors ?? '-'}</td>
@@ -7104,7 +7103,7 @@ const DevPage = {
     `;
 
     // 이벤트
-    document.getElementById('src-snap-capture')?.addEventListener('click', async () => {
+    document.getElementById('src-snap-capture')?.addEventListener('click', () => {
       Modal.open({
         title: '📸 스냅샷 캡처',
         body: `

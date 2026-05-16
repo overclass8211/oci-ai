@@ -569,7 +569,7 @@ const CalendarPage = (() => {
           `자동 연결 완료 — 기존이벤트 연결 ${result.matched}건 / 신규생성 ${result.created}건 / 건너뜀 ${result.skipped}건 (전체 ${result.total}건)`
         );
         calendar?.refetchEvents();
-      } catch (e) {
+      } catch {
         Toast.error('자동 연결 중 오류가 발생했습니다');
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = '🔗 과거 활동 연결'; }

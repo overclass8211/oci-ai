@@ -418,7 +418,7 @@ if (require.main === module) {
                 [krw, rate, policy, lockedAt, r.id]
               );
               ok++;
-            } catch (e) {
+            } catch {
               fail++;
             }
           }

@@ -774,7 +774,6 @@ router.post('/stage-coach', async (req, res) => {
       const role = stageInfo?.role || 'active';
       const isActive = role === 'active';
       const isWon = role === 'won';
-      const isLost = role === 'lost' || role === 'dropped';
 
       let status, headline, going_well, warnings, urgent, next_actions;
       if (isActive) {

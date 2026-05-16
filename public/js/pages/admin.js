@@ -458,7 +458,7 @@ const AdminPage = {
               </thead>
               <tbody id="tokens-tbody">
                 ${rows.map(u => {
-                  const limit = u.monthly_token_limit != null ? u.monthly_token_limit : defaultLimit;
+                  const limit = (u.monthly_token_limit !== null && u.monthly_token_limit !== undefined) ? u.monthly_token_limit : defaultLimit;
                   const used = Number(u.used_this_month);
                   const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
                   const barColor = pct >= 90 ? '#d93025' : pct >= 70 ? '#f59c00' : '#1a73e8';
@@ -469,7 +469,7 @@ const AdminPage = {
                       <td class="mono">${used.toLocaleString()}</td>
                       <td class="mono">${u.calls_this_month}</td>
                       <td class="mono">
-                        ${u.monthly_token_limit != null
+                        ${(u.monthly_token_limit !== null && u.monthly_token_limit !== undefined)
                           ? `<strong>${Number(u.monthly_token_limit).toLocaleString()}</strong>`
                           : `<span style="color:var(--text-3)">기본 (${defaultLimit.toLocaleString()})</span>`}
                       </td>
@@ -538,17 +538,17 @@ const AdminPage = {
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">금일 API 호출</div>
-            <div class="admin-stat-value">${d.api_calls_today != null ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
+            <div class="admin-stat-value">${(d.api_calls_today !== null && d.api_calls_today !== undefined) ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
             <div class="admin-stat-sub">오늘 0시 이후 누적</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">DB 크기</div>
-            <div class="admin-stat-value">${d.db_size_mb != null ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
+            <div class="admin-stat-value">${(d.db_size_mb !== null && d.db_size_mb !== undefined) ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
             <div class="admin-stat-sub">MariaDB 전체 데이터</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">가동 시간</div>
-            <div class="admin-stat-value">${d.uptime_hours != null ? Math.floor(d.uptime_hours) : '-'}<span class="admin-stat-unit">hr</span></div>
+            <div class="admin-stat-value">${(d.uptime_hours !== null && d.uptime_hours !== undefined) ? Math.floor(d.uptime_hours) : '-'}<span class="admin-stat-unit">hr</span></div>
             <div class="admin-stat-sub">마지막 재시작 이후</div>
           </div>
         </div>
@@ -586,13 +586,13 @@ const AdminPage = {
     const services = [
       {
         name: 'DB 연결',
-        ok: d.db_size_mb != null,
-        desc: d.db_size_mb != null ? `MariaDB 정상 응답 · ${parseFloat(d.db_size_mb).toFixed(1)} MB` : '연결 실패'
+        ok: (d.db_size_mb !== null && d.db_size_mb !== undefined),
+        desc: (d.db_size_mb !== null && d.db_size_mb !== undefined) ? `MariaDB 정상 응답 · ${parseFloat(d.db_size_mb).toFixed(1)} MB` : '연결 실패'
       },
       {
         name: 'API 서비스',
-        ok: d.api_calls_today != null,
-        desc: d.api_calls_today != null ? `Express API 정상 · 금일 ${d.api_calls_today.toLocaleString()}회 처리` : '응답 없음'
+        ok: (d.api_calls_today !== null && d.api_calls_today !== undefined),
+        desc: (d.api_calls_today !== null && d.api_calls_today !== undefined) ? `Express API 정상 · 금일 ${d.api_calls_today.toLocaleString()}회 처리` : '응답 없음'
       },
       {
         name: '파일 스토리지',
@@ -606,7 +606,7 @@ const AdminPage = {
         name: 'WebSocket',
         ok: typeof WS !== 'undefined' && WS.socket?.readyState === 1,
         desc: (typeof WS !== 'undefined' && WS.socket?.readyState === 1)
-          ? `WebSocket 연결 활성${d.ws_connections != null ? ` · 활성 클라이언트 ${d.ws_connections}개` : ''}`
+          ? `WebSocket 연결 활성${(d.ws_connections !== null && d.ws_connections !== undefined) ? ` · 활성 클라이언트 ${d.ws_connections}개` : ''}`
           : (d.ws_connections > 0
               ? `서버 측 WebSocket 활성(${d.ws_connections}개 연결) · 현재 브라우저 연결 끊김`
               : 'WebSocket 연결 끊김 또는 미초기화')
@@ -697,7 +697,7 @@ const AdminPage = {
               <td class="mono fs-12" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.path)}">${esc(r.path)}</td>
               <td><span class="log-method log-method-${esc(r.method)}">${esc(r.method)}</span></td>
               <td>${this._statusBadge(r.status_code)}</td>
-              <td class="text-right mono fs-12">${r.duration_ms != null ? r.duration_ms + ' ms' : '-'}</td>
+              <td class="text-right mono fs-12">${(r.duration_ms !== null && r.duration_ms !== undefined) ? r.duration_ms + ' ms' : '-'}</td>
               <td class="text-muted fs-12 mono">${esc(r.ip || '-')}</td>
             </tr>
           `).join('')}
@@ -818,8 +818,8 @@ const AdminPage = {
               <td class="text-muted">${esc(m.team || '-')}</td>
               <td class="text-muted fs-12">${esc(m.email || '-')}</td>
               <td class="text-muted fs-12">${m.last_active ? Fmt.relTime(m.last_active) : '-'}</td>
-              <td class="text-right mono">${m.leads_count != null ? m.leads_count : '-'}</td>
-              <td class="text-right mono">${m.activities_count != null ? m.activities_count : '-'}</td>
+              <td class="text-right mono">${(m.leads_count !== null && m.leads_count !== undefined) ? m.leads_count : '-'}</td>
+              <td class="text-right mono">${(m.activities_count !== null && m.activities_count !== undefined) ? m.activities_count : '-'}</td>
               <td style="white-space:nowrap">
                 <button class="btn btn-ghost btn-sm" data-action="edit-member" data-mid="${m.id}">편집</button>
                 <button class="btn btn-ghost btn-sm text-danger" data-action="deactivate-member" data-mid="${m.id}" data-mname="${esc(m.name || '')}">비활성화</button>
@@ -974,17 +974,17 @@ const AdminPage = {
         <div class="stat-card-grid" style="grid-template-columns:repeat(3,1fr)">
           <div class="admin-stat-card">
             <div class="admin-stat-label">금일 API 호출</div>
-            <div class="admin-stat-value">${d.api_calls_today != null ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
+            <div class="admin-stat-value">${(d.api_calls_today !== null && d.api_calls_today !== undefined) ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
             <div class="admin-stat-sub">오늘 0시 기준 누적</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">활성 세션</div>
-            <div class="admin-stat-value">${d.active_sessions != null ? d.active_sessions : '-'}<span class="admin-stat-unit">개</span></div>
+            <div class="admin-stat-value">${(d.active_sessions !== null && d.active_sessions !== undefined) ? d.active_sessions : '-'}<span class="admin-stat-unit">개</span></div>
             <div class="admin-stat-sub">현재 접속 중인 세션</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">DB 크기</div>
-            <div class="admin-stat-value">${d.db_size_mb != null ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
+            <div class="admin-stat-value">${(d.db_size_mb !== null && d.db_size_mb !== undefined) ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
             <div class="admin-stat-sub">MariaDB 누적 데이터</div>
           </div>
         </div>
@@ -1166,7 +1166,6 @@ const AdminPage = {
       let html = '';
       roles.forEach(role => {
         const roleData = d.roles.find(r => r.role === role) || {posts:0,comments:0,views:0};
-        const roleKey = CSS.escape ? CSS.escape(role) : role.replace(/[^a-zA-Z0-9가-힣]/g, '_');
         html += `
           <tr class="board-stat-role board-stat-toggle-row" style="background:var(--bg-2);font-weight:700;cursor:pointer"
               data-bs-role="${esc(role)}" data-toggle-type="role" data-toggle-key="${esc(role)}">
@@ -1218,8 +1217,6 @@ const AdminPage = {
     // 월별 트렌드 바
     const maxVal = Math.max(...d.monthly.map(r => r.posts + r.comments + r.views), 1);
     const trendBars = d.monthly.map(row => {
-      const total = row.posts + row.comments + row.views;
-      const pct   = Math.round((total / maxVal) * 100);
       const active = row.month === m;
       return `
         <div style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;flex:1"
@@ -1458,7 +1455,7 @@ const AdminPage = {
       const limit   = u.eff_limit || 0;
       const pct     = limit > 0 ? Math.min(100, Math.round(u.used_tokens/limit*100)) : 0;
       const barClr  = pct>=90?'#d93025':pct>=70?'#f59c00':'#34a853';
-      const limitLabel = u.monthly_token_limit != null
+      const limitLabel = (u.monthly_token_limit !== null && u.monthly_token_limit !== undefined)
         ? `<strong>${fmt(u.monthly_token_limit)}</strong>`
         : `<span style="color:var(--text-3)">기본 (${fmt(d.defaultLimit)})</span>`;
       return `
@@ -1876,7 +1873,6 @@ const AdminPage = {
   async _loadStageUsage(stages) {
     // 단계별 사용 카운트 — leads 통계로 조회
     try {
-      const r = await API.get('/leads?limit=1');
       // 별도 카운트 API가 없으면 dist 응답 활용. 여기서는 단순화하여 개별 조회 회피
       // 백엔드의 leads list 응답에 totalByStage 같은 필드가 없으므로
       // 임시: pipeline-stages 엔드포인트 호출 1회로는 알 수 없음 → 각 단계별 GET /leads?stage=X count
@@ -2605,7 +2601,7 @@ const AdminPage = {
     return lo ? `${lo.flag || ''} ${lo.label}` : code;
   },
 
-  async _setSystemLocale(locale) {
+  _setSystemLocale(locale) {
     if (!locale) return;
     Modal.confirm(
       `시스템 기본 언어를 <strong>${esc(this._getLocaleLabel(locale))}</strong> 로 변경합니다.<br>

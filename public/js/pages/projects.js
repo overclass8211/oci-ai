@@ -203,9 +203,9 @@ const ProjectsPage = {
     const headers = ['프로젝트명','고객사','유형','계약금액(억)','산정원가(억)','마진율(%)','상태','납기일','담당자','메모'];
     const rows = selected.map(p => [
       p.name || '', p.customer_name || '', p.project_type || '',
-      p.contract_amount != null ? p.contract_amount : '',
-      p.estimated_cost  != null ? p.estimated_cost  : '',
-      p.margin_pct      != null ? parseFloat(p.margin_pct).toFixed(2) : '',
+      (p.contract_amount !== null && p.contract_amount !== undefined) ? p.contract_amount : '',
+      (p.estimated_cost !== null && p.estimated_cost !== undefined) ? p.estimated_cost : '',
+      (p.margin_pct !== null && p.margin_pct !== undefined) ? parseFloat(p.margin_pct).toFixed(2) : '',
       p.status || '', p.due_date ? String(p.due_date).slice(0,10) : '',
       p.assigned_name || '', p.notes || '',
     ].map(v => String(v).replace(/\t/g, ' ')));
@@ -330,8 +330,8 @@ const ProjectsPage = {
                 <td><strong>${esc(r.name || '')}</strong></td>
                 <td>${esc(r.customer_name || '-')}</td>
                 <td>${esc(r.project_type || '태양광')}</td>
-                <td class="text-right">${r.contract_amount != null ? Fmt.amount(r.contract_amount, 'KRW') : '-'}</td>
-                <td class="text-right">${r.estimated_cost != null ? Fmt.amount(r.estimated_cost, 'KRW') : '-'}</td>
+                <td class="text-right">${(r.contract_amount !== null && r.contract_amount !== undefined) ? Fmt.amount(r.contract_amount, 'KRW') : '-'}</td>
+                <td class="text-right">${(r.estimated_cost !== null && r.estimated_cost !== undefined) ? Fmt.amount(r.estimated_cost, 'KRW') : '-'}</td>
                 <td>${esc(r.status || '진행중')}</td>
                 <td>${esc(r.due_date || '-')}</td>
               </tr>`).join('')}

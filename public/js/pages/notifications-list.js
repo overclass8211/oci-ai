@@ -46,7 +46,7 @@ const NotificationsListPage = {
       const res = await API.get('/notifications?extended=true');
       this.items = res.data || [];
       this.applyFilter();
-    } catch (e) {
+    } catch {
       if (wrap) wrap.innerHTML = '<div class="empty" style="padding:40px;text-align:center">알림을 불러오지 못했습니다</div>';
     }
   },

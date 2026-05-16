@@ -197,7 +197,7 @@ const App = {
     }
   },
 
-  async logout() {
+  logout() {
     // ⚡ 빠른 로그아웃 — 서버 응답을 기다리지 않고 즉시 클라이언트 정리
     // fetch 는 keepalive 로 페이지 이동 후에도 백그라운드로 완료됨
     // (await 하면 서버 응답 지연 시 사용자가 5초+ 대기하는 문제 발생)
@@ -685,7 +685,7 @@ const App = {
     } catch (err) { console.error(err); }
   },
 
-  async deleteLead(id) {
+  deleteLead(id) {
     Modal.close();
     Modal.confirm('이 리드를 삭제하시겠습니까? 활동 이력도 함께 삭제됩니다.', async () => {
       try {
@@ -769,7 +769,7 @@ const App = {
       const l = result.data;
       const stage = STAGES[l.stage] || STAGES.lead;
       const days = Fmt.daysLeft(l.expected_close_date);
-      const daysBadge = days == null ? '' :
+      const daysBadge = (days === null || days === undefined) ? '' :
         days < 0 ? `<span class="badge badge-red">${Math.abs(days)}일 경과</span>` :
         days <= 7 ? `<span class="badge badge-amber">D-${days}</span>` :
         `<span class="badge badge-gray">D-${days}</span>`;
@@ -1096,7 +1096,7 @@ const App = {
       Toast.success('캘린더 일정과 연결되었습니다');
       Modal.close();
       if (reopenLeadId) setTimeout(() => this.openLeadDetail(reopenLeadId), 150);
-    } catch (e) { Toast.error('연결에 실패했습니다'); }
+    } catch { Toast.error('연결에 실패했습니다'); }
   },
 
   openActivityForm(leadId, customerName = '') {

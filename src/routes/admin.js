@@ -172,7 +172,9 @@ router.patch('/team-members/:id/token-limit', async (req, res) => {
   try {
     const { monthly_token_limit } = req.body;
     const limit =
-      monthly_token_limit === '' || monthly_token_limit == null
+      monthly_token_limit === '' ||
+      monthly_token_limit === null ||
+      monthly_token_limit === undefined
         ? null
         : parseInt(monthly_token_limit);
     await pool.query('UPDATE team_members SET monthly_token_limit=? WHERE id=?', [
@@ -572,7 +574,10 @@ router.get('/token-monitor', async (req, res) => {
           used_prompt: Number(u.used_prompt),
           used_completion: Number(u.used_completion),
           calls: Number(u.calls),
-          eff_limit: u.monthly_token_limit != null ? u.monthly_token_limit : defaultLimit,
+          eff_limit:
+            u.monthly_token_limit !== null && u.monthly_token_limit !== undefined
+              ? u.monthly_token_limit
+              : defaultLimit,
           cost_usd: calcCost('default', Number(u.used_prompt), Number(u.used_completion)),
         })),
         rechargeLogs,
@@ -748,7 +753,7 @@ router.get('/dev/dfd-mappings', devOnly, async (req, res) => {
     );
     // JSON 파싱 (안전)
     const data = rows.map(r => {
-      let apis = [];
+      let apis;
       try {
         apis = JSON.parse(r.api_keys || '[]');
       } catch (_) {
@@ -887,7 +892,7 @@ router.get('/dev/dfd-api-mappings', devOnly, async (req, res) => {
        FROM dfd_api_mappings ORDER BY api_id`
     );
     const data = rows.map(r => {
-      let pages = [];
+      let pages;
       try {
         pages = JSON.parse(r.page_keys || '[]');
       } catch (_) {
@@ -1015,7 +1020,7 @@ router.get('/dev/dfd-page-mappings', devOnly, async (req, res) => {
        FROM dfd_page_mappings ORDER BY page_id`
     );
     const data = rows.map(r => {
-      let apis = [];
+      let apis;
       try {
         apis = JSON.parse(r.api_keys || '[]');
       } catch (_) {
@@ -2399,7 +2404,7 @@ router.get('/dev/source-report', devOnly, async (req, res) => {
 
     // HTML 리포트
     const fmtBytes = b => {
-      if (b == null) return '-';
+      if (b === null || b === undefined) return '-';
       if (b < 1024) return `${b} B`;
       if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
       return `${(b / 1024 / 1024).toFixed(2)} MB`;
@@ -2628,7 +2633,7 @@ router.get('/dev/external-deps', devOnly, (req, res) => {
 
     const walkDir = (dir, baseLabel, depth = 0) => {
       const out = [];
-      let entries = [];
+      let entries;
       try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
       } catch (_) {

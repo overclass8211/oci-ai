@@ -599,7 +599,6 @@ const Notifications = {
         };
         let descHtml;
         if (n.type === '단계변경' && n.stage_detail) {
-          const stageLabel = STAGE_LABELS[n.stage] || n.stage || '';
           const arrow = n.stage_detail.replace('단계 변경: ', '');
           descHtml = `<span>${esc(n.project_name || '')}</span>` +
             `<span style="color:var(--oci-blue,#1a73e8);font-weight:600;margin-left:4px">→ ${esc(arrow)}</span>`;

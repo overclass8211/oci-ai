@@ -319,7 +319,6 @@ router.post('/:id/register-calendar', async (req, res) => {
       .replace(/\n+/g, ' ')
       .trim();
     const shortSummary = rawSummary.length > 50 ? rawSummary.substring(0, 50) + '...' : rawSummary;
-    const meetingDetailUrl = `/meeting-list#${req.params.id}`;
     const description = `${shortSummary}\n\n[회의록 상세보기] meeting:${req.params.id}`;
 
     const [calMain] = await pool.query(

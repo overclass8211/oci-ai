@@ -7,7 +7,7 @@ const OrdersPage = {
   // 현재 활성 탭
   activeTab: 'input',
 
-  async render() {
+  render() {
     document.getElementById('content').innerHTML = `
       <!-- OMS 탭 네비게이션 -->
       <div class="oms-tab-bar">

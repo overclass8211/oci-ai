@@ -409,7 +409,7 @@ const SearchModal = {
 
   // ─── 유틸 ──────────────────────────────────────────────
   _esc(s) {
-    return String(s == null ? '' : s)
+    return String(s === null || s === undefined ? '' : s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')

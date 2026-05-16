@@ -7,9 +7,9 @@
  */
 const crypto = require('crypto');
 
-const ALGO      = 'aes-256-gcm';
-const IV_BYTES  = 12;  // GCM 권장 96-bit IV
-const TAG_BYTES = 16;
+const ALGO = 'aes-256-gcm';
+const IV_BYTES = 12; // GCM 권장 96-bit IV
+// TAG_BYTES = 16 (GCM 표준) — getAuthTag() 가 자동으로 16바이트 반환
 
 function _getKey() {
   const hex = process.env.ENCRYPTION_KEY || '';
@@ -25,12 +25,12 @@ function _getKey() {
  * @returns {string}  "iv:tag:ciphertext" (hex 구분)
  */
 function encrypt(plaintext) {
-  if (plaintext == null) return null;
-  const key    = _getKey();
-  const iv     = crypto.randomBytes(IV_BYTES);
+  if (plaintext === null || plaintext === undefined) return null;
+  const key = _getKey();
+  const iv = crypto.randomBytes(IV_BYTES);
   const cipher = crypto.createCipheriv(ALGO, key, iv);
-  const enc    = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
-  const tag    = cipher.getAuthTag();
+  const enc = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
   return `${iv.toString('hex')}:${tag.toString('hex')}:${enc.toString('hex')}`;
 }
 
@@ -40,17 +40,17 @@ function encrypt(plaintext) {
  * @returns {string}
  */
 function decrypt(stored) {
-  if (stored == null) return null;
+  if (stored === null || stored === undefined) return null;
   // 암호화되지 않은 기존 데이터(레거시) 그대로 반환
   if (!stored.includes(':')) return stored;
   const parts = stored.split(':');
   if (parts.length !== 3) return stored;
   const [ivHex, tagHex, cipherHex] = parts;
   try {
-    const key      = _getKey();
-    const iv       = Buffer.from(ivHex,     'hex');
-    const tag      = Buffer.from(tagHex,    'hex');
-    const cipher_  = Buffer.from(cipherHex, 'hex');
+    const key = _getKey();
+    const iv = Buffer.from(ivHex, 'hex');
+    const tag = Buffer.from(tagHex, 'hex');
+    const cipher_ = Buffer.from(cipherHex, 'hex');
     const decipher = crypto.createDecipheriv(ALGO, key, iv);
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(cipher_), decipher.final()]).toString('utf8');
@@ -64,9 +64,11 @@ function decrypt(stored) {
 function isEncrypted(value) {
   if (!value || typeof value !== 'string') return false;
   const parts = value.split(':');
-  return parts.length === 3 &&
-    /^[0-9a-f]{24}$/.test(parts[0]) &&   // 12바이트 IV = 24hex
-    /^[0-9a-f]{32}$/.test(parts[1]);      // 16바이트 tag = 32hex
+  return (
+    parts.length === 3 &&
+    /^[0-9a-f]{24}$/.test(parts[0]) && // 12바이트 IV = 24hex
+    /^[0-9a-f]{32}$/.test(parts[1])
+  ); // 16바이트 tag = 32hex
 }
 
 module.exports = { encrypt, decrypt, isEncrypted };

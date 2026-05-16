@@ -38,7 +38,9 @@ function sanitizeQuery(req, _res, next) {
 function validateId(req, res, next) {
   const id = parseInt(req.params.id, 10);
   if (!req.params.id || isNaN(id) || id < 1) {
-    return res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.', code: 'VALIDATION_ERROR' });
+    return res
+      .status(400)
+      .json({ success: false, error: '유효하지 않은 ID입니다.', code: 'VALIDATION_ERROR' });
   }
   req.params.id = id;
   next();
@@ -70,16 +72,20 @@ function schema(defs) {
         errors.push({ field, message: `필수 항목입니다: ${field}` });
         continue;
       }
-      if (missing) continue;  // optional 필드 — 없으면 나머지 검사 생략
+      if (missing) continue; // optional 필드 — 없으면 나머지 검사 생략
 
       // 타입 검사
       if (rules.type === 'string' && typeof raw !== 'string') {
-        errors.push({ field, message: `${field}은(는) 문자열이어야 합니다.` }); continue;
+        errors.push({ field, message: `${field}은(는) 문자열이어야 합니다.` });
+        continue;
       }
       if (rules.type === 'number') {
         const n = Number(raw);
-        if (isNaN(n)) { errors.push({ field, message: `${field}은(는) 숫자여야 합니다.` }); continue; }
-        req.body[field] = n;   // 자동 캐스팅
+        if (isNaN(n)) {
+          errors.push({ field, message: `${field}은(는) 숫자여야 합니다.` });
+          continue;
+        }
+        req.body[field] = n; // 자동 캐스팅
         if (rules.min !== undefined && n < rules.min)
           errors.push({ field, message: `${field}은(는) ${rules.min} 이상이어야 합니다.` });
         if (rules.max !== undefined && n > rules.max)
@@ -87,27 +93,35 @@ function schema(defs) {
       }
       if (rules.type === 'boolean') {
         if (raw !== true && raw !== false && raw !== 'true' && raw !== 'false') {
-          errors.push({ field, message: `${field}은(는) boolean이어야 합니다.` }); continue;
+          errors.push({ field, message: `${field}은(는) boolean이어야 합니다.` });
+          continue;
         }
         req.body[field] = raw === true || raw === 'true';
       }
       if (rules.type === 'date') {
         if (isNaN(Date.parse(raw))) {
-          errors.push({ field, message: `${field}은(는) 유효한 날짜여야 합니다.` }); continue;
+          errors.push({ field, message: `${field}은(는) 유효한 날짜여야 합니다.` });
+          continue;
         }
       }
 
       // 문자열 길이
       if (typeof raw === 'string') {
         if (rules.minLen !== undefined && raw.length < rules.minLen)
-          errors.push({ field, message: `${field}은(는) 최소 ${rules.minLen}자 이상이어야 합니다.` });
+          errors.push({
+            field,
+            message: `${field}은(는) 최소 ${rules.minLen}자 이상이어야 합니다.`,
+          });
         if (rules.maxLen !== undefined && raw.length > rules.maxLen)
           errors.push({ field, message: `${field}은(는) 최대 ${rules.maxLen}자 이하여야 합니다.` });
       }
 
       // 열거형
       if (rules.enum && !rules.enum.includes(raw)) {
-        errors.push({ field, message: `${field}은(는) [${rules.enum.join(', ')}] 중 하나여야 합니다.` });
+        errors.push({
+          field,
+          message: `${field}은(는) [${rules.enum.join(', ')}] 중 하나여야 합니다.`,
+        });
       }
 
       // 정규식 패턴
@@ -139,10 +153,10 @@ function schema(defs) {
 // 공통 패턴 상수
 // ─────────────────────────────────────────────
 const PATTERNS = {
-  username:  /^[a-zA-Z0-9_\-]{2,50}$/,
-  email:     /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-  isoDate:   /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?/,
-  noScript:  /^(?!.*<script).*$/i,   // XSS 기초 차단
+  username: /^[a-zA-Z0-9_-]{2,50}$/,
+  email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  isoDate: /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?/,
+  noScript: /^(?!.*<script).*$/i, // XSS 기초 차단
 };
 
 // ─────────────────────────────────────────────
@@ -154,40 +168,54 @@ const SCHEMAS = {
     password: { type: 'string', required: true, minLen: 1, maxLen: 200 },
   },
   createUser: {
-    username: { type: 'string', required: true, minLen: 2, maxLen: 50,
-                pattern: PATTERNS.username, patternMsg: '아이디는 영문/숫자/밑줄 2~50자여야 합니다.' },
+    username: {
+      type: 'string',
+      required: true,
+      minLen: 2,
+      maxLen: 50,
+      pattern: PATTERNS.username,
+      patternMsg: '아이디는 영문/숫자/밑줄 2~50자여야 합니다.',
+    },
     password: { type: 'string', required: true, minLen: 4, maxLen: 200 },
-    email:    { type: 'string', maxLen: 100,
-                pattern: PATTERNS.email, patternMsg: '이메일 형식이 올바르지 않습니다.' },
-    role:     { type: 'string', enum: ['manager', 'team_lead', 'executive', 'superadmin'] },
+    email: {
+      type: 'string',
+      maxLen: 100,
+      pattern: PATTERNS.email,
+      patternMsg: '이메일 형식이 올바르지 않습니다.',
+    },
+    role: { type: 'string', enum: ['manager', 'team_lead', 'executive', 'superadmin'] },
   },
   createLead: {
-    customer_name:  { type: 'string', required: true, minLen: 1, maxLen: 200 },
-    project_name:   { type: 'string', required: true, minLen: 1, maxLen: 300 },
-    stage:          { type: 'string', maxLen: 50 },   // 동적 검증 (pipeline_stages 테이블 기반, 라우터에서 별도 확인)
-    expected_amount:{ type: 'number', min: 0 },
-    region:         { type: 'string', maxLen: 50 },
+    customer_name: { type: 'string', required: true, minLen: 1, maxLen: 200 },
+    project_name: { type: 'string', required: true, minLen: 1, maxLen: 300 },
+    stage: { type: 'string', maxLen: 50 }, // 동적 검증 (pipeline_stages 테이블 기반, 라우터에서 별도 확인)
+    expected_amount: { type: 'number', min: 0 },
+    region: { type: 'string', maxLen: 50 },
   },
   createCustomer: {
     customer_name: { type: 'string', required: true, minLen: 1, maxLen: 200 },
-    region:        { type: 'string', maxLen: 100 },
+    region: { type: 'string', maxLen: 100 },
   },
   createActivity: {
-    lead_id:       { type: 'number', required: true, min: 1 },
+    lead_id: { type: 'number', required: true, min: 1 },
     activity_type: { type: 'string', required: true, maxLen: 50 },
   },
   createCalendar: {
-    title:          { type: 'string', required: true, minLen: 1, maxLen: 200 },
+    title: { type: 'string', required: true, minLen: 1, maxLen: 200 },
     start_datetime: { type: 'date', required: true },
   },
   createAnnouncement: {
-    title:   { type: 'string', required: true, minLen: 1, maxLen: 300 },
+    title: { type: 'string', required: true, minLen: 1, maxLen: 300 },
     content: { type: 'string', required: true, minLen: 1 },
   },
   createTeamMember: {
-    name:  { type: 'string', required: true, minLen: 1, maxLen: 100 },
-    email: { type: 'string', maxLen: 100,
-             pattern: PATTERNS.email, patternMsg: '이메일 형식이 올바르지 않습니다.' },
+    name: { type: 'string', required: true, minLen: 1, maxLen: 100 },
+    email: {
+      type: 'string',
+      maxLen: 100,
+      pattern: PATTERNS.email,
+      patternMsg: '이메일 형식이 올바르지 않습니다.',
+    },
   },
   createProduct: {
     name: { type: 'string', required: true, minLen: 1, maxLen: 200 },

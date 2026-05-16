@@ -56,8 +56,14 @@ const spaGlobals = {
   TeamPage: 'readonly', BoardPage: 'readonly', MeetingPage: 'readonly',
   MeetingListPage: 'readonly', AdminPage: 'readonly', SettingsPage: 'readonly',
   ReportsPage: 'readonly', CostPage: 'readonly',
+  OrdersPage: 'readonly', NotificationsListPage: 'readonly', DevPage: 'readonly',
   // login.js
   Login: 'readonly',
+  // utils.js 내부 helpers (런타임에는 전역으로 노출됨)
+  loadStages: 'readonly', initStickyFilterBar: 'readonly',
+  // 외부 CDN 글로벌
+  daum: 'readonly',          // Kakao(다음) 우편번호 API
+  Features: 'readonly',      // 기능 플래그 시스템 (별도 스크립트에서 정의)
 };
 
 module.exports = [...IGNORE,

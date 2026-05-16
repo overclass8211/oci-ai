@@ -26,7 +26,7 @@ const ALLOW_HTTP =
   process.env.WEBHOOK_ALLOW_HTTP === 'true' || process.env.NODE_ENV !== 'production';
 
 function sanitize(value, maxLen) {
-  if (value == null) return '';
+  if (value === null || value === undefined) return '';
   return String(value).trim().slice(0, maxLen);
 }
 
@@ -116,7 +116,10 @@ router.post('/', async (req, res) => {
   try {
     const name = sanitize(req.body.name, MAX_NAME);
     const url = sanitize(req.body.url, MAX_URL);
-    const rawSecret = req.body.secret != null ? String(req.body.secret).trim() : '';
+    const rawSecret =
+      req.body.secret !== null && req.body.secret !== undefined
+        ? String(req.body.secret).trim()
+        : '';
     const events = req.body.event_types;
 
     if (!name)
@@ -169,13 +172,11 @@ router.put('/:id', async (req, res) => {
     if (req.body.name !== undefined) {
       const v = sanitize(req.body.name, MAX_NAME);
       if (!v)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            code: 'VALIDATION_ERROR',
-            error: 'name 은 비어있을 수 없습니다.',
-          });
+        return res.status(400).json({
+          success: false,
+          code: 'VALIDATION_ERROR',
+          error: 'name 은 비어있을 수 없습니다.',
+        });
       fields.push('name = ?');
       params.push(v);
     }

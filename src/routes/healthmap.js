@@ -50,7 +50,12 @@ function statusFromMetrics(type, m) {
   // m: 노드별 메트릭 객체
   const t = THRESHOLDS[type] || {};
   if (type === 'api') {
-    if (m.lastSeenAgoSec != null && m.lastSeenAgoSec > t.down_idle_sec && m.totalCalls > 0) {
+    if (
+      m.lastSeenAgoSec !== null &&
+      m.lastSeenAgoSec !== undefined &&
+      m.lastSeenAgoSec > t.down_idle_sec &&
+      m.totalCalls > 0
+    ) {
       // 최근 호출 있던 라우트가 갑자기 끊기면 down 후보 — 보수적으로 warn
     }
     if (m.avgMs > t.crit_ms || m.errRate > t.crit_err) return 'critical';
@@ -334,7 +339,7 @@ router.get('/healthmap/node/:type/:key/logs', async (req, res) => {
 // 가이드 CRUD
 // ─────────────────────────────────────────────────────────────
 function sanitize(value, maxLen) {
-  if (value == null) return '';
+  if (value === null || value === undefined) return '';
   return String(value).trim().slice(0, maxLen);
 }
 
@@ -384,13 +389,11 @@ router.post('/healthmap/guides', async (req, res) => {
     const node_type = sanitize(req.body.node_type, 20);
     const title = sanitize(req.body.title, 200);
     if (!node_type || !title) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          code: 'VALIDATION_ERROR',
-          error: 'node_type / title 은 필수입니다.',
-        });
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'node_type / title 은 필수입니다.',
+      });
     }
     const userId = getUserId(req);
     const [r] = await pool.query(
@@ -426,13 +429,11 @@ router.put('/healthmap/guides/:id', async (req, res) => {
     );
     if (!existing) return res.status(404).json({ success: false, error: '가이드 없음' });
     if (existing.is_system) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          code: 'SYSTEM_GUIDE_PROTECTED',
-          error: '시스템 가이드는 수정할 수 없습니다.',
-        });
+      return res.status(403).json({
+        success: false,
+        code: 'SYSTEM_GUIDE_PROTECTED',
+        error: '시스템 가이드는 수정할 수 없습니다.',
+      });
     }
     const fields = [];
     const params = [];
@@ -472,13 +473,11 @@ router.delete('/healthmap/guides/:id', async (req, res) => {
     );
     if (!existing) return res.status(404).json({ success: false, error: '가이드 없음' });
     if (existing.is_system) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          code: 'SYSTEM_GUIDE_PROTECTED',
-          error: '시스템 가이드는 삭제할 수 없습니다.',
-        });
+      return res.status(403).json({
+        success: false,
+        code: 'SYSTEM_GUIDE_PROTECTED',
+        error: '시스템 가이드는 삭제할 수 없습니다.',
+      });
     }
     await pool.query(`DELETE FROM healthmap_guides WHERE id = ?`, [id]);
     res.json({ success: true });

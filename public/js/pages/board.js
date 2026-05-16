@@ -118,7 +118,7 @@ const BoardPage = (() => {
       </div>`;
   }
 
-  async function _openNewAnnouncementModal() {
+  function _openNewAnnouncementModal() {
     const body = `
       <div style="display:flex;flex-direction:column;gap:16px;">
         <div>
@@ -360,7 +360,7 @@ const BoardPage = (() => {
     });
   }
 
-  async function _openNewFAQModal() {
+  function _openNewFAQModal() {
     const body = `
       <div style="display:flex;flex-direction:column;gap:16px;">
         <div>

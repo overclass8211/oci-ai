@@ -373,7 +373,7 @@ const MeetingPage = (() => {
     } catch (_) { if (el) el.innerHTML = ''; }
   }
 
-  async function _onGoogleMessage(e) {
+  function _onGoogleMessage(e) {
     if (!e.data || e.data.type !== 'google_oauth') return;
     if (e.data.success) {
       _googleStatus = { connected: true, configured: true, email: e.data.email };

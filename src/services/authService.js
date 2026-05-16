@@ -8,8 +8,8 @@ const { encrypt, decrypt } = require('../utils/crypto');
 
 const ACCESS_SECRET = config.jwtSecret;
 const ACCESS_EXPIRES = config.jwtExpires; // 기본 15m
-const REFRESH_SECRET = config.refreshSecret;
 const REFRESH_DAYS = 7; // Refresh Token 유효 일수
+// 참고: REFRESH_SECRET 은 현재 사용 안 함 (refresh token 은 opaque + DB hash 비교 방식)
 
 // 역할 정의
 const ROLES = {
@@ -119,18 +119,20 @@ function generateRefreshToken() {
   return crypto.randomBytes(64).toString('hex'); // 128자 랜덤 문자열
 }
 
-function signRefreshToken(userId, jti) {
+function signRefreshToken(_userId, _jti) {
   // DB 저장용 — JWT가 아닌 opaque token (서명/검증은 DB hash 비교)
+  // 인자(_userId, _jti)는 인터페이스 유지용 (현재 미사용)
   const raw = generateRefreshToken();
   const expiresAt = new Date(Date.now() + REFRESH_DAYS * 24 * 60 * 60 * 1000);
   return { raw, expiresAt };
 }
 
-async function hashRefreshToken(raw) {
+// bcrypt.hash/compare 가 이미 Promise 반환 — 그대로 위임
+function hashRefreshToken(raw) {
   return bcrypt.hash(raw, 10); // 빠른 해시 (salt rounds 낮춤)
 }
 
-async function verifyRefreshToken(raw, hash) {
+function verifyRefreshToken(raw, hash) {
   return bcrypt.compare(raw, hash);
 }
 

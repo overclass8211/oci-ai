@@ -66,7 +66,7 @@ const Login = {
   },
 
   /* ── OTP Step1: 아이디 확인 ── */
-  async otpRequest() {
+  otpRequest() {
     const val = document.getElementById('inp-otp-user').value.trim();
     if (!val) { this.showError('아이디를 입력하세요.'); return; }
 

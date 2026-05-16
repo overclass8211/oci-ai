@@ -726,7 +726,7 @@ const CustomersPage = {
 
       await this.loadData();
       await App.refreshCommon();
-    } catch (err) {
+    } catch {
       Toast.error('등록 중 오류가 발생했습니다');
       if (btn) { btn.disabled = false; btn.textContent = '✅ 등록하기'; }
     }
@@ -784,7 +784,7 @@ const CustomersPage = {
   },
 
   // ── [통합] 고객 상세 모달 — 정보/수정 + 관련 딜 + 핵심 브리핑 + 그룹 ──
-  async showCustomerModal(id) {
+  showCustomerModal(id) {
     const cust = this._allData.find(c => c.id === id) || this.data.find(c => c.id === id);
     if (!cust) { Toast.error('고객 정보를 찾을 수 없습니다'); return; }
 

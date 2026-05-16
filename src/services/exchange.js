@@ -8,44 +8,44 @@
 //   4. DB 캐시 가장 최근 값 (모든 API 실패 시)
 // =============================================================
 const https = require('https');
-const pool   = require('../db');
+const pool = require('../db');
 const config = require('../../config');
 
 const SUPPORTED = ['USD', 'EUR', 'JPY', 'CNY', 'GBP', 'AUD', 'SGD', 'HKD', 'KRW'];
 
-// 단위 보정: 수출입은행은 JPY/IDR/VND 등 일부 통화를 100단위로 표기
-const UNIT_MULTIPLIER = {
-  JPY: 0.01,   // JPY(100) → 1 JPY 단위로 정규화
-  IDR: 0.01,
-  VND: 0.01,
-};
-
 // ── 공통 fetch 헬퍼 (301/302 리다이렉트 자동 follow) ──────────
+// 참고: JPY/IDR/VND 등 100단위 표기 통화는 fetchFromFrankfurter 가 자동 처리
 function httpGetJson(url, timeoutMs = 8000, maxRedirect = 5) {
   return new Promise((resolve, reject) => {
     const doGet = (u, hopsLeft) => {
-      const req = https.get(u, { timeout: timeoutMs }, (res) => {
+      const req = https.get(u, { timeout: timeoutMs }, res => {
         // 리다이렉트 처리
         if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && hopsLeft > 0) {
-          res.resume();   // drain
+          res.resume(); // drain
           const next = res.headers.location.startsWith('http')
             ? res.headers.location
             : new URL(res.headers.location, u).toString();
           return doGet(next, hopsLeft - 1);
         }
         let data = '';
-        res.on('data', c => data += c);
+        res.on('data', c => (data += c));
         res.on('end', () => {
           if (res.statusCode >= 200 && res.statusCode < 300) {
-            try { resolve(JSON.parse(data)); }
-            catch (e) { reject(new Error('JSON 파싱 실패: ' + e.message)); }
+            try {
+              resolve(JSON.parse(data));
+            } catch (e) {
+              reject(new Error('JSON 파싱 실패: ' + e.message));
+            }
           } else {
             reject(new Error('HTTP ' + res.statusCode));
           }
         });
       });
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('timeout'));
+      });
     };
     doGet(url, maxRedirect);
   });
@@ -56,8 +56,9 @@ async function fetchFromExim(searchdate) {
   if (!config.eximApiKey) throw new Error('NO_EXIM_KEY');
   // YYYYMMDD 형식
   const yyyymmdd = searchdate.replace(/-/g, '');
-  const url = `https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON`
-            + `?authkey=${encodeURIComponent(config.eximApiKey)}&searchdate=${yyyymmdd}&data=AP01`;
+  const url =
+    `https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON` +
+    `?authkey=${encodeURIComponent(config.eximApiKey)}&searchdate=${yyyymmdd}&data=AP01`;
   const arr = await httpGetJson(url);
   if (!Array.isArray(arr) || arr.length === 0) {
     throw new Error('수출입은행: 응답 없음 (휴일 또는 11시 이전)');
@@ -76,13 +77,12 @@ async function fetchFromExim(searchdate) {
     // unit이 100이면 1 단위 = rate/100
     result[code] = rate / unit;
   }
-  return result;  // { USD: 1365.5, EUR: 1480.3, JPY: 9.65, ... }
+  return result; // { USD: 1365.5, EUR: 1480.3, JPY: 9.65, ... }
 }
 
 // ── 2차: frankfurter.app ────────────────────────────────────
 async function fetchFromFrankfurter(targets = SUPPORTED) {
-  // KRW 기준 호출 — 한 번에 여러 통화
-  const tos = targets.filter(c => c !== 'KRW').join(',');
+  // KRW 기준 호출 — 통화별 단일 fetch (캐시되므로 성능 OK)
   // frankfurter는 from=...&to=... 형식. 우리는 "1 USD = N KRW" 가 필요하므로
   // from=USD&to=KRW 형식으로 통화별로 호출하거나, base 변경 사용
   // 1회 호출: ?from=EUR&to=KRW 등 → 통화당 1회 = 8회
@@ -90,7 +90,10 @@ async function fetchFromFrankfurter(targets = SUPPORTED) {
   // 간단히 통화별 단일 호출 (캐시되므로 성능 OK)
   const result = {};
   for (const code of targets) {
-    if (code === 'KRW') { result.KRW = 1; continue; }
+    if (code === 'KRW') {
+      result.KRW = 1;
+      continue;
+    }
     try {
       const url = `https://api.frankfurter.app/latest?from=${code}&to=KRW`;
       const j = await httpGetJson(url, 6000);
@@ -112,13 +115,16 @@ async function getFromCache(currency, date = null) {
     const [[r]] = await pool.query(
       `SELECT rate_to_krw FROM exchange_rates
        WHERE currency_code=? AND rate_date=? LIMIT 1`,
-      [currency, date]);
+      [currency, date]
+    );
     if (r) return Number(r.rate_to_krw);
   }
   // date 없으면 최신
   const [[r2]] = await pool.query(
     `SELECT rate_to_krw, rate_date FROM exchange_rates
-     WHERE currency_code=? ORDER BY rate_date DESC LIMIT 1`, [currency]);
+     WHERE currency_code=? ORDER BY rate_date DESC LIMIT 1`,
+    [currency]
+  );
   return r2 ? Number(r2.rate_to_krw) : null;
 }
 
@@ -131,7 +137,8 @@ async function saveRates(rates, source, dateStr = null) {
       `INSERT INTO exchange_rates (currency_code, rate_to_krw, source, rate_date)
        VALUES (?,?,?,?)
        ON DUPLICATE KEY UPDATE rate_to_krw=VALUES(rate_to_krw), source=VALUES(source), fetched_at=NOW()`,
-      [code, rate, source, today]);
+      [code, rate, source, today]
+    );
   }
 }
 
@@ -248,5 +255,5 @@ module.exports = {
   convertToKrw,
   refreshAll,
   getAllLatest,
-  saveRates,   // 수동 등록용
+  saveRates, // 수동 등록용
 };

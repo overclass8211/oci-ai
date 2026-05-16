@@ -200,7 +200,7 @@ const PipelinePage = {
       .filter(l => activeStages.includes(l.stage))
       .reduce((sum, l) => {
         // amount_krw 우선, 없으면 currency='KRW'인 경우만 fallback
-        const krw = l.amount_krw != null
+        const krw = (l.amount_krw !== null && l.amount_krw !== undefined)
           ? Number(l.amount_krw)
           : (l.currency === 'KRW' ? Number(l.expected_amount || 0) : 0);
         return sum + krw;
@@ -248,7 +248,7 @@ const PipelinePage = {
       let sum = 0, stuck7 = 0, stuck14 = 0, ageSum = 0;
       cards.forEach(c => {
         // KRW 환산 합계 (amount_krw 우선)
-        sum += c.amount_krw != null
+        sum += (c.amount_krw !== null && c.amount_krw !== undefined)
           ? Number(c.amount_krw)
           : (c.currency === 'KRW' ? Number(c.expected_amount || 0) : 0);
         const t = new Date(c.updated_at || c.created_at).getTime();
@@ -535,7 +535,7 @@ const PipelinePage = {
   renderCard(lead) {
     const meta = STAGES[lead.stage];
     const days = Fmt.daysLeft(lead.bidding_deadline);
-    const urgent = days != null && days >= 0 && days <= 7;
+    const urgent = (days !== null && days !== undefined) && days >= 0 && days <= 7;
     return `
       <div class="kanban-card" draggable="true"
            data-id="${lead.id}" data-stage="${lead.stage}"

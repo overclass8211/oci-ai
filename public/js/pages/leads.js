@@ -376,8 +376,8 @@ const LeadsPage = {
       l.customer_name || '',
       l.project_name  || '',
       l.business_type || '',
-      l.capacity_mw   != null ? l.capacity_mw : '',
-      l.expected_amount != null ? l.expected_amount : '',
+      (l.capacity_mw !== null && l.capacity_mw !== undefined) ? l.capacity_mw : '',
+      (l.expected_amount !== null && l.expected_amount !== undefined) ? l.expected_amount : '',
       l.currency      || 'KRW',
       STAGE_LABELS[l.stage] || l.stage || '',
       l.region        || '',
@@ -547,7 +547,7 @@ const LeadsPage = {
                 <td>${r.customer_name ? `<strong>${esc(r.customer_name)}</strong>` : '<span style="color:#E63329">필수</span>'}</td>
                 <td>${r.project_name  ? esc(r.project_name)  : '<span style="color:#E63329">필수</span>'}</td>
                 <td>${esc(r.business_type || '태양광')}</td>
-                <td class="text-right">${r.capacity_mw != null ? r.capacity_mw : '-'}</td>
+                <td class="text-right">${(r.capacity_mw !== null && r.capacity_mw !== undefined) ? r.capacity_mw : '-'}</td>
                 <td>${esc(STAGE_REVERSE[r.stage] ? (r.stage) : 'lead')}</td>
                 <td>${esc(r.region || '국내')}</td>
                 <td>${esc(r.assigned_name_raw || '-')}</td>
@@ -573,7 +573,8 @@ const LeadsPage = {
       .filter(r => r.customer_name && r.project_name)
       .map(r => {
         const member = this.team.find(t => t.name === r.assigned_name_raw);
-        const { assigned_name_raw, ...rest } = r;
+        // assigned_name_raw 는 표시용이므로 제외하고 서버 전송
+        const { assigned_name_raw: _, ...rest } = r;
         return { ...rest, assigned_to: member?.id || null };
       });
 
@@ -596,7 +597,7 @@ const LeadsPage = {
     }
   },
 
-  async editLead(id) {
+  editLead(id) {
     App.openLeadForm(id);
   },
 

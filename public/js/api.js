@@ -98,7 +98,7 @@ const API = {
   leads: {
     list:      (params = {}) => {
       const qs = new URLSearchParams(
-        Object.entries(params).filter(([_, v]) => v !== '' && v != null)
+        Object.entries(params).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
       ).toString();
       return API.get('/leads' + (qs ? '?' + qs : ''));
     },
@@ -236,7 +236,8 @@ const API = {
   },
 
   // ── 엑셀 다운로드 헬퍼 (인증 헤더 포함) — 레거시 ────────────────
-  async downloadExcel(path, filename) {
+  // downloadExport 가 이미 async 라 동일하게 Promise 반환됨
+  downloadExcel(path, filename) {
     return this.downloadExport(path, filename, 'xlsx');
   },
 

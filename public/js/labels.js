@@ -66,7 +66,9 @@ const Labels = {
   },
 
   // ── fetch ────────────────────────────────────────────────
-  async ensureLoaded() {
+  // 반환: Promise<dict> (또는 in-memory dict 가 있으면 sync 값)
+  // 호출자는 모두 await 사용 — non-Promise 도 await 가 처리
+  ensureLoaded() {
     if (this._dict) return this._dict;
     const cached = this._loadFromCache();
     if (cached) { this._dict = cached; return cached; }

@@ -18,7 +18,7 @@ const { getUserId } = require('../middleware/auth');
 const ALLOWED_CATEGORIES = new Set(['lead', 'customer', 'project', 'general']);
 
 function sanitize(value, maxLen) {
-  if (value == null) return '';
+  if (value === null || value === undefined) return '';
   return String(value).trim().slice(0, maxLen);
 }
 

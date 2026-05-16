@@ -8,7 +8,7 @@ const Fmt = {
   // KRW: 만/억/조 한국식 / 외화: K/M/B 영어식
   // ⚠️ DB 모든 금액 컬럼은 원/1단위 저장 정책 (억 단위 저장 X)
   amount(value, currency = 'KRW') {
-    if (value == null || value === '') return '-';
+    if (value === null || value === undefined || value === '') return '-';
     const n = parseFloat(value);
     if (isNaN(n)) return '-';
     const abs = Math.abs(n);
@@ -33,7 +33,7 @@ const Fmt = {
   krw(value) { return Fmt.amount(value, 'KRW'); },
 
   number(value) {
-    if (value == null) return '-';
+    if (value === null || value === undefined) return '-';
     return parseFloat(value).toLocaleString();
   },
 
@@ -66,7 +66,7 @@ const Fmt = {
   },
 
   pct(value) {
-    if (value == null) return '-';
+    if (value === null || value === undefined) return '-';
     return `${parseFloat(value).toFixed(1)}%`;
   },
 
@@ -307,7 +307,7 @@ const Toast = {
 
 // ----------- HTML 이스케이프 -----------
 function esc(str) {
-  if (str == null) return '';
+  if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

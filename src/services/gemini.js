@@ -1,17 +1,29 @@
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 require('dotenv').config({ override: true });
-const pool          = require('../db');
+const pool = require('../db');
 const { friendlyError } = require('../middleware/errorHandler');
 
-const genAI     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const MODEL_FAST = 'gemini-2.5-flash';
-const MODEL_PRO  = 'gemini-2.5-pro';
+const MODEL_PRO = 'gemini-2.5-pro';
 
 const SAFETY_SETTINGS = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH }
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
 ];
 
 // SSE 헬퍼
@@ -21,8 +33,13 @@ function sseStart(res) {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 }
-function sseSend(res, text)    { res.write(`data: ${JSON.stringify({ text })}\n\n`); }
-function sseEnd(res)           { res.write('data: [DONE]\n\n'); res.end(); }
+function sseSend(res, text) {
+  res.write(`data: ${JSON.stringify({ text })}\n\n`);
+}
+function sseEnd(res) {
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
 function sseError(res, message) {
   res.write(`data: ${JSON.stringify({ error: message, text: `\n\n⚠️ 오류: ${message}` })}\n\n`);
   res.write('data: [DONE]\n\n');
@@ -34,13 +51,20 @@ async function logTokenUsage(endpoint, usageMeta, model, userId) {
   try {
     await pool.query(
       'INSERT INTO ai_usage (user_id, endpoint, prompt_tokens, completion_tokens, total_tokens, model) VALUES (?,?,?,?,?,?)',
-      [userId || null, endpoint, usageMeta.promptTokenCount || 0,
-       usageMeta.candidatesTokenCount || 0, usageMeta.totalTokenCount || 0,
-       model || MODEL_FAST]
+      [
+        userId || null,
+        endpoint,
+        usageMeta.promptTokenCount || 0,
+        usageMeta.candidatesTokenCount || 0,
+        usageMeta.totalTokenCount || 0,
+        model || MODEL_FAST,
+      ]
     );
     // 자동충전 체크 (비동기, 비크리티컬)
     if (userId) _checkAutoRecharge(userId).catch(() => {});
-  } catch (_) { /* token logging is non-critical, silently skip on DB error */ }
+  } catch (_) {
+    /* token logging is non-critical, silently skip on DB error */
+  }
 }
 
 // ── 자동충전 트리거 ──────────────────────────────────────────
@@ -49,18 +73,23 @@ async function _checkAutoRecharge(userId) {
     const [[member]] = await pool.query(
       `SELECT monthly_token_limit, auto_recharge_enabled,
               auto_recharge_threshold, auto_recharge_amount
-       FROM team_members WHERE id=?`, [userId]);
+       FROM team_members WHERE id=?`,
+      [userId]
+    );
     if (!member || !member.auto_recharge_enabled) return;
 
     const [[def]] = await pool.query(
-      `SELECT setting_value FROM system_settings WHERE setting_key='default_monthly_token_limit'`);
+      `SELECT setting_value FROM system_settings WHERE setting_key='default_monthly_token_limit'`
+    );
     const limit = member.monthly_token_limit ?? parseInt(def?.setting_value || 500000);
     if (!limit || limit <= 0) return;
 
     const [[row]] = await pool.query(
       `SELECT COALESCE(SUM(total_tokens),0) AS used FROM ai_usage
        WHERE user_id=? AND YEAR(created_at)=YEAR(CURRENT_DATE())
-         AND MONTH(created_at)=MONTH(CURRENT_DATE())`, [userId]);
+         AND MONTH(created_at)=MONTH(CURRENT_DATE())`,
+      [userId]
+    );
 
     const usedPct = (Number(row.used) / limit) * 100;
     const threshold = member.auto_recharge_threshold ?? 80;
@@ -72,31 +101,40 @@ async function _checkAutoRecharge(userId) {
        WHERE user_id=? AND triggered_by='auto'
          AND YEAR(created_at)=YEAR(CURRENT_DATE())
          AND MONTH(created_at)=MONTH(CURRENT_DATE())
-       LIMIT 1`, [userId]);
+       LIMIT 1`,
+      [userId]
+    );
     if (alreadyRecharged) return;
 
     const rechargeAmt = member.auto_recharge_amount ?? 100000;
     const newLimit = limit + rechargeAmt;
-    await pool.query(`UPDATE team_members SET monthly_token_limit=? WHERE id=?`, [newLimit, userId]);
+    await pool.query(`UPDATE team_members SET monthly_token_limit=? WHERE id=?`, [
+      newLimit,
+      userId,
+    ]);
     await pool.query(
       `INSERT INTO token_recharge_log (user_id, recharge_amount, new_limit, reason, triggered_by)
        VALUES (?,?,?,?,?)`,
-      [userId, rechargeAmt, newLimit,
-       `사용률 ${Math.round(usedPct)}% 도달 — 자동충전`, 'auto']
+      [userId, rechargeAmt, newLimit, `사용률 ${Math.round(usedPct)}% 도달 — 자동충전`, 'auto']
     );
-    console.log(`[AutoRecharge] user=${userId} +${rechargeAmt.toLocaleString()} tokens → limit=${newLimit.toLocaleString()}`);
-  } catch (_) { /* non-critical */ }
+    console.log(
+      `[AutoRecharge] user=${userId} +${rechargeAmt.toLocaleString()} tokens → limit=${newLimit.toLocaleString()}`
+    );
+  } catch (_) {
+    /* non-critical */
+  }
 }
 
 async function isUserOverLimit(userId) {
   if (!userId) return false;
   try {
     const [[member]] = await pool.query(
-      'SELECT monthly_token_limit FROM team_members WHERE id = ?', [userId]
+      'SELECT monthly_token_limit FROM team_members WHERE id = ?',
+      [userId]
     );
     if (!member) return false;
     let limit = member.monthly_token_limit;
-    if (limit == null) {
+    if (limit === null || limit === undefined) {
       const [[def]] = await pool.query(
         `SELECT setting_value FROM system_settings WHERE setting_key = 'default_monthly_token_limit'`
       );
@@ -106,10 +144,13 @@ async function isUserOverLimit(userId) {
     const [[row]] = await pool.query(
       `SELECT COALESCE(SUM(total_tokens), 0) AS used FROM ai_usage
        WHERE user_id = ? AND YEAR(created_at) = YEAR(CURRENT_DATE())
-         AND MONTH(created_at) = MONTH(CURRENT_DATE())`, [userId]
+         AND MONTH(created_at) = MONTH(CURRENT_DATE())`,
+      [userId]
     );
     return Number(row.used) >= limit;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
 
 async function getCrmContext() {
@@ -150,7 +191,7 @@ async function runStream(res, params) {
 
   const contents = (params.messages || []).map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }]
+    parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }],
   }));
 
   const outputBudget = Math.max(params.max_tokens || 2048, 8192);
@@ -161,26 +202,42 @@ async function runStream(res, params) {
     generationConfig: {
       maxOutputTokens: outputBudget,
       temperature: 0.7,
-      thinkingConfig: { thinkingBudget: 0 }
-    }
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   });
 
   let totalChars = 0;
   for await (const chunk of result.stream) {
     let text;
-    try { text = chunk.text(); } catch (_) { /* chunk decode failed, skip */ }
-    if (text) { sseSend(res, text); totalChars += text.length; }
+    try {
+      text = chunk.text();
+    } catch (_) {
+      /* chunk decode failed, skip */
+    }
+    if (text) {
+      sseSend(res, text);
+      totalChars += text.length;
+    }
   }
 
   let blockReason = null;
   try {
     const final = await result.response;
-    await logTokenUsage(params._endpoint || 'stream', final.usageMetadata, opts.model, params._userId);
+    await logTokenUsage(
+      params._endpoint || 'stream',
+      final.usageMetadata,
+      opts.model,
+      params._userId
+    );
     if (final.promptFeedback?.blockReason) {
       blockReason = `프롬프트가 ${final.promptFeedback.blockReason} 사유로 거부되었습니다.`;
     }
     const candidate = final.candidates?.[0];
-    if (candidate?.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
+    if (
+      candidate?.finishReason &&
+      candidate.finishReason !== 'STOP' &&
+      candidate.finishReason !== 'MAX_TOKENS'
+    ) {
       if (totalChars === 0) {
         blockReason = `응답 생성 차단 (${candidate.finishReason}). 프롬프트를 다르게 표현해보세요.`;
       }
@@ -189,13 +246,25 @@ async function runStream(res, params) {
     if (totalChars === 0) blockReason = friendlyError(e);
   }
 
-  if (blockReason && totalChars === 0) { sseError(res, blockReason); return; }
+  if (blockReason && totalChars === 0) {
+    sseError(res, blockReason);
+    return;
+  }
   sseEnd(res);
 }
 
 module.exports = {
-  genAI, MODEL_FAST, MODEL_PRO, SAFETY_SETTINGS,
-  sseStart, sseSend, sseEnd, sseError,
-  logTokenUsage, isUserOverLimit, getCrmContext, runStream,
-  friendlyError
+  genAI,
+  MODEL_FAST,
+  MODEL_PRO,
+  SAFETY_SETTINGS,
+  sseStart,
+  sseSend,
+  sseEnd,
+  sseError,
+  logTokenUsage,
+  isUserOverLimit,
+  getCrmContext,
+  runStream,
+  friendlyError,
 };

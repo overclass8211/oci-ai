@@ -2,7 +2,7 @@
 // Settings Page - 시스템 설정 / ERP 연동 / DB 상태
 // ============================================================
 const SettingsPage = {
-  async render() {
+  render() {
     const html = `
       <div class="card mb-3">
         <div class="card-header">

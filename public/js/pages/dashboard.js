@@ -361,14 +361,14 @@ const DashboardPage = {
     const SOLAR = ['태양광','모듈','EPC'];
     const ELEC  = ['ESS','전기','설치'];
     const titleEl = document.getElementById('monthly-chart-title');
-    let labels = [], solarData = [], elecData = [];
+    let labels, solarData, elecData;
 
     if (period === 'annual') {
       // 연도별: x축 = 연도 목록
       const years = [...new Set(data.map(d => d.yr))].sort();
       labels = years.map(y => `${y}년`);
-      solarData = years.map(y => data.filter(d => d.yr==y && SOLAR.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
-      elecData  = years.map(y => data.filter(d => d.yr==y && ELEC.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
+      solarData = years.map(y => data.filter(d => d.yr === y && SOLAR.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
+      elecData  = years.map(y => data.filter(d => d.yr === y && ELEC.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
       if (titleEl) titleEl.textContent = '연도별 영업기회 추이';
 
     } else if (period === 'quarterly') {
