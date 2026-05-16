@@ -1,16 +1,37 @@
 const router = require('express').Router();
-const pool   = require('../db');
+const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
+const { sendExport, normalizeFormat } = require('../utils/exportHelper');
+
+const ACT_COLS = [
+  { key: 'id', label: 'ID' },
+  { key: 'activity_type', label: '유형' },
+  { key: 'title', label: '제목' },
+  { key: 'content', label: '내용' },
+  { key: 'customer_name', label: '고객사' },
+  { key: 'project_name', label: '프로젝트' },
+  { key: 'performer_name', label: '담당자' },
+  { key: 'activity_date', label: '활동일' },
+  { key: 'status', label: '상태' },
+  { key: 'performed_at', label: '기록일시' },
+];
 
 // 도메인 루트 — GET /api/activities → 활동 목록 (404 패턴 해소)
 // 쿼리: ?lead_id=&project_id=&limit=&offset=
 router.get('/', async (req, res) => {
   try {
-    const limit  = Math.min(500, parseInt(req.query.limit)  || 100);
-    const offset = Math.max(0,   parseInt(req.query.offset) || 0);
-    const cond   = []; const params = [];
-    if (req.query.lead_id)    { cond.push('a.lead_id = ?');    params.push(req.query.lead_id); }
-    if (req.query.project_id) { cond.push('a.project_id = ?'); params.push(req.query.project_id); }
+    const limit = Math.min(500, parseInt(req.query.limit) || 100);
+    const offset = Math.max(0, parseInt(req.query.offset) || 0);
+    const cond = [];
+    const params = [];
+    if (req.query.lead_id) {
+      cond.push('a.lead_id = ?');
+      params.push(req.query.lead_id);
+    }
+    if (req.query.project_id) {
+      cond.push('a.project_id = ?');
+      params.push(req.query.project_id);
+    }
     const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
     const [rows] = await pool.query(
       `SELECT a.*, tm.name AS performer_name, l.customer_name, l.project_name
@@ -23,66 +44,127 @@ router.get('/', async (req, res) => {
       [...params, limit, offset]
     );
     res.json({ success: true, data: rows });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // status 컬럼 자가 보장 (idempotent)
-pool.query(`ALTER TABLE activities ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'planned' AFTER activity_date`)
-  .catch(() => { /* 이미 존재하거나 권한 없으면 무시 */ });
+pool
+  .query(
+    `ALTER TABLE activities ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'planned' AFTER activity_date`
+  )
+  .catch(() => {
+    /* 이미 존재하거나 권한 없으면 무시 */
+  });
 
 router.post('/', async (req, res) => {
   try {
-    const { lead_id, project_id, activity_type, title, content, performed_by, activity_date, calendar_event_id, status } = req.body;
+    const {
+      lead_id,
+      project_id,
+      activity_type,
+      title,
+      content,
+      performed_by,
+      activity_date,
+      calendar_event_id,
+      status,
+    } = req.body;
     const dateVal = activity_date ? activity_date.replace('T', ' ').slice(0, 19) : null;
-    const statusVal = (status === 'done' || status === 'planned') ? status : 'planned';
+    const statusVal = status === 'done' || status === 'planned' ? status : 'planned';
 
-    const doInsert = () => pool.query(
-      `INSERT INTO activities
+    const doInsert = () =>
+      pool.query(
+        `INSERT INTO activities
        (lead_id, project_id, activity_type, title, content, performed_by, activity_date, calendar_event_id, status)
        VALUES (?,?,?,?,?,?,?,?,?)`,
-      [lead_id || null, project_id || null, activity_type || '기타',
-       title, content || null, performed_by || null, dateVal, calendar_event_id || null, statusVal]);
+        [
+          lead_id || null,
+          project_id || null,
+          activity_type || '기타',
+          title,
+          content || null,
+          performed_by || null,
+          dateVal,
+          calendar_event_id || null,
+          statusVal,
+        ]
+      );
 
     try {
       const [result] = await doInsert();
-      return res.json({ success: true, id: result.insertId, data: { id: result.insertId, lead_id: lead_id || null } });
+      return res.json({
+        success: true,
+        id: result.insertId,
+        data: { id: result.insertId, lead_id: lead_id || null },
+      });
     } catch (e) {
       if (e.code === 'ER_BAD_FIELD_ERROR') {
         // 누락 컬럼 자동 추가 후 재시도
-        await pool.query(`ALTER TABLE activities ADD COLUMN IF NOT EXISTS activity_date DATETIME NULL DEFAULT NULL`).catch(()=>{});
-        await pool.query(`ALTER TABLE activities ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'planned'`).catch(()=>{});
+        await pool
+          .query(
+            `ALTER TABLE activities ADD COLUMN IF NOT EXISTS activity_date DATETIME NULL DEFAULT NULL`
+          )
+          .catch(() => {});
+        await pool
+          .query(
+            `ALTER TABLE activities ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'planned'`
+          )
+          .catch(() => {});
         const [result] = await doInsert();
-        return res.json({ success: true, id: result.insertId, data: { id: result.insertId, lead_id: lead_id || null } });
+        return res.json({
+          success: true,
+          id: result.insertId,
+          data: { id: result.insertId, lead_id: lead_id || null },
+        });
       }
       throw e;
     }
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.put('/:id', async (req, res) => {
   try {
-    const fields = ['activity_type', 'title', 'content', 'performed_by', 'activity_date', 'calendar_event_id', 'status'];
-    const updates = []; const values = [];
+    const fields = [
+      'activity_type',
+      'title',
+      'content',
+      'performed_by',
+      'activity_date',
+      'calendar_event_id',
+      'status',
+    ];
+    const updates = [];
+    const values = [];
     fields.forEach(f => {
       if (req.body[f] !== undefined) {
         updates.push(`${f}=?`);
-        values.push(f === 'activity_date' && req.body[f]
-          ? String(req.body[f]).replace('T', ' ').slice(0, 19)
-          : (req.body[f] || null));
+        values.push(
+          f === 'activity_date' && req.body[f]
+            ? String(req.body[f]).replace('T', ' ').slice(0, 19)
+            : req.body[f] || null
+        );
       }
     });
     if (!updates.length) return res.json({ success: true });
     values.push(req.params.id);
     await pool.query(`UPDATE activities SET ${updates.join(',')} WHERE id=?`, values);
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM activities WHERE id=?', [req.params.id]);
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -92,19 +174,40 @@ router.delete('/:id', async (req, res) => {
 router.post('/auto-link', async (req, res) => {
   try {
     const ACT_TO_EVENT = {
-      meeting: '미팅', site_visit: '영업방문', proposal: '제안',
-      bidding: '입찰', call: '기타', note: '기타', email: '기타',
-      '미팅': '미팅', '영업방문': '영업방문', '제안': '제안', '제안서': '제안',
-      '입찰': '입찰', '전화': '기타', '이메일': '기타', '메모': '기타',
-      '현장방문': '영업방문', '내부': '내부', '기타': '기타',
+      meeting: '미팅',
+      site_visit: '영업방문',
+      proposal: '제안',
+      bidding: '입찰',
+      call: '기타',
+      note: '기타',
+      email: '기타',
+      미팅: '미팅',
+      영업방문: '영업방문',
+      제안: '제안',
+      제안서: '제안',
+      입찰: '입찰',
+      전화: '기타',
+      이메일: '기타',
+      메모: '기타',
+      현장방문: '영업방문',
+      내부: '내부',
+      기타: '기타',
     };
     const TYPE_COLORS = {
-      '미팅': '#1a73e8', '영업방문': '#33b679', '입찰': '#d93025',
-      '제안': '#f9ab00', '내부': '#616161', '기타': '#9c27b0',
+      미팅: '#1a73e8',
+      영업방문: '#33b679',
+      입찰: '#d93025',
+      제안: '#f9ab00',
+      내부: '#616161',
+      기타: '#9c27b0',
     };
     const TYPE_ICON = {
-      '미팅': '[미팅]', '영업방문': '[현장방문]', '입찰': '[입찰]',
-      '제안': '[제안]', '내부': '[내부]', '기타': '',
+      미팅: '[미팅]',
+      영업방문: '[현장방문]',
+      입찰: '[입찰]',
+      제안: '[제안]',
+      내부: '[내부]',
+      기타: '',
     };
 
     // 미연결 활동 목록 (lead_id + 날짜 + 리드 정보 포함)
@@ -124,16 +227,22 @@ router.post('/auto-link', async (req, res) => {
     );
     const usedIds = new Set(usedRows.map(r => r.calendar_event_id));
 
-    let matched = 0, created = 0, skipped = 0;
+    let matched = 0,
+      created = 0,
+      skipped = 0;
 
     for (const act of unlinked) {
-      if (!act.act_date) { skipped++; continue; }
+      if (!act.act_date) {
+        skipped++;
+        continue;
+      }
 
       const eventType = ACT_TO_EVENT[act.activity_type] || '기타';
-      const dateStr   = new Date(act.act_date).toISOString().slice(0, 10);
+      const dateStr = new Date(act.act_date).toISOString().slice(0, 10);
 
       // ① 기존 캘린더 이벤트 중 매칭 후보 탐색 (같은 리드 ±3일)
-      const [candidates] = await pool.query(`
+      const [candidates] = await pool.query(
+        `
         SELECT id, event_type,
                ABS(TIMESTAMPDIFF(MINUTE, start_datetime, ?)) AS diff_min
         FROM calendar_events
@@ -141,7 +250,9 @@ router.post('/auto-link', async (req, res) => {
           AND DATE(start_datetime) BETWEEN DATE_SUB(?, INTERVAL 3 DAY)
                                        AND DATE_ADD(?, INTERVAL 3 DAY)
         ORDER BY diff_min ASC LIMIT 10
-      `, [act.act_date, act.lead_id, dateStr, dateStr]);
+      `,
+        [act.act_date, act.lead_id, dateStr, dateStr]
+      );
 
       const free = candidates.filter(c => !usedIds.has(c.id));
       let calId = null;
@@ -151,47 +262,63 @@ router.post('/auto-link', async (req, res) => {
       } else if (free.length > 1) {
         const sameType = free.filter(c => c.event_type === eventType);
         if (sameType.length >= 1) calId = sameType[0].id;
-        else calId = free[0].id;   // 가장 가까운 것 선택
+        else calId = free[0].id; // 가장 가까운 것 선택
       }
 
       if (calId) {
         // ② 기존 이벤트에 연결
-        await pool.query('UPDATE activities SET calendar_event_id = ? WHERE id = ?', [calId, act.id]);
+        await pool.query('UPDATE activities SET calendar_event_id = ? WHERE id = ?', [
+          calId,
+          act.id,
+        ]);
         usedIds.add(calId);
         matched++;
       } else {
         // ③ 매칭 이벤트 없음 → 새 캘린더 이벤트 생성 후 연결
-        const color     = TYPE_COLORS[eventType] || '#9c27b0';
+        const color = TYPE_COLORS[eventType] || '#9c27b0';
         const titlePrefix = TYPE_ICON[eventType] || '';
-        const custPart  = act.customer_name ? act.customer_name + ' ' : '';
-        const evTitle   = `${titlePrefix} ${custPart}${act.title || act.activity_type}`.trim();
+        const custPart = act.customer_name ? act.customer_name + ' ' : '';
+        const evTitle = `${titlePrefix} ${custPart}${act.title || act.activity_type}`.trim();
 
         // activity_date를 캘린더 start_datetime으로 사용
         const dt = new Date(act.act_date);
-        const p  = n => String(n).padStart(2, '0');
-        const fmtDt = d => `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:00`;
+        const p = n => String(n).padStart(2, '0');
+        const fmtDt = d =>
+          `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:00`;
         const startDt = fmtDt(dt);
-        const endDt   = (() => { const e = new Date(dt); e.setHours(e.getHours() + 1); return fmtDt(e); })();
+        const endDt = (() => {
+          const e = new Date(dt);
+          e.setHours(e.getHours() + 1);
+          return fmtDt(e);
+        })();
 
-        const [ins] = await pool.query(`
+        const [ins] = await pool.query(
+          `
           INSERT INTO calendar_events
             (title, description, start_datetime, end_datetime, all_day,
              event_type, status, lead_id, customer_name, assigned_to, color)
           VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        `, [
-          evTitle,
-          act.content || null,
-          startDt, endDt, 0,
-          eventType,
-          'completed',           // 과거 활동이므로 완료 처리
-          act.lead_id,
-          act.customer_name || null,
-          act.performed_by || null,
-          color,
-        ]);
+        `,
+          [
+            evTitle,
+            act.content || null,
+            startDt,
+            endDt,
+            0,
+            eventType,
+            'completed', // 과거 활동이므로 완료 처리
+            act.lead_id,
+            act.customer_name || null,
+            act.performed_by || null,
+            color,
+          ]
+        );
         const newCalId = ins.insertId;
 
-        await pool.query('UPDATE activities SET calendar_event_id = ? WHERE id = ?', [newCalId, act.id]);
+        await pool.query('UPDATE activities SET calendar_event_id = ? WHERE id = ?', [
+          newCalId,
+          act.id,
+        ]);
         usedIds.add(newCalId);
         created++;
       }
@@ -199,12 +326,14 @@ router.post('/auto-link', async (req, res) => {
 
     res.json({
       success: true,
-      matched,   // 기존 이벤트 연결
-      created,   // 새 캘린더 이벤트 생성 후 연결
-      skipped,   // 날짜 없어서 건너뜀
+      matched, // 기존 이벤트 연결
+      created, // 새 캘린더 이벤트 생성 후 연결
+      skipped, // 날짜 없어서 건너뜀
       total: unlinked.length,
     });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // 특정 활동의 캘린더 후보 조회 (수동 연결 picker 용)
@@ -221,7 +350,8 @@ router.get('/:id/calendar-candidates', async (req, res) => {
 
     const dateStr = new Date(act.act_date).toISOString().slice(0, 10);
 
-    const [rows] = await pool.query(`
+    const [rows] = await pool.query(
+      `
       SELECT e.id, e.title, e.event_type, e.start_datetime, e.status,
              e.customer_name,
              (SELECT a2.id FROM activities a2 WHERE a2.calendar_event_id = e.id LIMIT 1) AS already_linked_act
@@ -231,10 +361,62 @@ router.get('/:id/calendar-candidates', async (req, res) => {
                                        AND DATE_ADD(?, INTERVAL 7 DAY)
       ORDER BY ABS(TIMESTAMPDIFF(MINUTE, e.start_datetime, ?)) ASC
       LIMIT 20
-    `, [act.lead_id, dateStr, dateStr, act.act_date]);
+    `,
+      [act.lead_id, dateStr, dateStr, act.act_date]
+    );
 
     res.json({ success: true, data: rows });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── 익스포트 (xlsx/csv/json) ────────────────────────────────
+router.get('/export', async (req, res) => {
+  try {
+    const { lead_id, project_id, activity_type, search } = req.query;
+    const cond = [],
+      params = [];
+    if (lead_id) {
+      cond.push('a.lead_id = ?');
+      params.push(lead_id);
+    }
+    if (project_id) {
+      cond.push('a.project_id = ?');
+      params.push(project_id);
+    }
+    if (activity_type) {
+      cond.push('a.activity_type = ?');
+      params.push(activity_type);
+    }
+    if (search) {
+      cond.push('(a.title LIKE ? OR a.content LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+    const [rows] = await pool.query(
+      `SELECT a.id, a.activity_type, a.title, a.content,
+              a.activity_date, a.status, a.performed_at,
+              tm.name AS performer_name,
+              l.customer_name, l.project_name
+         FROM activities a
+         LEFT JOIN team_members tm ON a.performed_by = tm.id
+         LEFT JOIN leads l         ON a.lead_id = l.id
+        ${where}
+        ORDER BY COALESCE(a.activity_date, a.performed_at) DESC
+        LIMIT 5000`,
+      params
+    );
+    sendExport(res, {
+      columns: ACT_COLS,
+      rows,
+      sheetName: '활동이력',
+      filename: '활동이력_' + new Date().toISOString().slice(0, 10),
+      format: normalizeFormat(req.query.format),
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 module.exports = router;

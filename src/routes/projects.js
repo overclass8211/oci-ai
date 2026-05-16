@@ -3,7 +3,8 @@ const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const upload = require('../middleware/upload');
-const { toExcelBuffer, fromExcelBuffer, sendExcel } = require('../utils/excelHelper');
+const { fromExcelBuffer } = require('../utils/excelHelper');
+const { sendExport, normalizeFormat } = require('../utils/exportHelper');
 
 const PROJ_COLS = [
   { key: 'name', label: '프로젝트명' },
@@ -227,8 +228,13 @@ router.get('/export', async (req, res) => {
        ${where} ORDER BY p.created_at DESC`,
       params
     );
-    const buf = toExcelBuffer(PROJ_COLS, rows, '프로젝트');
-    sendExcel(res, buf, '프로젝트_' + new Date().toISOString().slice(0, 10));
+    sendExport(res, {
+      columns: PROJ_COLS,
+      rows,
+      sheetName: '프로젝트',
+      filename: '프로젝트_' + new Date().toISOString().slice(0, 10),
+      format: normalizeFormat(req.query.format),
+    });
   } catch (err) {
     handleError(res, err);
   }

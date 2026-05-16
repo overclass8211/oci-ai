@@ -12,6 +12,18 @@ const {
   isUserOverLimit,
 } = require('../services/gemini');
 const { transcribeAudio } = require('../services/stt');
+const { sendExport, normalizeFormat } = require('../utils/exportHelper');
+
+const MEETING_COLS = [
+  { key: 'id', label: 'ID' },
+  { key: 'title', label: '제목' },
+  { key: 'meeting_date', label: '미팅일' },
+  { key: 'customer_name', label: '고객사' },
+  { key: 'audio_duration_sec', label: '길이(초)' },
+  { key: 'created_by_name', label: '작성자' },
+  { key: 'summary_preview', label: '요약 미리보기' },
+  { key: 'created_at', label: '생성일' },
+];
 
 // 1) 음성 → 텍스트
 router.post(
@@ -115,6 +127,45 @@ router.get('/', async (req, res) => {
        ORDER BY m.created_at DESC`
     );
     res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── 익스포트 (xlsx/csv/json) — ⚠️ /:id 보다 먼저 등록 ────────
+router.get('/export', async (req, res) => {
+  try {
+    const { search, customer_name } = req.query;
+    const cond = [],
+      params = [];
+    if (customer_name) {
+      cond.push('m.customer_name = ?');
+      params.push(customer_name);
+    }
+    if (search) {
+      cond.push('(m.title LIKE ? OR m.summary_md LIKE ? OR m.key_points LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+    const [rows] = await pool.query(
+      `SELECT m.id, m.title, m.meeting_date, m.customer_name,
+              m.audio_duration_sec, m.created_at,
+              SUBSTRING(m.summary_md, 1, 200) AS summary_preview,
+              t.name AS created_by_name
+         FROM meeting_minutes m
+         LEFT JOIN team_members t ON m.created_by = t.id
+        ${where}
+        ORDER BY m.created_at DESC
+        LIMIT 2000`,
+      params
+    );
+    sendExport(res, {
+      columns: MEETING_COLS,
+      rows,
+      sheetName: '회의록',
+      filename: '회의록_' + new Date().toISOString().slice(0, 10),
+      format: normalizeFormat(req.query.format),
+    });
   } catch (err) {
     handleError(res, err);
   }
@@ -398,4 +449,5 @@ router.post('/:id/register-calendar', async (req, res) => {
   }
 });
 
+// ── 익스포트 (xlsx/csv/json) ────────────────────────────────
 module.exports = router;

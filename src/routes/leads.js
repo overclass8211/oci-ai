@@ -11,7 +11,8 @@ const {
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { wsBroadcast } = require('../ws');
 const upload = require('../middleware/upload');
-const { toExcelBuffer, fromExcelBuffer, sendExcel } = require('../utils/excelHelper');
+const { fromExcelBuffer } = require('../utils/excelHelper');
+const { sendExport, normalizeFormat } = require('../utils/exportHelper');
 
 const STAGE_KO = {
   lead: '리드 발굴',
@@ -143,8 +144,13 @@ router.get('/export', async (req, res) => {
       params
     );
     const data = rows.map(r => ({ ...r, stage_label: STAGE_KO[r.stage] || r.stage }));
-    const buf = toExcelBuffer(LEAD_COLS, data, '영업리드');
-    sendExcel(res, buf, '영업리드_' + new Date().toISOString().slice(0, 10));
+    sendExport(res, {
+      columns: LEAD_COLS,
+      rows: data,
+      sheetName: '영업리드',
+      filename: '영업리드_' + new Date().toISOString().slice(0, 10),
+      format: normalizeFormat(req.query.format),
+    });
   } catch (err) {
     handleError(res, err);
   }
