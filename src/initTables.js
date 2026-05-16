@@ -301,6 +301,43 @@ async function initTables() {
       INDEX idx_created (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── Webhook 등록 (외부 시스템 통합) ──────────────────────
+    // event_types: JSON array (예: ["lead.won","project.completed"])
+    // secret: HMAC-SHA256 서명용
+    await pool.query(`CREATE TABLE IF NOT EXISTS webhooks (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      name         VARCHAR(150) NOT NULL,
+      url          VARCHAR(500) NOT NULL,
+      event_types  TEXT NOT NULL,
+      secret       VARCHAR(100) NULL,
+      is_active    TINYINT(1) NOT NULL DEFAULT 1,
+      failure_count INT NOT NULL DEFAULT 0,
+      last_status  VARCHAR(20) NULL,
+      last_sent_at TIMESTAMP NULL,
+      created_by   INT NULL,
+      created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_active (is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    // ── Webhook 발송 로그 ────────────────────────────────────
+    // 최근 1,000건 유지 (자동 cleanup)
+    await pool.query(`CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id             INT AUTO_INCREMENT PRIMARY KEY,
+      webhook_id     INT NOT NULL,
+      event_type     VARCHAR(50) NOT NULL,
+      delivery_id    VARCHAR(50) NOT NULL,
+      status         VARCHAR(20) NOT NULL DEFAULT 'pending',
+      http_status    INT NULL,
+      response_ms    INT NULL,
+      attempt        INT NOT NULL DEFAULT 1,
+      error_message  VARCHAR(500) NULL,
+      payload_preview VARCHAR(500) NULL,
+      created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_webhook  (webhook_id, created_at),
+      INDEX idx_delivery (delivery_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // ── 이메일 템플릿 — Mailto 발송용 ─────────────────────────
     // 카테고리: lead | customer | project | general
     // is_system=1 시드 템플릿은 수정/삭제 불가 (UI 에서 제한)

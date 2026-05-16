@@ -1,54 +1,93 @@
 const router = require('express').Router();
-const pool   = require('../db');
+const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
-const { requireFields, validateId, sanitizeQuery, schema, SCHEMAS } = require('../middleware/validate');
+const {
+  requireFields,
+  validateId,
+  sanitizeQuery,
+  schema,
+  SCHEMAS,
+} = require('../middleware/validate');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { wsBroadcast } = require('../ws');
 const upload = require('../middleware/upload');
 const { toExcelBuffer, fromExcelBuffer, sendExcel } = require('../utils/excelHelper');
 
-const STAGE_KO = { lead:'리드 발굴', review:'검토/미팅', proposal:'제안/견적', bidding:'입찰', negotiation:'협상/계약', won:'수주 완료', lost:'실주', dropped:'드롭' };
-const STAGE_EN = Object.fromEntries(Object.entries(STAGE_KO).map(([k,v])=>[v,k]));
+const STAGE_KO = {
+  lead: '리드 발굴',
+  review: '검토/미팅',
+  proposal: '제안/견적',
+  bidding: '입찰',
+  negotiation: '협상/계약',
+  won: '수주 완료',
+  lost: '실주',
+  dropped: '드롭',
+};
+const STAGE_EN = Object.fromEntries(Object.entries(STAGE_KO).map(([k, v]) => [v, k]));
 
 const LEAD_COLS = [
-  { key:'customer_name',       label:'고객사' },
-  { key:'project_name',        label:'프로젝트명' },
-  { key:'business_type',       label:'사업유형' },
-  { key:'capacity_mw',         label:'규모(MW)' },
-  { key:'stage_label',         label:'단계' },
-  { key:'region',              label:'구분' },
-  { key:'expected_amount',     label:'예상금액' },
-  { key:'currency',            label:'통화' },
-  { key:'assigned_name',       label:'담당자' },
-  { key:'expected_close_date', label:'완료예정일' },
-  { key:'bidding_deadline',    label:'입찰마감일' },
-  { key:'notes',               label:'비고' },
+  { key: 'customer_name', label: '고객사' },
+  { key: 'project_name', label: '프로젝트명' },
+  { key: 'business_type', label: '사업유형' },
+  { key: 'capacity_mw', label: '규모(MW)' },
+  { key: 'stage_label', label: '단계' },
+  { key: 'region', label: '구분' },
+  { key: 'expected_amount', label: '예상금액' },
+  { key: 'currency', label: '통화' },
+  { key: 'assigned_name', label: '담당자' },
+  { key: 'expected_close_date', label: '완료예정일' },
+  { key: 'bidding_deadline', label: '입찰마감일' },
+  { key: 'notes', label: '비고' },
 ];
 
 // stage_changed_at 컬럼 자동 생성 (없을 경우)
-pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_changed_at DATETIME NULL DEFAULT NULL`)
+pool
+  .query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_changed_at DATETIME NULL DEFAULT NULL`)
   .catch(() => {});
 
 router.get('/', sanitizeQuery, async (req, res) => {
   try {
-    const { stage, region, assigned_to, business_type, search, date_from, date_to, date_field } = req.query;
+    const { stage, region, assigned_to, business_type, search, date_from, date_to, date_field } =
+      req.query;
     const { page, limit, offset } = parsePage(req.query);
 
     // date_field: 'stage'(기본) = stage_changed_at, 'created' = created_at,
     //             'close' = expected_close_date, 'updated' = updated_at
-    const dateCol = date_field === 'created' ? 'l.created_at'
-                  : date_field === 'close'   ? 'l.expected_close_date'
-                  : date_field === 'updated' ? 'l.updated_at'
-                  : 'COALESCE(l.stage_changed_at, l.updated_at)'; // 기본: 단계변경일
+    const dateCol =
+      date_field === 'created'
+        ? 'l.created_at'
+        : date_field === 'close'
+          ? 'l.expected_close_date'
+          : date_field === 'updated'
+            ? 'l.updated_at'
+            : 'COALESCE(l.stage_changed_at, l.updated_at)'; // 기본: 단계변경일
 
     let where = 'WHERE 1=1';
     const params = [];
-    if (stage)         { where += ' AND l.stage = ?';          params.push(stage); }
-    if (region)        { where += ' AND l.region = ?';         params.push(region); }
-    if (assigned_to)   { where += ' AND l.assigned_to = ?';    params.push(assigned_to); }
-    if (business_type) { where += ' AND l.business_type = ?';  params.push(business_type); }
-    if (date_from)     { where += ` AND ${dateCol} >= ?`;      params.push(date_from); }
-    if (date_to)       { where += ` AND ${dateCol} <= ?`;      params.push(date_to); }
+    if (stage) {
+      where += ' AND l.stage = ?';
+      params.push(stage);
+    }
+    if (region) {
+      where += ' AND l.region = ?';
+      params.push(region);
+    }
+    if (assigned_to) {
+      where += ' AND l.assigned_to = ?';
+      params.push(assigned_to);
+    }
+    if (business_type) {
+      where += ' AND l.business_type = ?';
+      params.push(business_type);
+    }
+    if (date_from) {
+      where += ` AND ${dateCol} >= ?`;
+      params.push(date_from);
+    }
+    if (date_to) {
+      where += ` AND ${dateCol} <= ?`;
+      params.push(date_to);
+    }
     if (search) {
       where += ' AND (l.customer_name LIKE ? OR l.project_name LIKE ? OR l.notes LIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
@@ -66,7 +105,9 @@ router.get('/', sanitizeQuery, async (req, res) => {
     ]);
     const total = Number(countRows[0]?.total ?? 0);
     res.json(pageResult(rows, total, page, limit));
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── 엑셀 내보내기 ────────────────────────────────────────────
@@ -75,20 +116,38 @@ router.get('/export', async (req, res) => {
     const { stage, region, assigned_to, business_type, search } = req.query;
     let where = 'WHERE 1=1';
     const params = [];
-    if (stage)         { where += ' AND l.stage = ?';         params.push(stage); }
-    if (region)        { where += ' AND l.region = ?';        params.push(region); }
-    if (assigned_to)   { where += ' AND l.assigned_to = ?';   params.push(assigned_to); }
-    if (business_type) { where += ' AND l.business_type = ?'; params.push(business_type); }
-    if (search)        { where += ' AND (l.customer_name LIKE ? OR l.project_name LIKE ?)';
-                         params.push(`%${search}%`, `%${search}%`); }
+    if (stage) {
+      where += ' AND l.stage = ?';
+      params.push(stage);
+    }
+    if (region) {
+      where += ' AND l.region = ?';
+      params.push(region);
+    }
+    if (assigned_to) {
+      where += ' AND l.assigned_to = ?';
+      params.push(assigned_to);
+    }
+    if (business_type) {
+      where += ' AND l.business_type = ?';
+      params.push(business_type);
+    }
+    if (search) {
+      where += ' AND (l.customer_name LIKE ? OR l.project_name LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
     const [rows] = await pool.query(
       `SELECT l.*, t.name AS assigned_name FROM leads l
        LEFT JOIN team_members t ON l.assigned_to = t.id
-       ${where} ORDER BY l.updated_at DESC`, params);
+       ${where} ORDER BY l.updated_at DESC`,
+      params
+    );
     const data = rows.map(r => ({ ...r, stage_label: STAGE_KO[r.stage] || r.stage }));
     const buf = toExcelBuffer(LEAD_COLS, data, '영업리드');
-    sendExcel(res, buf, '영업리드_' + new Date().toISOString().slice(0,10));
-  } catch (err) { handleError(res, err); }
+    sendExcel(res, buf, '영업리드_' + new Date().toISOString().slice(0, 10));
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── 엑셀 가져오기 ────────────────────────────────────────────
@@ -96,88 +155,118 @@ router.post('/import', upload.memory.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: '파일이 없습니다.' });
     const rows = fromExcelBuffer(req.file.buffer);
-    if (!rows.length) return res.status(400).json({ success: false, message: '데이터가 없습니다.' });
+    if (!rows.length)
+      return res.status(400).json({ success: false, message: '데이터가 없습니다.' });
 
     // 팀원 이름 → ID 맵
     const [team] = await pool.query('SELECT id, name FROM team_members');
     const teamMap = Object.fromEntries(team.map(t => [t.name.trim(), t.id]));
 
-    const inserted = []; const errors = [];
+    const inserted = [];
+    const errors = [];
     for (const row of rows) {
       const cn = String(row['고객사'] || row['customer_name'] || '').trim();
       const pn = String(row['프로젝트명'] || row['project_name'] || '').trim();
-      if (!cn || !pn) { errors.push({ row, reason: '고객사/프로젝트명 누락' }); continue; }
+      if (!cn || !pn) {
+        errors.push({ row, reason: '고객사/프로젝트명 누락' });
+        continue;
+      }
       try {
         const stageRaw = String(row['단계'] || row['stage'] || '').trim();
-        const stage    = STAGE_EN[stageRaw] || stageRaw || 'lead';
+        const stage = STAGE_EN[stageRaw] || stageRaw || 'lead';
         const assignedName = String(row['담당자'] || row['assigned_name'] || '').trim();
-        const assignedId   = teamMap[assignedName] || null;
+        const assignedId = teamMap[assignedName] || null;
         const [r] = await pool.query(
           `INSERT INTO leads (customer_name, project_name, business_type, region,
            capacity_mw, expected_amount, currency, stage, assigned_to,
            expected_close_date, bidding_deadline, notes)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [cn, pn,
-           String(row['사업유형'] || row['business_type'] || '태양광').trim(),
-           String(row['구분'] || row['region'] || '국내').trim(),
-           parseFloat(row['규모(MW)'] || row['capacity_mw']) || null,
-           parseFloat(row['예상금액'] || row['expected_amount']) || null,
-           String(row['통화'] || row['currency'] || 'KRW').trim(),
-           stage, assignedId,
-           row['완료예정일'] || row['expected_close_date'] || null,
-           row['입찰마감일'] || row['bidding_deadline'] || null,
-           String(row['비고'] || row['notes'] || '').trim() || null]);
+          [
+            cn,
+            pn,
+            String(row['사업유형'] || row['business_type'] || '태양광').trim(),
+            String(row['구분'] || row['region'] || '국내').trim(),
+            parseFloat(row['규모(MW)'] || row['capacity_mw']) || null,
+            parseFloat(row['예상금액'] || row['expected_amount']) || null,
+            String(row['통화'] || row['currency'] || 'KRW').trim(),
+            stage,
+            assignedId,
+            row['완료예정일'] || row['expected_close_date'] || null,
+            row['입찰마감일'] || row['bidding_deadline'] || null,
+            String(row['비고'] || row['notes'] || '').trim() || null,
+          ]
+        );
         inserted.push(r.insertId);
-      } catch (e) { errors.push({ row, reason: e.message }); }
+      } catch (e) {
+        errors.push({ row, reason: e.message });
+      }
     }
     res.json({ success: true, inserted: inserted.length, errors });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ⚠️ 정적 경로는 반드시 /:id 보다 먼저 — Express 라우터 매칭 순서
 router.get('/funnel-stats', async (req, res) => {
   try {
     const result = await calcFunnelConversion({
-      date_from:     req.query.date_from,
-      date_to:       req.query.date_to,
-      date_field:    req.query.date_field,
-      region:        req.query.region,
+      date_from: req.query.date_from,
+      date_to: req.query.date_to,
+      date_field: req.query.date_field,
+      region: req.query.region,
       business_type: req.query.business_type,
-      assigned_to:   req.query.assigned_to,
-      search:        req.query.search,
+      assigned_to: req.query.assigned_to,
+      search: req.query.search,
     });
     res.json({ success: true, data: result });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.get('/:id', validateId, async (req, res) => {
   try {
     const [[lead]] = await pool.query(
       `SELECT l.*, t.name AS assigned_name FROM leads l
-       LEFT JOIN team_members t ON l.assigned_to = t.id WHERE l.id = ?`, [req.params.id]);
+       LEFT JOIN team_members t ON l.assigned_to = t.id WHERE l.id = ?`,
+      [req.params.id]
+    );
     if (!lead) return res.status(404).json({ success: false, error: 'Not found' });
     const [activities] = await pool.query(
       `SELECT a.*, t.name AS performer_name FROM activities a
        LEFT JOIN team_members t ON a.performed_by = t.id
-       WHERE a.lead_id = ? ORDER BY a.performed_at DESC`, [req.params.id]);
+       WHERE a.lead_id = ? ORDER BY a.performed_at DESC`,
+      [req.params.id]
+    );
 
     // 연결된 회의록 (lead_id 직접 연결 OR 고객사명 기준 매핑)
     let meetings = [];
     try {
       const [byLead] = await pool.query(
         `SELECT id, title, meeting_date, customer_name, summary_md, calendar_event_id, created_at
-         FROM meeting_minutes WHERE lead_id = ? ORDER BY meeting_date DESC`, [req.params.id]);
-      const [byCustomer] = lead.customer_name ? await pool.query(
-        `SELECT id, title, meeting_date, customer_name, summary_md, calendar_event_id, created_at
+         FROM meeting_minutes WHERE lead_id = ? ORDER BY meeting_date DESC`,
+        [req.params.id]
+      );
+      const [byCustomer] = lead.customer_name
+        ? await pool.query(
+            `SELECT id, title, meeting_date, customer_name, summary_md, calendar_event_id, created_at
          FROM meeting_minutes WHERE customer_name = ? AND (lead_id IS NULL OR lead_id != ?)
-         ORDER BY meeting_date DESC`, [lead.customer_name, req.params.id]) : [[]];
+         ORDER BY meeting_date DESC`,
+            [lead.customer_name, req.params.id]
+          )
+        : [[]];
       // 중복 제거
       const seen = new Set(byLead.map(m => m.id));
       meetings = [...byLead, ...byCustomer.filter(m => !seen.has(m.id))];
-    } catch (_) { /* meeting_minutes 테이블 없으면 빈 배열 */ }
+    } catch (_) {
+      /* meeting_minutes 테이블 없으면 빈 배열 */
+    }
 
     res.json({ success: true, data: { ...lead, activities, meetings } });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ── 일괄 등록 (Copy & Paste import) ──────────────────────────
@@ -187,7 +276,7 @@ router.post('/bulk', async (req, res) => {
     return res.status(400).json({ success: false, message: '등록할 데이터가 없습니다.' });
 
   const inserted = [];
-  const errors   = [];
+  const errors = [];
   for (const row of leads) {
     const { customer_name, project_name } = row;
     if (!customer_name || !project_name) {
@@ -201,17 +290,20 @@ router.post('/bulk', async (req, res) => {
           capacity_mw, expected_amount, currency, stage,
           assigned_to, expected_close_date, bidding_deadline, notes)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [customer_name, project_name,
-         row.business_type    || '태양광',
-         row.region           || '국내',
-         row.capacity_mw      || null,
-         row.expected_amount  || null,
-         row.currency         || 'KRW',
-         row.stage            || 'lead',
-         row.assigned_to      || null,
-         row.expected_close_date || null,
-         row.bidding_deadline || null,
-         row.notes            || null]
+        [
+          customer_name,
+          project_name,
+          row.business_type || '태양광',
+          row.region || '국내',
+          row.capacity_mw || null,
+          row.expected_amount || null,
+          row.currency || 'KRW',
+          row.stage || 'lead',
+          row.assigned_to || null,
+          row.expected_close_date || null,
+          row.bidding_deadline || null,
+          row.notes || null,
+        ]
       );
       inserted.push(r.insertId);
     } catch (e) {
@@ -223,7 +315,7 @@ router.post('/bulk', async (req, res) => {
 
 // ── 동적 stage 검증 (pipeline_stages 테이블 기반) ──────────────
 async function validateStage(stage) {
-  if (!stage) return true;   // null/undefined는 default('lead')로 처리됨
+  if (!stage) return true; // null/undefined는 default('lead')로 처리됨
   const pipelineStages = require('./pipeline-stages');
   const validKeys = await pipelineStages.getValidKeys();
   return validKeys.includes(stage);
@@ -246,9 +338,18 @@ async function calcKrw(amount, currency) {
 router.post('/', schema(SCHEMAS.createLead), async (req, res) => {
   try {
     const {
-      customer_name, project_name, business_type, region,
-      capacity_mw, expected_amount, currency, stage,
-      assigned_to, expected_close_date, bidding_deadline, notes
+      customer_name,
+      project_name,
+      business_type,
+      region,
+      capacity_mw,
+      expected_amount,
+      currency,
+      stage,
+      assigned_to,
+      expected_close_date,
+      bidding_deadline,
+      notes,
     } = req.body;
 
     // 동적 stage 검증 (pipeline_stages 기반)
@@ -259,9 +360,9 @@ router.post('/', schema(SCHEMAS.createLead), async (req, res) => {
     const cur = currency || 'KRW';
     const { krw, rate } = await calcKrw(expected_amount, cur);
     // 신규 등록은 항상 'live' 정책 (won 단계로 들어와도 등록 시점 확정 가능)
-    const isWon = (stage === 'won');
+    const isWon = stage === 'won';
     const lockPolicy = isWon ? 'locked' : 'live';
-    const lockedAt   = isWon ? new Date() : null;
+    const lockedAt = isWon ? new Date() : null;
 
     const [result] = await pool.query(
       `INSERT INTO leads
@@ -270,25 +371,84 @@ router.post('/', schema(SCHEMAS.createLead), async (req, res) => {
         assigned_to, expected_close_date, bidding_deadline, notes,
         amount_krw, fx_rate, fx_lock_policy, fx_locked_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [customer_name, project_name, business_type || '태양광',
-       region || '국내', capacity_mw || null, expected_amount || null,
-       cur, stage || 'lead',
-       assigned_to || null, expected_close_date || null,
-       bidding_deadline || null, notes || null,
-       krw, rate, lockPolicy, lockedAt]
+      [
+        customer_name,
+        project_name,
+        business_type || '태양광',
+        region || '국내',
+        capacity_mw || null,
+        expected_amount || null,
+        cur,
+        stage || 'lead',
+        assigned_to || null,
+        expected_close_date || null,
+        bidding_deadline || null,
+        notes || null,
+        krw,
+        rate,
+        lockPolicy,
+        lockedAt,
+      ]
     );
-    res.json({ success: true, id: result.insertId, data: { id: result.insertId, amount_krw: krw } });
-  } catch (err) { handleError(res, err); }
+    // Webhook 발행 — fire-and-forget
+    try {
+      const wh = require('../services/webhookDispatcher');
+      wh.emit('lead.created', {
+        id: result.insertId,
+        customer_name,
+        project_name,
+        business_type: business_type || '태양광',
+        stage: stage || 'lead',
+        expected_amount,
+        currency: cur,
+        amount_krw: krw,
+      });
+      if (stage === 'won') {
+        wh.emit('lead.won', {
+          id: result.insertId,
+          customer_name,
+          project_name,
+          expected_amount,
+          currency: cur,
+          amount_krw: krw,
+        });
+      }
+    } catch (_) {
+      /* webhook 실패는 무시 */
+    }
+    res.json({
+      success: true,
+      id: result.insertId,
+      data: { id: result.insertId, amount_krw: krw },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.put('/:id', validateId, async (req, res) => {
   try {
-    const fields = ['customer_name','project_name','business_type','region',
-      'capacity_mw','expected_amount','currency','stage',
-      'assigned_to','expected_close_date','bidding_deadline','notes'];
-    const updates = []; const values = [];
+    const fields = [
+      'customer_name',
+      'project_name',
+      'business_type',
+      'region',
+      'capacity_mw',
+      'expected_amount',
+      'currency',
+      'stage',
+      'assigned_to',
+      'expected_close_date',
+      'bidding_deadline',
+      'notes',
+    ];
+    const updates = [];
+    const values = [];
     fields.forEach(f => {
-      if (req.body[f] !== undefined) { updates.push(`${f} = ?`); values.push(req.body[f]); }
+      if (req.body[f] !== undefined) {
+        updates.push(`${f} = ?`);
+        values.push(req.body[f]);
+      }
     });
     if (!updates.length) return res.json({ success: true, message: 'No changes' });
 
@@ -297,20 +457,27 @@ router.put('/:id', validateId, async (req, res) => {
     const amtChanged = req.body.expected_amount !== undefined;
     const curChanged = req.body.currency !== undefined;
     if (amtChanged || curChanged) {
-      const [[curr]] = await pool.query('SELECT expected_amount, currency, fx_lock_policy FROM leads WHERE id=?', [req.params.id]);
+      const [[curr]] = await pool.query(
+        'SELECT expected_amount, currency, fx_lock_policy FROM leads WHERE id=?',
+        [req.params.id]
+      );
       if (curr && curr.fx_lock_policy !== 'locked') {
         const newAmt = amtChanged ? req.body.expected_amount : curr.expected_amount;
         const newCur = curChanged ? req.body.currency : curr.currency;
         const { krw, rate } = await calcKrw(newAmt, newCur);
-        updates.push('amount_krw=?'); values.push(krw);
-        updates.push('fx_rate=?');    values.push(rate);
+        updates.push('amount_krw=?');
+        values.push(krw);
+        updates.push('fx_rate=?');
+        values.push(rate);
       }
     }
 
     values.push(req.params.id);
     await pool.query(`UPDATE leads SET ${updates.join(',')} WHERE id = ?`, values);
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res) => {
@@ -326,7 +493,9 @@ router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res
     if (stage === 'won') {
       // 현재 lead 정보 가져와서 그날 환율 고정
       const [[curr]] = await pool.query(
-        'SELECT expected_amount, currency, fx_lock_policy FROM leads WHERE id=?', [req.params.id]);
+        'SELECT expected_amount, currency, fx_lock_policy FROM leads WHERE id=?',
+        [req.params.id]
+      );
       if (curr && curr.fx_lock_policy !== 'locked') {
         const { krw, rate } = await calcKrw(curr.expected_amount, curr.currency);
         fxUpdate = `, amount_krw=?, fx_rate=?, fx_lock_policy='locked', fx_locked_at=NOW()`;
@@ -334,8 +503,9 @@ router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res
       }
     } else if (['lost', 'dropped'].includes(stage)) {
       // 실주/드롭은 마지막 환율로 잠금 (참조용 유지)
-      const [[curr]] = await pool.query(
-        'SELECT fx_lock_policy FROM leads WHERE id=?', [req.params.id]);
+      const [[curr]] = await pool.query('SELECT fx_lock_policy FROM leads WHERE id=?', [
+        req.params.id,
+      ]);
       if (curr && curr.fx_lock_policy !== 'locked') {
         fxUpdate = `, fx_lock_policy='locked', fx_locked_at=NOW()`;
       }
@@ -350,26 +520,39 @@ router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res
       await pool.query(baseSql, [stage, ...fxParams, req.params.id]);
     } catch (e) {
       if (e.code === 'ER_BAD_FIELD_ERROR') {
-        await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_changed_at DATETIME NULL DEFAULT NULL`);
+        await pool.query(
+          `ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_changed_at DATETIME NULL DEFAULT NULL`
+        );
         await pool.query(baseSql, [stage, ...fxParams, req.params.id]);
       } else throw e;
     }
     const stageNameMap = {
-      lead:'리드발굴', review:'검토', proposal:'제안', bidding:'입찰',
-      negotiation:'협상', won:'수주', lost:'실주', dropped:'드롭'
+      lead: '리드발굴',
+      review: '검토',
+      proposal: '제안',
+      bidding: '입찰',
+      negotiation: '협상',
+      won: '수주',
+      lost: '실주',
+      dropped: '드롭',
     };
     await pool.query(
       `INSERT INTO activities (lead_id, activity_type, title, content, performed_by) VALUES (?,?,?,?,?)`,
-      [req.params.id,
-       stage === 'won' ? '수주' : stage === 'dropped' ? '드롭' : 'stage_change',
-       `단계 변경: ${stageNameMap[stage]}`,
-       `리드 단계가 ${stageNameMap[stage]}(으)로 변경되었습니다.`,
-       1]
+      [
+        req.params.id,
+        stage === 'won' ? '수주' : stage === 'dropped' ? '드롭' : 'stage_change',
+        `단계 변경: ${stageNameMap[stage]}`,
+        `리드 단계가 ${stageNameMap[stage]}(으)로 변경되었습니다.`,
+        1,
+      ]
     );
     // 단계 변경 실시간 알림 브로드캐스트
-    const [[lead]] = await pool.query('SELECT customer_name, project_name FROM leads WHERE id=?', [req.params.id]);
+    const [[lead]] = await pool.query('SELECT customer_name, project_name FROM leads WHERE id=?', [
+      req.params.id,
+    ]);
     if (lead) {
-      const icon = stage === 'won' ? '🏆' : stage === 'dropped' ? '❌' : stage === 'negotiation' ? '🤝' : '📋';
+      const icon =
+        stage === 'won' ? '🏆' : stage === 'dropped' ? '❌' : stage === 'negotiation' ? '🤝' : '📋';
       wsBroadcast({
         type: 'stage_change',
         lead_id: Number(req.params.id),
@@ -377,20 +560,53 @@ router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res
         project_name: lead.project_name,
         stage,
         stage_label: stageNameMap[stage],
-        icon
+        icon,
       });
+      // Webhook 발행 — 단계 변경 + (수주일 때 추가 lead.won)
+      try {
+        const wh = require('../services/webhookDispatcher');
+        wh.emit('lead.stage_changed', {
+          id: Number(req.params.id),
+          customer_name: lead.customer_name,
+          project_name: lead.project_name,
+          stage,
+          stage_label: stageNameMap[stage],
+        });
+        if (stage === 'won') {
+          const [[detail]] = await pool.query(
+            'SELECT expected_amount, currency, amount_krw FROM leads WHERE id=?',
+            [req.params.id]
+          );
+          wh.emit('lead.won', {
+            id: Number(req.params.id),
+            customer_name: lead.customer_name,
+            project_name: lead.project_name,
+            expected_amount: detail?.expected_amount,
+            currency: detail?.currency,
+            amount_krw: detail?.amount_krw,
+          });
+        }
+      } catch (_) {
+        /* 무시 */
+      }
     }
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 router.delete('/:id', validateId, async (req, res) => {
   try {
     // 연결된 캘린더 이벤트의 lead_id를 NULL로 정리 (고아 데이터 방지)
-    await pool.query('UPDATE calendar_events SET lead_id = NULL WHERE lead_id = ?', [req.params.id]);
+    await pool.query('UPDATE calendar_events SET lead_id = NULL WHERE lead_id = ?', [
+      req.params.id,
+    ]);
     await pool.query('DELETE FROM leads WHERE id = ?', [req.params.id]);
     res.json({ success: true });
-  } catch (err) { handleError(res, err); }
+  } catch (err) {
+    handleError(res, err);
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -413,22 +629,35 @@ async function calcFunnelConversion(filters = {}) {
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const wonKey = stages.find(s => s.role === 'won')?.stage_key;
   const flowKeys = [...activeStages.map(s => s.stage_key)];
-  if (wonKey) flowKeys.push(wonKey);   // funnel은 won 까지 포함 (목표 도달)
+  if (wonKey) flowKeys.push(wonKey); // funnel은 won 까지 포함 (목표 도달)
 
   // WHERE 절 구성 (필터)
   const cond = ['1=1'];
   const params = [];
   if (filters.date_from && filters.date_to) {
-    const dateCol = filters.date_field === 'created' ? 'created_at'
-                  : filters.date_field === 'close'   ? 'expected_close_date'
-                  : filters.date_field === 'updated' ? 'updated_at'
-                  : 'COALESCE(stage_changed_at, updated_at)';
+    const dateCol =
+      filters.date_field === 'created'
+        ? 'created_at'
+        : filters.date_field === 'close'
+          ? 'expected_close_date'
+          : filters.date_field === 'updated'
+            ? 'updated_at'
+            : 'COALESCE(stage_changed_at, updated_at)';
     cond.push(`${dateCol} BETWEEN ? AND ?`);
     params.push(filters.date_from, filters.date_to);
   }
-  if (filters.region)        { cond.push('region = ?');        params.push(filters.region); }
-  if (filters.business_type) { cond.push('business_type = ?'); params.push(filters.business_type); }
-  if (filters.assigned_to)   { cond.push('assigned_to = ?');   params.push(filters.assigned_to); }
+  if (filters.region) {
+    cond.push('region = ?');
+    params.push(filters.region);
+  }
+  if (filters.business_type) {
+    cond.push('business_type = ?');
+    params.push(filters.business_type);
+  }
+  if (filters.assigned_to) {
+    cond.push('assigned_to = ?');
+    params.push(filters.assigned_to);
+  }
   if (filters.search) {
     cond.push('(customer_name LIKE ? OR project_name LIKE ?)');
     params.push(`%${filters.search}%`, `%${filters.search}%`);
@@ -441,22 +670,23 @@ async function calcFunnelConversion(filters = {}) {
     params
   );
   const dist = {};
-  rows.forEach(r => dist[r.stage] = Number(r.cnt));
+  rows.forEach(r => (dist[r.stage] = Number(r.cnt)));
 
   // 누적 도달 카드 (i 단계 + 그 이후 단계 합)
   const reached = {};
   for (let i = 0; i < flowKeys.length; i++) {
     let sum = 0;
-    for (let j = i; j < flowKeys.length; j++) sum += (dist[flowKeys[j]] || 0);
+    for (let j = i; j < flowKeys.length; j++) sum += dist[flowKeys[j]] || 0;
     reached[flowKeys[i]] = sum;
   }
 
   // 단계 간 전환율 (i → i+1)
   const conversions = {};
   for (let i = 0; i < flowKeys.length - 1; i++) {
-    const from = flowKeys[i], to = flowKeys[i + 1];
-    conversions[from + '__' + to] = reached[from] > 0
-      ? Math.round(reached[to] / reached[from] * 100) : null;
+    const from = flowKeys[i],
+      to = flowKeys[i + 1];
+    conversions[from + '__' + to] =
+      reached[from] > 0 ? Math.round((reached[to] / reached[from]) * 100) : null;
   }
 
   return { dist, reached, conversions, flowKeys };
@@ -489,16 +719,29 @@ router.post('/stage-coach', async (req, res) => {
     const cardCond = ['stage = ?'];
     const cardParams = [stage];
     if (filters.date_from && filters.date_to) {
-      const dateCol = filters.date_field === 'created' ? 'created_at'
-                    : filters.date_field === 'close'   ? 'expected_close_date'
-                    : filters.date_field === 'updated' ? 'updated_at'
-                    : 'COALESCE(stage_changed_at, updated_at)';
+      const dateCol =
+        filters.date_field === 'created'
+          ? 'created_at'
+          : filters.date_field === 'close'
+            ? 'expected_close_date'
+            : filters.date_field === 'updated'
+              ? 'updated_at'
+              : 'COALESCE(stage_changed_at, updated_at)';
       cardCond.push(`${dateCol} BETWEEN ? AND ?`);
       cardParams.push(filters.date_from, filters.date_to);
     }
-    if (filters.region)        { cardCond.push('region = ?');        cardParams.push(filters.region); }
-    if (filters.business_type) { cardCond.push('business_type = ?'); cardParams.push(filters.business_type); }
-    if (filters.assigned_to)   { cardCond.push('assigned_to = ?');   cardParams.push(filters.assigned_to); }
+    if (filters.region) {
+      cardCond.push('region = ?');
+      cardParams.push(filters.region);
+    }
+    if (filters.business_type) {
+      cardCond.push('business_type = ?');
+      cardParams.push(filters.business_type);
+    }
+    if (filters.assigned_to) {
+      cardCond.push('assigned_to = ?');
+      cardParams.push(filters.assigned_to);
+    }
     if (filters.search) {
       cardCond.push('(customer_name LIKE ? OR project_name LIKE ?)');
       cardParams.push(`%${filters.search}%`, `%${filters.search}%`);
@@ -512,7 +755,9 @@ router.post('/stage-coach', async (req, res) => {
               DATEDIFF(NOW(), updated_at) AS days_in_stage
        FROM leads
        WHERE ${cardCond.join(' AND ')}
-       ORDER BY updated_at ASC`, cardParams);
+       ORDER BY updated_at ASC`,
+      cardParams
+    );
 
     // funnel 누적 도달 + 전환율 계산 (페이지와 동일 데이터)
     const funnel = await calcFunnelConversion(filters);
@@ -522,8 +767,8 @@ router.post('/stage-coach', async (req, res) => {
       // role 기반 분류 (사용자 정의 stage_key도 지원)
       const role = stageInfo?.role || 'active';
       const isActive = role === 'active';
-      const isWon    = role === 'won';
-      const isLost   = role === 'lost' || role === 'dropped';
+      const isWon = role === 'won';
+      const isLost = role === 'lost' || role === 'dropped';
 
       let status, headline, going_well, warnings, urgent, next_actions;
       if (isActive) {
@@ -534,20 +779,22 @@ router.post('/stage-coach', async (req, res) => {
           '신규 딜 유입이 없어 파이프라인 흐름이 끊긴 상태',
           `${stageLabel} 단계 활동(미팅·제안 등)이 부족할 가능성`,
         ];
-        urgent = stage === 'lead'
-          ? ['신규 리드 발굴 활동 즉시 시작 필요']
-          : [`이전 단계에서 ${stageLabel}로 진행할 딜 검토 필요`];
-        next_actions = stage === 'lead'
-          ? [
-              '잠재 고객 리스트 업데이트 및 신규 영업 활동 계획 수립',
-              '마케팅 캠페인·외부 이벤트 참여로 리드 유입 확대',
-              '기존 고객사에 추가 제안 가능성 탐색',
-            ]
-          : [
-              `이전 단계 진행 딜 중 ${stageLabel} 진입 후보 식별`,
-              `${stageLabel} 단계의 평균 소요 시간 점검 및 병목 분석`,
-              '영업 담당자별 단계 흐름 리뷰 미팅 진행',
-            ];
+        urgent =
+          stage === 'lead'
+            ? ['신규 리드 발굴 활동 즉시 시작 필요']
+            : [`이전 단계에서 ${stageLabel}로 진행할 딜 검토 필요`];
+        next_actions =
+          stage === 'lead'
+            ? [
+                '잠재 고객 리스트 업데이트 및 신규 영업 활동 계획 수립',
+                '마케팅 캠페인·외부 이벤트 참여로 리드 유입 확대',
+                '기존 고객사에 추가 제안 가능성 탐색',
+              ]
+            : [
+                `이전 단계 진행 딜 중 ${stageLabel} 진입 후보 식별`,
+                `${stageLabel} 단계의 평균 소요 시간 점검 및 병목 분석`,
+                '영업 담당자별 단계 흐름 리뷰 미팅 진행',
+              ];
       } else if (isWon) {
         status = '주의';
         headline = '아직 수주 완료된 딜이 없습니다';
@@ -573,7 +820,12 @@ router.post('/stage-coach', async (req, res) => {
         data: {
           stage,
           stage_label: stageLabel,
-          status, headline, going_well, warnings, urgent, next_actions,
+          status,
+          headline,
+          going_well,
+          warnings,
+          urgent,
+          next_actions,
           stats: { cnt: 0, total_amount: 0, avg_age: 0, stuck7: 0, stuck14: 0 },
           _ai_skipped: true,
         },
@@ -584,8 +836,8 @@ router.post('/stage-coach', async (req, res) => {
 
     // 정체 통계
     const stuck14 = cards.filter(c => c.days_in_stage >= 14).length;
-    const stuck7  = cards.filter(c => c.days_in_stage >= 7 && c.days_in_stage < 14).length;
-    const avgAge  = cards.length
+    const stuck7 = cards.filter(c => c.days_in_stage >= 7 && c.days_in_stage < 14).length;
+    const avgAge = cards.length
       ? Math.round(cards.reduce((s, c) => s + (c.days_in_stage || 0), 0) / cards.length)
       : 0;
     const totalAmount = cards.reduce((s, c) => s + Number(c.expected_amount || 0), 0);
@@ -594,34 +846,37 @@ router.post('/stage-coach', async (req, res) => {
     const topCards = cards
       .sort((a, b) => (b.days_in_stage || 0) - (a.days_in_stage || 0))
       .slice(0, 5)
-      .map(c => `- ${c.customer_name}/${c.project_name} (${c.business_type}, ${c.region}, ${Number(c.expected_amount||0).toLocaleString()}${c.currency||'KRW'}, ${c.days_in_stage}일 경과)`);
+      .map(
+        c =>
+          `- ${c.customer_name}/${c.project_name} (${c.business_type}, ${c.region}, ${Number(c.expected_amount || 0).toLocaleString()}${c.currency || 'KRW'}, ${c.days_in_stage}일 경과)`
+      );
 
     // ── 단계 흐름 + 시간 기반 전환율 (funnel 누적 도달) ────────
     // flowKeys 는 funnel 에서 가져옴 (won 포함, 사용자 정의 단계 호환)
     const flowKeys = funnel.flowKeys;
-    const idx  = flowKeys.indexOf(stage);
+    const idx = flowKeys.indexOf(stage);
     const prev = idx > 0 ? flowKeys[idx - 1] : null;
     const next = idx >= 0 && idx < flowKeys.length - 1 ? flowKeys[idx + 1] : null;
 
-    const prevLabel = prev ? (stages.find(s => s.stage_key === prev)?.label || prev) : null;
-    const nextLabel = next ? (stages.find(s => s.stage_key === next)?.label || next) : null;
+    const prevLabel = prev ? stages.find(s => s.stage_key === prev)?.label || prev : null;
+    const nextLabel = next ? stages.find(s => s.stage_key === next)?.label || next : null;
 
     // 누적 도달 카드 수
     const stageReached = funnel.reached[stage] || 0;
-    const prevReached  = prev ? (funnel.reached[prev] || 0) : null;
-    const nextReached  = next ? (funnel.reached[next] || 0) : null;
+    const prevReached = prev ? funnel.reached[prev] || 0 : null;
+    const nextReached = next ? funnel.reached[next] || 0 : null;
 
     // 진정한 전환율 (누적 도달 기반, 항상 0~100%)
-    const nextRate = (next && stageReached > 0)
-      ? Math.round(nextReached / stageReached * 100) : null;
-    const prevRate = (prev && prevReached > 0)
-      ? Math.round(stageReached / prevReached * 100) : null;
+    const nextRate =
+      next && stageReached > 0 ? Math.round((nextReached / stageReached) * 100) : null;
+    const prevRate =
+      prev && prevReached > 0 ? Math.round((stageReached / prevReached) * 100) : null;
 
     // 단계별 cnt (현재 모수 — 화면 표시용)
     const distMap = {};
-    Object.keys(funnel.dist).forEach(k => distMap[k] = { cnt: funnel.dist[k] });
-    const prevCnt = prev ? (funnel.dist[prev] || 0) : null;
-    const nextCnt = next ? (funnel.dist[next] || 0) : null;
+    Object.keys(funnel.dist).forEach(k => (distMap[k] = { cnt: funnel.dist[k] }));
+    const prevCnt = prev ? funnel.dist[prev] || 0 : null;
+    const nextCnt = next ? funnel.dist[next] || 0 : null;
 
     // ══════════════════════════════════════════════════════════════
     // 🔒 사실 기반 진단 (백엔드 100% 신뢰 — AI 환각 차단)
@@ -641,9 +896,12 @@ router.post('/stage-coach', async (req, res) => {
       facts.going_well.push(`평균 체류 ${avgAge}일 — 빠른 진행`);
     }
     if (cards.length > 0 && totalAmount > 0) {
-      const amt = totalAmount >= 1e12 ? `₩${(totalAmount/1e12).toFixed(2)}조`
-                : totalAmount >= 1e8  ? `₩${(totalAmount/1e8).toFixed(1)}억`
-                : `₩${totalAmount.toLocaleString()}`;
+      const amt =
+        totalAmount >= 1e12
+          ? `₩${(totalAmount / 1e12).toFixed(2)}조`
+          : totalAmount >= 1e8
+            ? `₩${(totalAmount / 1e8).toFixed(1)}억`
+            : `₩${totalAmount.toLocaleString()}`;
       facts.going_well.push(`누적 ${amt} 규모의 파이프라인 확보`);
     }
 
@@ -681,17 +939,19 @@ router.post('/stage-coach', async (req, res) => {
     // headline 자동 생성
     let calculatedHeadline;
     if (calculatedStatus === '시급') {
-      calculatedHeadline = stuck14 > 0
-        ? `${stageLabel}: 14일+ 정체 ${stuck14}건 즉시 조치 필요`
-        : nextRate !== null && nextRate < 30
-          ? `${stageLabel}: 다음 단계 전환율 ${nextRate}%로 심각한 병목`
-          : `${stageLabel}: 단계 흐름에 심각한 문제 발생`;
+      calculatedHeadline =
+        stuck14 > 0
+          ? `${stageLabel}: 14일+ 정체 ${stuck14}건 즉시 조치 필요`
+          : nextRate !== null && nextRate < 30
+            ? `${stageLabel}: 다음 단계 전환율 ${nextRate}%로 심각한 병목`
+            : `${stageLabel}: 단계 흐름에 심각한 문제 발생`;
     } else if (calculatedStatus === '주의') {
-      calculatedHeadline = stuck7 > 0
-        ? `${stageLabel}: 7일+ 체류 ${stuck7}건 점검 필요`
-        : nextRate !== null && nextRate < 60
-          ? `${stageLabel}: 다음 단계 전환율 ${nextRate}%로 평균 이하`
-          : `${stageLabel}: 일부 지표 점검 필요`;
+      calculatedHeadline =
+        stuck7 > 0
+          ? `${stageLabel}: 7일+ 체류 ${stuck7}건 점검 필요`
+          : nextRate !== null && nextRate < 60
+            ? `${stageLabel}: 다음 단계 전환율 ${nextRate}%로 평균 이하`
+            : `${stageLabel}: 일부 지표 점검 필요`;
     } else {
       calculatedHeadline = `${stageLabel}: ${cards.length}건 정상 진행 중`;
     }
@@ -751,7 +1011,9 @@ ${contextText}
       // AI 실패 시 fallback 액션
       nextActions = [
         `${stageLabel} 단계 딜 ${cards.length}건의 진행 상태 일괄 점검`,
-        stuck14 > 0 ? `14일+ 정체 ${stuck14}건에 대한 액션 결정 (진행/드롭)` : '담당자별 단계 진행 현황 리뷰',
+        stuck14 > 0
+          ? `14일+ 정체 ${stuck14}건에 대한 액션 결정 (진행/드롭)`
+          : '담당자별 단계 진행 현황 리뷰',
         next ? `다음 단계(${nextLabel}) 진입을 위한 사전 준비 점검` : '단계 정의 및 흐름 재검토',
       ];
     }
@@ -771,11 +1033,12 @@ ${contextText}
           cnt: cards.length,
           total_amount: totalAmount,
           avg_age: avgAge,
-          stuck7, stuck14,
-          next_rate: nextRate,            // 진정한 전환율 (누적 도달 기반)
+          stuck7,
+          stuck14,
+          next_rate: nextRate, // 진정한 전환율 (누적 도달 기반)
           prev_rate: prevRate,
-          reached: stageReached,          // 현재 단계 누적 도달 카드 수
-          next_reached: nextReached,      // 다음 단계 누적 도달 카드 수
+          reached: stageReached, // 현재 단계 누적 도달 카드 수
+          next_reached: nextReached, // 다음 단계 누적 도달 카드 수
         },
         // 디버깅·검증용 (페이지와 동일 모수 확인)
         _funnel: { dist: funnel.dist, reached: funnel.reached },

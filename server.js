@@ -263,6 +263,7 @@ app.use('/uploads', require('./src/routes/upload'));
 app.use('/api/notifications', require('./src/routes/notifications'));
 app.use('/api/search', require('./src/routes/search'));
 app.use('/api/email-templates', require('./src/routes/email-templates'));
+app.use('/api/webhooks', require('./src/routes/webhooks'));
 app.use('/api/admin', require('./src/routes/healthmap'));
 app.use('/api/exchange', require('./src/routes/exchange'));
 app.use('/api/pipeline/stages', require('./src/routes/pipeline-stages'));
