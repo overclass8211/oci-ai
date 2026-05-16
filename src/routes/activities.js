@@ -16,6 +16,61 @@ const ACT_COLS = [
   { key: 'performed_at', label: '기록일시' },
 ];
 
+// ─── activity_type 정규화 ──────────────────────────────────────
+// 폼에서 영문 value('meeting','call' …) 로 전송되는데, DB 컬럼은
+// 한글 ENUM('미팅','전화','이메일','제안서','입찰','수주','드롭','기타')
+// 으로 정의되어 있어 "Data truncated for column 'activity_type'" 발생.
+// → 영문 입력을 한글 라벨로 매핑, 한글 입력은 passthrough.
+const ACT_TYPE_MAP = {
+  // 영문 폼 value → 한글 라벨
+  meeting: '미팅',
+  call: '전화',
+  email: '이메일',
+  site_visit: '현장방문',
+  proposal: '제안',
+  note: '메모',
+  bidding: '입찰',
+  // 한글 passthrough (이미 한글로 들어온 경우)
+  미팅: '미팅',
+  전화: '전화',
+  이메일: '이메일',
+  현장방문: '현장방문',
+  영업방문: '영업방문',
+  제안: '제안',
+  제안서: '제안서',
+  입찰: '입찰',
+  수주: '수주',
+  드롭: '드롭',
+  메모: '메모',
+  내부: '내부',
+  기타: '기타',
+};
+function normalizeActivityType(val) {
+  if (!val) return '기타';
+  return ACT_TYPE_MAP[val] || val;
+}
+
+// ENUM → VARCHAR 자가 마이그레이션 (idempotent, one-shot)
+// migrations/03_leads_date_fix.sql 가 수동 실행 안 된 DB 보호.
+(async () => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT DATA_TYPE FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME   = 'activities'
+         AND COLUMN_NAME  = 'activity_type'`
+    );
+    if (rows.length && String(rows[0].DATA_TYPE).toLowerCase() === 'enum') {
+      await pool.query(
+        `ALTER TABLE activities MODIFY COLUMN activity_type VARCHAR(50) DEFAULT '기타'`
+      );
+      console.log('[migration] activities.activity_type: ENUM → VARCHAR(50)');
+    }
+  } catch (_) {
+    /* 권한/스키마 차이는 무시 — 매핑이 fallback */
+  }
+})();
+
 // 도메인 루트 — GET /api/activities → 활동 목록 (404 패턴 해소)
 // 쿼리: ?lead_id=&project_id=&limit=&offset=
 router.get('/', async (req, res) => {
@@ -73,6 +128,7 @@ router.post('/', async (req, res) => {
     } = req.body;
     const dateVal = activity_date ? activity_date.replace('T', ' ').slice(0, 19) : null;
     const statusVal = status === 'done' || status === 'planned' ? status : 'planned';
+    const typeVal = normalizeActivityType(activity_type);
 
     const doInsert = () =>
       pool.query(
@@ -82,7 +138,7 @@ router.post('/', async (req, res) => {
         [
           lead_id || null,
           project_id || null,
-          activity_type || '기타',
+          typeVal,
           title,
           content || null,
           performed_by || null,
@@ -142,11 +198,13 @@ router.put('/:id', async (req, res) => {
     fields.forEach(f => {
       if (req.body[f] !== undefined) {
         updates.push(`${f}=?`);
-        values.push(
-          f === 'activity_date' && req.body[f]
-            ? String(req.body[f]).replace('T', ' ').slice(0, 19)
-            : req.body[f] || null
-        );
+        if (f === 'activity_date' && req.body[f]) {
+          values.push(String(req.body[f]).replace('T', ' ').slice(0, 19));
+        } else if (f === 'activity_type') {
+          values.push(normalizeActivityType(req.body[f]));
+        } else {
+          values.push(req.body[f] || null);
+        }
       }
     });
     if (!updates.length) return res.json({ success: true });
