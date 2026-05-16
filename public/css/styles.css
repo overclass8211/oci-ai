@@ -262,11 +262,19 @@ a { text-decoration: none; color: inherit; }
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;  /* flex child 가 축소되어 ellipsis 동작하려면 필수 */
+  flex: 1 1 auto;
 }
+.topbar-right { flex-shrink: 0; }  /* 우측 위젯들은 축소 X — page-title 이 먼저 줄어듦 */
 .page-title {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-1);
+  /* 좁은 화면에서 세로 단어쌓임 방지 + 넘치면 말줄임 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .page-breadcrumb {
   font-size: 12px;
@@ -3551,13 +3559,20 @@ body,
   .main { width: 100%; }
 
   /* ── 상단 바 ── */
-  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar { padding: 0 8px; gap: 6px; }
   .page-breadcrumb { display: none; }
   .topbar-widgets { gap: 4px; }
   .topbar-date { display: none; }
   .topbar-widgets .widget-divider { display: none; }
-  /* 토큰 위젯 숨김 (모바일에서 공간 절약) */
+  /* 토큰 위젯 + 세션 타이머 숨김 (모바일에서 공간 절약) */
   #token-widget { display: none; }
+  .topbar-widgets .widget-item:first-child { display: none; } /* 세션타임 */
+  /* AI 어시스턴트 버튼 — 모바일에선 아이콘만 (텍스트 숨김) */
+  .btn-ai { padding: 6px 8px; font-size: 0; }
+  .btn-ai svg { width: 18px; height: 18px; }
+  .topbar-left { gap: 8px; }
+  .topbar-right { gap: 4px; }
+  .page-title { font-size: 15px; }
 
   /* 햄버거 버튼 표시 + 터치 타겟 보장 (iOS HIG: 44×44 권장, 최소 40px) */
   .mobile-menu-btn {

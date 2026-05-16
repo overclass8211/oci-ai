@@ -85,6 +85,33 @@ test('UX-5 — Landscape (667×375) 가로 스크롤 없음', async ({ page }) =
   expect(result.sw).toBeLessThanOrEqual(result.cw + 2);
 });
 
+test('UX-7 — 페이지 타이틀: 좁은 화면에서도 한 줄 (세로 깨짐 방지)', async ({ page }) => {
+  await page.evaluate(id => { location.hash = '#' + id; }, 'dashboard');
+  await page.waitForSelector('#page-title');
+  // 한국어 글자가 세로로 쌓이지 않는지 — height 가 폰트 행간 이상이면 깨진 것
+  const m = await page.locator('#page-title').evaluate(el => {
+    const s = window.getComputedStyle(el);
+    return {
+      whiteSpace: s.whiteSpace,
+      height: el.getBoundingClientRect().height,
+      lineHeight: parseFloat(s.lineHeight) || parseFloat(s.fontSize) * 1.2,
+    };
+  });
+  expect(m.whiteSpace).toBe('nowrap');
+  // 한 줄 = 대략 line-height 이내 (1.5배 여유)
+  expect(m.height, `page-title 높이 ${m.height}px (한 줄 ${m.lineHeight}px 초과 → 세로 깨짐)`)
+    .toBeLessThan(m.lineHeight * 1.5);
+});
+
+test('UX-8 — iPhone 14 Pro Max (430×932) 페이지 타이틀 정상', async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.evaluate(id => { location.hash = '#' + id; }, 'dashboard');
+  await page.waitForSelector('#page-title');
+  // 사용자 보고 사례 — 대시보드 타이틀이 세로로 깨지면 안 됨
+  const h = await page.locator('#page-title').evaluate(el => el.getBoundingClientRect().height);
+  expect(h, `iPhone 14 Pro Max 에서 page-title 높이 ${h}px`).toBeLessThan(32);
+});
+
 test('UX-6 — 모달 × 버튼 터치 가능', async ({ page }) => {
   await gotoPage(page, 'leads', '#leads-open-form-btn');
   await page.click('#leads-open-form-btn');
