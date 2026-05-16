@@ -177,7 +177,19 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser()); // ③ HttpOnly 쿠키 파싱
-app.use(express.static(path.join(__dirname, 'public')));
+// Service Worker 는 캐시 안 함 — 즉시 업데이트 반영 (앱 셸 갱신용)
+// manifest.json 도 짧은 캐시로 (PWA 메타 변경 시 빠른 반영)
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(`${path.sep}sw.js`) || filePath.endsWith('/sw.js')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else if (filePath.endsWith('manifest.json')) {
+        res.setHeader('Cache-Control', 'public, max-age=3600'); // 1시간
+      }
+    },
+  })
+);
 app.use('/api', apiLimiter);
 app.use('/api/ai', aiLimiter);
 

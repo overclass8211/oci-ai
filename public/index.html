@@ -2,14 +2,38 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>finger CRM AI</title>
+
+<!-- PWA — manifest + 메타 ─────────────────────────────────── -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#E63329">
+<meta name="description" content="OCI 영업 CRM — 리드/고객/회의록 AI 통합 관리">
+<!-- iOS Safari (manifest 미지원) — 별도 메타 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OCI CRM">
+<link rel="apple-touch-icon" href="/assets/pwa-icon.svg">
+<link rel="icon" type="image/svg+xml" href="/assets/pwa-icon.svg">
+<link rel="icon" type="image/png" sizes="any" href="/assets/oci_logo.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/styles.css">
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet">
+
+<!-- Service Worker 등록 — 부팅 차단 안 함 (defer 후 load 이벤트) -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.warn('[SW] 등록 실패:', err.message);
+      });
+    });
+  }
+</script>
 </head>
 <body>
 

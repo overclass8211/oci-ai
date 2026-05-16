@@ -1,0 +1,33 @@
+{
+  "name": "OCI CRM AI",
+  "short_name": "OCI CRM",
+  "description": "OCI 영업 CRM — 리드/고객/회의록 AI 통합 관리",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#E63329",
+  "lang": "ko",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/assets/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/pwa-icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/oci_logo.png",
+      "sizes": "794x559",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
