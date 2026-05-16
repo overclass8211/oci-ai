@@ -7620,3 +7620,103 @@ body,
 @media (max-width: 768px) {
   .hm-side-panel { width: 100vw; }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Keyboard Shortcuts — 도움말 모달 + 시퀀스 힌트
+   ───────────────────────────────────────────────────────────── */
+.shortcut-help {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.shortcut-group {
+  margin-bottom: 18px;
+}
+.shortcut-group:last-child { margin-bottom: 0; }
+.shortcut-group-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  padding: 5px 0;
+  gap: 12px;
+}
+.shortcut-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 130px;
+}
+.shortcut-keys kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 7px;
+  text-align: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-1);
+  box-shadow: 0 1px 0 var(--border-2);
+}
+.shortcut-sep {
+  font-size: 10px;
+  color: var(--text-3);
+  padding: 0 2px;
+}
+.shortcut-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.shortcut-help-foot {
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+/* 시퀀스 힌트 — 우하단 토스트 */
+.shortcut-hint {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  background: var(--text-1);
+  color: var(--surface);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 9500;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  pointer-events: none;
+}
+.shortcut-hint.is-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+[data-theme='dark'] .shortcut-hint {
+  background: var(--surface-3);
+  color: var(--text-1);
+}

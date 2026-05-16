@@ -34,6 +34,8 @@ const spaGlobals = {
   SearchModal: 'readonly',
   // email.js
   Email: 'readonly',
+  // shortcuts.js
+  Shortcuts: 'readonly',
   // api.js
   API: 'readonly',
   // app.js
