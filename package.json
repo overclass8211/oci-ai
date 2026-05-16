@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "prepare": "husky",
+    "prepare": "husky || echo 'husky skipped (production or unavailable)'",
     "init-db": "node scripts/init-db.js"
   },
   "lint-staged": {
