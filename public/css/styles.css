@@ -3559,8 +3559,17 @@ body,
   /* 토큰 위젯 숨김 (모바일에서 공간 절약) */
   #token-widget { display: none; }
 
-  /* 햄버거 버튼 표시 */
-  .mobile-menu-btn { display: flex !important; }
+  /* 햄버거 버튼 표시 + 터치 타겟 보장 (iOS HIG: 44×44 권장, 최소 40px) */
+  .mobile-menu-btn {
+    display: flex !important;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+  .mobile-menu-btn svg { width: 20px; height: 20px; }
+
+  /* 사이드바 nav-item — 터치 타겟 보장 (최소 40px 높이) */
+  .nav-item { padding: 11px 16px; }
 
   /* ── 컨텐츠 ── */
   .content { padding: 0 12px 12px; }
@@ -3616,6 +3625,21 @@ body,
   .oms-cs-features { grid-template-columns: 1fr; }
   .oms-form-grid { grid-template-columns: 1fr; }
   .oms-tab { padding: 8px 12px; font-size: 11px; }
+
+  /* ── iOS Safari 자동 줌 방지 ──────────────────────────
+     font-size < 16px 인 input 에 포커스하면 iOS Safari 가
+     자동으로 화면을 확대함. 모바일에서만 최소 16px 보장.
+     (sx 클래스 fs-12 등으로 명시적 크기 지정한 경우는 예외 X — 모바일에선 16px) */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea,
+  .form-input,
+  .search-input,
+  .filter-select,
+  .filter-date,
+  .form-control {
+    font-size: 16px;
+  }
 }
 
 /* ── 소형 모바일 (480px 이하) ─────────────────────────── */
