@@ -44,6 +44,8 @@ const spaGlobals = {
   Onboarding: 'readonly',
   // labels.js
   Labels: 'readonly',
+  // offlineQueue.js
+  OfflineQueue: 'readonly',
   // api.js
   API: 'readonly',
   // app.js

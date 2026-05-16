@@ -80,6 +80,17 @@ const MeetingPage = (() => {
         <button class="btn btn-ghost" id="meet-goto-list-btn">📋 회의록 목록</button>
       </div>
 
+      <!-- 오프라인 녹음 큐 (있을 때만 표시) -->
+      <div id="offline-queue-card" class="card" style="display:none;margin-bottom:14px;border-left:3px solid #f59e0b">
+        <div class="card-header">
+          <div class="card-title">📡 오프라인 녹음 대기 <span id="offline-queue-count" style="color:var(--text-3);font-size:12px"></span></div>
+          <button class="btn btn-ghost btn-sm" id="offline-queue-retry-btn" style="display:none" title="대기/실패 항목 재처리">
+            🔄 재처리
+          </button>
+        </div>
+        <div class="card-body no-pad" id="offline-queue-list"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
         <!-- 실시간 녹음 -->
         <div class="card">
@@ -214,6 +225,9 @@ const MeetingPage = (() => {
     if (MeetingRecorder.isRecording()) {
       _restoreRecordingUI();
     }
+
+    // 오프라인 큐 항목 표시 (있을 때만 카드 노출)
+    _renderOfflineQueue();
 
     // Google OAuth 팝업 결과 수신
     window.addEventListener('message', _onGoogleMessage, { once: false });
@@ -569,15 +583,34 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         if (startBtn) startBtn.style.display = '';
         if (stopBtn)  stopBtn.style.display  = 'none';
 
-        // 현재 회의록 페이지가 아닌 경우: 처리 후 페이지로 이동
+        const filename = `recording-${Date.now()}.webm`;
         const onMeetingPage = !!document.getElementById('rec-visual');
+
+        // ── 오프라인 분기 — IndexedDB 큐에 저장 후 종료 (온라인 복귀 시 자동 처리) ──
+        if (!navigator.onLine && typeof OfflineQueue !== 'undefined') {
+          const customer = document.getElementById('meeting-customer')?.value || '';
+          const date     = document.getElementById('meeting-date')?.value || '';
+          const title    = document.getElementById('meeting-title')?.value || '';
+          const sizeKB   = (MeetingRecorder.recordedBlob.size / 1024).toFixed(0);
+          OfflineQueue.add(MeetingRecorder.recordedBlob, {
+            filename, customer_name: customer, meeting_date: date, meeting_title: title,
+          }).then(() => {
+            Toast.info(`📡 오프라인 — 녹음 ${sizeKB}KB 저장됨. 온라인 복귀 시 자동 처리됩니다.`);
+            if (onMeetingPage) _renderOfflineQueue();
+          }).catch(err => {
+            Toast.error('오프라인 저장 실패: ' + err.message + ' — 브라우저 저장 공간을 확인해 주세요.');
+          });
+          return;
+        }
+
+        // 현재 회의록 페이지가 아닌 경우: 처리 후 페이지로 이동
         if (!onMeetingPage) {
           Toast.info('녹음이 완료되었습니다. 회의록 화면에서 결과를 확인하세요.');
           App.navigate('meeting').then(() => {
-            _processAudio(MeetingRecorder.recordedBlob, `recording-${Date.now()}.webm`);
+            _processAudio(MeetingRecorder.recordedBlob, filename);
           });
         } else {
-          _processAudio(MeetingRecorder.recordedBlob, `recording-${Date.now()}.webm`);
+          _processAudio(MeetingRecorder.recordedBlob, filename);
         }
       };
 
@@ -1071,6 +1104,113 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
     const f = document.getElementById('audio-file-input'); if (f) f.value = '';
   }
 
+  // ── 오프라인 큐 UI ───────────────────────────────────────
+  // OfflineQueue.list() 의 모든 item 을 카드에 렌더.
+  // 큐가 비어있으면 카드 자체를 숨김.
+  async function _renderOfflineQueue() {
+    const card = document.getElementById('offline-queue-card');
+    if (!card || typeof OfflineQueue === 'undefined') return;
+    const items = await OfflineQueue.list();
+    if (!items.length) { card.style.display = 'none'; return; }
+
+    card.style.display = '';
+    const countEl = document.getElementById('offline-queue-count');
+    if (countEl) countEl.textContent = `(${items.length}건)`;
+    const retryBtn = document.getElementById('offline-queue-retry-btn');
+    const hasRetryable = items.some(i => i.status === 'pending' || i.status === 'error');
+    if (retryBtn) retryBtn.style.display = (hasRetryable && navigator.onLine) ? '' : 'none';
+
+    const STATUS_BADGE = {
+      pending:      { label: '⏳ 대기 중',     bg: '#fff8f0', color: '#c2410c' },
+      uploading:    { label: '📤 업로드 중',   bg: '#eef2ff', color: '#3730a3' },
+      transcribing: { label: '🎙 음성 인식 중', bg: '#eef2ff', color: '#3730a3' },
+      done:         { label: '✅ 완료',         bg: '#f0fdf4', color: '#166534' },
+      error:        { label: '⚠️ 실패',         bg: '#fef2f2', color: '#991b1b' },
+    };
+
+    const listEl = document.getElementById('offline-queue-list');
+    listEl.innerHTML = items.map(it => {
+      const badge = STATUS_BADGE[it.status] || STATUS_BADGE.pending;
+      const sizeKB = it.blob ? (it.blob.size / 1024).toFixed(0) : '?';
+      const ts = new Date(it.created_at).toLocaleString('ko-KR');
+      const meta = [
+        it.meeting_title || '(제목 없음)',
+        it.customer_name ? `고객사: ${esc(it.customer_name)}` : '',
+        it.meeting_date  ? `일자: ${esc(it.meeting_date)}` : '',
+      ].filter(Boolean).join(' · ');
+      const msg = it.progress_msg ? `<div style="font-size:11px;color:var(--text-2);margin-top:4px">${esc(it.progress_msg)}</div>` : '';
+      const errMsg = it.error ? `<div style="font-size:11px;color:#991b1b;margin-top:4px">${esc(it.error)}</div>` : '';
+
+      return `
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${badge.bg};color:${badge.color};white-space:nowrap">${badge.label}</span>
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:13px;font-weight:500">${esc(meta || '(메타 없음)')}</div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px">${sizeKB} KB · ${esc(ts)}</div>
+            ${msg}${errMsg}
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            ${it.status === 'done' ? `<button class="btn btn-primary btn-sm" data-oq-view="${it.id}">결과 보기</button>` : ''}
+            ${(it.status === 'pending' || it.status === 'error') && navigator.onLine
+              ? `<button class="btn btn-ghost btn-sm" data-oq-retry="${it.id}">재시도</button>` : ''}
+            <button class="btn btn-ghost btn-sm text-danger" data-oq-del="${it.id}" title="삭제">🗑</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // 이벤트 위임
+    listEl.onclick = async (e) => {
+      const view  = e.target.closest('[data-oq-view]');
+      const retry = e.target.closest('[data-oq-retry]');
+      const del   = e.target.closest('[data-oq-del]');
+      if (view) {
+        const id = parseInt(view.dataset.oqView);
+        const item = await OfflineQueue.get(id);
+        if (!item || !item.result) return Toast.error('결과 데이터 없음');
+        // 결과를 현재 페이지의 일반 STT 플로우 결과 영역에 표시 → 요약 자동 생성
+        _state.transcript = item.result.transcript;
+        _state.speakers   = item.result.speakers || [];
+        // 메타 입력 자동 복원
+        const tEl = document.getElementById('meeting-title');
+        const cEl = document.getElementById('meeting-customer');
+        const dEl = document.getElementById('meeting-date');
+        if (tEl && item.meeting_title)  tEl.value = item.meeting_title;
+        if (cEl && item.customer_name)  cEl.value = item.customer_name;
+        if (dEl && item.meeting_date)   dEl.value = item.meeting_date;
+        document.getElementById('meeting-result').style.display = '';
+        _renderSpeakers();
+        const statsEl = document.getElementById('meeting-stats');
+        if (statsEl) statsEl.textContent = `${_state.speakers.length}개 화자 구간 · ${_state.transcript.length}자`;
+        // AI 요약 생성 (기존 함수 재사용)
+        regenerateSummary();
+      }
+      if (retry) {
+        const id = parseInt(retry.dataset.oqRetry);
+        await OfflineQueue.update(id, { status: 'pending', error: null, progress_msg: '재시도 대기 중...' });
+        OfflineQueue.process();
+      }
+      if (del) {
+        const id = parseInt(del.dataset.oqDel);
+        if (confirm('이 오프라인 녹음 항목을 삭제할까요? (audio 데이터도 함께 삭제)')) {
+          await OfflineQueue.remove(id);
+        }
+      }
+    };
+
+    // 재처리 버튼
+    if (retryBtn) retryBtn.onclick = () => OfflineQueue.process();
+  }
+
+  // 큐 변경 시 자동 갱신 — render() 안에서 구독, 페이지 떠나도 OK (idempotent)
+  if (typeof OfflineQueue !== 'undefined' && !OfflineQueue.__meetingPageSubscribed) {
+    OfflineQueue.subscribe(() => {
+      // 회의록 페이지일 때만 갱신
+      if (document.getElementById('offline-queue-card')) _renderOfflineQueue();
+    });
+    OfflineQueue.__meetingPageSubscribed = true;
+  }
+
   return {
     render, startRecording, stopRecording,
     _handleDrop, _handleFile, regenerateSummary, save,
@@ -1078,6 +1218,8 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
     _onCustomerChange, _onCustomerDirectInput, reset,
     // Google Meet
     connectGoogle, createMeet, disconnectGoogle, startRecordingFromMeet,
-    _copyLink, _showGoogleSetupGuide
+    _copyLink, _showGoogleSetupGuide,
+    // 오프라인 큐
+    _renderOfflineQueue,
   };
 })();
