@@ -197,20 +197,28 @@ const SearchModal = {
   },
 
   _navigateTo(item) {
-    if (!item || !item.route) return;
+    if (!item) return;
     this._addRecent(this.query);
     this.close();
-    // hash 라우팅 — App.navigate 사용 가능 시 그쪽으로
-    const hash = item.route.startsWith('#') ? item.route.slice(1).split('?')[0] : '';
-    if (hash && typeof App !== 'undefined' && App.navigate && App.pages?.[hash]) {
-      App.navigate(hash);
-      // 쿼리 파라미터에 id 가 있으면 후처리 (페이지가 자체적으로 처리하도록 hash 도 같이 set)
-      if (item.route.includes('?')) {
-        // location.hash 에 ?id=... 까지 포함하면 페이지가 읽을 수 있음
-        window.location.hash = item.route.slice(1);
+
+    // App.openDetail 이 사용 가능하면 우선 사용 — 페이지 이동 + 상세 모달 자동 처리
+    if (typeof App !== 'undefined' && typeof App.openDetail === 'function') {
+      App.openDetail(item.type, item.id, {
+        leadId:    item.meta?.leadId,
+        projectId: item.meta?.projectId,
+      });
+      return;
+    }
+
+    // Fallback — App.openDetail 미정의 시 단순 hash 이동
+    if (item.route) {
+      const hashOnly = item.route.startsWith('#') ? item.route.slice(1) : item.route;
+      const page = hashOnly.split('?')[0];
+      if (page && typeof App !== 'undefined' && App.navigate && App.pages?.[page]) {
+        App.navigate(page);
+      } else {
+        window.location.hash = hashOnly;
       }
-    } else {
-      window.location.hash = item.route.startsWith('#') ? item.route.slice(1) : item.route;
     }
   },
 

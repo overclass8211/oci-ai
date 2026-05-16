@@ -44,3 +44,8 @@ _db_update.js
 server_out_new.txt
 server_run.txt
 docs/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

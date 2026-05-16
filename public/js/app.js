@@ -675,6 +675,68 @@ const App = {
   },
 
   // ============================================================
+  // ============================================================
+  // 통합 상세 열기 — 검색·딥링크 등에서 단일 진입점으로 사용
+  //   type: 'leads' | 'customers' | 'projects' | 'meetings' | 'activities'
+  //   id:   엔티티 PK
+  //   parent: { leadId?, projectId? } — activities 처리용
+  //
+  // 페이지가 이미 로드되어 있으면 즉시 상세 열기,
+  // 아니면 먼저 해당 페이지로 navigate 후 렌더 완료 대기 후 상세 열기.
+  // ============================================================
+  async openDetail(type, id, parent = {}) {
+    const numId = parseInt(id, 10);
+    if (!type || (Number.isNaN(numId) && type !== 'activities')) return;
+
+    // type 별 타깃 페이지 + 상세 메서드 매핑
+    let targetPage, openFn;
+    switch (type) {
+      case 'leads':
+        targetPage = 'leads';
+        openFn = () => this.openLeadDetail(numId);
+        break;
+      case 'customers':
+        targetPage = 'customers';
+        openFn = () => (typeof CustomersPage !== 'undefined') && CustomersPage.showCustomerModal?.(numId);
+        break;
+      case 'projects':
+        targetPage = 'projects';
+        openFn = () => (typeof ProjectsPage !== 'undefined') && ProjectsPage.openForm?.(numId);
+        break;
+      case 'meetings':
+        targetPage = 'meeting-list';
+        openFn = () => (typeof MeetingListPage !== 'undefined') && MeetingListPage.showDetail?.(numId);
+        break;
+      case 'activities': {
+        // 활동은 부모(리드 또는 프로젝트) 상세를 연다
+        const pLead = parseInt(parent.leadId, 10);
+        const pProj = parseInt(parent.projectId, 10);
+        if (Number.isFinite(pLead)) {
+          targetPage = 'leads';
+          openFn = () => this.openLeadDetail(pLead);
+        } else if (Number.isFinite(pProj)) {
+          targetPage = 'projects';
+          openFn = () => (typeof ProjectsPage !== 'undefined') && ProjectsPage.openForm?.(pProj);
+        } else {
+          return;
+        }
+        break;
+      }
+      default:
+        return;
+    }
+
+    // 페이지 이동 (필요 시)
+    if (this.currentPage !== targetPage) {
+      await this.navigate(targetPage);
+      // 페이지 렌더 + 이벤트 바인딩 완료까지 짧게 대기
+      // (vanilla SPA 라 렌더 끝나는 신호가 명확하지 않음 — 다음 프레임 2회 정도면 충분)
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
+    openFn();
+  },
+
+  // ============================================================
   // 리드 상세 모달 (활동이력 포함)
   // ============================================================
   async openLeadDetail(id) {
