@@ -79,6 +79,11 @@ const App = {
     }
     await this.navigate(startPage);
 
+    // 첫 로그인이면 온보딩 환영 모달 자동 표시 (1초 지연 — 페이지 로딩 안정)
+    setTimeout(() => {
+      if (typeof Onboarding !== 'undefined') Onboarding.maybeShow();
+    }, 1000);
+
     // 브라우저 뒤로/앞으로 버튼 지원
     window.addEventListener('hashchange', () => {
       const p = location.hash.replace(/^#/, '').trim();

@@ -227,8 +227,19 @@ const LeadsPage = {
     document.getElementById('leads-count').textContent = `(총 ${leads.length}건)`;
 
     if (!leads.length) {
-      document.getElementById('leads-table-wrap').innerHTML =
-        '<div class="empty"><div class="empty-icon">📋</div>등록된 리드가 없습니다</div>';
+      // 필터가 적용된 상태에서 0건 vs 진짜 데이터 0건 구분
+      const f = this.filters || {};
+      const hasFilter = f.stage || f.region || f.assigned_to || f.business_type || f.search;
+      const presetKey = hasFilter ? 'filter' : 'leads';
+      const html = (typeof EmptyState !== 'undefined')
+        ? EmptyState.preset(presetKey)
+        : '<div class="empty"><div class="empty-icon">📋</div>등록된 리드가 없습니다</div>';
+      document.getElementById('leads-table-wrap').innerHTML = html;
+      // primary 버튼 클릭 핸들러 (preset='leads' 일 때만)
+      if (!hasFilter) {
+        document.getElementById('empty-leads-new')?.addEventListener('click', () =>
+          App.openLeadForm?.());
+      }
       return;
     }
 

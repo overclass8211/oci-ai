@@ -177,7 +177,18 @@ const CustomersPage = {
     const container = document.getElementById('customers-view-container');
     if (!container) return;
     if (!data.length) {
-      container.innerHTML = '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
+      const hasFilter = (document.getElementById('cust-search')?.value
+        || document.getElementById('cust-region')?.value
+        || document.getElementById('cust-industry')?.value);
+      const presetKey = hasFilter ? 'filter' : 'customers';
+      const html = (typeof EmptyState !== 'undefined')
+        ? `<div class="card"><div class="card-body">${EmptyState.preset(presetKey)}</div></div>`
+        : '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
+      container.innerHTML = html;
+      if (!hasFilter) {
+        document.getElementById('empty-customers-new')?.addEventListener('click', () =>
+          this.openForm?.());
+      }
       return;
     }
     const grouped = this._groupByName(data);
@@ -313,7 +324,18 @@ const CustomersPage = {
     const container = document.getElementById('customers-view-container');
     if (!container) return;
     if (!data.length) {
-      container.innerHTML = '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
+      const hasFilter = (document.getElementById('cust-search')?.value
+        || document.getElementById('cust-region')?.value
+        || document.getElementById('cust-industry')?.value);
+      const presetKey = hasFilter ? 'filter' : 'customers';
+      const html = (typeof EmptyState !== 'undefined')
+        ? `<div class="card"><div class="card-body">${EmptyState.preset(presetKey)}</div></div>`
+        : '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
+      container.innerHTML = html;
+      if (!hasFilter) {
+        document.getElementById('empty-customers-new')?.addEventListener('click', () =>
+          this.openForm?.());
+      }
       return;
     }
     // 회사명 첫글자로 아바타 색상 분산

@@ -76,7 +76,15 @@ const MeetingListPage = {
   renderList(items) {
     const el = document.getElementById('ml-list');
     if (!items.length) {
-      el.innerHTML = '<div class="empty">저장된 회의록이 없습니다</div>';
+      const hasFilter = !!document.getElementById('ml-search')?.value?.trim();
+      const presetKey = hasFilter ? 'filter' : 'meetings';
+      el.innerHTML = (typeof EmptyState !== 'undefined')
+        ? EmptyState.preset(presetKey)
+        : '<div class="empty">저장된 회의록이 없습니다</div>';
+      if (!hasFilter) {
+        document.getElementById('empty-meetings-new')?.addEventListener('click', () =>
+          App.navigate('meeting'));
+      }
       return;
     }
     el.innerHTML = items.map(m => `

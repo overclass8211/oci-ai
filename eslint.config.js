@@ -38,6 +38,10 @@ const spaGlobals = {
   Shortcuts: 'readonly',
   // exportMenu.js
   ExportMenu: 'readonly',
+  // emptyState.js
+  EmptyState: 'readonly',
+  // onboarding.js
+  Onboarding: 'readonly',
   // api.js
   API: 'readonly',
   // app.js

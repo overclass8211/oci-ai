@@ -87,8 +87,16 @@ const ProjectsPage = {
     if (countEl) countEl.textContent = `(총 ${projects.length}건)`;
 
     if (!projects.length) {
-      document.getElementById('projects-table-wrap').innerHTML =
-        '<div class="empty"><div class="empty-icon">📁</div>등록된 프로젝트가 없습니다</div>';
+      const hasFilter = !!document.getElementById('proj-search')?.value;
+      const presetKey = hasFilter ? 'filter' : 'projects';
+      const html = (typeof EmptyState !== 'undefined')
+        ? EmptyState.preset(presetKey)
+        : '<div class="empty"><div class="empty-icon">📁</div>등록된 프로젝트가 없습니다</div>';
+      document.getElementById('projects-table-wrap').innerHTML = html;
+      if (!hasFilter) {
+        document.getElementById('empty-projects-new')?.addEventListener('click', () =>
+          this.openForm?.());
+      }
       return;
     }
     const statusBadge = { '진행중':'blue', '제조중':'blue', '납기지연':'amber', '완료':'green', '취소':'gray' };
