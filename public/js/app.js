@@ -108,6 +108,9 @@ const App = {
         this.closeMobileNav();
       } else if (action === 'toggle-nav') {
         this.toggleMobileNav();
+      } else if (action === 'open-search') {
+        e.preventDefault();
+        if (typeof SearchModal !== 'undefined') SearchModal.show();
       }
     });
 

@@ -30,6 +30,8 @@ const spaGlobals = {
   UserPrefs: 'readonly', debounce: 'readonly',
   // ai.js
   AI: 'readonly', Notifications: 'readonly', QuickActions: 'readonly',
+  // search.js
+  SearchModal: 'readonly',
   // api.js
   API: 'readonly',
   // app.js

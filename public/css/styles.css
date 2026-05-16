@@ -6840,3 +6840,305 @@ body,
   background: rgba(255, 255, 255, 0.85);
   color: #1a1a22;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Global Search (Cmd+K) — 통합 검색 모달
+   ───────────────────────────────────────────────────────────── */
+.gsearch-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 17, 21, 0.55);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  backdrop-filter: blur(2px);
+  animation: gs-fadeIn 120ms ease;
+}
+@keyframes gs-fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.gsearch-modal {
+  width: 100%;
+  max-width: 680px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.18), 0 6px 12px rgba(0,0,0,.08);
+  overflow: hidden;
+  animation: gs-slideIn 160ms cubic-bezier(.2,.7,.3,1);
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+@keyframes gs-slideIn {
+  from { transform: translateY(-12px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* 입력 영역 */
+.gsearch-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.gsearch-icon {
+  font-size: 18px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+#gsearch-input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  font-size: 16px;
+  background: transparent;
+  color: var(--text-1);
+  padding: 4px 0;
+}
+#gsearch-input::placeholder {
+  color: var(--text-3);
+}
+.gsearch-shortcut {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+/* 결과 영역 */
+.gsearch-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  min-height: 80px;
+}
+
+.gsearch-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.gsearch-empty-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.gsearch-meta-row {
+  padding: 6px 16px 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex;
+  justify-content: space-between;
+}
+
+.gsearch-section {
+  margin-bottom: 4px;
+}
+.gsearch-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-3);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.gsearch-section-count {
+  background: var(--surface-3);
+  color: var(--text-2);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.gsearch-section-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 결과 항목 */
+.gsearch-item {
+  display: flex;
+  gap: 12px;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+.gsearch-item:hover,
+.gsearch-item.is-focused {
+  background: var(--surface-2);
+  border-left-color: var(--oci-red);
+}
+.gsearch-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.gsearch-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gsearch-item-subtitle {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gsearch-item-snippet {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: italic;
+}
+.gsearch-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-end;
+  flex-shrink: 0;
+  max-width: 180px;
+}
+
+.gsearch-chip {
+  background: var(--surface-3);
+  color: var(--text-2);
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gsearch-chip.stage-won,
+.gsearch-chip.status-완료 {
+  background: rgba(23,168,90,.12);
+  color: #17A85A;
+}
+.gsearch-chip.stage-lost,
+.gsearch-chip.stage-dropped,
+.gsearch-chip.status-취소 {
+  background: rgba(230,51,41,.1);
+  color: var(--oci-red);
+}
+.gsearch-chip.stage-bidding,
+.gsearch-chip.stage-negotiation,
+.gsearch-chip.status-진행중 {
+  background: rgba(59,130,246,.12);
+  color: #3B82F6;
+}
+
+/* 검색어 하이라이트 */
+.gsearch-item mark {
+  background: rgba(255,196,0,.35);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 700;
+}
+
+/* 최근 검색 */
+.gsearch-recent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-2);
+  transition: background 80ms ease;
+}
+.gsearch-recent:hover {
+  background: var(--surface-2);
+}
+.gsearch-recent-icon {
+  opacity: 0.5;
+  font-size: 11px;
+}
+
+/* 푸터 */
+.gsearch-footer {
+  display: flex;
+  gap: 14px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 10px;
+  color: var(--text-3);
+}
+.gsearch-footer kbd {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 9px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-2);
+  margin-right: 2px;
+}
+
+/* 로딩 스피너 */
+.gsearch-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--oci-red);
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 8px;
+  animation: gs-spin 600ms linear infinite;
+}
+@keyframes gs-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 다크 테마 */
+[data-theme='dark'] .gsearch-overlay {
+  background: rgba(0,0,0,0.65);
+}
+[data-theme='dark'] .gsearch-modal {
+  box-shadow: 0 20px 50px rgba(0,0,0,.5);
+}
+[data-theme='dark'] .gsearch-section-header {
+  background: var(--surface);
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+  .gsearch-overlay {
+    padding-top: 4vh;
+  }
+  .gsearch-modal {
+    max-width: 94vw;
+    max-height: 88vh;
+  }
+  .gsearch-item-meta {
+    max-width: 100px;
+  }
+}
