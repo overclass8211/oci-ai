@@ -19,6 +19,10 @@
 const ExportMenu = {
   _menuEl: null,
   _initialized: false,
+  // open() 호출 직후 일정 시간 동안은 outside-click 닫힘 무시
+  // (open() 을 트리거한 같은 click 이벤트가 document 까지 bubble 되면서
+  //  바로 닫혀 "깜박이며 사라짐" 현상이 발생하던 버그 방지)
+  _suppressUntil: 0,
 
   init() {
     if (this._initialized) return;
@@ -45,8 +49,9 @@ const ExportMenu = {
         this.close();
         return;
       }
-      // 메뉴 바깥 클릭 → 닫기
+      // 메뉴 바깥 클릭 → 닫기 (단, open 직후 짧은 시간은 무시)
       if (this._menuEl && !e.target.closest('.export-menu-pop')) {
+        if (Date.now() < this._suppressUntil) return;
         this.close();
       }
     });
@@ -66,6 +71,10 @@ const ExportMenu = {
     // 동기적 정리 — 잔여 메뉴 즉시 제거 (테스트 race 방지)
     document.querySelectorAll('.export-menu-pop').forEach(el => el.remove());
     this._menuEl = null;
+
+    // open() 을 트리거한 click 이벤트가 document 로 bubble 되어
+    // 새로 만든 메뉴를 즉시 닫는 race 방지 — 250ms 동안 outside-click 무시
+    this._suppressUntil = Date.now() + 250;
 
     const menu = document.createElement('div');
     menu.className = 'export-menu-pop';

@@ -38,7 +38,8 @@ test('시나리오 2 — 드롭다운 바깥 클릭 시 닫힘', async ({ page }
   await page.click('#leads-export-btn');
   await expect(page.locator('.export-menu-pop.is-open')).toBeVisible();
 
-  // 바깥(body 상단) 클릭
+  // open() 직후 250ms 동안은 outside-click 무시 (bubble race 방지) — 그 후 대기
+  await page.waitForTimeout(300);
   await page.locator('body').click({ position: { x: 5, y: 5 } });
   await expect(page.locator('.export-menu-pop.is-open')).toHaveCount(0, { timeout: 3000 });
 });

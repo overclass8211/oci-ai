@@ -198,16 +198,20 @@ const App = {
   },
 
   async logout() {
+    // ⚡ 빠른 로그아웃 — 서버 응답을 기다리지 않고 즉시 클라이언트 정리
+    // fetch 는 keepalive 로 페이지 이동 후에도 백그라운드로 완료됨
+    // (await 하면 서버 응답 지연 시 사용자가 5초+ 대기하는 문제 발생)
     try {
       const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
       if (token) {
-        await fetch('/api/auth/logout', {
+        fetch('/api/auth/logout', {
           method: 'POST',
           credentials: 'include',   // Refresh Token 쿠키 전송 → 서버에서 쿠키 삭제
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
-        });
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          keepalive: true,           // 페이지 종료 후에도 요청 유지
+        }).catch(() => { /* 백그라운드 — 오류 무시 */ });
       }
-    } catch (_) { /* 서버 오류여도 클라이언트 정리는 반드시 진행 */ }
+    } catch (_) { /* 클라이언트 정리는 반드시 진행 */ }
     localStorage.removeItem('oci_token');
     sessionStorage.removeItem('oci_token');
     localStorage.removeItem('oci_user');

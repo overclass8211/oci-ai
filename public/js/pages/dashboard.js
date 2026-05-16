@@ -158,30 +158,80 @@ const DashboardPage = {
     } catch (err) { console.error('Dashboard load error:', err); }
   },
 
-  async loadAIInsights() {
+  // sessionStorage 캐시 — 30분 유효 (AI 토큰 절약 + 429 회피)
+  AI_INSIGHTS_CACHE_KEY: 'oci_ai_insights_cache',
+  AI_INSIGHTS_CACHE_TTL: 30 * 60 * 1000,
+
+  _readAIInsightsCache() {
+    try {
+      const raw = sessionStorage.getItem(this.AI_INSIGHTS_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.at || Date.now() - parsed.at > this.AI_INSIGHTS_CACHE_TTL) return null;
+      return parsed;
+    } catch { return null; }
+  },
+  _writeAIInsightsCache(text) {
+    try {
+      sessionStorage.setItem(this.AI_INSIGHTS_CACHE_KEY, JSON.stringify({ at: Date.now(), text }));
+    } catch { /* ignore */ }
+  },
+
+  async loadAIInsights(forceRefresh = false) {
     const el = document.getElementById('insights-body');
     if (!el) return;
+
+    // 1) 캐시 우선 (forceRefresh 가 아닐 때)
+    if (!forceRefresh) {
+      const cached = this._readAIInsightsCache();
+      if (cached) {
+        this.renderAIInsights(cached.text, { cached: true, at: cached.at });
+        return;
+      }
+    }
+
+    // 2) API 호출 — 실패 시 정적 fallback (429 도 포함)
     try {
       const res = await API.ai.insights();
-      this.renderAIInsights(res.data);
-    } catch (_) {
-      this.renderStaticInsights();
+      if (res?.data) {
+        this._writeAIInsightsCache(res.data);
+        this.renderAIInsights(res.data);
+      } else {
+        this.renderStaticInsights();
+      }
+    } catch (err) {
+      // 429 또는 토큰 초과 — 친절한 메시지 + 캐시 fallback
+      const msg = String(err?.message || '');
+      const isQuota = msg.includes('429') || msg.includes('한도') || msg.includes('Too Many');
+      const cached = this._readAIInsightsCache();
+      if (cached) {
+        this.renderAIInsights(cached.text, { cached: true, at: cached.at, fallback: true });
+      } else {
+        this.renderStaticInsights(isQuota ? '🔋 AI 토큰 한도 초과 — 캐시된 분석이 없습니다. 잠시 후 새로고침해 주세요.' : null);
+      }
     }
   },
 
   async refreshAIInsights() {
     const el = document.getElementById('insights-body');
     if (el) el.innerHTML = '<div class="loading">AI 분석 중...</div>';
-    await this.loadAIInsights();
+    await this.loadAIInsights(true);  // 강제 새로고침
   },
 
-  renderAIInsights(text) {
+  renderAIInsights(text, opts = {}) {
     const el = document.getElementById('insights-body');
     if (!el) return;
     if (!text) { this.renderStaticInsights(); return; }
 
     const lines = text.split('\n').filter(l => l.trim());
     const icons = { '긴급': { ico: '🚨', cls: 'urgent' }, '주의': { ico: '⚠️', cls: 'warning' }, '정보': { ico: 'ℹ️', cls: 'info' } };
+
+    // 캐시 표시 배너 (옵션)
+    const cacheBanner = opts.cached ? `
+      <div style="padding:6px 14px;font-size:11px;color:var(--text-3);background:var(--surface-2);border-bottom:1px solid var(--border)">
+        ⚡ 캐시된 분석 · ${Math.round((Date.now() - opts.at) / 60000)}분 전
+        ${opts.fallback ? '<span style="color:var(--oci-red)">(API 한도 초과로 fallback)</span>' : ''}
+      </div>` : '';
 
     const items = lines.map(line => {
       let tag = 'info', ico = '📊'; const content = line.replace(/^\[.*?\]\s*/, '');
@@ -197,7 +247,7 @@ const DashboardPage = {
         </div>`;
     }).join('');
 
-    el.innerHTML = items + `
+    el.innerHTML = cacheBanner + items + `
       <div style="padding:10px 14px;border-top:1px solid var(--border)">
         <button class="ai-gen-btn" id="dash-weekly-report-btn" style="width:100%;justify-content:center">
           📊 주간 보고서 생성하기
@@ -206,10 +256,14 @@ const DashboardPage = {
     document.getElementById('dash-weekly-report-btn')?.addEventListener('click', () => { AI.open(); AI.streamReport('weekly'); });
   },
 
-  renderStaticInsights() {
+  renderStaticInsights(banner) {
     const el = document.getElementById('insights-body');
     if (!el) return;
-    el.innerHTML = `
+    const bannerHtml = banner ? `
+      <div style="padding:8px 14px;font-size:11px;color:var(--text-3);background:var(--surface-2);border-bottom:1px solid var(--border)">
+        ${esc(banner)}
+      </div>` : '';
+    el.innerHTML = bannerHtml + `
       <div class="ai-insight-item">
         <div class="insight-icon">⚠️</div>
         <div class="ai-insight-body">
