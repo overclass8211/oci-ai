@@ -446,6 +446,11 @@ const App = {
     try {
       await page.obj().render();
       // CSS injection 방식이므로 별도 apply() 불필요 — 렌더된 요소에 CSS 즉시 적용됨
+
+      // 워드 사전 라벨 자동 치환 — [data-label] 마커 요소에 적용
+      if (typeof Labels !== 'undefined') {
+        try { Labels.apply(); } catch (_) { /* dict 미로드 등 */ }
+      }
     } catch (err) {
       console.error('페이지 렌더링 실패:', err);
       document.getElementById('content').innerHTML = `
@@ -854,7 +859,7 @@ const App = {
 
           <div class="kv-grid mb-3">
             <div class="kv-row">
-              <span class="kv-key">고객사</span>
+              <span class="kv-key" data-label="leads.customer_name">고객사</span>
               <span class="kv-val">
                 ${customerId
                   ? `<a href="#" data-cust-link="${customerId}"
@@ -865,7 +870,7 @@ const App = {
               </span>
             </div>
             <div class="kv-row">
-              <span class="kv-key">영업 담당자</span>
+              <span class="kv-key" data-label="leads.assigned_to">영업 담당자</span>
               <span class="kv-val">
                 ${l.assigned_name
                   ? `<a href="#" data-assignee-link="${l.assigned_to || ''}"
@@ -875,7 +880,7 @@ const App = {
               </span>
             </div>
             <div class="kv-row">
-              <span class="kv-key">고객 담당자</span>
+              <span class="kv-key" data-label="leads.contact_person">고객 담당자</span>
               <span class="kv-val">
                 ${customerId && contactPerson !== '-'
                   ? `<a href="#" data-contact-link="${customerId}"
@@ -885,11 +890,11 @@ const App = {
                 ${contactPhone ? ' · <span class="mono" style="font-size:11px">' + esc(contactPhone) + '</span>' : ''}
               </span>
             </div>
-            <div class="kv-row"><span class="kv-key">규모</span><span class="kv-val mono">${l.capacity_mw ? parseFloat(l.capacity_mw).toFixed(1) + ' MW' : '-'}</span></div>
-            <div class="kv-row"><span class="kv-key">예상 마감일</span><span class="kv-val">${Fmt.date(l.expected_close_date)}</span></div>
-            <div class="kv-row"><span class="kv-key">입찰 마감일</span><span class="kv-val">${Fmt.date(l.bidding_deadline)}</span></div>
-            <div class="kv-row"><span class="kv-key">최초 등록</span><span class="kv-val">${Fmt.date(l.created_at)}</span></div>
-            <div class="kv-row"><span class="kv-key">최근 업데이트</span><span class="kv-val">${Fmt.relTime(l.updated_at)}</span></div>
+            <div class="kv-row"><span class="kv-key" data-label="leads.capacity_mw">규모</span><span class="kv-val mono">${l.capacity_mw ? parseFloat(l.capacity_mw).toFixed(1) + ' MW' : '-'}</span></div>
+            <div class="kv-row"><span class="kv-key" data-label="leads.expected_close_date">예상 마감일</span><span class="kv-val">${Fmt.date(l.expected_close_date)}</span></div>
+            <div class="kv-row"><span class="kv-key" data-label="leads.bidding_deadline">입찰 마감일</span><span class="kv-val">${Fmt.date(l.bidding_deadline)}</span></div>
+            <div class="kv-row"><span class="kv-key" data-label="leads.created_at">최초 등록</span><span class="kv-val">${Fmt.date(l.created_at)}</span></div>
+            <div class="kv-row"><span class="kv-key" data-label="leads.updated_at">최근 업데이트</span><span class="kv-val">${Fmt.relTime(l.updated_at)}</span></div>
             ${contactEmail ? `<div class="kv-row"><span class="kv-key">고객 이메일</span><span class="kv-val mono" style="font-size:11px">${esc(contactEmail)}</span></div>` : ''}
           </div>
 

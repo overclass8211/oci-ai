@@ -259,16 +259,16 @@ const LeadsPage = {
             <th class="cp-check-col" style="width:36px">
               <input type="checkbox" class="cp-checkbox" id="cp-check-all" title="전체 선택">
             </th>
-            <th>고객사</th>
-            <th>프로젝트명</th>
-            <th>사업유형</th>
-            <th class="text-right">규모(MW)</th>
-            <th class="text-right">예상금액</th>
-            <th>상태</th>
+            <th data-label="leads.customer_name">고객사</th>
+            <th data-label="leads.project_name">프로젝트명</th>
+            <th data-label="leads.business_type">사업유형</th>
+            <th class="text-right" data-label="leads.capacity_mw">규모(MW)</th>
+            <th class="text-right" data-label="leads.expected_amount">예상금액</th>
+            <th data-label="leads.stage">상태</th>
             <th>구분</th>
-            <th>담당자</th>
-            <th>예상 마감일</th>
-            <th>최종 활동</th>
+            <th data-label="leads.assigned_to">담당자</th>
+            <th data-label="leads.expected_close_date">예상 마감일</th>
+            <th data-label="leads.last_activity">최종 활동</th>
             <th></th>
           </tr>
         </thead>

@@ -42,6 +42,8 @@ const spaGlobals = {
   EmptyState: 'readonly',
   // onboarding.js
   Onboarding: 'readonly',
+  // labels.js
+  Labels: 'readonly',
   // api.js
   API: 'readonly',
   // app.js

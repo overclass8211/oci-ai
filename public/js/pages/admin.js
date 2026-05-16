@@ -27,6 +27,7 @@ const AdminPage = {
         <button class="tab-btn"        data-tab="board">📋 게시판 통계</button>
         <button class="tab-btn"        data-tab="pipeline">🔀 파이프라인 설정</button>
         <button class="tab-btn"        data-tab="menu-config">🧭 메뉴 구조</button>
+        <button class="tab-btn"        data-tab="word-repo">🗂 워드 사전</button>
         ${(App.currentUser?.role === 'superadmin') ? `
         <button class="tab-btn" data-tab="token-monitor"
           style="color:#d93025;border-bottom-color:transparent">
@@ -44,6 +45,7 @@ const AdminPage = {
       <div id="admin-tab-board"         class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-pipeline"      class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-menu-config"   class="admin-tab-panel" style="display:none"></div>
+      <div id="admin-tab-word-repo"     class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-token-monitor" class="admin-tab-panel" style="display:none"></div>
     `;
     document.getElementById('content').innerHTML = html;
@@ -182,6 +184,7 @@ const AdminPage = {
       else if (tab === 'board') this.loadBoardStats();
       else if (tab === 'pipeline') this.loadPipelineStages();
       else if (tab === 'menu-config') this.loadMenuConfig();
+      else if (tab === 'word-repo') this.loadWordRepo();
       else if (tab === 'token-monitor') this.loadTokenMonitor();
     }
   },
@@ -2346,5 +2349,261 @@ const AdminPage = {
         }
       }
     );
+  },
+
+  // ============================================================
+  // Tab — 🗂 워드 사전 (Word Repository)
+  // 화면 컬럼 라벨을 DB 스키마 변경 없이 설정만으로 바꾸는 기능.
+  // 권한: admin(level 4) 이상.  엔드포인트: /api/admin/labels
+  // ============================================================
+  _wordRepoData: null,   // { scopes:[], labels:{ scope:{ key:{default,desc,current,...} } } }
+  _wordRepoScope: null,  // 현재 선택된 도메인
+  _wordRepoDirty: {},    // { 'scope.key': '새 라벨' }  — 저장 전 변경 buffer
+
+  async loadWordRepo() {
+    const panel = document.getElementById('admin-tab-word-repo');
+    panel.innerHTML = '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
+    try {
+      const r = await API.request('GET', '/admin/labels');
+      this._wordRepoData = r.data || { scopes: [], labels: {} };
+      this._wordRepoDirty = {};
+      this._wordRepoScope = this._wordRepoData.scopes[0] || null;
+      this._renderWordRepo();
+      panel.dataset.loaded = '1';
+    } catch (e) {
+      panel.innerHTML = `<div class="empty-state">불러오기 실패: ${esc(e.message || '')}</div>`;
+    }
+  },
+
+  _renderWordRepo() {
+    const panel = document.getElementById('admin-tab-word-repo');
+    const { scopes = [], labels = {} } = this._wordRepoData || {};
+    const activeScope = this._wordRepoScope;
+    const SCOPE_LABEL = {
+      leads:      '영업 리드',
+      customers:  '고객사',
+      projects:   '프로젝트',
+      activities: '영업 활동',
+      team:       '팀',
+      common:     '공통',
+    };
+
+    const sideList = scopes.map(s => `
+      <button class="wr-scope-btn${s === activeScope ? ' active' : ''}" data-scope="${s}">
+        ${SCOPE_LABEL[s] || s}
+      </button>
+    `).join('');
+
+    const dirtyCount = Object.keys(this._wordRepoDirty).length;
+    const rows = Object.entries(labels[activeScope] || {}).map(([k, v]) => {
+      const dirtyKey = `${activeScope}.${k}`;
+      const curr = (this._wordRepoDirty[dirtyKey] !== undefined)
+        ? this._wordRepoDirty[dirtyKey]
+        : v.current;
+      const isOverridden = v.overridden || (this._wordRepoDirty[dirtyKey] !== undefined && this._wordRepoDirty[dirtyKey] !== v.default);
+      return `
+        <tr data-scope="${activeScope}" data-key="${k}">
+          <td><span class="mono fs-12" style="color:var(--text-3)">${esc(k)}</span></td>
+          <td><span style="color:var(--text-2)">${esc(v.default)}</span></td>
+          <td>
+            <input type="text" class="form-control wr-input" value="${esc(curr)}"
+                   maxlength="200" placeholder="${esc(v.default)}"
+                   style="font-size:13px;${isOverridden ? 'border-color:#fd7e14;background:#fff8f0' : ''}"
+                   data-original="${esc(v.current)}">
+          </td>
+          <td style="font-size:11px;color:var(--text-3)">${esc(v.desc || '')}</td>
+          <td>
+            ${isOverridden ? '<span style="color:#fd7e14;font-size:11px">●변경됨</span>' : ''}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    panel.innerHTML = `
+      <style id="word-repo-style">
+        .wr-wrap { display:grid; grid-template-columns: 200px 1fr; gap:18px; }
+        .wr-side { border:1px solid var(--border); border-radius:8px; padding:10px; height:fit-content; }
+        .wr-scope-btn {
+          display:block; width:100%; text-align:left;
+          padding:8px 12px; margin-bottom:4px;
+          border:none; background:transparent; border-radius:6px;
+          font-size:13px; cursor:pointer; color:var(--text-1);
+        }
+        .wr-scope-btn:hover { background:var(--bg-1, #f5f7fb); }
+        .wr-scope-btn.active { background:#eef2ff; color:#1664E5; font-weight:600; }
+        .wr-main { border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+        .wr-header {
+          display:flex; align-items:center; justify-content:space-between;
+          padding:14px 18px; border-bottom:1px solid var(--border); background:#fafbfc;
+        }
+        .wr-table { width:100%; border-collapse:collapse; }
+        .wr-table th, .wr-table td { padding:10px 14px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
+        .wr-table th { background:#fafbfc; text-align:left; font-weight:600; color:var(--text-2); font-size:12px; }
+        .wr-table tbody tr:hover { background:#fcfcfd; }
+        .wr-dirty-bar {
+          position:sticky; top:0; z-index:5;
+          background:#fff8f0; border:1px solid #fdba74; border-radius:8px;
+          padding:10px 16px; margin-bottom:12px;
+          display:flex; align-items:center; justify-content:space-between;
+        }
+      </style>
+      <div style="margin-bottom:14px">
+        <strong>🗂 워드 사전</strong>
+        <span style="color:var(--text-2);font-size:12px;margin-left:6px">
+          화면 컬럼 라벨을 DB 스키마 변경 없이 설정만으로 변경합니다 (admin 이상)
+        </span>
+      </div>
+      ${dirtyCount > 0 ? `
+        <div class="wr-dirty-bar">
+          <div><strong style="color:#c2410c">변경된 항목 ${dirtyCount}개</strong> · 저장 전까지 적용되지 않습니다</div>
+          <div>
+            <button class="btn-secondary btn-sm" id="wr-discard">초기 상태로 되돌리기</button>
+            <button class="btn-primary btn-sm" id="wr-save" style="margin-left:6px">💾 저장</button>
+          </div>
+        </div>
+      ` : ''}
+      <div class="wr-wrap">
+        <div class="wr-side">${sideList}</div>
+        <div class="wr-main">
+          <div class="wr-header">
+            <div>
+              <strong>${SCOPE_LABEL[activeScope] || activeScope}</strong>
+              <span style="color:var(--text-3);font-size:12px;margin-left:6px">${Object.keys(labels[activeScope] || {}).length}개 항목</span>
+            </div>
+            <div>
+              <button class="btn-secondary btn-sm" id="wr-audit-btn">📜 변경 이력</button>
+              <button class="btn-danger-outline btn-sm" id="wr-reset-scope-btn" style="margin-left:6px">
+                이 도메인 초기화
+              </button>
+            </div>
+          </div>
+          <table class="wr-table">
+            <thead>
+              <tr><th style="width:24%">키</th><th style="width:18%">기본값</th><th style="width:28%">현재 라벨</th><th>설명</th><th style="width:80px"></th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // ── 이벤트 바인딩 ──────────────────────────────────────
+    panel.querySelectorAll('.wr-scope-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._wordRepoScope = btn.dataset.scope;
+        this._renderWordRepo();
+      });
+    });
+
+    panel.querySelectorAll('.wr-input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const tr = inp.closest('tr');
+        const key = `${tr.dataset.scope}.${tr.dataset.key}`;
+        const orig = inp.dataset.original || '';
+        const val = inp.value;
+        if (val !== orig) {
+          this._wordRepoDirty[key] = val;
+        } else {
+          delete this._wordRepoDirty[key];
+        }
+        // 변경 카운트만 갱신 (전체 재렌더는 입력 끊김 발생)
+        this._refreshDirtyBar();
+      });
+    });
+
+    document.getElementById('wr-save')?.addEventListener('click', () => this._saveWordRepo());
+    document.getElementById('wr-discard')?.addEventListener('click', () => {
+      this._wordRepoDirty = {};
+      this._renderWordRepo();
+    });
+    document.getElementById('wr-reset-scope-btn')?.addEventListener('click', () => this._resetWordRepoScope());
+    document.getElementById('wr-audit-btn')?.addEventListener('click', () => this._showWordRepoAudit());
+  },
+
+  _refreshDirtyBar() {
+    const cnt = Object.keys(this._wordRepoDirty).length;
+    const bar = document.querySelector('#admin-tab-word-repo .wr-dirty-bar');
+    if (cnt === 0) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      // 다시 렌더해서 dirty bar 생성
+      this._renderWordRepo();
+      return;
+    }
+    bar.querySelector('strong').textContent = `변경된 항목 ${cnt}개`;
+  },
+
+  async _saveWordRepo() {
+    const items = Object.entries(this._wordRepoDirty).map(([qual, label]) => {
+      const [scope, key] = qual.split('.');
+      return { scope, key, label };
+    });
+    if (!items.length) return;
+    try {
+      const r = await API.request('PUT', '/admin/labels', { items });
+      Toast.success(`${r.changed || 0}개 라벨 저장됨`);
+      // 캐시 무효화 + 다시 로드
+      if (typeof Labels !== 'undefined') {
+        Labels.invalidate();
+        await Labels.ensureLoaded();
+        Labels.apply();
+      }
+      await this.loadWordRepo();
+    } catch (e) {
+      Toast.error('저장 실패: ' + (e.message || ''));
+    }
+  },
+
+  _resetWordRepoScope() {
+    const scope = this._wordRepoScope;
+    if (!scope) return;
+    Modal.confirm(
+      `<strong>${scope}</strong> 도메인의 모든 라벨을 기본값으로 되돌립니다.<br>이 작업은 되돌릴 수 없습니다.<br><br>계속하시겠습니까?`,
+      async () => {
+        try {
+          await API.request('POST', '/admin/labels/reset', { scope });
+          Toast.success('초기화되었습니다.');
+          if (typeof Labels !== 'undefined') { Labels.invalidate(); await Labels.ensureLoaded(); Labels.apply(); }
+          await this.loadWordRepo();
+        } catch (e) {
+          Toast.error('초기화 실패: ' + (e.message || ''));
+        }
+      }
+    );
+  },
+
+  async _showWordRepoAudit() {
+    try {
+      const r = await API.request('GET', '/admin/labels/audit?limit=200');
+      const rows = (r.data || []).map(a => `
+        <tr>
+          <td class="mono fs-11">${esc(a.scope)}.${esc(a.key_name)}</td>
+          <td style="color:var(--text-2)">${esc(a.old_label || '')}</td>
+          <td>→</td>
+          <td><strong>${esc(a.new_label || '')}</strong></td>
+          <td>${esc(a.changed_by_name || '-')}</td>
+          <td class="fs-11" style="color:var(--text-3)">${new Date(a.changed_at).toLocaleString('ko-KR')}</td>
+        </tr>
+      `).join('');
+      Modal.open({
+        title: '워드 사전 변경 이력',
+        confirmOnClose: false,
+        body: `
+          <div style="max-height:60vh;overflow:auto">
+            ${rows ? `
+              <table class="wr-table">
+                <thead><tr><th>키</th><th>이전</th><th></th><th>변경 후</th><th>변경자</th><th>일시</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>` : '<div class="empty-state">변경 이력이 없습니다.</div>'}
+          </div>
+        `,
+        footer: `<button class="btn btn-primary" id="wr-audit-close">닫기</button>`,
+        bind: { '#wr-audit-close': () => Modal.close() },
+      });
+    } catch (e) {
+      Toast.error('이력 조회 실패: ' + (e.message || ''));
+    }
   },
 };
