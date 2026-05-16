@@ -204,6 +204,8 @@ const App = {
     sessionStorage.removeItem('oci_token');
     localStorage.removeItem('oci_user');
     localStorage.removeItem('current_user_id');
+    // 세션 종료 시 마지막 페이지 기록도 정리 — 다음 로그인 시 대시보드로 진입하도록
+    localStorage.removeItem('oci_lastPage');
     window.location.href = '/login';
   },
 

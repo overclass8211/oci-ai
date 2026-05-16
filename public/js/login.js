@@ -168,6 +168,8 @@ const Login = {
     storage.setItem('oci_token', data.token);
     localStorage.setItem('oci_user', JSON.stringify(data.user));
     localStorage.setItem('current_user_id', data.user.id);
+    // 로그인 후 항상 대시보드로 진입 — 이전 세션의 lastPage 무시
+    localStorage.removeItem('oci_lastPage');
     window.location.href = '/';
   },
 
