@@ -137,6 +137,16 @@ const SettingsPage = {
         </div>
       </div>
 
+      <div class="card mb-3">
+        <div class="card-header">
+          <div class="card-title">🔗 Webhook (외부 통합)</div>
+          <button class="btn btn-primary btn-sm" id="webhook-new-btn">+ 새 Webhook</button>
+        </div>
+        <div class="card-body" id="webhook-list">
+          <div class="loading">불러오는 중...</div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><div class="card-title">시스템 정보</div></div>
         <div class="card-body">
@@ -163,7 +173,326 @@ const SettingsPage = {
     document.getElementById('email-tpl-new-btn')?.addEventListener('click', () => this.openTemplateForm());
     this.loadEmailTemplates();
 
+    // Webhook
+    document.getElementById('webhook-new-btn')?.addEventListener('click', () => this.openWebhookForm());
+    this.loadWebhooks();
+
     this.checkDb();
+  },
+
+  // ─── Webhook 관리 ───────────────────────────────────────
+  async loadWebhooks() {
+    const el = document.getElementById('webhook-list');
+    if (!el) return;
+    try {
+      const r = await API.get('/webhooks');
+      const hooks = r.data || [];
+      if (!hooks.length) {
+        el.innerHTML = `
+          <div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">
+            등록된 Webhook 이 없습니다.
+            <div style="margin-top:6px;font-size:11px">예: Slack, MS Teams, ERP 등 외부 시스템에 이벤트 전송</div>
+          </div>`;
+        return;
+      }
+      el.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:50px">상태</th>
+              <th>이름</th>
+              <th>URL</th>
+              <th>이벤트</th>
+              <th style="width:80px">최근 발송</th>
+              <th style="width:220px;text-align:right">작업</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${hooks.map(h => {
+              const events = Array.isArray(h.event_types) ? h.event_types : [];
+              const lastStatusBadge = !h.last_sent_at
+                ? '<span class="badge badge-gray" style="font-size:10px">미발송</span>'
+                : h.last_status === 'success'
+                  ? '<span class="badge badge-green" style="font-size:10px">✓ 성공</span>'
+                  : `<span class="badge badge-red" style="font-size:10px" title="${esc(h.last_status || 'failed')}">✕ 실패</span>`;
+              return `
+                <tr data-wh-id="${h.id}">
+                  <td>${h.is_active
+                      ? '<span class="badge badge-green" style="font-size:10px">활성</span>'
+                      : '<span class="badge badge-gray" style="font-size:10px">비활성</span>'}
+                  </td>
+                  <td><strong>${esc(h.name)}</strong></td>
+                  <td><code style="font-size:11px;color:var(--text-2)">${esc(h.url.slice(0, 60))}${h.url.length > 60 ? '…' : ''}</code></td>
+                  <td>
+                    ${events.slice(0, 3).map(e => `<span class="badge badge-blue" style="font-size:10px;margin-right:3px">${esc(e)}</span>`).join('')}
+                    ${events.length > 3 ? `<span class="badge badge-gray" style="font-size:10px">+${events.length - 3}</span>` : ''}
+                  </td>
+                  <td>${lastStatusBadge}</td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <button class="btn btn-ghost btn-sm" data-wh-action="test"     data-id="${h.id}" title="테스트 발송">🧪 테스트</button>
+                    <button class="btn btn-ghost btn-sm" data-wh-action="logs"     data-id="${h.id}" title="발송 이력">📋 이력</button>
+                    <button class="btn btn-ghost btn-sm" data-wh-action="edit"     data-id="${h.id}">편집</button>
+                    <button class="btn btn-ghost btn-sm" data-wh-action="delete"   data-id="${h.id}" style="color:var(--oci-red)">삭제</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+      el.querySelectorAll('[data-wh-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = parseInt(btn.dataset.id, 10);
+          const a  = btn.dataset.whAction;
+          if (a === 'edit')   this.openWebhookForm(id);
+          if (a === 'delete') this.deleteWebhook(id);
+          if (a === 'test')   this.testWebhook(id);
+          if (a === 'logs')   this.showWebhookLogs(id);
+        });
+      });
+    } catch (e) {
+      el.innerHTML = `<div class="empty" style="color:var(--oci-red)">불러오기 실패: ${esc(e.message || '')}</div>`;
+    }
+  },
+
+  async openWebhookForm(id = null) {
+    let hook = {
+      id: null, name: '', url: '', event_types: [],
+      is_active: 1, has_secret: 0,
+    };
+    let events = [];
+    try {
+      const evRes = await API.get('/webhooks/events');
+      events = evRes.data || [];
+    } catch (_) { /* fallback */ }
+    if (id) {
+      try {
+        const r = await API.get(`/webhooks/${id}`);
+        hook = r.data;
+      } catch (e) {
+        Toast.error('Webhook 로드 실패: ' + (e.message || ''));
+        return;
+      }
+    }
+
+    const isEdit = !!id;
+
+    Modal.open({
+      title: isEdit ? '🔗 Webhook 편집' : '🔗 새 Webhook',
+      width: 720,
+      body: `
+        <div class="form-grid" style="grid-template-columns: 120px 1fr; gap: 10px 12px; align-items: center">
+          <label class="form-label">이름 *</label>
+          <input type="text" class="form-input" id="wh-name" maxlength="150" value="${esc(hook.name)}"
+                 placeholder="예: Slack 알림 - 영업팀">
+
+          <label class="form-label">URL *</label>
+          <input type="text" class="form-input" id="wh-url" maxlength="500" value="${esc(hook.url)}"
+                 placeholder="https://hooks.slack.com/services/...">
+
+          <label class="form-label" style="align-self:flex-start;padding-top:6px">이벤트 *</label>
+          <div id="wh-events-list" style="display:flex;flex-direction:column;gap:6px">
+            ${events.map(ev => `
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+                <input type="checkbox" name="wh-event" value="${esc(ev)}"
+                       ${hook.event_types?.includes(ev) ? 'checked' : ''}>
+                <code style="font-size:11px;background:var(--surface-3);padding:2px 6px;border-radius:4px">${esc(ev)}</code>
+              </label>
+            `).join('')}
+          </div>
+
+          <label class="form-label">활성 상태</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="wh-active" ${hook.is_active ? 'checked' : ''}>
+            <span>활성화 (이벤트 발생 시 발송)</span>
+          </label>
+
+          ${isEdit ? `
+            <label class="form-label">시크릿</label>
+            <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3)">
+              ${hook.has_secret ? '🔒 설정됨' : '⚠️ 없음'}
+              <button type="button" class="btn btn-ghost btn-sm" id="wh-regen-secret"
+                      style="font-size:11px" title="시크릿을 새로 발급합니다">🔄 시크릿 재발급</button>
+            </div>
+          ` : `
+            <label class="form-label">시크릿</label>
+            <div style="font-size:11px;color:var(--text-3)">
+              저장 시 자동 발급됩니다 (32 byte hex).<br>
+              수신 측에서 X-OCI-Signature 헤더의 HMAC-SHA256 서명 검증에 사용.
+            </div>
+          `}
+        </div>
+        <div style="margin-top:14px;font-size:11px;color:var(--text-3);line-height:1.7">
+          💡 Webhook URL 은 http:// 또는 https:// 만 허용 (운영 환경은 https 강제).<br>
+          📤 페이로드 형식: <code>{ event, delivery_id, timestamp, data: {...} }</code><br>
+          🔐 서명 확인 방법: <code>HMAC-SHA256(secret, payload) === X-OCI-Signature</code>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="wh-cancel">취소</button>
+        <button class="btn btn-primary" id="wh-save">저장</button>
+      `,
+      bind: {
+        '#wh-cancel': () => Modal.close(),
+        '#wh-regen-secret': async () => {
+          if (!confirm('새 시크릿을 발급하시겠습니까? 수신 측 설정도 동시에 업데이트해야 합니다.')) return;
+          try {
+            await API.put(`/webhooks/${id}`, { secret: '' }); // 빈 문자열 → 서버에서 자동 재발급
+            Toast.success('시크릿이 재발급되었습니다.');
+            Modal.close();
+            this.loadWebhooks();
+          } catch (e) {
+            Toast.error('재발급 실패: ' + (e.message || ''));
+          }
+        },
+        '#wh-save': async () => {
+          const name = document.getElementById('wh-name').value.trim();
+          const url  = document.getElementById('wh-url').value.trim();
+          const active = document.getElementById('wh-active').checked;
+          const selectedEvents = [];
+          document.querySelectorAll('input[name="wh-event"]:checked').forEach(c => {
+            selectedEvents.push(c.value);
+          });
+
+          if (!name || !url) {
+            Toast.warn('이름·URL 은 필수입니다.');
+            return;
+          }
+          if (selectedEvents.length === 0) {
+            Toast.warn('최소 1개 이상의 이벤트를 선택하세요.');
+            return;
+          }
+
+          try {
+            if (isEdit) {
+              await API.put(`/webhooks/${id}`, {
+                name, url, event_types: selectedEvents, is_active: active,
+              });
+              Toast.success('Webhook 이 수정되었습니다.');
+            } else {
+              const r = await API.post('/webhooks', {
+                name, url, event_types: selectedEvents,
+              });
+              if (r.secret) {
+                // 신규 시크릿 — 한 번만 노출
+                Modal.close();
+                await new Promise(resolve => setTimeout(resolve, 100));
+                Modal.open({
+                  title: '🔐 시크릿 발급 완료 (한 번만 표시)',
+                  body: `
+                    <div style="padding:10px 0">
+                      <p style="margin:0 0 10px;font-size:13px">
+                        Webhook 시크릿이 발급되었습니다.<br>
+                        수신 측에 등록하세요. <strong>이 화면을 닫으면 다시 볼 수 없습니다.</strong>
+                      </p>
+                      <textarea readonly rows="2" class="form-input"
+                                style="font-family:monospace;font-size:11px;word-break:break-all"
+                                id="wh-secret-display">${esc(r.secret)}</textarea>
+                      <button class="btn btn-ghost btn-sm" id="wh-secret-copy"
+                              style="margin-top:8px">📋 복사</button>
+                    </div>
+                  `,
+                  footer: `<button class="btn btn-primary" id="wh-secret-ok">확인했습니다</button>`,
+                  bind: {
+                    '#wh-secret-copy': () => {
+                      const t = document.getElementById('wh-secret-display');
+                      t.select();
+                      try {
+                        document.execCommand('copy');
+                        Toast.success('클립보드에 복사되었습니다.');
+                      } catch (_) { /* ignore */ }
+                    },
+                    '#wh-secret-ok': () => { Modal.close(); this.loadWebhooks(); },
+                  },
+                });
+                return;
+              }
+              Toast.success('Webhook 이 추가되었습니다.');
+            }
+            Modal.close();
+            this.loadWebhooks();
+          } catch (e) {
+            Toast.error('저장 실패: ' + (e.message || ''));
+          }
+        },
+      },
+    });
+  },
+
+  async deleteWebhook(id) {
+    if (!confirm('이 Webhook 을 삭제하시겠습니까? 발송 이력도 함께 삭제됩니다.')) return;
+    try {
+      await API.del(`/webhooks/${id}`);
+      Toast.success('Webhook 이 삭제되었습니다.');
+      this.loadWebhooks();
+    } catch (e) {
+      Toast.error('삭제 실패: ' + (e.message || ''));
+    }
+  },
+
+  async testWebhook(id) {
+    try {
+      Toast.info('테스트 발송 중...');
+      const r = await API.post(`/webhooks/${id}/test`, { event: 'lead.won' });
+      const result = r.data || {};
+      if (result.ok) {
+        Toast.success(`✓ 성공 — HTTP ${result.status} (${result.ms || '?'}ms)`);
+      } else {
+        Toast.error(`✕ 실패 — ${result.error || result.status || '알 수 없음'}`);
+      }
+      this.loadWebhooks();
+    } catch (e) {
+      Toast.error('테스트 실패: ' + (e.message || ''));
+    }
+  },
+
+  async showWebhookLogs(id) {
+    try {
+      const r = await API.get(`/webhooks/${id}/deliveries?limit=20`);
+      const logs = r.data || [];
+      const body = logs.length === 0 ? `
+        <div class="empty" style="padding:30px;text-align:center;color:var(--text-3)">
+          아직 발송 이력이 없습니다.
+        </div>
+      ` : `
+        <table class="data-table" style="font-size:12px">
+          <thead>
+            <tr>
+              <th style="width:60px">상태</th>
+              <th>이벤트</th>
+              <th>HTTP</th>
+              <th>응답</th>
+              <th>시도</th>
+              <th>시각</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${logs.map(l => `
+              <tr>
+                <td>${l.status === 'success'
+                    ? '<span class="badge badge-green" style="font-size:10px">✓</span>'
+                    : '<span class="badge badge-red" style="font-size:10px" title="' + esc(l.error_message || '') + '">✕</span>'}
+                </td>
+                <td><code style="font-size:11px">${esc(l.event_type)}</code></td>
+                <td style="font-variant-numeric:tabular-nums">${l.http_status || '-'}</td>
+                <td style="font-variant-numeric:tabular-nums">${l.response_ms || '-'}ms</td>
+                <td style="text-align:center">${l.attempt}</td>
+                <td style="font-size:11px">${esc(new Date(l.created_at).toLocaleString('ko-KR'))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      Modal.open({
+        title: '📋 Webhook 발송 이력 (최근 20건)',
+        width: 720,
+        body,
+        footer: `<button class="btn btn-primary" id="wh-logs-ok">닫기</button>`,
+        bind: { '#wh-logs-ok': () => Modal.close() },
+      });
+    } catch (e) {
+      Toast.error('이력 로드 실패: ' + (e.message || ''));
+    }
   },
 
   // ─── 이메일 템플릿 관리 ─────────────────────────────────
