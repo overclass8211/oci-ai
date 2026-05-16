@@ -923,6 +923,17 @@ const App = {
             <div class="card-body no-pad">${activitiesHtml}</div>
           </div>
 
+          <!-- 📧 Gmail 대화 — lazy load (모달 열린 후 fetch) -->
+          <div class="card mb-3" id="ld-gmail-card">
+            <div class="card-header">
+              <div class="card-title">📧 최근 Gmail 대화</div>
+              <button class="btn btn-ghost btn-sm" id="ld-gmail-refresh" title="새로고침" style="display:none">🔄</button>
+            </div>
+            <div class="card-body no-pad" id="ld-gmail-body">
+              <div class="loading" style="padding:14px;text-align:center;font-size:12px;color:var(--text-3)">Gmail 대화 로딩 중...</div>
+            </div>
+          </div>
+
           ${meetingsHtml}
         `,
         footer: `
@@ -1007,7 +1018,108 @@ const App = {
           }
         }
       });
+      // 📧 Gmail 카드 lazy load — modal 렌더 후 비동기
+      this._loadGmailForLead(l.id);
     } catch (err) { console.error(err); }
+  },
+
+  // ── Gmail 메시지 카드 — 리드 모달용 (lazy) ────────────────
+  async _loadGmailForLead(leadId) {
+    const body = document.getElementById('ld-gmail-body');
+    if (!body) return;
+    try {
+      const r = await API.gmail.matchLead(leadId, 8);
+      this._renderGmailCard(body, r, () => this._loadGmailForLead(leadId));
+    } catch (err) {
+      // 401/403/500 등 — API 자체에서 던진 에러
+      const status = err.status || 0;
+      this._renderGmailCard(body, {
+        success: false,
+        error: err.message || 'Gmail 조회 실패',
+        statusCode: status,
+      }, () => this._loadGmailForLead(leadId));
+    }
+  },
+
+  // ── Gmail 카드 렌더 (lead/customer 공용) ───────────────────
+  _renderGmailCard(bodyEl, res, retryFn) {
+    const refreshBtn = document.getElementById('ld-gmail-refresh') ||
+                       document.getElementById('cust-gmail-refresh');
+
+    // 1) 미연결 / scope 부족 안내
+    if (res && res.notConnected) {
+      bodyEl.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--text-3)">
+        🔌 Google 계정이 연결되지 않았습니다 · 설정 > Google 연동에서 연결하세요.
+      </div>`;
+      if (refreshBtn) refreshBtn.style.display = 'none';
+      return;
+    }
+    if (res && res.scopeRequired === 'gmail.readonly') {
+      bodyEl.innerHTML = `<div style="padding:14px;font-size:12px;color:#92400e;background:#fff8f0">
+        ⚠️ Gmail 권한이 없습니다 — 설정 > Google 연동에서 <b>재연결</b>해 권한을 추가하세요.
+      </div>`;
+      if (refreshBtn) refreshBtn.style.display = 'none';
+      return;
+    }
+    if (!res || res.success === false) {
+      bodyEl.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--oci-red)">
+        ⚠️ Gmail 조회 실패: ${esc(res?.error || '알 수 없는 오류')}
+      </div>`;
+      if (refreshBtn) refreshBtn.style.display = '';
+      return;
+    }
+
+    // 2) contact_email 없음
+    if (res.reason === 'no_contact_email') {
+      bodyEl.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--text-3)">
+        ${esc(res.message || '고객 담당자 이메일이 등록되어 있지 않습니다.')}
+      </div>`;
+      if (refreshBtn) refreshBtn.style.display = 'none';
+      return;
+    }
+
+    // 3) 결과 0건
+    if (!res.data || !res.data.length) {
+      bodyEl.innerHTML = `<div style="padding:14px;font-size:12px;color:var(--text-3)">
+        📭 <span class="mono">${esc(res.email || '')}</span> 와의 Gmail 대화가 없습니다.
+      </div>`;
+      if (refreshBtn) refreshBtn.style.display = '';
+      if (refreshBtn) refreshBtn.onclick = retryFn;
+      return;
+    }
+
+    // 4) 메시지 목록
+    bodyEl.innerHTML = `
+      <div style="padding:8px 14px;font-size:11px;color:var(--text-3);border-bottom:1px solid var(--border)">
+        매칭 이메일: <span class="mono">${esc(res.email)}</span> · ${res.count}건
+      </div>
+      ${res.data.map(m => {
+        const dirIcon = m.direction === 'outbound' ? '📤' : '📥';
+        const dirLabel = m.direction === 'outbound' ? '보냄' : '받음';
+        const dirColor = m.direction === 'outbound' ? '#1664E5' : '#17A85A';
+        const dateStr = m.date ? new Date(m.date).toLocaleString('ko-KR') : '';
+        return `
+          <a href="${esc(m.gmail_url)}" target="_blank" rel="noopener noreferrer"
+             style="display:block;padding:10px 14px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit"
+             title="Gmail 에서 열기">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+              <span style="font-size:10px;font-weight:600;color:${dirColor};white-space:nowrap">${dirIcon} ${dirLabel}</span>
+              <span style="font-size:13px;font-weight:500;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">
+                ${esc(m.subject)}
+              </span>
+              <span style="font-size:10px;color:var(--text-3);white-space:nowrap">${esc(dateStr)}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              ${esc(m.snippet)}
+            </div>
+          </a>
+        `;
+      }).join('')}
+    `;
+    if (refreshBtn) {
+      refreshBtn.style.display = '';
+      refreshBtn.onclick = retryFn;
+    }
   },
 
   activityIcon(type) {

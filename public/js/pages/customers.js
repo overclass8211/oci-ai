@@ -877,6 +877,18 @@ const CustomersPage = {
               </div>
             </div>
           </form>
+
+          <!-- 📧 Gmail 대화 — lazy load -->
+          <div class="card" style="margin-top:16px;margin-bottom:0">
+            <div class="card-header">
+              <div class="card-title">📧 최근 Gmail 대화</div>
+              <button class="btn btn-ghost btn-sm" id="cust-gmail-refresh" title="새로고침" style="display:none">🔄</button>
+            </div>
+            <div class="card-body no-pad" id="cust-gmail-body">
+              <div class="loading" style="padding:14px;text-align:center;font-size:12px;color:var(--text-3)">Gmail 대화 로딩 중...</div>
+            </div>
+          </div>
+
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" id="cm-delete-btn" style="margin-right:auto;color:var(--oci-red)">🗑 삭제</button>
             <button class="btn btn-ghost" id="cm-email-btn" title="이메일 보내기">✉️ 이메일</button>
@@ -949,6 +961,9 @@ const CustomersPage = {
     // 카카오 주소 검색 + 지도
     document.getElementById('cm-addr-search').addEventListener('click', () => this._openPostcodeSearch());
     this._initKakaoMap(cust.address);
+
+    // 📧 Gmail 대화 — lazy load
+    this._loadGmailForCustomer(id);
 
     // 비동기로 딜/그룹/브리핑 캐시 로드
     this._loadModalDeals(id);
@@ -1065,6 +1080,21 @@ const CustomersPage = {
         🗺 카카오맵에서 보기 →
       </a>
     </div>`;
+  },
+
+  // ── 📧 Gmail 대화 lazy load (App._renderGmailCard 재사용) ──
+  async _loadGmailForCustomer(customerId) {
+    const body = document.getElementById('cust-gmail-body');
+    if (!body || typeof App === 'undefined' || !App._renderGmailCard) return;
+    try {
+      const r = await API.gmail.matchCustomer(customerId, 8);
+      App._renderGmailCard(body, r, () => this._loadGmailForCustomer(customerId));
+    } catch (err) {
+      App._renderGmailCard(body, {
+        success: false,
+        error: err.message || 'Gmail 조회 실패',
+      }, () => this._loadGmailForCustomer(customerId));
+    }
   },
 
   async _initKakaoMap(address) {

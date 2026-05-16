@@ -1,0 +1,170 @@
+'use strict';
+// =============================================================
+// Gmail API 래퍼 — Phase G1 (읽기 + 리드/고객 매칭)
+//
+// 사용:
+//   const gmail = require('../services/gmail');
+//   const msgs = await gmail.listByEmail(userId, 'contact@example.com', { limit: 10 });
+//
+// 인증:
+//   기존 google_oauth_tokens 의 토큰을 getAuthenticatedClient() 로 가져와 사용.
+//   gmail.readonly scope 필요 — 미보유 시 403 응답으로 안내.
+//
+// 결과 포맷 (각 메시지):
+//   {
+//     id, threadId,
+//     from, to, subject, snippet,
+//     date (Date),
+//     direction: 'inbound' | 'outbound',
+//     gmail_url (gmail.com 열기용)
+//   }
+// =============================================================
+
+const { google } = require('googleapis');
+
+// google.js 의 getAuthenticatedClient 재사용 (순환 import 방지 위해 lazy require)
+function _getGoogleAuthHelpers() {
+  return require('../routes/google');
+}
+
+/** 사용자별 Gmail API 클라이언트 */
+async function getGmailClient(userId) {
+  const { getAuthenticatedClient } = _getGoogleAuthHelpers();
+  const oauth2Client = await getAuthenticatedClient(userId);
+  return {
+    gmail: google.gmail({ version: 'v1', auth: oauth2Client }),
+    oauth2Client,
+  };
+}
+
+/** 사용자 본인 Gmail 주소 (방향 판별용) */
+async function getOwnEmail(userId) {
+  const { gmail } = await getGmailClient(userId);
+  const profile = await gmail.users.getProfile({ userId: 'me' });
+  return profile.data.emailAddress;
+}
+
+/** Gmail RFC 822 헤더에서 단일 헤더 값 추출 */
+function _hdr(headers, name) {
+  if (!headers) return '';
+  const h = headers.find(x => x.name && x.name.toLowerCase() === name.toLowerCase());
+  return h ? h.value : '';
+}
+
+/** 이메일 주소 추출 — "Name <a@b.com>" → "a@b.com" */
+function _extractAddr(s) {
+  if (!s) return '';
+  const m = String(s).match(/<([^>]+)>/);
+  return (m ? m[1] : s).trim().toLowerCase();
+}
+
+/**
+ * 특정 이메일 주소와의 송수신 메시지 목록
+ * @param {number} userId
+ * @param {string} contactEmail  — 매칭 대상 이메일
+ * @param {object} opts          — { limit (기본 10) }
+ * @returns {Promise<Array>}
+ */
+async function listByEmail(userId, contactEmail, opts = {}) {
+  if (!contactEmail || !/@/.test(contactEmail)) {
+    return [];
+  }
+  const limit = Math.min(50, Math.max(1, parseInt(opts.limit) || 10));
+  const { gmail } = await getGmailClient(userId);
+
+  // Gmail 검색 쿼리 — 송수신 둘 다 포함
+  // from:foo@bar.com OR to:foo@bar.com
+  const safeEmail = contactEmail.replace(/["]/g, '');
+  const q = `from:${safeEmail} OR to:${safeEmail}`;
+
+  const listRes = await gmail.users.messages.list({
+    userId: 'me',
+    q,
+    maxResults: limit,
+  });
+  const ids = (listRes.data.messages || []).map(m => m.id);
+  if (!ids.length) return [];
+
+  // 본인 이메일 (방향 판별)
+  let myEmail = '';
+  try {
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    myEmail = (profile.data.emailAddress || '').toLowerCase();
+  } catch (_) {}
+
+  // 각 메시지 메타데이터 fetch (병렬)
+  const detailed = await Promise.all(
+    ids.map(id =>
+      gmail.users.messages
+        .get({
+          userId: 'me',
+          id,
+          format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+        })
+        .then(r => r.data)
+        .catch(() => null)
+    )
+  );
+
+  return detailed.filter(Boolean).map(m => {
+    const headers = m.payload?.headers || [];
+    const from = _hdr(headers, 'From');
+    const to = _hdr(headers, 'To');
+    const subject = _hdr(headers, 'Subject') || '(제목 없음)';
+    const dateHdr = _hdr(headers, 'Date');
+    const internalDate = m.internalDate ? new Date(parseInt(m.internalDate)) : null;
+    const date = internalDate || (dateHdr ? new Date(dateHdr) : null);
+
+    const fromAddr = _extractAddr(from);
+    // 본인이 보낸 메일이면 outbound, 아니면 inbound
+    const direction = myEmail && fromAddr === myEmail ? 'outbound' : 'inbound';
+
+    return {
+      id: m.id,
+      threadId: m.threadId,
+      from,
+      to,
+      subject,
+      snippet: m.snippet || '',
+      date,
+      direction,
+      gmail_url: `https://mail.google.com/mail/u/0/#all/${m.threadId}`,
+    };
+  });
+}
+
+/**
+ * 에러 분류 — gmail.readonly scope 미보유 / 토큰 만료 등을 친절한 응답으로
+ */
+function classifyError(err) {
+  if (err?.notConnected) {
+    return { status: 401, body: { success: false, error: err.message, notConnected: true } };
+  }
+  const code = err?.code || err?.response?.status;
+  const msg = err?.message || '';
+  // Insufficient permission (scope 미보유)
+  if (code === 403 || /insufficient|forbidden|permission/i.test(msg)) {
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Gmail 권한이 없습니다. Google 계정을 재연결해 권한을 추가해 주세요.',
+        scopeRequired: 'gmail.readonly',
+      },
+    };
+  }
+  if (code === 401 || /unauthor/i.test(msg)) {
+    return {
+      status: 401,
+      body: {
+        success: false,
+        error: 'Google 인증이 만료되었습니다. 재연결해 주세요.',
+        notConnected: true,
+      },
+    };
+  }
+  return { status: 500, body: { success: false, error: msg || 'Gmail API 오류' } };
+}
+
+module.exports = { listByEmail, getOwnEmail, getGmailClient, classifyError };

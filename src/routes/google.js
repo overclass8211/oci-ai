@@ -154,6 +154,8 @@ router.get('/auth-url', requireAuth, (req, res) => {
         'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/userinfo.email',
         'https://www.googleapis.com/auth/userinfo.profile',
+        // Gmail 읽기 (리드/고객 매칭) — Phase G1
+        'https://www.googleapis.com/auth/gmail.readonly',
       ],
       state: String(userId || ''),
     });
@@ -333,3 +335,7 @@ router.patch('/meet/:id/link-minutes', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+// 다른 라우터(gmail 등)에서 재사용할 helpers
+module.exports.requireAuth = requireAuth;
+module.exports.getAuthenticatedClient = getAuthenticatedClient;
+module.exports.checkConfig = checkConfig;

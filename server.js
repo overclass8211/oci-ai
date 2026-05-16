@@ -210,6 +210,8 @@ if (config.env !== 'production') {
 app.use('/api/auth', require('./src/routes/auth'));
 // Google OAuth 콜백은 인증 미들웨어 전에 등록 (Google 리디렉션엔 JWT 없음)
 app.use('/api/google', require('./src/routes/google'));
+// Gmail (Phase G1 — google.js 의 helper 재사용)
+app.use('/api/gmail', require('./src/routes/gmail'));
 
 // 헬스체크 — 인증 불필요
 app.get('/api/health', async (_req, res) => {
