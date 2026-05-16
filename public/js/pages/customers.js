@@ -212,8 +212,8 @@ const CustomersPage = {
                 <th class="cp-check-col">
                   <input type="checkbox" class="cp-checkbox" id="cp-check-all-cust">
                 </th>
-                <th>고객사명</th><th>지역</th><th>국가</th><th>산업</th>
-                <th>담당자</th><th>연락처</th><th>이메일</th><th>액션</th>
+                <th data-label="customers.customer_name">고객사명</th><th data-label="customers.region">지역</th><th>국가</th><th data-label="customers.industry">산업</th>
+                <th data-label="customers.contact_person">담당자</th><th data-label="customers.contact_phone">연락처</th><th data-label="customers.contact_email">이메일</th><th data-label="common.actions">액션</th>
               </tr>
             </thead>
             <tbody>

@@ -448,8 +448,9 @@ const App = {
       // CSS injection 방식이므로 별도 apply() 불필요 — 렌더된 요소에 CSS 즉시 적용됨
 
       // 워드 사전 라벨 자동 치환 — [data-label] 마커 요소에 적용
+      // applyAsync: dict 미로드 시 ensureLoaded 후 apply (race 방지)
       if (typeof Labels !== 'undefined') {
-        try { Labels.apply(); } catch (_) { /* dict 미로드 등 */ }
+        Labels.applyAsync().catch(() => {});
       }
     } catch (err) {
       console.error('페이지 렌더링 실패:', err);

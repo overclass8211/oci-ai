@@ -107,15 +107,15 @@ const ProjectsPage = {
             <th class="cp-check-col">
               <input type="checkbox" class="cp-checkbox" id="cp-check-all-proj" title="전체 선택">
             </th>
-            <th>프로젝트명</th>
-            <th>고객사</th>
-            <th>유형</th>
-            <th class="text-right">계약금액</th>
-            <th class="text-right">산정 원가</th>
-            <th class="text-right">마진율</th>
-            <th>상태</th>
-            <th>납기일</th>
-            <th>담당</th>
+            <th data-label="projects.name">프로젝트명</th>
+            <th data-label="projects.customer_name">고객사</th>
+            <th data-label="projects.business_type">유형</th>
+            <th class="text-right" data-label="projects.contract_amount">계약금액</th>
+            <th class="text-right" data-label="projects.estimated_cost">산정 원가</th>
+            <th class="text-right" data-label="projects.margin_pct">마진율</th>
+            <th data-label="projects.status">상태</th>
+            <th data-label="projects.due_date">납기일</th>
+            <th data-label="projects.manager">담당</th>
             <th></th>
           </tr>
         </thead>

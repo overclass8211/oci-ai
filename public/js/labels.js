@@ -1,47 +1,68 @@
 // =============================================================
-// Labels — 워드 사전 dictionary 모듈
+// Labels — 워드 사전 dictionary 모듈 (다국어)
 //
-// 백엔드 GET /api/labels 결과를 sessionStorage 에 캐시(10분 TTL)
-// 그리고 DOM의 [data-label="<scope>.<key>"] 요소들의 텍스트를 치환.
+// 백엔드 GET /api/labels 결과를 sessionStorage 캐시(10분)
+// DOM의 [data-label="<scope>.<key>"] 요소 텍스트 치환.
 //
-// 사용법:
-//   1) HTML 마커:  <th data-label="leads.customer_name">고객사</th>
-//      (data-label 텍스트가 dictionary 의 값으로 치환됨)
-//   2) JS 직접:    Labels.get('leads.customer_name')   // 동기 조회
-//   3) 페이지 렌더 직후:  Labels.apply()  // [data-label] 일괄 치환
-//   4) 캐시 무효화: Labels.invalidate()
-//
-// 부팅 시 자동 fetch + apply.  페이지 전환 시에도 자동 재적용.
+// 다국어:
+//   - 부팅 시 시스템 locale 자동 감지 (또는 localStorage 사용자 override)
+//   - Labels.setLocale('en') 으로 변경 가능
 // =============================================================
 'use strict';
 
 const Labels = {
-  _dict: null,            // { scope: { key: 'label' } }
-  _ttl: 10 * 60 * 1000,   // 10분
+  _dict: null,             // { scope: { key: 'label' } }
+  _locale: 'ko',           // 현재 적용 locale
+  _systemLocale: 'ko',     // 시스템 기본 locale (백엔드 설정)
+  _supportedLocales: [],   // [{code,label,flag}]
+  _ttl: 10 * 60 * 1000,
   _key: 'oci_labels_cache',
-  _loading: null,         // in-flight Promise
+  _loading: null,
 
-  // ── 캐시 로드 ────────────────────────────────────────────
+  // ── 캐시 ─────────────────────────────────────────────────
+  _cacheKey() { return `${this._key}_${this._locale}`; },
   _loadFromCache() {
     try {
-      const raw = sessionStorage.getItem(this._key);
+      const raw = sessionStorage.getItem(this._cacheKey());
       if (!raw) return null;
-      const { ts, data } = JSON.parse(raw);
+      const { ts, data, locale, systemLocale, locales } = JSON.parse(raw);
       if (!ts || !data) return null;
       if (Date.now() - ts > this._ttl) return null;
+      if (locale && locale !== this._locale) return null;
+      this._systemLocale = systemLocale || this._systemLocale;
+      this._supportedLocales = locales || this._supportedLocales;
       return data;
     } catch (_) { return null; }
   },
-
-  _saveToCache(data) {
+  _saveToCache(data, meta) {
     try {
-      sessionStorage.setItem(this._key, JSON.stringify({ ts: Date.now(), data }));
-    } catch (_) { /* quota / private mode 무시 */ }
+      sessionStorage.setItem(this._cacheKey(), JSON.stringify({
+        ts: Date.now(),
+        data,
+        locale: meta?.locale || this._locale,
+        systemLocale: meta?.systemLocale || this._systemLocale,
+        locales: meta?.locales || this._supportedLocales,
+      }));
+    } catch (_) {}
   },
-
   invalidate() {
     this._dict = null;
-    try { sessionStorage.removeItem(this._key); } catch (_) {}
+    try {
+      // 모든 locale 캐시 무효화 (workspace 변경 등)
+      Object.keys(sessionStorage).forEach(k => {
+        if (k.startsWith(this._key)) sessionStorage.removeItem(k);
+      });
+    } catch (_) {}
+  },
+
+  // ── 사용자 override locale ──────────────────────────────
+  // localStorage 'oci_user_locale' 있으면 그것을, 없으면 시스템 locale
+  _detectInitialLocale() {
+    try {
+      const userPref = localStorage.getItem('oci_user_locale');
+      if (userPref) return userPref;
+    } catch (_) {}
+    return null; // 백엔드 응답의 system_locale 사용
   },
 
   // ── fetch ────────────────────────────────────────────────
@@ -54,7 +75,10 @@ const Labels = {
     this._loading = (async () => {
       try {
         const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
-        const r = await fetch('/api/labels', {
+        // 초기 부팅: locale 미정 → ?locale 생략 (백엔드가 시스템 locale 사용)
+        const userPref = this._detectInitialLocale();
+        const url = userPref ? '/api/labels?locale=' + encodeURIComponent(userPref) : '/api/labels';
+        const r = await fetch(url, {
           headers: token ? { 'Authorization': 'Bearer ' + token } : {},
           credentials: 'include',
         });
@@ -62,10 +86,16 @@ const Labels = {
         const j = await r.json();
         const data = j.data || {};
         this._dict = data;
-        this._saveToCache(data);
+        this._locale = j.locale || userPref || 'ko';
+        this._systemLocale = j.system_locale || 'ko';
+        this._supportedLocales = j.locales || [];
+        this._saveToCache(data, {
+          locale: this._locale,
+          systemLocale: this._systemLocale,
+          locales: this._supportedLocales,
+        });
         return data;
-      } catch (err) {
-        // 실패 시 빈 dict — data-label 마커는 원본 텍스트 그대로 유지
+      } catch (_) {
         this._dict = {};
         return this._dict;
       } finally {
@@ -75,8 +105,28 @@ const Labels = {
     return this._loading;
   },
 
-  // ── 단건 조회 ────────────────────────────────────────────
-  // Labels.get('leads.customer_name')  →  '거래처' (또는 fallback)
+  // ── locale 변경 ─────────────────────────────────────────
+  // 사용자 override 저장 + 캐시 무효화 + 재로드 + DOM 재치환
+  async setLocale(locale) {
+    if (!locale) return;
+    try { localStorage.setItem('oci_user_locale', locale); } catch (_) {}
+    this.invalidate();
+    this._locale = locale;
+    await this.ensureLoaded();
+    this.apply();
+  },
+  async clearUserLocale() {
+    try { localStorage.removeItem('oci_user_locale'); } catch (_) {}
+    this.invalidate();
+    await this.ensureLoaded();
+    this.apply();
+  },
+
+  // ── getter ──────────────────────────────────────────────
+  getLocale() { return this._locale; },
+  getSystemLocale() { return this._systemLocale; },
+  getSupportedLocales() { return this._supportedLocales; },
+
   get(qualified, fallback) {
     if (!this._dict) return fallback ?? qualified;
     const [scope, key] = String(qualified).split('.');
@@ -84,8 +134,7 @@ const Labels = {
     return v || fallback || qualified;
   },
 
-  // ── DOM 치환 ─────────────────────────────────────────────
-  // root 미지정 시 document 전체. 페이지 렌더 후 1회 호출.
+  // ── DOM 치환 ────────────────────────────────────────────
   apply(root) {
     if (!this._dict) return;
     const scope = root || document;
@@ -94,31 +143,32 @@ const Labels = {
       const key = el.getAttribute('data-label');
       if (!key) return;
       const v = this.get(key);
-      // 빈 문자열 가드 — 백엔드에서 빈 라벨 들어왔을 때 원본 보존
       if (v && v !== key) {
-        // 텍스트 노드만 치환 (자식 element 보존)
         if (el.children.length === 0) {
           el.textContent = v;
         } else {
-          // 자식 요소가 있는 경우, 첫 텍스트 노드만 교체
           const firstText = Array.from(el.childNodes).find(n => n.nodeType === 3);
           if (firstText) firstText.nodeValue = v;
+          else el.prepend(document.createTextNode(v));
         }
       }
     });
   },
 
-  // ── 부팅 헬퍼 ───────────────────────────────────────────
+  // dict 미로드 시 강제 로드 후 적용 — race 방지용
+  async applyAsync(root) {
+    if (!this._dict) await this.ensureLoaded();
+    this.apply(root);
+  },
+
   async init() {
     await this.ensureLoaded();
     this.apply();
   },
 };
 
-// 즉시 외부 노출
 if (typeof window !== 'undefined') {
   window.Labels = Labels;
-  // 부팅 시 자동 1회 (DOMContentLoaded 후)
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => Labels.init());
   } else {

@@ -2356,18 +2356,23 @@ const AdminPage = {
   // 화면 컬럼 라벨을 DB 스키마 변경 없이 설정만으로 바꾸는 기능.
   // 권한: admin(level 4) 이상.  엔드포인트: /api/admin/labels
   // ============================================================
-  _wordRepoData: null,   // { scopes:[], labels:{ scope:{ key:{default,desc,current,...} } } }
-  _wordRepoScope: null,  // 현재 선택된 도메인
-  _wordRepoDirty: {},    // { 'scope.key': '새 라벨' }  — 저장 전 변경 buffer
+  _wordRepoData: null,
+  _wordRepoScope: null,
+  _wordRepoLocale: 'ko',
+  _wordRepoDirty: {},
 
   async loadWordRepo() {
     const panel = document.getElementById('admin-tab-word-repo');
     panel.innerHTML = '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
     try {
-      const r = await API.request('GET', '/admin/labels');
-      this._wordRepoData = r.data || { scopes: [], labels: {} };
+      const locale = this._wordRepoLocale || 'ko';
+      const r = await API.request('GET', `/admin/labels?locale=${encodeURIComponent(locale)}`);
+      this._wordRepoData = r.data || { scopes: [], labels: {}, locales: [], system_locale: 'ko' };
+      this._wordRepoLocale = r.data?.locale || locale;
       this._wordRepoDirty = {};
-      this._wordRepoScope = this._wordRepoData.scopes[0] || null;
+      if (!this._wordRepoScope || !this._wordRepoData.scopes.includes(this._wordRepoScope)) {
+        this._wordRepoScope = this._wordRepoData.scopes[0] || null;
+      }
       this._renderWordRepo();
       panel.dataset.loaded = '1';
     } catch (e) {
@@ -2377,16 +2382,31 @@ const AdminPage = {
 
   _renderWordRepo() {
     const panel = document.getElementById('admin-tab-word-repo');
-    const { scopes = [], labels = {} } = this._wordRepoData || {};
+    const {
+      scopes = [], labels = {},
+      locales = [], system_locale = 'ko',
+    } = this._wordRepoData || {};
     const activeScope = this._wordRepoScope;
+    const activeLocale = this._wordRepoLocale || 'ko';
     const SCOPE_LABEL = {
       leads:      '영업 리드',
       customers:  '고객사',
       projects:   '프로젝트',
       activities: '영업 활동',
       team:       '팀',
+      menu:       '메뉴',
       common:     '공통',
     };
+
+    // 언어 탭
+    const localeTabs = locales.map(lo => `
+      <button class="wr-locale-btn${lo.code === activeLocale ? ' active' : ''}"
+              data-locale="${lo.code}"
+              title="${esc(lo.label)}">
+        ${lo.flag || ''} ${esc(lo.label)}
+        ${lo.code === system_locale ? '<span class="wr-sys-badge">시스템</span>' : ''}
+      </button>
+    `).join('');
 
     const sideList = scopes.map(s => `
       <button class="wr-scope-btn${s === activeScope ? ' active' : ''}" data-scope="${s}">
@@ -2446,13 +2466,45 @@ const AdminPage = {
           padding:10px 16px; margin-bottom:12px;
           display:flex; align-items:center; justify-content:space-between;
         }
+        .wr-locale-bar {
+          display:flex; align-items:center; gap:6px;
+          padding:10px 0; margin-bottom:14px;
+          border-bottom:1px solid var(--border);
+        }
+        .wr-locale-btn {
+          padding:6px 14px; border:1px solid var(--border); background:#fff;
+          border-radius:18px; cursor:pointer; font-size:12px; color:var(--text-1);
+          display:inline-flex; align-items:center; gap:5px;
+        }
+        .wr-locale-btn:hover { background:#f5f7fb; }
+        .wr-locale-btn.active { background:#1664E5; color:#fff; border-color:#1664E5; }
+        .wr-sys-badge {
+          background:#28a745; color:#fff; font-size:9px;
+          padding:1px 5px; border-radius:8px; margin-left:4px;
+        }
+        .wr-locale-btn.active .wr-sys-badge { background:#fff; color:#28a745; }
+        .wr-sys-action { margin-left:auto; font-size:11px; color:var(--text-2); }
+        .wr-sys-action button {
+          padding:4px 10px; font-size:11px; border:1px solid var(--border);
+          background:#fff; border-radius:4px; cursor:pointer;
+        }
       </style>
-      <div style="margin-bottom:14px">
+      <div style="margin-bottom:8px">
         <strong>🗂 워드 사전</strong>
         <span style="color:var(--text-2);font-size:12px;margin-left:6px">
           화면 컬럼 라벨을 DB 스키마 변경 없이 설정만으로 변경합니다 (admin 이상)
         </span>
       </div>
+
+      <div class="wr-locale-bar">
+        <span style="font-size:12px;color:var(--text-2);margin-right:8px">🌐 편집 언어:</span>
+        ${localeTabs}
+        <span class="wr-sys-action">
+          시스템 기본 언어: <strong>${esc(this._getLocaleLabel(system_locale))}</strong>
+          ${activeLocale !== system_locale ? `<button id="wr-set-system" style="margin-left:8px">현재 언어를 시스템 기본으로 설정</button>` : ''}
+        </span>
+      </div>
+
       ${dirtyCount > 0 ? `
         <div class="wr-dirty-bar">
           <div><strong style="color:#c2410c">변경된 항목 ${dirtyCount}개</strong> · 저장 전까지 적용되지 않습니다</div>
@@ -2468,7 +2520,7 @@ const AdminPage = {
           <div class="wr-header">
             <div>
               <strong>${SCOPE_LABEL[activeScope] || activeScope}</strong>
-              <span style="color:var(--text-3);font-size:12px;margin-left:6px">${Object.keys(labels[activeScope] || {}).length}개 항목</span>
+              <span style="color:var(--text-3);font-size:12px;margin-left:6px">${Object.keys(labels[activeScope] || {}).length}개 항목 · ${esc(this._getLocaleLabel(activeLocale))} 편집중</span>
             </div>
             <div>
               <button class="btn-secondary btn-sm" id="wr-audit-btn">📜 변경 이력</button>
@@ -2494,6 +2546,18 @@ const AdminPage = {
         this._renderWordRepo();
       });
     });
+
+    panel.querySelectorAll('.wr-locale-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (Object.keys(this._wordRepoDirty).length > 0) {
+          if (!confirm('저장하지 않은 변경 사항이 있습니다. 언어를 전환하면 사라집니다. 계속하시겠습니까?')) return;
+        }
+        this._wordRepoLocale = btn.dataset.locale;
+        await this.loadWordRepo();
+      });
+    });
+
+    document.getElementById('wr-set-system')?.addEventListener('click', () => this._setSystemLocale(activeLocale));
 
     panel.querySelectorAll('.wr-input').forEach(inp => {
       inp.addEventListener('input', () => {
@@ -2535,16 +2599,51 @@ const AdminPage = {
     bar.querySelector('strong').textContent = `변경된 항목 ${cnt}개`;
   },
 
+  _getLocaleLabel(code) {
+    const locales = this._wordRepoData?.locales || [];
+    const lo = locales.find(l => l.code === code);
+    return lo ? `${lo.flag || ''} ${lo.label}` : code;
+  },
+
+  async _setSystemLocale(locale) {
+    if (!locale) return;
+    Modal.confirm(
+      `시스템 기본 언어를 <strong>${esc(this._getLocaleLabel(locale))}</strong> 로 변경합니다.<br>
+       모든 사용자의 기본 화면 언어가 이 언어로 표시됩니다.<br>
+       (사용자가 개인 언어 설정을 한 경우 그것이 우선)<br><br>
+       계속하시겠습니까?`,
+      async () => {
+        try {
+          await API.request('PUT', '/admin/labels/system-locale', { locale });
+          Toast.success('시스템 기본 언어가 변경되었습니다.');
+          if (typeof Labels !== 'undefined') {
+            // 사용자 override 없으면 시스템 언어로 즉시 전환
+            const userPref = localStorage.getItem('oci_user_locale');
+            if (!userPref) {
+              Labels.invalidate();
+              await Labels.ensureLoaded();
+              Labels.apply();
+            }
+          }
+          await this.loadWordRepo();
+        } catch (e) {
+          Toast.error('변경 실패: ' + (e.message || ''));
+        }
+      }
+    );
+  },
+
   async _saveWordRepo() {
+    const locale = this._wordRepoLocale || 'ko';
     const items = Object.entries(this._wordRepoDirty).map(([qual, label]) => {
       const [scope, key] = qual.split('.');
-      return { scope, key, label };
+      return { scope, key, label, locale };
     });
     if (!items.length) return;
     try {
-      const r = await API.request('PUT', '/admin/labels', { items });
+      const r = await API.request('PUT', '/admin/labels', { items, locale });
       Toast.success(`${r.changed || 0}개 라벨 저장됨`);
-      // 캐시 무효화 + 다시 로드
+      // 캐시 무효화 + 현재 사용자 locale 기준 다시 로드 + DOM 재적용
       if (typeof Labels !== 'undefined') {
         Labels.invalidate();
         await Labels.ensureLoaded();
@@ -2558,12 +2657,14 @@ const AdminPage = {
 
   _resetWordRepoScope() {
     const scope = this._wordRepoScope;
+    const locale = this._wordRepoLocale || 'ko';
     if (!scope) return;
     Modal.confirm(
-      `<strong>${scope}</strong> 도메인의 모든 라벨을 기본값으로 되돌립니다.<br>이 작업은 되돌릴 수 없습니다.<br><br>계속하시겠습니까?`,
+      `<strong>${esc(scope)}</strong> 도메인의 <strong>${esc(this._getLocaleLabel(locale))}</strong> 라벨을 기본값으로 되돌립니다.<br>
+       이 작업은 되돌릴 수 없습니다.<br><br>계속하시겠습니까?`,
       async () => {
         try {
-          await API.request('POST', '/admin/labels/reset', { scope });
+          await API.request('POST', '/admin/labels/reset', { scope, locale });
           Toast.success('초기화되었습니다.');
           if (typeof Labels !== 'undefined') { Labels.invalidate(); await Labels.ensureLoaded(); Labels.apply(); }
           await this.loadWordRepo();
@@ -2577,8 +2678,10 @@ const AdminPage = {
   async _showWordRepoAudit() {
     try {
       const r = await API.request('GET', '/admin/labels/audit?limit=200');
+      const FLAG = { ko: '🇰🇷', en: '🇺🇸', ja: '🇯🇵', zh: '🇨🇳' };
       const rows = (r.data || []).map(a => `
         <tr>
+          <td class="fs-11">${FLAG[a.locale] || ''} <span class="mono">${esc(a.locale || 'ko')}</span></td>
           <td class="mono fs-11">${esc(a.scope)}.${esc(a.key_name)}</td>
           <td style="color:var(--text-2)">${esc(a.old_label || '')}</td>
           <td>→</td>
@@ -2594,7 +2697,7 @@ const AdminPage = {
           <div style="max-height:60vh;overflow:auto">
             ${rows ? `
               <table class="wr-table">
-                <thead><tr><th>키</th><th>이전</th><th></th><th>변경 후</th><th>변경자</th><th>일시</th></tr></thead>
+                <thead><tr><th>언어</th><th>키</th><th>이전</th><th></th><th>변경 후</th><th>변경자</th><th>일시</th></tr></thead>
                 <tbody>${rows}</tbody>
               </table>` : '<div class="empty-state">변경 이력이 없습니다.</div>'}
           </div>

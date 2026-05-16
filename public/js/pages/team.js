@@ -141,14 +141,14 @@ const TeamPage = {
       <table class="data-table">
         <thead>
           <tr>
-            <th>이름</th>
-            <th>역할</th>
-            <th>소속팀</th>
-            <th>이메일</th>
-            <th class="text-right">진행중</th>
-            <th class="text-right">올해수주</th>
-            <th class="text-right">수주금액</th>
-            <th class="text-right">이번달신규</th>
+            <th data-label="team.name">이름</th>
+            <th data-label="team.role">역할</th>
+            <th data-label="team.team">소속팀</th>
+            <th data-label="team.email">이메일</th>
+            <th class="text-right" data-label="team.in_progress">진행중</th>
+            <th class="text-right" data-label="team.won_this_year">올해수주</th>
+            <th class="text-right" data-label="team.won_amount">수주금액</th>
+            <th class="text-right" data-label="team.new_this_month">이번달신규</th>
             <th></th>
           </tr>
         </thead>

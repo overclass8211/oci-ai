@@ -12,7 +12,15 @@ const { loginAsAdmin } = require('./helpers/auth');
 
 test.beforeEach(async ({ page }) => {
   await loginAsAdmin(page);
+  // 온보딩 환영 모달이 클릭을 가리지 않도록 미리 done 플래그 설정
+  await page.evaluate(() => localStorage.setItem('oci_onboarding_done', '1'));
 });
+
+// admin 페이지 직접 진입 헬퍼 — hashchange race 회피
+async function gotoAdminPage(page) {
+  await page.evaluate(() => { location.hash = '#admin'; });
+  await page.waitForSelector('#admin-tab-bar', { timeout: 10000 });
+}
 
 // API 직접 호출 — 깨끗한 상태 보장
 async function resetLeads(page) {
@@ -25,15 +33,14 @@ async function resetLeads(page) {
 }
 
 test('시나리오 1 — 어드민 페이지에 워드 사전 탭 표시', async ({ page }) => {
-  await page.goto('/#admin');
-  // 탭 버튼 존재
+  await gotoAdminPage(page);
   await expect(page.locator('.tab-btn[data-tab="word-repo"]')).toBeVisible({ timeout: 10000 });
 });
 
 test('시나리오 2 — 라벨 편집 → 저장 → 영업리드 헤더 즉시 반영', async ({ page }) => {
   await resetLeads(page);
 
-  await page.goto('/#admin');
+  await gotoAdminPage(page);
   await page.click('.tab-btn[data-tab="word-repo"]');
   // 패널 로드 대기
   await page.waitForSelector('.wr-input', { timeout: 8000 });
@@ -66,7 +73,7 @@ test('시나리오 3 — 도메인별 초기화 → 기본값 복원', async ({ 
     data: { label: 'TestClient' },
   });
 
-  await page.goto('/#admin');
+  await gotoAdminPage(page);
   await page.click('.tab-btn[data-tab="word-repo"]');
   await page.waitForSelector('.wr-input', { timeout: 8000 });
 
@@ -95,7 +102,7 @@ test('시나리오 4 — 변경 이력 모달 표시', async ({ page }) => {
     data: { label: 'E2E_AUDIT' },
   });
 
-  await page.goto('/#admin');
+  await gotoAdminPage(page);
   await page.click('.tab-btn[data-tab="word-repo"]');
   await page.waitForSelector('#wr-audit-btn', { timeout: 8000 });
   await page.click('#wr-audit-btn');
@@ -105,4 +112,74 @@ test('시나리오 4 — 변경 이력 모달 표시', async ({ page }) => {
   await expect(page.locator('.modal-overlay.active')).toContainText('E2E_AUDIT', { timeout: 5000 });
 
   await resetLeads(page);
+});
+
+test('시나리오 5 — 다국어: 언어 탭 표시 + 영문으로 전환', async ({ page }) => {
+  await resetLeads(page);
+  await gotoAdminPage(page);
+  await page.click('.tab-btn[data-tab="word-repo"]');
+  await page.waitForSelector('.wr-locale-btn', { timeout: 8000 });
+
+  // 4개 언어 버튼 표시
+  await expect(page.locator('.wr-locale-btn')).toHaveCount(4);
+  await expect(page.locator('.wr-locale-btn[data-locale="ko"]')).toHaveClass(/active/);
+
+  // 영문 탭 클릭
+  await page.locator('.wr-locale-btn[data-locale="en"]').click();
+  await page.waitForSelector('.wr-locale-btn[data-locale="en"].active', { timeout: 5000 });
+
+  // customer_name 행의 default = 'Customer'
+  const defaultCell = page.locator('tr[data-scope="leads"][data-key="customer_name"] td:nth-child(2)');
+  await expect(defaultCell).toHaveText('Customer', { timeout: 5000 });
+});
+
+test('시나리오 6 — 프로젝트 페이지 마커 반영', async ({ page }) => {
+  // 프로젝트 컬럼 라벨 변경
+  const token = (await page.evaluate(() => localStorage.getItem('oci_token'))) || '';
+  await page.request.put('/api/admin/labels/projects/name', {
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    data: { label: '영업기회', locale: 'ko' },
+  });
+
+  // API 직접 변경 후 브라우저 캐시 + 인메모리 _dict 무효화
+  await page.evaluate(() => {
+    Object.keys(sessionStorage).forEach(k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k));
+    if (window.Labels) window.Labels.invalidate();
+  });
+
+  await page.goto('/#projects');
+  const th = page.locator('th[data-label="projects.name"]');
+  await expect(th).toBeVisible({ timeout: 10000 });
+  await expect(th).toHaveText('영업기회', { timeout: 8000 });
+
+  // cleanup
+  await page.request.post('/api/admin/labels/reset', {
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    data: { scope: 'projects' },
+  });
+});
+
+test('시나리오 7 — 사이드바 메뉴 라벨 반영', async ({ page }) => {
+  const token = (await page.evaluate(() => localStorage.getItem('oci_token'))) || '';
+  // 시스템 locale 을 ja 로 변경 → 사이드바 라벨이 일본어로
+  await page.request.put('/api/admin/labels/system-locale', {
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    data: { locale: 'ja' },
+  });
+
+  // 사용자 override 없는 상태 시뮬레이션 — 캐시 무효화 후 reload
+  await page.evaluate(() => {
+    Object.keys(sessionStorage).forEach(k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k));
+    localStorage.removeItem('oci_user_locale');
+  });
+  await page.reload();
+  // 사이드바 dashboard menu = 'ダッシュボード'
+  const dashSpan = page.locator('.nav-item[data-page="dashboard"] span[data-label="menu.dashboard"]');
+  await expect(dashSpan).toHaveText('ダッシュボード', { timeout: 8000 });
+
+  // 복원
+  await page.request.put('/api/admin/labels/system-locale', {
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    data: { locale: 'ko' },
+  });
 });
