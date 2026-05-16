@@ -638,7 +638,7 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
     const summaryEl = document.getElementById('meeting-summary');
     const statsEl = document.getElementById('meeting-stats');
 
-    speakersEl.innerHTML = '<div class="loading" style="padding:20px;text-align:center">🎙 음성 인식 중... (수십 초~수 분 소요)</div>';
+    speakersEl.innerHTML = '<div class="loading" style="padding:20px;text-align:center">📤 업로드 중...</div>';
     summaryEl.innerHTML = '<span class="ai-cursor">▋ 음성 인식 완료 후 요약 시작</span>';
     statsEl.textContent = '';
 
@@ -651,48 +651,108 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       if (token) headers['Authorization'] = `Bearer ${token}`;
       if (uid)   headers['X-User-Id']     = uid;
 
-      // 장시간 녹음(20분+) 대응 — 명시적 10분 AbortController.
-      // 서버는 라우트별 15분, Gemini 자체 12분 timeout 으로 더 짧은 쪽이 먼저 친절한 에러 응답.
-      const aborter = new AbortController();
-      const abortTimer = setTimeout(() => aborter.abort(), 10 * 60 * 1000);
+      // 1) 업로드 — 비동기 패턴 (긴 녹음 120분+ 대응).
+      //    업로드 자체는 짧음 (~수십 초). nginx/proxy timeout 무관.
+      //    실제 STT 는 백그라운드에서 진행되고 클라이언트는 status 폴링.
+      const uploadAborter = new AbortController();
+      const uploadTimer = setTimeout(() => uploadAborter.abort(), 5 * 60 * 1000); // 5분 (큰 파일 업로드 여유)
 
-      let sttRes;
+      let uploadRes;
       try {
-        sttRes = await fetch('/api/meeting/transcribe', {
-          method: 'POST', body: fd, headers, signal: aborter.signal,
+        uploadRes = await fetch('/api/meeting/transcribe-async', {
+          method: 'POST', body: fd, headers, signal: uploadAborter.signal,
         });
       } catch (netErr) {
-        clearTimeout(abortTimer);
+        clearTimeout(uploadTimer);
         const msg = netErr.name === 'AbortError'
-          ? '음성 인식 시간이 초과되었습니다 (10분). 더 짧게 녹음하거나 파일을 분할해서 업로드해 주세요.'
-          : `네트워크 오류: ${netErr.message}`;
+          ? '업로드 시간이 초과되었습니다 (5분). 네트워크를 확인해 주세요.'
+          : `업로드 오류: ${netErr.message}`;
         speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(msg)}</div>`;
         summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
         return;
       }
-      clearTimeout(abortTimer);
+      clearTimeout(uploadTimer);
 
-      // 견고한 JSON 파싱 — 프록시 504(HTML) 등 비정상 응답 시 친절한 메시지
-      let sttJson;
+      let uploadJson;
       try {
-        sttJson = await sttRes.json();
+        uploadJson = await uploadRes.json();
       } catch (_) {
-        const status = sttRes.status;
-        const hint = status === 504 || status === 502
-          ? '서버 응답 시간이 초과되었습니다 (게이트웨이 504). 녹음을 더 짧게 (10~15분 이내) 또는 파일을 분할해 주세요.'
-          : `서버 응답을 해석할 수 없습니다 (HTTP ${status}).`;
+        const status = uploadRes.status;
+        const hint = status === 413
+          ? '파일이 너무 큽니다 (최대 100MB). 녹음을 분할해 주세요.'
+          : `업로드 응답을 해석할 수 없습니다 (HTTP ${status}).`;
         speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(hint)}</div>`;
         summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
         return;
       }
-      if (!sttJson.success) {
-        speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(sttJson.error || '알 수 없는 오류')}</div>`;
+      if (!uploadJson.success || !uploadJson.job_id) {
+        speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(uploadJson.error || '업로드 실패')}</div>`;
         summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
         return;
       }
 
-      _state.transcript = sttJson.data.transcript;
-      _state.speakers = sttJson.data.speakers || [];
+      // 2) 상태 폴링 (5초 간격, 최대 30분).
+      //    각 폴링 요청은 즉시 응답 → 프록시/브라우저 timeout 무관.
+      const jobId = uploadJson.job_id;
+      const pollStartedAt = Date.now();
+      const MAX_POLL_MS = 30 * 60 * 1000;
+      const POLL_INTERVAL_MS = 5000;
+      let sttData = null;
+      let consecErrors = 0;
+
+      while (true) {
+        if (Date.now() - pollStartedAt > MAX_POLL_MS) {
+          speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ 음성 인식이 30분을 초과했습니다. 녹음을 분할해 주세요.</div>`;
+          summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+          return;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+        let statRes;
+        try {
+          statRes = await fetch(`/api/meeting/transcribe-status/${encodeURIComponent(jobId)}`, { headers });
+        } catch (_) {
+          // 일시적 네트워크 끊김 — 다음 폴링 시도 (3회 연속 실패 시 중단)
+          if (++consecErrors >= 3) {
+            speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ 서버 상태 폴링 실패 (네트워크 확인). 작업 ID: ${esc(jobId)}</div>`;
+            summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+            return;
+          }
+          continue;
+        }
+
+        let stat;
+        try {
+          stat = await statRes.json();
+        } catch (_) {
+          if (++consecErrors >= 3) {
+            speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ 서버 응답 해석 실패 (HTTP ${statRes.status})</div>`;
+            summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+            return;
+          }
+          continue;
+        }
+        consecErrors = 0;
+
+        const elapsed = stat.elapsed_sec ?? Math.round((Date.now() - pollStartedAt) / 1000);
+        if (stat.status === 'done') {
+          sttData = stat.data;
+          break;
+        }
+        if (stat.status === 'error' || stat.status === 'cancelled' || stat.success === false) {
+          speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(stat.error || '음성 인식 실패')}</div>`;
+          summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+          return;
+        }
+        // 진행 표시 — 분/초 카운터
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        const stage = stat.status === 'pending' ? '⏳ 대기 중' : '🎙 음성 인식 중';
+        speakersEl.innerHTML = `<div class="loading" style="padding:20px;text-align:center">${stage}... (${mins}분 ${secs}초 경과)</div>`;
+      }
+
+      _state.transcript = sttData.transcript;
+      _state.speakers = sttData.speakers || [];
 
       _renderSpeakers();
       statsEl.textContent = `${_state.speakers.length}개 화자 구간 · ${_state.transcript.length}자`;

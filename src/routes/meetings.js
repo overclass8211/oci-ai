@@ -71,6 +71,65 @@ router.post(
   }
 );
 
+// 1-a) 음성 → 텍스트 [비동기] — 긴 녹음(120분급) 안정 처리
+// 흐름: POST 시 즉시 job_id 반환 → 클라이언트가 /transcribe-status/:id 폴링.
+// 기존 동기 /transcribe 는 하위 호환 위해 그대로 유지.
+router.post(
+  '/transcribe-async',
+  (req, res, next) => {
+    upload.audio.single('audio')(req, res, err => {
+      if (err && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ success: false, error: '파일 크기가 100MB를 초과합니다' });
+      }
+      if (err) return res.status(400).json({ success: false, error: err.message });
+      next();
+    });
+  },
+  (req, res) => {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(400).json({ success: false, error: 'GEMINI_API_KEY 미설정' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: '오디오 파일이 필요합니다' });
+    }
+    const { createJob } = require('../services/sttJobs');
+    const job = createJob({
+      filePath: req.file.path,
+      mimetype: req.file.mimetype,
+      fileSize: req.file.size,
+      userId: getUserId(req),
+    });
+    res.status(202).json({
+      success: true,
+      job_id: job.id,
+      poll_url: `/api/meeting/transcribe-status/${job.id}`,
+    });
+  }
+);
+
+router.get('/transcribe-status/:id', (req, res) => {
+  const { getJob } = require('../services/sttJobs');
+  const job = getJob(req.params.id);
+  if (!job) {
+    return res
+      .status(404)
+      .json({ success: false, error: '작업을 찾을 수 없습니다 (만료 또는 ID 오류)' });
+  }
+  const base = {
+    job_id: job.id,
+    status: job.status,
+    elapsed_sec: Math.max(0, Math.round(((job.finishedAt || Date.now()) - job.createdAt) / 1000)),
+  };
+  if (job.status === 'done') {
+    return res.json({ success: true, ...base, data: job.result });
+  }
+  if (job.status === 'error' || job.status === 'cancelled') {
+    return res.json({ success: false, ...base, error: job.error || '작업 실패' });
+  }
+  // pending 또는 processing — 응답은 즉시 (프록시 timeout 무관)
+  return res.json({ success: true, ...base });
+});
+
 // 2) 텍스트 → 요약
 router.post('/summarize', async (req, res) => {
   try {

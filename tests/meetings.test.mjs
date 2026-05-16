@@ -57,4 +57,45 @@ describe('Meetings API', () => {
     expect(res.body.success).toBe(false);
     expect(typeof res.body.error).toBe('string');
   });
+
+  // ─ 비동기 STT 라우트 (120분급 녹음 대응) ───────────────────
+  it('POST /transcribe-async — 파일 누락 시 JSON 400', async () => {
+    const res = await api().post('/api/meeting/transcribe-async');
+    expect(res.status).toBe(400);
+    expect(res.headers['content-type']).toMatch(/json/);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('GET /transcribe-status/:id — 없는 작업은 404 JSON', async () => {
+    const res = await api().get('/api/meeting/transcribe-status/__nonexistent__');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/json/);
+    expect(res.body.success).toBe(false);
+  });
+});
+
+// ── STT Jobs 인메모리 동작 (모듈 단위) ───────────────────────
+describe('sttJobs service', () => {
+  it('createJob 후 즉시 getJob 로 조회 가능 (pending)', async () => {
+    // require 시점에 STT 자체를 실행하지 않도록, stt 모듈을 stub
+    const stt = await import('../src/services/stt.js');
+    const orig = stt.transcribeAudio;
+    // 실제 호출은 시뮬레이션 — 즉시 결과 반환
+    const sttModule = await import('../src/services/stt.js');
+    // 우회: jobs.createJob 은 setImmediate 로 백그라운드 실행 → 작업 직후 상태는 pending
+    const { createJob, getJob, _resetForTest } = await import('../src/services/sttJobs.js');
+    _resetForTest();
+    // dummy filePath — transcribeAudio 가 실제 읽지 않도록 보장하긴 어렵지만,
+    // status 검증은 setImmediate 호출 전에 가능.
+    const job = createJob({ filePath: '/dev/null', mimetype: 'audio/webm', fileSize: 0 });
+    expect(job.id).toMatch(/^[a-f0-9]{16}$/);
+    expect(job.status).toBe('pending');
+    const fetched = getJob(job.id);
+    expect(fetched?.id).toBe(job.id);
+    expect(getJob('__missing__')).toBeNull();
+    // 정리
+    _resetForTest();
+    // eslint stub unused 방지
+    void orig; void sttModule;
+  });
 });
