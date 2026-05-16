@@ -36,6 +36,8 @@ const spaGlobals = {
   Email: 'readonly',
   // shortcuts.js
   Shortcuts: 'readonly',
+  // exportMenu.js
+  ExportMenu: 'readonly',
   // api.js
   API: 'readonly',
   // app.js

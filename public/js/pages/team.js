@@ -8,6 +8,8 @@ const TeamPage = {
     const html = `
       <div class="filter-bar">
         <div class="card-title" style="margin-right:auto">영업 조직 현황</div>
+        <button class="btn btn-secondary btn-sm" id="team-export-btn"
+                style="white-space:nowrap" title="내보내기 (Excel / CSV / JSON)">⤓ 내보내기</button>
         <button class="btn btn-primary" id="team-add-btn">+ 팀원 추가</button>
       </div>
 
@@ -28,6 +30,12 @@ const TeamPage = {
     `;
     document.getElementById('content').innerHTML = html;
     document.getElementById('team-add-btn')?.addEventListener('click', () => this.openForm());
+    document.getElementById('team-export-btn')?.addEventListener('click', (e) => {
+      const path = '/team/export';
+      const name = '팀원_' + new Date().toISOString().slice(0,10);
+      if (typeof ExportMenu !== 'undefined') ExportMenu.open(e.currentTarget, path, name);
+      else API.downloadExport(path, name, 'xlsx');
+    });
     await this.loadData();
   },
 

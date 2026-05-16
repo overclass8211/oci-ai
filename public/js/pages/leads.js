@@ -107,7 +107,7 @@ const LeadsPage = {
     document.getElementById('cp-copy-btn')?.addEventListener('click', () => this.copySelected());
     document.getElementById('leads-clear-sel-btn')?.addEventListener('click', () => this._clearSelection());
     document.getElementById('cp-paste-btn')?.addEventListener('click', () => this.openPasteModal());
-    document.getElementById('leads-export-btn')?.addEventListener('click', () => this.exportExcel());
+    document.getElementById('leads-export-btn')?.addEventListener('click', (e) => this._openExportMenu(e.currentTarget));
     document.getElementById('leads-import-input')?.addEventListener('change', (e) => this.importExcel(e.target));
 
     // 검색어
@@ -589,6 +589,12 @@ const LeadsPage = {
 
   // ── 엑셀 내보내기 ────────────────────────────────────────────
   exportExcel() {
+    // 레거시 호환 — 기본 xlsx
+    const path = this._buildExportPath();
+    API.downloadExport(path, '영업리드_' + new Date().toISOString().slice(0,10), 'xlsx');
+  },
+
+  _buildExportPath() {
     const f = this.filters;
     const qs = new URLSearchParams();
     if (f.stage)         qs.set('stage', f.stage);
@@ -596,8 +602,12 @@ const LeadsPage = {
     if (f.assigned_to)   qs.set('assigned_to', f.assigned_to);
     if (f.business_type) qs.set('business_type', f.business_type);
     if (f.search)        qs.set('search', f.search);
-    const path = '/leads/export' + (qs.toString() ? '?' + qs.toString() : '');
-    API.downloadExcel(path, '영업리드_' + new Date().toISOString().slice(0,10));
+    return '/leads/export' + (qs.toString() ? '?' + qs.toString() : '');
+  },
+
+  _openExportMenu(triggerEl) {
+    if (typeof ExportMenu === 'undefined') return this.exportExcel();
+    ExportMenu.open(triggerEl, this._buildExportPath(), '영업리드_' + new Date().toISOString().slice(0,10));
   },
 
   // ── 엑셀 가져오기 ────────────────────────────────────────────

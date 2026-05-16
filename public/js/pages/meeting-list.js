@@ -14,6 +14,8 @@ const MeetingListPage = {
         <div style="display:flex;align-items:center;gap:8px">
           <input class="search-input" id="ml-search" placeholder="제목 / 고객사 검색..."
                  style="margin:0">
+          <button class="btn btn-secondary btn-sm" id="ml-export-btn"
+                  style="white-space:nowrap" title="내보내기 (Excel / CSV / JSON)">⤓ 내보내기</button>
           <button class="btn btn-primary" id="ml-new-btn"
                   style="white-space:nowrap">+ 새 회의록</button>
         </div>
@@ -34,6 +36,13 @@ const MeetingListPage = {
     `;
     document.getElementById('ml-search')?.addEventListener('input', () => this.applyFilter());
     document.getElementById('ml-new-btn')?.addEventListener('click', () => App.navigate('meeting'));
+    document.getElementById('ml-export-btn')?.addEventListener('click', (e) => {
+      const search = document.getElementById('ml-search')?.value?.trim();
+      const path = '/meetings/export' + (search ? '?search=' + encodeURIComponent(search) : '');
+      const name = '회의록_' + new Date().toISOString().slice(0,10);
+      if (typeof ExportMenu !== 'undefined') ExportMenu.open(e.currentTarget, path, name);
+      else API.downloadExport(path, name, 'xlsx');
+    });
     await this.loadList();
   },
 

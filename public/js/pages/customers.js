@@ -91,7 +91,7 @@ const CustomersPage = {
     `;
     // bind render() buttons
     document.getElementById('cp-paste-btn-cust')?.addEventListener('click', () => this.openPasteModal());
-    document.getElementById('cust-excel-export-btn')?.addEventListener('click', () => this.exportExcel());
+    document.getElementById('cust-excel-export-btn')?.addEventListener('click', (e) => this._openExportMenu(e.currentTarget));
     document.getElementById('cust-register-btn')?.addEventListener('click', () => this.openRegisterModal('direct'));
     document.getElementById('cust-excel-import-input')?.addEventListener('change', (e) => this.importExcel(e.target));
     document.querySelector('#cust-intel-panel')?.addEventListener('click', (e) => {
@@ -712,6 +712,11 @@ const CustomersPage = {
 
   // ── 엑셀 내보내기 ────────────────────────────────────────────
   exportExcel() {
+    const path = this._buildExportPath();
+    API.downloadExport(path, '고객사_' + new Date().toISOString().slice(0,10), 'xlsx');
+  },
+
+  _buildExportPath() {
     const search   = document.getElementById('cust-search')?.value   || '';
     const region   = document.getElementById('cust-region')?.value   || '';
     const industry = document.getElementById('cust-industry')?.value || '';
@@ -719,8 +724,12 @@ const CustomersPage = {
     if (search)   qs.set('search', search);
     if (region)   qs.set('region', region);
     if (industry) qs.set('industry', industry);
-    const path = '/customers/export' + (qs.toString() ? '?' + qs.toString() : '');
-    API.downloadExcel(path, '고객사_' + new Date().toISOString().slice(0,10));
+    return '/customers/export' + (qs.toString() ? '?' + qs.toString() : '');
+  },
+
+  _openExportMenu(triggerEl) {
+    if (typeof ExportMenu === 'undefined') return this.exportExcel();
+    ExportMenu.open(triggerEl, this._buildExportPath(), '고객사_' + new Date().toISOString().slice(0,10));
   },
 
   // ── 엑셀 가져오기 ────────────────────────────────────────────

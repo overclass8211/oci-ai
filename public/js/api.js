@@ -235,25 +235,39 @@ const API = {
     }
   },
 
-  // ── 엑셀 다운로드 헬퍼 (인증 헤더 포함) ────────────────────────
+  // ── 엑셀 다운로드 헬퍼 (인증 헤더 포함) — 레거시 ────────────────
   async downloadExcel(path, filename) {
+    return this.downloadExport(path, filename, 'xlsx');
+  },
+
+  // ── 통합 다운로드 헬퍼 (xlsx/csv/json) ─────────────────────────
+  // path 에 ?format= 이 이미 있으면 형식 무시, 없으면 자동 추가
+  async downloadExport(path, filename, format = 'xlsx') {
+    const fmt = ['xlsx', 'csv', 'json'].includes(format) ? format : 'xlsx';
+    const sep = path.includes('?') ? '&' : '?';
+    const finalPath = path.includes('format=') ? path : `${path}${sep}format=${fmt}`;
     const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
     const uid   = localStorage.getItem('current_user_id');
     const headers = {};
     if (uid)   headers['X-User-Id']     = uid;
     if (token) headers['Authorization'] = `Bearer ${token}`;
     try {
-      const res = await fetch(this.base + path, { headers });
+      const res = await fetch(this.base + finalPath, { headers });
       if (!res.ok) {
         const text = await res.text();
-        Toast.error('다운로드 실패: ' + (JSON.parse(text)?.message || res.status));
+        let msg = res.status;
+        try { msg = JSON.parse(text)?.message || msg; } catch (_) { /* ignore */ }
+        Toast.error('다운로드 실패: ' + msg);
         return;
       }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
-      const a    = Object.assign(document.createElement('a'), { href: url, download: filename + '.xlsx' });
+      const a    = Object.assign(document.createElement('a'), {
+        href: url,
+        download: filename + '.' + fmt,
+      });
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (e) { Toast.error('다운로드 오류: ' + e.message); }
-  }
+  },
 };

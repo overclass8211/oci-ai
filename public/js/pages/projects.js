@@ -57,7 +57,7 @@ const ProjectsPage = {
     document.getElementById('proj-copy-btn')?.addEventListener('click', () => this.copySelected());
     document.getElementById('proj-clear-sel-btn')?.addEventListener('click', () => this._clearSelection());
     document.getElementById('proj-paste-modal-btn')?.addEventListener('click', () => this.openPasteModal());
-    document.getElementById('proj-export-btn')?.addEventListener('click', () => this.exportExcel());
+    document.getElementById('proj-export-btn')?.addEventListener('click', (e) => this._openExportMenu(e.currentTarget));
     document.getElementById('proj-import-input')?.addEventListener('change', (e) => this.importExcel(e.target));
 
     this._bindPasteShortcut();
@@ -353,11 +353,20 @@ const ProjectsPage = {
 
   // ── 엑셀 내보내기 ────────────────────────────────────────────
   exportExcel() {
+    const path = this._buildExportPath();
+    API.downloadExport(path, '프로젝트_' + new Date().toISOString().slice(0,10), 'xlsx');
+  },
+
+  _buildExportPath() {
     const search = document.getElementById('proj-search')?.value || '';
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);
-    const path = '/projects/export' + (qs.toString() ? '?' + qs.toString() : '');
-    API.downloadExcel(path, '프로젝트_' + new Date().toISOString().slice(0,10));
+    return '/projects/export' + (qs.toString() ? '?' + qs.toString() : '');
+  },
+
+  _openExportMenu(triggerEl) {
+    if (typeof ExportMenu === 'undefined') return this.exportExcel();
+    ExportMenu.open(triggerEl, this._buildExportPath(), '프로젝트_' + new Date().toISOString().slice(0,10));
   },
 
   // ── 엑셀 가져오기 ────────────────────────────────────────────
