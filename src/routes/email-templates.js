@@ -119,13 +119,11 @@ router.put('/:id', async (req, res) => {
     if (req.body.name !== undefined) {
       const v = sanitize(req.body.name, 150);
       if (!v)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            code: 'VALIDATION_ERROR',
-            error: 'name 은 비어있을 수 없습니다.',
-          });
+        return res.status(400).json({
+          success: false,
+          code: 'VALIDATION_ERROR',
+          error: 'name 은 비어있을 수 없습니다.',
+        });
       fields.push('name = ?');
       params.push(v);
     }
@@ -142,26 +140,22 @@ router.put('/:id', async (req, res) => {
     if (req.body.subject !== undefined) {
       const v = sanitize(req.body.subject, 300);
       if (!v)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            code: 'VALIDATION_ERROR',
-            error: 'subject 는 비어있을 수 없습니다.',
-          });
+        return res.status(400).json({
+          success: false,
+          code: 'VALIDATION_ERROR',
+          error: 'subject 는 비어있을 수 없습니다.',
+        });
       fields.push('subject = ?');
       params.push(v);
     }
     if (req.body.body !== undefined) {
       const v = sanitize(req.body.body, 10000);
       if (!v)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            code: 'VALIDATION_ERROR',
-            error: 'body 는 비어있을 수 없습니다.',
-          });
+        return res.status(400).json({
+          success: false,
+          code: 'VALIDATION_ERROR',
+          error: 'body 는 비어있을 수 없습니다.',
+        });
       fields.push('body = ?');
       params.push(v);
     }
@@ -174,6 +168,34 @@ router.put('/:id', async (req, res) => {
       params
     );
     res.json({ success: true, updated: r.affectedRows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// 복제 — 시스템 시드를 사용자 템플릿으로 복사
+//   POST /email-templates/:id/clone
+//   body: { name? }  — 옵션, 미지정 시 "원이름 (복사)" 형식
+router.post('/:id/clone', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ success: false, error: '잘못된 id' });
+
+    const [[src]] = await pool.query(
+      `SELECT name, category, subject, body FROM email_templates WHERE id = ?`,
+      [id]
+    );
+    if (!src) return res.status(404).json({ success: false, error: '원본 템플릿 없음' });
+
+    const newName = sanitize(req.body.name, 150) || `${src.name} (복사)`;
+    const userId = getUserId(req);
+
+    const [r] = await pool.query(
+      `INSERT INTO email_templates (name, category, subject, body, is_system, created_by)
+         VALUES (?, ?, ?, ?, 0, ?)`,
+      [newName, src.category, src.subject, src.body, userId]
+    );
+    res.json({ success: true, id: r.insertId });
   } catch (err) {
     handleError(res, err);
   }

@@ -178,7 +178,15 @@ const SettingsPage = {
         return;
       }
       const catLabel = { lead:'영업', customer:'고객사', project:'프로젝트', general:'일반' };
+      const userCount = tpls.filter(t => !t.is_system).length;
+      const helpBanner = userCount === 0 ? `
+        <div class="alert alert-info" style="margin-bottom:12px;padding:10px 14px;font-size:12px;line-height:1.6">
+          💡 시스템 템플릿(🔒)은 수정·삭제할 수 없습니다.
+          오른쪽 <strong>📋 복제</strong> 버튼으로 사용자 템플릿을 만들면 자유롭게 편집할 수 있습니다.
+        </div>
+      ` : '';
       el.innerHTML = `
+        ${helpBanner}
         <table class="data-table">
           <thead>
             <tr>
@@ -186,7 +194,7 @@ const SettingsPage = {
               <th>이름</th>
               <th>제목</th>
               <th style="width:80px">유형</th>
-              <th style="width:140px;text-align:right">작업</th>
+              <th style="width:200px;text-align:right">작업</th>
             </tr>
           </thead>
           <tbody>
@@ -196,13 +204,17 @@ const SettingsPage = {
                 <td><strong>${esc(t.name)}</strong></td>
                 <td style="font-size:12px;color:var(--text-2)">${esc(t.subject)}</td>
                 <td>${t.is_system
-                  ? '<span class="badge badge-gray" title="시스템 시드 — 수정 불가">🔒 시스템</span>'
+                  ? '<span class="badge badge-gray" title="시스템 시드 — 복제 후 편집 가능">🔒 시스템</span>'
                   : '<span class="badge badge-green">사용자</span>'}</td>
-                <td style="text-align:right">
-                  <button class="btn btn-ghost btn-sm" data-tpl-action="edit" data-id="${t.id}"
-                          ${t.is_system ? 'disabled title="시스템 템플릿은 수정 불가"' : ''}>편집</button>
-                  <button class="btn btn-ghost btn-sm" data-tpl-action="delete" data-id="${t.id}"
-                          ${t.is_system ? 'disabled title="시스템 템플릿은 삭제 불가"' : 'style="color:var(--oci-red)"'}>삭제</button>
+                <td style="text-align:right;white-space:nowrap">
+                  ${t.is_system ? `
+                    <button class="btn btn-ghost btn-sm" data-tpl-action="clone" data-id="${t.id}"
+                            title="이 템플릿을 사용자 템플릿으로 복제 → 편집 가능">📋 복제</button>
+                  ` : `
+                    <button class="btn btn-ghost btn-sm" data-tpl-action="edit" data-id="${t.id}">편집</button>
+                    <button class="btn btn-ghost btn-sm" data-tpl-action="delete" data-id="${t.id}"
+                            style="color:var(--oci-red)">삭제</button>
+                  `}
                 </td>
               </tr>
             `).join('')}
@@ -216,10 +228,25 @@ const SettingsPage = {
           const action = btn.dataset.tplAction;
           if (action === 'edit')   this.openTemplateForm(id);
           if (action === 'delete') this.deleteTemplate(id);
+          if (action === 'clone')  this.cloneTemplate(id);
         });
       });
     } catch (e) {
       el.innerHTML = `<div class="empty" style="color:var(--oci-red)">불러오기 실패: ${esc(e.message || '')}</div>`;
+    }
+  },
+
+  // ─── 시스템 템플릿 복제 → 사용자 템플릿으로 ─────────────
+  async cloneTemplate(id) {
+    try {
+      const r = await API.post(`/email-templates/${id}/clone`, {});
+      Toast.success('템플릿이 복제되었습니다. 편집 모달을 엽니다.');
+      if (typeof Email !== 'undefined') Email.templates = null; // 캐시 무효화
+      await this.loadEmailTemplates();
+      // 복제된 사용자 템플릿 편집 모달 자동 오픈
+      if (r.id) await this.openTemplateForm(r.id);
+    } catch (e) {
+      Toast.error('복제 실패: ' + (e.message || ''));
     }
   },
 

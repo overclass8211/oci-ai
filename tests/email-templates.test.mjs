@@ -142,6 +142,48 @@ describe('Email Templates API — 시스템 템플릿 보호', () => {
   });
 });
 
+describe('Email Templates API — 복제 (clone)', () => {
+  let sysTplId;
+
+  beforeAll(async () => {
+    const res = await api().get('/api/email-templates');
+    const sys = res.body.data.find(t => t.is_system === 1 && t.name === '첫 미팅 요청');
+    sysTplId = sys?.id;
+  });
+
+  it('POST /:id/clone — 시스템 템플릿을 사용자 템플릿으로 복제', async () => {
+    expect(sysTplId).toBeDefined();
+    const res = await api().post(`/api/email-templates/${sysTplId}/clone`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.id).toBeGreaterThan(0);
+    createdIds.push(res.body.id);
+
+    // 복제된 행 검증 — is_system=0, 이름은 "원이름 (복사)"
+    const check = await api().get(`/api/email-templates/${res.body.id}`);
+    expect(check.body.data.is_system).toBe(0);
+    expect(check.body.data.name).toBe('첫 미팅 요청 (복사)');
+    // 본문/제목은 원본과 동일
+    expect(check.body.data.subject).toContain('{{customer_name}}');
+  });
+
+  it('POST /:id/clone — name 수동 지정', async () => {
+    const customName = `${PREFIX}내가지은이름`;
+    const res = await api().post(`/api/email-templates/${sysTplId}/clone`).send({ name: customName });
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBeGreaterThan(0);
+    createdIds.push(res.body.id);
+
+    const check = await api().get(`/api/email-templates/${res.body.id}`);
+    expect(check.body.data.name).toBe(customName);
+  });
+
+  it('POST /:id/clone — 존재하지 않는 id → 404', async () => {
+    const res = await api().post('/api/email-templates/99999999/clone').send({});
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('Email Templates API — category 필터', () => {
   it('GET ?category=lead → lead 카테고리만 반환', async () => {
     const res = await api().get('/api/email-templates?category=lead');

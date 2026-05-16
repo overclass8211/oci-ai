@@ -188,14 +188,129 @@ test('시나리오 4 — 설정 페이지에서 새 템플릿 추가', async ({ 
   // 정리는 afterAll
 });
 
-// ─── 시나리오 5: 시스템 템플릿 보호 ──────────────────────────
-test('시나리오 5 — 시스템 템플릿 편집/삭제 버튼 disabled', async ({ page }) => {
+// ─── 시나리오 5: 시스템 템플릿은 편집/삭제 버튼 없고, 복제 버튼만 ──
+test('시나리오 5 — 시스템 템플릿에는 복제 버튼만 표시', async ({ page }) => {
   await page.goto('/#settings');
   await page.waitForSelector('#email-tpl-list table', { timeout: 10000 });
 
-  // 첫 시스템 템플릿 행의 편집/삭제 버튼
-  const sysRow = page.locator('#email-tpl-list tbody tr').first();
-  await expect(sysRow.locator('.badge', { hasText: '시스템' })).toBeVisible();
-  await expect(sysRow.locator('[data-tpl-action="edit"]')).toBeDisabled();
-  await expect(sysRow.locator('[data-tpl-action="delete"]')).toBeDisabled();
+  const sysRow = page.locator('#email-tpl-list tbody tr').filter({
+    has: page.locator('.badge', { hasText: '시스템' })
+  }).first();
+  await expect(sysRow).toBeVisible();
+  // 복제 버튼은 존재
+  await expect(sysRow.locator('[data-tpl-action="clone"]')).toBeVisible();
+  // 편집/삭제 버튼은 DOM 에 없어야 함
+  await expect(sysRow.locator('[data-tpl-action="edit"]')).toHaveCount(0);
+  await expect(sysRow.locator('[data-tpl-action="delete"]')).toHaveCount(0);
+});
+
+// ─── 시나리오 6: 시스템 템플릿 복제 → 사용자 템플릿 + 편집 모달 ──
+test('시나리오 6 — 시스템 템플릿 복제 → 사용자 템플릿 생성 + 편집 모달', async ({ page }) => {
+  await page.goto('/#settings');
+  await page.waitForSelector('#email-tpl-list table', { timeout: 10000 });
+
+  // 첫 시스템 템플릿의 복제 버튼 클릭
+  const cloneBtn = page.locator('[data-tpl-action="clone"]').first();
+  await expect(cloneBtn).toBeVisible();
+  await cloneBtn.click();
+
+  // 편집 모달이 자동으로 열림
+  await expect(page.locator('#tpl-name')).toBeVisible({ timeout: 5000 });
+  // 이름 필드에 "(복사)" 포함된 값 또는 원래 시스템 템플릿 이름
+  const cloneName = await page.locator('#tpl-name').inputValue();
+  expect(cloneName).toContain('(복사)');
+
+  // 사용자가 식별 가능하도록 PREFIX 로 이름 변경 후 저장 (정리 용)
+  const newName = `${PREFIX}복제됨_${Date.now()}`;
+  await page.fill('#tpl-name', newName);
+  await page.click('#tpl-save');
+  await expect(page.locator('#tpl-name')).toBeHidden({ timeout: 5000 });
+
+  // 목록에 사용자 템플릿으로 표시되어야 함
+  const newRow = page.locator(`#email-tpl-list tr:has-text("${newName}")`);
+  await expect(newRow).toBeVisible({ timeout: 5000 });
+  await expect(newRow.locator('.badge', { hasText: '사용자' })).toBeVisible();
+  await expect(newRow.locator('[data-tpl-action="edit"]')).toBeVisible();
+  await expect(newRow.locator('[data-tpl-action="delete"]')).toBeVisible();
+});
+
+// ─── 시나리오 7: 사용자 템플릿 편집 ──────────────────────────
+test('시나리오 7 — 사용자 템플릿 편집 → 목록 반영', async ({ page }) => {
+  // 사전 시드 — 편집할 사용자 템플릿 1개 직접 생성
+  const tplName = `${PREFIX}편집전_${Date.now()}`;
+  const [r] = await pool.query(
+    `INSERT INTO email_templates (name, category, subject, body, is_system)
+       VALUES (?, 'general', '편집 전 제목', '편집 전 본문', 0)`,
+    [tplName]
+  );
+  const tplId = r.insertId;
+
+  try {
+    await page.goto('/#settings');
+    await page.waitForSelector('#email-tpl-list table', { timeout: 10000 });
+
+    // 편집 버튼 클릭
+    const row = page.locator(`#email-tpl-list tr[data-tpl-id="${tplId}"]`);
+    await expect(row).toBeVisible();
+    await row.locator('[data-tpl-action="edit"]').click();
+
+    // 편집 모달 — 기존 값 로드 확인
+    await expect(page.locator('#tpl-name')).toHaveValue(tplName);
+    await expect(page.locator('#tpl-subject')).toHaveValue('편집 전 제목');
+
+    // 제목/본문 수정 후 저장
+    const newSubject = `편집 후 제목 ${Date.now()}`;
+    await page.fill('#tpl-subject', newSubject);
+    await page.fill('#tpl-body', '편집 후 본문');
+    await page.click('#tpl-save');
+    await expect(page.locator('#tpl-name')).toBeHidden({ timeout: 5000 });
+
+    // 목록에 새 제목 반영
+    await expect(row).toContainText(newSubject, { timeout: 5000 });
+
+    // DB 직접 검증
+    const [[updated]] = await pool.query(
+      `SELECT subject, body FROM email_templates WHERE id = ?`, [tplId]
+    );
+    expect(updated.subject).toBe(newSubject);
+    expect(updated.body).toBe('편집 후 본문');
+  } finally {
+    await pool.query(`DELETE FROM email_templates WHERE id = ?`, [tplId]);
+  }
+});
+
+// ─── 시나리오 8: 사용자 템플릿 삭제 ──────────────────────────
+test('시나리오 8 — 사용자 템플릿 삭제 → 목록에서 사라짐', async ({ page }) => {
+  // 사전 시드 — 삭제할 사용자 템플릿 1개
+  const tplName = `${PREFIX}삭제대상_${Date.now()}`;
+  const [r] = await pool.query(
+    `INSERT INTO email_templates (name, category, subject, body, is_system)
+       VALUES (?, 'general', '삭제 테스트', '본문', 0)`,
+    [tplName]
+  );
+  const tplId = r.insertId;
+
+  // 브라우저 confirm 자동 수락
+  page.on('dialog', dialog => dialog.accept());
+
+  try {
+    await page.goto('/#settings');
+    await page.waitForSelector('#email-tpl-list table', { timeout: 10000 });
+
+    const row = page.locator(`#email-tpl-list tr[data-tpl-id="${tplId}"]`);
+    await expect(row).toBeVisible();
+    await row.locator('[data-tpl-action="delete"]').click();
+
+    // 목록에서 사라짐
+    await expect(row).toBeHidden({ timeout: 5000 });
+
+    // DB 에서도 삭제 확인
+    const [rows] = await pool.query(
+      `SELECT id FROM email_templates WHERE id = ?`, [tplId]
+    );
+    expect(rows.length).toBe(0);
+  } finally {
+    // 만약 삭제 실패 시 정리
+    await pool.query(`DELETE FROM email_templates WHERE id = ?`, [tplId]);
+  }
 });
