@@ -11,86 +11,88 @@ const LeadsPage = {
   async render() {
     const html = `
       <div class="filter-bar">
-        <input type="text" class="search-input" id="leads-search" placeholder="고객사, 프로젝트명, 메모 검색...">
+        <input type="text" class="search-input" id="leads-search" data-placeholder-label="leads.search_placeholder" placeholder="고객사, 프로젝트명, 메모 검색...">
 
         <select class="filter-select" id="leads-stage">
-          <option value="">전체 단계</option>
-          <option value="lead">리드 발굴</option>
-          <option value="review">검토/미팅</option>
-          <option value="proposal">제안/견적</option>
-          <option value="bidding">입찰</option>
-          <option value="negotiation">협상/계약</option>
-          <option value="won">수주</option>
-          <option value="lost">실주</option>
-          <option value="dropped">드롭</option>
+          <option value="" data-label="common.all">전체 단계</option>
+          <option value="lead" data-label="stages.lead">리드 발굴</option>
+          <option value="review" data-label="stages.review">검토/미팅</option>
+          <option value="proposal" data-label="stages.proposal">제안/견적</option>
+          <option value="bidding" data-label="stages.bidding">입찰</option>
+          <option value="negotiation" data-label="stages.negotiation">협상/계약</option>
+          <option value="won" data-label="stages.won">수주</option>
+          <option value="lost" data-label="stages.lost">실주</option>
+          <option value="dropped" data-label="stages.dropped">드롭</option>
         </select>
 
         <select class="filter-select" id="leads-business-type">
-          <option value="">전체 사업유형</option>
-          <option value="태양광">태양광</option>
-          <option value="풍력">풍력</option>
-          <option value="ESS">ESS</option>
-          <option value="수소">수소</option>
-          <option value="기타">기타</option>
+          <option value="" data-label="common.all">전체 사업유형</option>
+          <option value="태양광" data-label="business.solar">태양광</option>
+          <option value="풍력" data-label="business.wind">풍력</option>
+          <option value="ESS" data-label="business.ess">ESS</option>
+          <option value="수소" data-label="business.hydrogen">수소</option>
+          <option value="기타" data-label="business.other">기타</option>
         </select>
 
         <select class="filter-select" id="leads-region">
-          <option value="">국내/해외</option>
-          <option value="국내">국내</option>
-          <option value="해외">해외</option>
+          <option value="" data-label="region.all">국내/해외</option>
+          <option value="국내" data-label="region.domestic">국내</option>
+          <option value="해외" data-label="region.overseas">해외</option>
         </select>
 
         <select class="filter-select" id="leads-assigned">
-          <option value="">전체 담당자</option>
+          <option value="" data-label="common.all_assignees">전체 담당자</option>
         </select>
 
         <div class="filter-date-group">
           <select class="filter-select" id="leads-date-field" style="width:90px">
-            <option value="close">마감일</option>
-            <option value="updated">수정일</option>
-            <option value="created">등록일</option>
+            <option value="close" data-label="leads.expected_close_date">마감일</option>
+            <option value="updated" data-label="common.updated_at">수정일</option>
+            <option value="created" data-label="common.created_at">등록일</option>
           </select>
-          <input type="date" class="filter-date" id="leads-date-from" title="시작일">
+          <input type="date" class="filter-date" id="leads-date-from" data-title-label="common.start_date" title="시작일">
           <span class="text-muted" style="font-size:11px">~</span>
-          <input type="date" class="filter-date" id="leads-date-to" title="종료일">
-          <button class="btn btn-ghost btn-sm" id="leads-date-clear" title="날짜 초기화" style="display:none">✕</button>
+          <input type="date" class="filter-date" id="leads-date-to" data-title-label="common.end_date" title="종료일">
+          <button class="btn btn-ghost btn-sm" id="leads-date-clear" data-title-label="common.clear_date" title="날짜 초기화" style="display:none">✕</button>
         </div>
 
-        <button class="btn btn-primary" id="leads-open-form-btn">+ 리드 등록</button>
+        <button class="btn btn-primary" id="leads-open-form-btn" data-label="leads.new_button">+ 리드 등록</button>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">영업 리드 목록 <span class="text-muted fs-12" id="leads-count"></span></div>
+          <div class="card-title"><span data-label="leads.list_title">영업 리드 목록</span> <span class="text-muted fs-12" id="leads-count"></span></div>
           <div style="display:flex;align-items:center;gap:8px">
             <div id="leads-active-filters" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
             <!-- Copy & Paste 툴바 -->
             <div class="cp-toolbar" id="cp-toolbar" style="display:none">
-              <span class="cp-sel-count" id="cp-sel-count">0건 선택</span>
-              <button class="btn btn-ghost btn-sm" id="cp-copy-btn" title="선택된 행을 클립보드에 복사 (Excel/Word에 붙여넣기 가능)">
+              <span class="cp-sel-count" id="cp-sel-count" data-label="common.selected_count">0건 선택</span>
+              <button class="btn btn-ghost btn-sm" id="cp-copy-btn" title="선택된 행을 클립보드에 복사 (Excel/Word에 붙여넣기 가능)" data-label="common.copy">
                 📋 복사
               </button>
-              <button class="btn btn-ghost btn-sm" id="leads-clear-sel-btn">선택 해제</button>
+              <button class="btn btn-ghost btn-sm" id="leads-clear-sel-btn" data-label="common.clear_selection">선택 해제</button>
             </div>
             <button class="btn btn-ghost btn-sm" id="cp-paste-btn"
               data-feature="data.bulk_paste"
-              title="Excel·Word·이메일에서 복사한 표 데이터를 붙여넣기로 일괄 등록">
+              title="Excel·Word·이메일에서 복사한 표 데이터를 붙여넣기로 일괄 등록"
+              data-label="common.paste_register">
               📥 붙여넣기 등록
             </button>
             <button class="btn btn-ghost btn-sm" id="leads-export-btn"
               data-feature="data.excel_exp"
-              title="현재 필터 결과를 엑셀 파일로 다운로드">
+              title="현재 필터 결과를 엑셀 파일로 다운로드"
+              data-label="common.excel_export">
               📤 엑셀 다운로드
             </button>
             <label class="btn btn-ghost btn-sm" data-feature="data.excel_imp"
               title="엑셀 파일로 일괄 등록" style="cursor:pointer;margin:0">
-              📂 엑셀 가져오기
+              <span data-label="common.excel_import">📂 엑셀 가져오기</span>
               <input type="file" id="leads-import-input" accept=".xlsx,.xls" style="display:none">
             </label>
           </div>
         </div>
         <div class="card-body no-pad" id="leads-table-wrap">
-          <div class="loading">로딩중...</div>
+          <div class="loading" data-label="common.loading">로딩중...</div>
         </div>
       </div>
     `;

@@ -247,9 +247,9 @@ const App = {
           <span class="ubadge-name">${esc(user.full_name || user.username)}</span>
           <span class="ubadge-role">${roleLabels[user.role] || user.role}</span>
         </div>
-        <button class="btn-logout" id="btn-logout-ubadge" title="로그아웃">
+        <button class="btn-logout" id="btn-logout-ubadge" data-title-label="topbar.logout" title="로그아웃">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
-          로그아웃
+          <span data-label="topbar.logout">로그아웃</span>
         </button>
       </div>
     `;
@@ -435,13 +435,21 @@ const App = {
       el.classList.toggle('active', el.dataset.page === pageId);
     });
 
-    // 상단 타이틀/breadcrumb
-    document.getElementById('page-title').textContent = page.title;
-    document.getElementById('page-breadcrumb').textContent = page.crumb;
-
+    // 상단 타이틀/breadcrumb — 워드 사전 dictionary 우선, 미설정 시 fallback
+    const titleKey = `pages.${pageId}_title`;
+    const crumbKey = `pages.${pageId}_crumb`;
+    const titleEl = document.getElementById('page-title');
+    const crumbEl = document.getElementById('page-breadcrumb');
+    titleEl.setAttribute('data-label', titleKey);
+    crumbEl.setAttribute('data-label', crumbKey);
+    titleEl.textContent = (typeof Labels !== 'undefined' ? Labels.get(titleKey, page.title) : page.title);
+    crumbEl.textContent = (typeof Labels !== 'undefined' ? Labels.get(crumbKey, page.crumb) : page.crumb);
 
     // 컨텐츠 로딩
-    document.getElementById('content').innerHTML = '<div class="loading">데이터 로딩중...</div>';
+    document.getElementById('content').innerHTML =
+      `<div class="loading" data-label="common.loading_data">${
+        typeof Labels !== 'undefined' ? Labels.get('common.loading_data', '데이터 로딩중...') : '데이터 로딩중...'
+      }</div>`;
 
     try {
       await page.obj().render();
@@ -491,48 +499,49 @@ const App = {
     ).join('');
 
     Modal.open({
-      title: lead ? '리드 정보 수정' : '신규 리드 등록',
+      title: lead ? (typeof Labels !== 'undefined' ? Labels.get('leads.modal_edit', '리드 정보 수정') : '리드 정보 수정')
+                  : (typeof Labels !== 'undefined' ? Labels.get('leads.modal_new', '신규 리드 등록') : '신규 리드 등록'),
       width: 640,
       body: `
         <form id="lead-form" class="form-grid">
           <div class="form-row-2">
             <div class="form-row">
-              <label class="form-label">고객사 *</label>
+              <label class="form-label" data-label="leads.customer_name">고객사 *</label>
               <input class="form-input" name="customer_name" value="${esc(lead?.customer_name || '')}" required list="customer-list">
               <datalist id="customer-list">
                 ${this.customers.map(c => `<option value="${esc(c.name)}">`).join('')}
               </datalist>
             </div>
             <div class="form-row">
-              <label class="form-label">프로젝트명 *</label>
+              <label class="form-label" data-label="leads.project_name">프로젝트명 *</label>
               <input class="form-input" name="project_name" value="${esc(lead?.project_name || '')}" required>
             </div>
           </div>
 
           <div class="form-row-3">
             <div class="form-row">
-              <label class="form-label">사업 유형</label>
+              <label class="form-label" data-label="leads.business_type">사업 유형</label>
               <select class="form-input" name="business_type">
-                <option value="태양광" ${lead?.business_type === '태양광' ? 'selected' : ''}>태양광</option>
-                <option value="모듈"   ${lead?.business_type === '모듈' ? 'selected' : ''}>모듈</option>
-                <option value="EPC"    ${lead?.business_type === 'EPC' ? 'selected' : ''}>EPC</option>
-                <option value="ESS"    ${lead?.business_type === 'ESS' ? 'selected' : ''}>ESS</option>
-                <option value="전기"   ${lead?.business_type === '전기' ? 'selected' : ''}>전기</option>
-                <option value="설치"   ${lead?.business_type === '설치' ? 'selected' : ''}>설치</option>
+                <option value="태양광" data-label="business.solar" ${lead?.business_type === '태양광' ? 'selected' : ''}>태양광</option>
+                <option value="모듈"   data-label="business.module" ${lead?.business_type === '모듈' ? 'selected' : ''}>모듈</option>
+                <option value="EPC"    data-label="business.epc"    ${lead?.business_type === 'EPC' ? 'selected' : ''}>EPC</option>
+                <option value="ESS"    data-label="business.ess"    ${lead?.business_type === 'ESS' ? 'selected' : ''}>ESS</option>
+                <option value="전기"   data-label="business.electric" ${lead?.business_type === '전기' ? 'selected' : ''}>전기</option>
+                <option value="설치"   data-label="business.install" ${lead?.business_type === '설치' ? 'selected' : ''}>설치</option>
               </select>
             </div>
             <div class="form-row">
-              <label class="form-label">국내/해외</label>
+              <label class="form-label" data-label="leads.region">국내/해외</label>
               <select class="form-input" name="region">
-                <option value="국내" ${lead?.region === '국내' ? 'selected' : ''}>국내</option>
-                <option value="해외" ${lead?.region === '해외' ? 'selected' : ''}>해외</option>
+                <option value="국내" data-label="region.domestic" ${lead?.region === '국내' ? 'selected' : ''}>국내</option>
+                <option value="해외" data-label="region.overseas" ${lead?.region === '해외' ? 'selected' : ''}>해외</option>
               </select>
             </div>
             <div class="form-row">
-              <label class="form-label">단계</label>
+              <label class="form-label" data-label="leads.stage">단계</label>
               <select class="form-input" name="stage">
                 ${Object.keys(STAGES).map(s =>
-                  `<option value="${s}" ${(lead?.stage || 'lead') === s ? 'selected' : ''}>${STAGES[s].label}</option>`
+                  `<option value="${s}" data-label="stages.${s}" ${(lead?.stage || 'lead') === s ? 'selected' : ''}>${STAGES[s].label}</option>`
                 ).join('')}
               </select>
             </div>
@@ -540,15 +549,15 @@ const App = {
 
           <div class="form-row-3">
             <div class="form-row">
-              <label class="form-label">규모 (MW)</label>
+              <label class="form-label" data-label="leads.capacity_mw">규모 (MW)</label>
               <input type="number" step="0.01" class="form-input" name="capacity_mw" value="${lead?.capacity_mw || ''}">
             </div>
             <div class="form-row">
-              <label class="form-label">예상 금액</label>
+              <label class="form-label" data-label="leads.expected_amount">예상 금액</label>
               <input type="number" step="0.01" class="form-input" name="expected_amount" value="${lead?.expected_amount || ''}" placeholder="단위: 원 (예: 366억원 → 36600000000)">
             </div>
             <div class="form-row">
-              <label class="form-label">통화</label>
+              <label class="form-label" data-label="leads.currency">통화</label>
               <select class="form-input" name="currency" id="lf-currency">
                 <option value="KRW" ${(lead?.currency || 'KRW') === 'KRW' ? 'selected' : ''}>KRW (₩)</option>
                 <option value="USD" ${lead?.currency === 'USD' ? 'selected' : ''}>USD ($)</option>
@@ -569,32 +578,32 @@ const App = {
 
           <div class="form-row-3">
             <div class="form-row">
-              <label class="form-label">담당자</label>
+              <label class="form-label" data-label="leads.assigned_to">담당자</label>
               <select class="form-input" name="assigned_to">
-                <option value="">- 미배정 -</option>
+                <option value="" data-label="leads.unassigned">- 미배정 -</option>
                 ${teamOpts}
               </select>
             </div>
             <div class="form-row">
-              <label class="form-label">예상 마감일</label>
+              <label class="form-label" data-label="leads.expected_close_date">예상 마감일</label>
               <input type="date" class="form-input" name="expected_close_date" value="${lead?.expected_close_date ? Fmt.date(lead.expected_close_date) : ''}">
             </div>
             <div class="form-row">
-              <label class="form-label">입찰 마감일</label>
+              <label class="form-label" data-label="leads.bidding_deadline">입찰 마감일</label>
               <input type="date" class="form-input" name="bidding_deadline" value="${lead?.bidding_deadline ? Fmt.date(lead.bidding_deadline) : ''}">
             </div>
           </div>
 
           <div class="form-row">
-            <label class="form-label">메모</label>
+            <label class="form-label" data-label="leads.notes">메모</label>
             <textarea class="form-input" name="notes" rows="3">${esc(lead?.notes || '')}</textarea>
           </div>
         </form>
       `,
       footer: `
-        ${lead ? `<button class="btn btn-ghost text-danger" id="lf-delete">삭제</button>` : ''}
-        <button class="btn btn-ghost" id="lf-cancel">취소</button>
-        <button class="btn btn-primary" id="lf-save">${lead ? '저장' : '등록'}</button>
+        ${lead ? `<button class="btn btn-ghost text-danger" id="lf-delete" data-label="common.delete">삭제</button>` : ''}
+        <button class="btn btn-ghost" id="lf-cancel" data-label="common.cancel">취소</button>
+        <button class="btn btn-primary" id="lf-save" data-label="${lead ? 'common.save' : 'common.register'}">${lead ? '저장' : '등록'}</button>
       `,
       bind: Object.assign(
         { '#lf-cancel': () => Modal.close(),
@@ -1097,7 +1106,7 @@ const App = {
     const defaultDt = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:00`;
     setTimeout(() => {
       Modal.open({
-        title: '활동 추가',
+        title: (typeof Labels !== 'undefined' ? Labels.get('activities.modal_new', '활동 추가') : '활동 추가'),
         width: 480,
         body: `
           <form id="activity-form" class="form-grid">
@@ -1105,52 +1114,52 @@ const App = {
             <input type="hidden" name="customer_name" value="${esc(customerName)}">
             <div class="form-row-2">
               <div class="form-row">
-                <label class="form-label">활동 유형</label>
+                <label class="form-label" data-label="activities.activity_type">활동 유형</label>
                 <select class="form-input" name="activity_type" id="act-type-sel">
-                  <option value="meeting">미팅</option>
-                  <option value="call">전화</option>
-                  <option value="email">이메일</option>
-                  <option value="site_visit">현장방문</option>
-                  <option value="proposal">제안</option>
-                  <option value="note">메모</option>
+                  <option value="meeting"    data-label="activity_type.meeting">미팅</option>
+                  <option value="call"       data-label="activity_type.call">전화</option>
+                  <option value="email"      data-label="activity_type.email">이메일</option>
+                  <option value="site_visit" data-label="activity_type.site_visit">현장방문</option>
+                  <option value="proposal"   data-label="activity_type.proposal">제안</option>
+                  <option value="note"       data-label="activity_type.note">메모</option>
                 </select>
               </div>
               <div class="form-row">
-                <label class="form-label">활동 구분</label>
+                <label class="form-label" data-label="activities.status">활동 구분</label>
                 <select class="form-input" name="status" id="act-status-sel">
-                  <option value="planned">📌 계획</option>
-                  <option value="done">✅ 완료</option>
+                  <option value="planned" data-label="activities.status_planned">📌 계획</option>
+                  <option value="done"    data-label="activities.status_done">✅ 완료</option>
                 </select>
               </div>
             </div>
             <div class="form-row">
-              <label class="form-label">제목 *</label>
+              <label class="form-label" data-label="activities.title">제목 *</label>
               <input class="form-input" name="title" required>
             </div>
             <div class="form-row">
-              <label class="form-label">일시</label>
+              <label class="form-label" data-label="activities.activity_date">일시</label>
               <input class="form-input" type="datetime-local" name="activity_datetime" value="${defaultDt}">
             </div>
             <div class="form-row">
-              <label class="form-label">내용</label>
+              <label class="form-label" data-label="activities.content">내용</label>
               <textarea class="form-input" name="content" rows="3"></textarea>
             </div>
             <div class="form-row">
-              <label class="form-label">담당자</label>
+              <label class="form-label" data-label="activities.performer_name">담당자</label>
               <select class="form-input" name="performed_by">
                 <option value="">-</option>
                 ${this.team.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}
               </select>
             </div>
             <div class="form-row" id="calendar-sync-row" style="align-items:center;gap:8px">
-              <label class="form-label" style="margin:0">영업 캘린더 등록</label>
+              <label class="form-label" style="margin:0" data-label="activities.sync_calendar">영업 캘린더 등록</label>
               <input type="checkbox" name="sync_calendar" id="sync-calendar-cb" checked style="width:16px;height:16px;cursor:pointer">
             </div>
           </form>
         `,
         footer: `
-          <button class="btn btn-ghost" id="af-cancel">취소</button>
-          <button class="btn btn-primary" id="af-save">등록</button>
+          <button class="btn btn-ghost" id="af-cancel" data-label="common.cancel">취소</button>
+          <button class="btn btn-primary" id="af-save" data-label="common.register">등록</button>
         `,
         bind: {
           '#af-cancel': () => Modal.close(),

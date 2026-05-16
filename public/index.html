@@ -23,7 +23,7 @@
 
   <nav class="sidebar-nav">
     <div class="nav-section" data-section-key="main">
-      <div class="nav-section-title">메인</div>
+      <div class="nav-section-title" data-label="menu.section_main">메인</div>
       <a class="nav-item active" data-page="dashboard" data-action="navigate" data-menu-key="dashboard">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm7 0a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1V4zM3 11a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zm7 0a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-3z"/></svg>
         <span data-label="menu.dashboard">대시보드</span>
@@ -36,16 +36,16 @@
     </div>
 
     <div class="nav-section" data-feature="erp.integration" data-section-key="erp">
-      <div class="nav-section-title"> ERP </div>
+      <div class="nav-section-title" data-label="menu.section_erp"> ERP </div>
       <a class="nav-item" data-page="orders" data-action="navigate" data-menu-key="orders">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/></svg>
         <span data-label="menu.orders">ERP 연계</span>
-        <span class="nav-badge" style="background:var(--amber);color:#fff;font-size:9px">준비중</span>
+        <span class="nav-badge" data-label="common.coming_soon" style="background:var(--amber);color:#fff;font-size:9px">준비중</span>
       </a>
     </div>
 
     <div class="nav-section" data-section-key="sales">
-      <div class="nav-section-title">영업관리</div>
+      <div class="nav-section-title" data-label="menu.section_sales">영업관리</div>
       <a class="nav-item" data-page="leads" data-action="navigate" data-menu-key="leads">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
         <span data-label="menu.leads">영업 리드</span>
@@ -66,7 +66,7 @@
     </div>
 
     <div class="nav-section" data-section-key="analysis">
-      <div class="nav-section-title">분석</div>
+      <div class="nav-section-title" data-label="menu.section_analysis">분석</div>
       <a class="nav-item" data-page="team" data-action="navigate" data-menu-key="team">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
         <span data-label="menu.team">팀 현황</span>
@@ -78,7 +78,7 @@
     </div>
 
     <div class="nav-section" data-section-key="comm">
-      <div class="nav-section-title">소통</div>
+      <div class="nav-section-title" data-label="menu.section_comm">소통</div>
       <a class="nav-item" data-page="board" data-action="navigate" data-feature="crm.board" data-menu-key="board">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/><path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"/></svg>
         <span data-label="menu.board">커뮤니케이션</span>
@@ -86,7 +86,7 @@
     </div>
 
     <div class="nav-section" data-section-key="ai">
-      <div class="nav-section-title">AI 기능</div>
+      <div class="nav-section-title" data-label="menu.section_ai">AI 기능</div>
       <a class="nav-item" data-action="ai-open" data-feature="ai.assistant" data-menu-key="ai-assistant">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm0 14a6 6 0 110-12 6 6 0 010 12zm1-9a1 1 0 10-2 0v4a1 1 0 00.553.894l3 1.5a1 1 0 10.894-1.788L11 10.382V7z"/></svg>
         <span data-label="menu.ai-assistant">AI 어시스턴트</span>
@@ -103,7 +103,7 @@
     </div>
 
     <div class="nav-section" data-section-key="system">
-      <div class="nav-section-title">시스템</div>
+      <div class="nav-section-title" data-label="menu.section_system">시스템</div>
       <a class="nav-item" data-page="admin" data-action="navigate" data-menu-key="admin">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/></svg>
         <span data-label="menu.admin">관리자</span>
@@ -136,7 +136,7 @@
   <header class="topbar">
     <div class="topbar-left">
       <!-- 모바일 햄버거 버튼 -->
-      <button class="mobile-menu-btn icon-btn" id="mobile-menu-btn" title="메뉴" style="display:none" data-action="toggle-nav">
+      <button class="mobile-menu-btn icon-btn" id="mobile-menu-btn" data-title-label="topbar.menu" title="메뉴" style="display:none" data-action="toggle-nav">
         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
       </button>
       <h1 class="page-title" id="page-title">대시보드</h1>
@@ -168,13 +168,13 @@
       <span class="topbar-date" id="topbar-date"></span>
 
       <!-- 전체 검색 (Cmd+K / Ctrl+K) -->
-      <button class="icon-btn" title="전체 검색 (Ctrl+K)" id="global-search-btn" data-action="open-search">
+      <button class="icon-btn" data-title-label="topbar.search" title="전체 검색 (Ctrl+K)" id="global-search-btn" data-action="open-search">
         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
       </button>
 
       <!-- 알림 버튼 -->
       <div class="notif-wrap" style="position:relative">
-        <button class="icon-btn" title="알림" id="notif-btn">
+        <button class="icon-btn" data-title-label="topbar.notifications" title="알림" id="notif-btn">
           <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/></svg>
           <span class="badge-dot" style="display:none"></span>
         </button>
@@ -182,12 +182,12 @@
         <div class="notif-panel" id="notif-panel">
           <div class="notif-header">
             <div style="display:flex;align-items:center;gap:6px">
-              <span>알림</span>
+              <span data-label="topbar.notifications">알림</span>
               <span class="badge badge-red" id="notif-badge"></span>
             </div>
             <button class="btn btn-ghost btn-sm" id="notif-all-btn"
               style="font-size:11px;padding:2px 8px;color:var(--text-2)"
-              title="알림 전체 목록 보기">전체 보기</button>
+              title="알림 전체 목록 보기" data-label="topbar.see_all">전체 보기</button>
           </div>
           <div class="notif-list"></div>
         </div>
@@ -199,7 +199,7 @@
               title="녹음 중 — 클릭하면 회의록 화면으로 이동">
         <span class="rec-dot-blink"></span>
         <span id="rec-global-time">00:00</span>
-        <span style="font-size:11px">녹음 중</span>
+        <span style="font-size:11px" data-label="topbar.recording">녹음 중</span>
       </button>
 
       <!-- AI 어시스턴트 버튼 -->

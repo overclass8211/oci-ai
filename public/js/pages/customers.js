@@ -19,30 +19,30 @@ const CustomersPage = {
   async render() {
     document.getElementById('content').innerHTML = `
       <div class="filter-bar">
-        <input class="search-input" id="cust-search" placeholder="고객사명, 담당자 검색...">
+        <input class="search-input" id="cust-search" data-placeholder-label="customers.search_placeholder" placeholder="고객사명, 담당자 검색...">
         <select class="filter-select" id="cust-region">
-          <option value="">전체 지역</option>
-          <option value="국내">국내</option>
-          <option value="해외">해외</option>
+          <option value="" data-label="common.all">전체 지역</option>
+          <option value="국내" data-label="region.domestic">국내</option>
+          <option value="해외" data-label="region.overseas">해외</option>
         </select>
         <select class="filter-select" id="cust-industry">
-          <option value="">전체 산업군</option>
+          <option value="" data-label="common.all">전체 산업군</option>
         </select>
 
         <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
           <button class="btn btn-ghost btn-sm" id="cp-paste-btn-cust"
                   data-feature="data.bulk_paste"
-                  title="Ctrl+V">
+                  title="Ctrl+V" data-label="common.paste_register">
             📥 붙여넣기 등록
           </button>
           <button class="btn btn-ghost btn-sm" id="cust-excel-export-btn"
             data-feature="data.excel_exp"
-            title="현재 목록을 엑셀 파일로 다운로드">
+            title="현재 목록을 엑셀 파일로 다운로드" data-label="common.excel_export">
             📤 엑셀 다운로드
           </button>
           <label class="btn btn-ghost btn-sm" data-feature="data.excel_imp"
             title="엑셀 파일로 일괄 등록" style="cursor:pointer;margin:0">
-            📂 엑셀 가져오기
+            <span data-label="common.excel_import">📂 엑셀 가져오기</span>
             <input type="file" id="cust-excel-import-input" accept=".xlsx,.xls" style="display:none">
           </label>
           <div class="view-toggle">
@@ -51,24 +51,24 @@ const CustomersPage = {
               <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
                 <path d="M2 3h12v2H2zM2 7h12v2H2zM2 11h12v2H2z"/>
               </svg>
-              목록
+              <span data-label="customers.view_list">목록</span>
             </button>
             <button class="view-toggle-btn ${this._view === 'card' ? 'active' : ''}"
                     data-view="card" title="카드 보기">
               <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
                 <path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z"/>
               </svg>
-              카드
+              <span data-label="customers.view_card">카드</span>
             </button>
           </div>
-          <button class="btn btn-primary" id="cust-register-btn">
+          <button class="btn btn-primary" id="cust-register-btn" data-label="customers.new_button">
             + 고객사 등록
           </button>
         </div>
       </div>
 
       <div id="customers-view-container" style="margin-bottom:12px">
-        <div class="loading" style="padding:40px;text-align:center">로딩...</div>
+        <div class="loading" style="padding:40px;text-align:center" data-label="common.loading">로딩...</div>
       </div>
 
       <!-- 고객사 인텔리전스 패널 -->

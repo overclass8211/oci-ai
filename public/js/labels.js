@@ -135,11 +135,15 @@ const Labels = {
   },
 
   // ── DOM 치환 ────────────────────────────────────────────
+  // data-label        — 요소의 텍스트 내용
+  // data-title-label  — 요소의 title (tooltip) 속성
+  // data-placeholder-label — input/textarea placeholder 속성
   apply(root) {
     if (!this._dict) return;
     const scope = root || document;
-    const nodes = scope.querySelectorAll('[data-label]');
-    nodes.forEach(el => {
+
+    // 1) 텍스트 콘텐츠
+    scope.querySelectorAll('[data-label]').forEach(el => {
       const key = el.getAttribute('data-label');
       if (!key) return;
       const v = this.get(key);
@@ -152,6 +156,22 @@ const Labels = {
           else el.prepend(document.createTextNode(v));
         }
       }
+    });
+
+    // 2) title (tooltip) 속성
+    scope.querySelectorAll('[data-title-label]').forEach(el => {
+      const key = el.getAttribute('data-title-label');
+      if (!key) return;
+      const v = this.get(key);
+      if (v && v !== key) el.setAttribute('title', v);
+    });
+
+    // 3) placeholder 속성
+    scope.querySelectorAll('[data-placeholder-label]').forEach(el => {
+      const key = el.getAttribute('data-placeholder-label');
+      if (!key) return;
+      const v = this.get(key);
+      if (v && v !== key) el.setAttribute('placeholder', v);
     });
   },
 

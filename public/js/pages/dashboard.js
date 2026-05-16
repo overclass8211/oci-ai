@@ -13,9 +13,9 @@ const DashboardPage = {
 
     const html = `
       <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-        <div style="font-weight:600;font-size:15px;color:var(--text-1)">영업 대시보드</div>
+        <div style="font-weight:600;font-size:15px;color:var(--text-1)" data-label="dashboard.title">영업 대시보드</div>
         <div class="year-selector" style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:12px;color:var(--text-3)">기준 연도</span>
+          <span style="font-size:12px;color:var(--text-3)" data-label="dashboard.year_filter">기준 연도</span>
           <div style="display:flex;gap:4px">
             ${years.map(y => `
               <button class="year-btn ${y === this.selectedYear ? 'active' : ''}"
@@ -31,13 +31,13 @@ const DashboardPage = {
       </div>
 
       <div class="metrics-grid" id="dashboard-metrics">
-        <div class="metric-card"><div class="metric-label">로딩...</div></div>
+        <div class="metric-card"><div class="metric-label" data-label="common.loading">로딩...</div></div>
       </div>
 
       <div class="grid-65 mb-3">
         <div class="card">
           <div class="card-header" style="flex-wrap:wrap;gap:8px">
-            <div class="card-title" id="monthly-chart-title" style="margin-right:auto">월별 영업기회 추이</div>
+            <div class="card-title" id="monthly-chart-title" style="margin-right:auto" data-label="dashboard.monthly_chart_title">월별 영업기회 추이</div>
             <div style="display:flex;gap:3px;align-items:center">
               ${[
                 {key:'annual',   label:'연간'},
@@ -55,36 +55,36 @@ const DashboardPage = {
                 </button>`).join('')}
             </div>
             <div style="display:flex;gap:6px;align-items:center">
-              <span class="badge badge-amber">● 태양광</span>
-              <span class="badge badge-blue">● 전기/ESS</span>
+              <span class="badge badge-amber">● <span data-label="business.solar">태양광</span></span>
+              <span class="badge badge-blue">● <span data-label="business.electric">전기</span>/<span data-label="business.ess">ESS</span></span>
             </div>
           </div>
           <div class="card-body"><div class="chart-wrap"><canvas id="chart-monthly"></canvas></div></div>
         </div>
         <div class="card">
-          <div class="card-header"><div class="card-title">파이프라인 단계별 현황</div></div>
-          <div class="card-body" id="funnel-body"><div class="loading">로딩...</div></div>
+          <div class="card-header"><div class="card-title" data-label="dashboard.funnel_title">파이프라인 단계별 현황</div></div>
+          <div class="card-body" id="funnel-body"><div class="loading" data-label="common.loading">로딩...</div></div>
         </div>
       </div>
 
       <div class="grid-2">
         <div class="card">
           <div class="card-header">
-            <div class="card-title">최근 영업 활동</div>
-            <button class="btn btn-ghost btn-sm" id="dash-pipeline-btn">전체보기</button>
+            <div class="card-title" data-label="dashboard.recent_activities">최근 영업 활동</div>
+            <button class="btn btn-ghost btn-sm" id="dash-pipeline-btn" data-label="topbar.see_all">전체보기</button>
           </div>
-          <div class="card-body no-pad" id="activities-body"><div class="loading">로딩...</div></div>
+          <div class="card-body no-pad" id="activities-body"><div class="loading" data-label="common.loading">로딩...</div></div>
         </div>
         <div class="card">
           <div class="card-header">
-            <div class="card-title">🤖 AI 인사이트</div>
+            <div class="card-title" data-label="dashboard.ai_insights">🤖 AI 인사이트</div>
             <button class="ai-gen-btn" id="dash-ai-refresh-btn">
               <svg viewBox="0 0 16 16" fill="currentColor" width="11"><path d="M8 3a5 5 0 100 10A5 5 0 008 3zM1 8a7 7 0 1114 0A7 7 0 011 8z"/><path d="M8 5v3l2 1-1 1.73L7 9V5h1z"/></svg>
-              AI 분석
+              <span data-label="dashboard.ai_analyze">AI 분석</span>
             </button>
           </div>
           <div class="card-body no-pad" id="insights-body">
-            <div class="loading">AI 인사이트 로딩중...</div>
+            <div class="loading" data-label="dashboard.ai_loading">AI 인사이트 로딩중...</div>
           </div>
         </div>
       </div>
@@ -294,37 +294,44 @@ const DashboardPage = {
   },
 
   renderMetrics(d) {
-    const curYear = new Date().getFullYear();
-    const isCurrentYear = (d.year === curYear);
-    const monthLabel = isCurrentYear ? '이번달' : `${d.year}년`;
-    const wonLabel = `${d.year}년 수주 금액`;
-    const pipeLabel = `${d.year}년 파이프라인`;
+    const L = (k, fb) => (typeof Labels !== 'undefined' ? Labels.get(k, fb) : fb);
+    const unitCount = L('units.count', '건');
+    const newOppLabel = L('dashboard.new_opportunities', '신규 영업기회');
+    const pipeLabel = L('dashboard.year_pipeline', '파이프라인');
+    const wonLabel = L('dashboard.year_won', '수주 금액');
+    const cumulativeLabel = L('dashboard.year_cumulative', '누적');
+    const biddingLabel = L('dashboard.bidding', '입찰 진행');
+    const biddingStageLabel = L('dashboard.bidding_stage', '입찰 단계 리드');
+    const winRateLabel = L('dashboard.year_win_rate', '수주율');
+    const winVsTotal = L('dashboard.win_vs_total', '전체 리드 대비 수주');
+    const regionDomestic = L('region.domestic', '국내');
+    const regionOverseas = L('region.overseas', '해외');
 
     document.getElementById('dashboard-metrics').innerHTML = `
       <div class="metric-card" style="--metric-color:#1664E5">
-        <div class="metric-label">${monthLabel} 신규 영업기회</div>
-        <div class="metric-value">${d.monthlyNew}<span class="metric-value-suffix">건</span></div>
-        <div class="metric-sub">파이프라인 국내 ${d.domestic} / 해외 ${d.overseas}</div>
+        <div class="metric-label">${d.year} · ${newOppLabel}</div>
+        <div class="metric-value">${d.monthlyNew}<span class="metric-value-suffix">${unitCount}</span></div>
+        <div class="metric-sub">${pipeLabel} ${regionDomestic} ${d.domestic} / ${regionOverseas} ${d.overseas}</div>
       </div>
       <div class="metric-card" style="--metric-color:#F59C00">
-        <div class="metric-label">${pipeLabel}</div>
-        <div class="metric-value">${d.totalLeads}<span class="metric-value-suffix">건</span></div>
-        <div class="metric-sub">입찰 진행 ${d.bidding}건</div>
+        <div class="metric-label">${d.year} · ${pipeLabel}</div>
+        <div class="metric-value">${d.totalLeads}<span class="metric-value-suffix">${unitCount}</span></div>
+        <div class="metric-sub">${biddingLabel} ${d.bidding}${unitCount}</div>
       </div>
       <div class="metric-card" style="--metric-color:#17A85A">
-        <div class="metric-label">${wonLabel}</div>
+        <div class="metric-label">${d.year} · ${wonLabel}</div>
         <div class="metric-value" style="font-size:18px">${Fmt.amount(d.wonAmount)}</div>
-        <div class="metric-sub">${d.year}년 누적</div>
+        <div class="metric-sub">${d.year} · ${cumulativeLabel}</div>
       </div>
       <div class="metric-card" style="--metric-color:#E63329">
-        <div class="metric-label">입찰 진행</div>
-        <div class="metric-value">${d.bidding}<span class="metric-value-suffix">건</span></div>
-        <div class="metric-sub">입찰 단계 리드</div>
+        <div class="metric-label">${biddingLabel}</div>
+        <div class="metric-value">${d.bidding}<span class="metric-value-suffix">${unitCount}</span></div>
+        <div class="metric-sub">${biddingStageLabel}</div>
       </div>
       <div class="metric-card" style="--metric-color:#7C4DFF">
-        <div class="metric-label">${d.year}년 수주율</div>
+        <div class="metric-label">${d.year} · ${winRateLabel}</div>
         <div class="metric-value">${d.winRate}<span class="metric-value-suffix">%</span></div>
-        <div class="metric-sub">전체 리드 대비 수주</div>
+        <div class="metric-sub">${winVsTotal}</div>
       </div>
     `;
   },
@@ -332,13 +339,16 @@ const DashboardPage = {
   renderFunnel(data) {
     const stageOrder = ['lead','review','proposal','bidding','negotiation','won'];
     const max = Math.max(...data.map(d => d.count), 1);
+    const L = (k, fb) => (typeof Labels !== 'undefined' ? Labels.get(k, fb) : fb);
+    const unitCount = L('units.count', '건');
     document.getElementById('funnel-body').innerHTML = stageOrder.map(stage => {
       const item = data.find(d => d.stage === stage) || { count: 0, amount: 0 };
       const meta = STAGES[stage] || { label: stage, color: '#ccc' };
+      const stageLabel = L('stages.' + stage, meta.label);
       return `
         <div class="funnel-row">
           <div class="funnel-label">
-            <span>${meta.label}</span><strong>${item.count}건</strong>
+            <span>${stageLabel}</span><strong>${item.count}${unitCount}</strong>
           </div>
           <div class="progress-bar">
             <div class="progress-fill" style="width:${(item.count/max)*100}%;background:${meta.color}"></div>
@@ -425,7 +435,11 @@ const DashboardPage = {
 
   renderActivities(activities) {
     const el = document.getElementById('activities-body');
-    if (!activities.length) { el.innerHTML = '<div class="empty">최근 활동 없음</div>'; return; }
+    if (!activities.length) {
+      const emptyMsg = (typeof Labels !== 'undefined' ? Labels.get('dashboard.no_activities', '최근 활동 없음') : '최근 활동 없음');
+      el.innerHTML = `<div class="empty" data-label="dashboard.no_activities">${emptyMsg}</div>`;
+      return;
+    }
     const iconMap = { 미팅:'🤝', 전화:'📞', 이메일:'✉️', 제안서:'📋', 입찰:'📑', 수주:'🏆', 드롭:'❌', 기타:'📌', note:'📝', meeting:'🤝', call:'📞', email:'✉️', proposal:'📋', site_visit:'🏗' };
     const bgMap = { 미팅:'var(--blue-light)', 전화:'var(--amber-light)', 이메일:'var(--blue-light)', 수주:'var(--green-light)', 드롭:'var(--red-light)', 기타:'var(--gray-light)' };
     el.innerHTML = activities.slice(0,6).map(a => `

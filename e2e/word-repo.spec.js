@@ -159,6 +159,48 @@ test('시나리오 6 — 프로젝트 페이지 마커 반영', async ({ page })
   });
 });
 
+test('시나리오 8 — 다국어 전환 시 화면 내 라벨 종합 적용', async ({ page }) => {
+  // 시스템 locale 을 일본어로 변경 → 사용자 override 없는 상태로 전체 화면 검증
+  const token = (await page.evaluate(() => localStorage.getItem('oci_token'))) || '';
+  await page.request.put('/api/admin/labels/system-locale', {
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    data: { locale: 'ja' },
+  });
+  await page.evaluate(() => {
+    Object.keys(sessionStorage).forEach(k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k));
+    localStorage.removeItem('oci_user_locale');
+  });
+
+  // 대시보드 — 페이지 타이틀 + 카드 제목 + 사이드바 섹션
+  await page.reload();
+  await page.waitForLoadState('networkidle');
+  // 대시보드 타이틀 (topbar)
+  await expect(page.locator('#page-title')).toHaveText('ダッシュボード', { timeout: 8000 });
+  // 사이드바 섹션
+  await expect(page.locator('.nav-section[data-section-key="main"] .nav-section-title')).toHaveText('メイン');
+  await expect(page.locator('.nav-section[data-section-key="sales"] .nav-section-title')).toHaveText('営業管理');
+  // 대시보드 카드 제목
+  await expect(page.locator('[data-label="dashboard.recent_activities"]').first()).toHaveText('最近の営業活動');
+  await expect(page.locator('[data-label="dashboard.ai_insights"]').first()).toHaveText('🤖 AIインサイト');
+  // 알림 패널 헤더
+  await expect(page.locator('[data-label="topbar.notifications"]').first()).toHaveText('通知');
+
+  // 영업 리드 페이지로 이동 → 필터 + 버튼 + 컬럼 헤더
+  await page.evaluate(() => { location.hash = '#leads'; });
+  await page.waitForSelector('th[data-label="leads.customer_name"]', { timeout: 8000 });
+  await expect(page.locator('th[data-label="leads.customer_name"]')).toHaveText('顧客');
+  await expect(page.locator('#leads-open-form-btn')).toHaveText('+ リード追加');
+  // stages option text
+  const stageOpt = page.locator('#leads-stage option[value="bidding"]');
+  await expect(stageOpt).toHaveText('入札');
+
+  // 복원
+  await page.request.put('/api/admin/labels/system-locale', {
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    data: { locale: 'ko' },
+  });
+});
+
 test('시나리오 7 — 사이드바 메뉴 라벨 반영', async ({ page }) => {
   const token = (await page.evaluate(() => localStorage.getItem('oci_token'))) || '';
   // 시스템 locale 을 ja 로 변경 → 사이드바 라벨이 일본어로

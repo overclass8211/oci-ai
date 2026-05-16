@@ -7,24 +7,24 @@ const TeamPage = {
   async render() {
     const html = `
       <div class="filter-bar">
-        <div class="card-title" style="margin-right:auto">영업 조직 현황</div>
+        <div class="card-title" style="margin-right:auto" data-label="team.org_status">영업 조직 현황</div>
         <button class="btn btn-secondary btn-sm" id="team-export-btn"
-                style="white-space:nowrap" title="내보내기 (Excel / CSV / JSON)">⤓ 내보내기</button>
-        <button class="btn btn-primary" id="team-add-btn">+ 팀원 추가</button>
+                style="white-space:nowrap" title="내보내기 (Excel / CSV / JSON)"><span data-label="common.export">⤓ 내보내기</span></button>
+        <button class="btn btn-primary" id="team-add-btn" data-label="team.add_button">+ 팀원 추가</button>
       </div>
 
       <div class="metrics-grid mb-3" id="team-summary">
-        <div class="metric-card"><div class="metric-label">로딩...</div></div>
+        <div class="metric-card"><div class="metric-label" data-label="common.loading">로딩...</div></div>
       </div>
 
       <div class="grid-3 mb-3" id="team-divisions"></div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">팀원별 영업 실적 <span class="text-muted fs-12" id="team-count"></span></div>
+          <div class="card-title"><span data-label="team.sales_perf">팀원별 영업 실적</span> <span class="text-muted fs-12" id="team-count"></span></div>
         </div>
         <div class="card-body no-pad" id="team-table-wrap">
-          <div class="loading">로딩중...</div>
+          <div class="loading" data-label="common.loading">로딩중...</div>
         </div>
       </div>
     `;

@@ -10,37 +10,38 @@ const ProjectsPage = {
   async render() {
     document.getElementById('content').innerHTML = `
       <div class="filter-bar">
-        <input type="text" class="search-input" placeholder="프로젝트 검색..." id="proj-search">
-        <button class="btn btn-primary" id="proj-open-form-btn">+ 프로젝트 등록</button>
+        <input type="text" class="search-input" data-placeholder-label="projects.search_placeholder" placeholder="프로젝트 검색..." id="proj-search">
+        <button class="btn btn-primary" id="proj-open-form-btn" data-label="projects.new_button">+ 프로젝트 등록</button>
       </div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">프로젝트 목록 <span class="text-muted fs-12" id="proj-count"></span></div>
+          <div class="card-title"><span data-label="projects.list_title">프로젝트 목록</span> <span class="text-muted fs-12" id="proj-count"></span></div>
           <div style="display:flex;align-items:center;gap:8px">
             <div class="cp-toolbar" id="cp-toolbar-proj" style="display:none">
-              <span class="cp-sel-count" id="cp-sel-count-proj">0건 선택</span>
-              <button class="btn btn-ghost btn-sm" id="proj-copy-btn" title="Excel·Word에 붙여넣기 가능한 형식으로 복사">📋 복사</button>
-              <button class="btn btn-ghost btn-sm" id="proj-clear-sel-btn">선택 해제</button>
+              <span class="cp-sel-count" id="cp-sel-count-proj" data-label="common.selected_count">0건 선택</span>
+              <button class="btn btn-ghost btn-sm" id="proj-copy-btn" title="Excel·Word에 붙여넣기 가능한 형식으로 복사" data-label="common.copy">📋 복사</button>
+              <button class="btn btn-ghost btn-sm" id="proj-clear-sel-btn" data-label="common.clear_selection">선택 해제</button>
             </div>
             <button class="btn btn-ghost btn-sm" id="proj-paste-modal-btn"
               data-feature="data.bulk_paste"
-              title="Excel·Word·이메일에서 복사한 데이터를 붙여넣기로 일괄 등록">
+              title="Excel·Word·이메일에서 복사한 데이터를 붙여넣기로 일괄 등록"
+              data-label="common.paste_register">
               📥 붙여넣기 등록
             </button>
             <button class="btn btn-ghost btn-sm" id="proj-export-btn"
               data-feature="data.excel_exp"
-              title="현재 목록을 엑셀 파일로 다운로드">
+              title="현재 목록을 엑셀 파일로 다운로드" data-label="common.excel_export">
               📤 엑셀 다운로드
             </button>
             <label class="btn btn-ghost btn-sm" data-feature="data.excel_imp"
               title="엑셀 파일로 일괄 등록" style="cursor:pointer;margin:0">
-              📂 엑셀 가져오기
+              <span data-label="common.excel_import">📂 엑셀 가져오기</span>
               <input type="file" id="proj-import-input" accept=".xlsx,.xls" style="display:none">
             </label>
           </div>
         </div>
         <div class="card-body no-pad" id="projects-table-wrap">
-          <div class="loading">로딩중...</div>
+          <div class="loading" data-label="common.loading">로딩중...</div>
         </div>
       </div>
     `;
