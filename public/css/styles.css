@@ -7142,3 +7142,481 @@ body,
     max-width: 100px;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   운영 헬스맵 (Operational Health Map)
+   ───────────────────────────────────────────────────────────── */
+.hm-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--surface-2);
+}
+.hm-summary-badge.hm-st-up       { background: rgba(23,168,90,.12);  color: #17A85A; }
+.hm-summary-badge.hm-st-warn     { background: rgba(245,156,0,.15);  color: #F59C00; }
+.hm-summary-badge.hm-st-critical { background: rgba(230,51,41,.12);  color: #E63329; }
+.hm-summary-badge.hm-st-down     { background: rgba(107,114,128,.18); color: #6B7280; }
+
+/* 요약 통계 카드 */
+.hm-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+.hm-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hm-stat-card.hm-st-up       { border-left-color: #17A85A; }
+.hm-stat-card.hm-st-warn     { border-left-color: #F59C00; }
+.hm-stat-card.hm-st-critical { border-left-color: #E63329; }
+.hm-stat-card.hm-st-down     { border-left-color: #6B7280; }
+.hm-stat-icon  { font-size: 20px; }
+.hm-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text-1);
+}
+.hm-stat-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+/* 캔버스 */
+.hm-canvas {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+/* 그룹 (카테고리 행) */
+.hm-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.hm-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.hm-group-count {
+  background: var(--surface-3);
+  color: var(--text-3);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.hm-group-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 화살표 (그룹 간) */
+.hm-arrow {
+  text-align: center;
+  font-size: 16px;
+  color: var(--text-3);
+  margin: 2px 0;
+  font-weight: 700;
+  user-select: none;
+}
+
+/* 노드 카드 */
+.hm-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 180px;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+.hm-node:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  border-color: var(--border-2);
+}
+.hm-node-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--border-2);
+}
+.hm-node-body { flex: 1; min-width: 0; }
+.hm-node-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hm-node-meta {
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+/* 상태별 색상 */
+.hm-node.hm-st-up       { border-left-color: #17A85A; }
+.hm-node.hm-st-up       .hm-node-status-dot { background: #17A85A; }
+.hm-node.hm-st-warn     { border-left-color: #F59C00; }
+.hm-node.hm-st-warn     .hm-node-status-dot { background: #F59C00; }
+.hm-node.hm-st-critical { border-left-color: #E63329; }
+.hm-node.hm-st-critical .hm-node-status-dot { background: #E63329; }
+.hm-node.hm-st-down     {
+  border-left-color: #6B7280;
+  opacity: 0.7;
+}
+.hm-node.hm-st-down     .hm-node-status-dot { background: #6B7280; }
+
+/* 범례 */
+.hm-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.hm-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.hm-legend-item.hm-st-up       { background: rgba(23,168,90,.12);   color: #17A85A; }
+.hm-legend-item.hm-st-warn     { background: rgba(245,156,0,.15);   color: #F59C00; }
+.hm-legend-item.hm-st-critical { background: rgba(230,51,41,.12);   color: #E63329; }
+.hm-legend-item.hm-st-down     { background: rgba(107,114,128,.18); color: #6B7280; }
+
+/* 반응형 */
+@media (max-width: 900px) {
+  .hm-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .hm-node { min-width: 140px; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   운영 헬스맵 Phase 3 — 펄스 애니메이션 (상태별 차별화)
+   ───────────────────────────────────────────────────────────── */
+
+/* 상태점에 펄스 — ::before 가 ring 역할 */
+.hm-node-status-dot {
+  position: relative;
+  z-index: 1;
+}
+.hm-node-status-dot::before,
+.hm-node-status-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* 🟢 정상 — 부드러운 페이드 (3초 주기, 약한 단일 ring) */
+@keyframes hm-pulse-up {
+  0%   { transform: scale(1);   opacity: 0.5; }
+  70%  { transform: scale(2.2); opacity: 0;   }
+  100% { transform: scale(2.2); opacity: 0;   }
+}
+.hm-node.hm-st-up .hm-node-status-dot {
+  color: #17A85A;
+}
+.hm-node.hm-st-up .hm-node-status-dot::before {
+  animation: hm-pulse-up 3s ease-out infinite;
+}
+
+/* 🟡 주의 — 중간 속도 (2초, 노란 ring 1겹) */
+@keyframes hm-pulse-warn {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  60%  { transform: scale(2.5); opacity: 0;   }
+  100% { transform: scale(2.5); opacity: 0;   }
+}
+.hm-node.hm-st-warn .hm-node-status-dot {
+  color: #F59C00;
+}
+.hm-node.hm-st-warn .hm-node-status-dot::before {
+  animation: hm-pulse-warn 2s ease-out infinite;
+}
+/* warn 카드는 노란 보더 강조 */
+.hm-node.hm-st-warn {
+  box-shadow: 0 0 0 1px rgba(245, 156, 0, 0.3);
+}
+
+/* 🔴 위험 — 빠른 펄스 (1초, 빨간 ring 2겹 + 카드 자체도 약하게 떨림) */
+@keyframes hm-pulse-crit {
+  0%   { transform: scale(1);   opacity: 0.85; }
+  50%  { transform: scale(2.0); opacity: 0;    }
+  100% { transform: scale(2.0); opacity: 0;    }
+}
+@keyframes hm-pulse-crit-2 {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  50%  { transform: scale(2.8); opacity: 0;   }
+  100% { transform: scale(2.8); opacity: 0;   }
+}
+/* 위험 노드 — box-shadow 깜빡임 (transform 안 씀: Playwright 안정성 검증 통과) */
+@keyframes hm-glow-crit {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(230, 51, 41, 0.4); }
+  50%      { box-shadow: 0 0 0 3px rgba(230, 51, 41, 0.6),
+                          0 0 12px rgba(230, 51, 41, 0.3); }
+}
+.hm-node.hm-st-critical .hm-node-status-dot {
+  color: #E63329;
+}
+.hm-node.hm-st-critical .hm-node-status-dot::before {
+  animation: hm-pulse-crit 1s ease-out infinite;
+}
+.hm-node.hm-st-critical .hm-node-status-dot::after {
+  animation: hm-pulse-crit-2 1s ease-out infinite 0.3s;
+}
+.hm-node.hm-st-critical {
+  animation: hm-glow-crit 0.8s ease-in-out infinite;
+}
+
+/* 💀 다운 — 회색조 + 보더 펄스 (transform 안 씀) */
+@keyframes hm-down-fade {
+  0%, 100% { opacity: 0.7; box-shadow: 0 0 0 1px rgba(107, 114, 128, 0.4); }
+  50%      { opacity: 0.5; box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.6); }
+}
+.hm-node.hm-st-down {
+  filter: grayscale(0.5);
+  animation: hm-down-fade 1.5s ease-in-out infinite;
+}
+.hm-node.hm-st-down .hm-node-status-dot::before,
+.hm-node.hm-st-down .hm-node-status-dot::after {
+  display: none;
+}
+
+/* ✨ 트래픽 활성 — 최근 호출이 있던 노드 (왼쪽 보더 글로우) */
+@keyframes hm-active-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4),
+                          inset 3px 0 0 #3B82F6; }
+  50%      { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.6),
+                          inset 3px 0 0 #3B82F6; }
+}
+.hm-node.hm-active:not(.hm-st-critical):not(.hm-st-down) {
+  animation: hm-active-glow 1.2s ease-in-out infinite;
+}
+
+/* 카드 호버 시 펄스 정지 (사용자가 읽을 수 있게) */
+.hm-node:hover .hm-node-status-dot::before,
+.hm-node:hover .hm-node-status-dot::after {
+  animation-play-state: paused;
+}
+.hm-node:hover {
+  animation-play-state: paused !important;
+}
+
+/* prefers-reduced-motion 사용자 — 애니메이션 비활성화 */
+@media (prefers-reduced-motion: reduce) {
+  .hm-node-status-dot::before,
+  .hm-node-status-dot::after,
+  .hm-node.hm-st-critical,
+  .hm-node.hm-st-down,
+  .hm-node.hm-active { animation: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   운영 헬스맵 Phase 4 — 노드 상세 사이드패널
+   ───────────────────────────────────────────────────────────── */
+.hm-side-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 480px;
+  max-width: 92vw;
+  height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08);
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 200ms cubic-bezier(.2,.7,.3,1);
+  overflow: hidden;
+}
+.hm-side-panel.is-open {
+  transform: translateX(0);
+}
+
+.hm-sp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.hm-sp-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 4px;
+}
+.hm-sp-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hm-sp-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.hm-sp-tab {
+  flex: 1;
+  background: none;
+  border: 0;
+  padding: 10px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 120ms, border-color 120ms;
+}
+.hm-sp-tab:hover { color: var(--text-1); }
+.hm-sp-tab.active {
+  color: var(--oci-red);
+  border-bottom-color: var(--oci-red);
+}
+
+.hm-sp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+
+.hm-sp-section {
+  margin-bottom: 16px;
+}
+.hm-sp-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+
+/* 메트릭 K-V */
+.hm-sp-kv {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px dashed var(--border);
+  font-size: 12px;
+}
+.hm-sp-kv:last-child { border-bottom: 0; }
+.hm-sp-kv-k { color: var(--text-2); font-weight: 500; }
+.hm-sp-kv-v {
+  color: var(--text-1);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+  max-width: 60%;
+}
+
+/* 로그 테이블 */
+.hm-log-table { font-size: 11px; }
+.hm-log-table th { font-size: 10px; }
+.hm-log-table td { padding: 4px 8px; }
+.hm-log-err  { color: #E63329; font-weight: 700; }
+.hm-log-warn { color: #F59C00; font-weight: 600; }
+
+/* 가이드 카드 */
+.hm-guide-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.hm-guide-block {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.hm-guide-block strong {
+  display: block;
+  color: var(--text-2);
+  font-size: 11px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.hm-guide-block pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  font-family: 'IBM Plex Sans KR', sans-serif;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* AI 결과 */
+.hm-ai-out {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid #8B5CF6;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-1);
+}
+.hm-ai-out strong { color: var(--oci-red); }
+
+@media (max-width: 768px) {
+  .hm-side-panel { width: 100vw; }
+}

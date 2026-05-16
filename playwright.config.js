@@ -19,7 +19,7 @@ module.exports = defineConfig({
   expect: { timeout: 5000 },
   fullyParallel: false,         // 같은 DB 시드 공유 — 직렬 실행이 안전
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 2 : 1,  // 로컬도 1회 재시도 (nodemon hot-reload 영향 완화)
   workers: 1,                   // DB 공유 시드 사용 — 단일 워커
   reporter: process.env.CI ? 'github' : 'list',
 

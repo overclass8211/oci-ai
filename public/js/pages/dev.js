@@ -308,6 +308,7 @@ const DevPage = {
           <button class="dev-tab" data-tab="schema">🗄️ DB 스키마</button>
           <button class="dev-tab" data-tab="apidocs">📡 API 관리</button>
           <button class="dev-tab" data-tab="perf">📡 성능 모니터</button>
+          <button class="dev-tab" data-tab="healthmap">🩺 운영 헬스맵</button>
           <button class="dev-tab" data-tab="source">📊 소스 모니터</button>
           <button class="dev-tab" data-tab="jwt">🔐 JWT 인스펙터</button>
           <button class="dev-tab" data-tab="roadmap">🚀 개발 로드맵</button>
@@ -336,6 +337,10 @@ const DevPage = {
   },
 
   async switchTab(tab) {
+    // 헬스맵 떠날 때 — WS 구독 해제 (1초 푸시 중단)
+    if (this.activeTab === 'healthmap' && tab !== 'healthmap') {
+      this._hmUnsubscribeLive?.();
+    }
     this.activeTab = tab;
     const el = document.getElementById('dev-content');
     el.innerHTML = '<div class="loading" style="padding:60px;text-align:center">로딩 중...</div>';
@@ -345,6 +350,7 @@ const DevPage = {
     else if (tab === 'schema') { await this.loadSchema(); this.renderSchema(); }
     else if (tab === 'apidocs') { await this.renderApiDocs(); }
     else if (tab === 'perf')   { await this.loadPerf(); this.renderPerf(); }
+    else if (tab === 'healthmap') { await this.renderHealthmap(); }
     else if (tab === 'source') { await this.renderSourceMonitor(); }
     else if (tab === 'jwt')    { this.renderJWT(); }
     else if (tab === 'roadmap'){ this.renderRoadmap(); }
@@ -5321,6 +5327,470 @@ const DevPage = {
       setCell(prevState);
       this._showToast('저장 실패 (변경 취소됨): ' + err.message, 'err');
     }
+  },
+
+  // ══════════════════════════════════════════════════════════
+  // TAB: 운영 헬스맵 (Operational Health Map)
+  //
+  // 노드별 상태 시각화 + WebSocket 실시간 갱신 (Phase 3) +
+  // 노드 클릭 사이드패널 (Phase 4)
+  // ══════════════════════════════════════════════════════════
+  hmState: {
+    data:       null,
+    liveMode:   true,        // WebSocket 실시간 모드 (Phase 3 에서 활용)
+    aiEnabled:  false,       // AI 해석 사용 여부
+    selected:   null,        // 선택된 노드
+    pollTimer:  null,
+  },
+
+  // 카테고리 그룹화 — 화면 레이아웃의 행(row) 단위
+  HM_GROUPS: [
+    { key: 'gateway',  label: '🌐 외부 진입',  types: ['gateway']  },
+    { key: 'process',  label: '⚙️ 프로세스',   types: ['process']  },
+    { key: 'api',      label: '🔌 API 라우트', types: ['api']      },
+    { key: 'db',       label: '🛢️ 데이터베이스',types: ['db']       },
+    { key: 'external', label: '🤝 외부 API',  types: ['external'] },
+  ],
+
+  // 상태별 시각 속성 — Phase 3 에서 펄스 강화
+  HM_STATUS: {
+    up:       { color: '#17A85A', label: '정상',  icon: '🟢' },
+    warn:     { color: '#F59C00', label: '주의',  icon: '🟡' },
+    critical: { color: '#E63329', label: '위험',  icon: '🔴' },
+    down:     { color: '#6B7280', label: '다운',  icon: '💀' },
+  },
+
+  async renderHealthmap() {
+    const el = document.getElementById('dev-content');
+    el.innerHTML = '<div class="loading" style="padding:60px;text-align:center">헬스맵 불러오는 중...</div>';
+    await this._hmFetch();
+    this._hmRender();
+    // 실시간 모드 — WebSocket 구독 시작
+    if (this.hmState.liveMode) this._hmSubscribeLive();
+  },
+
+  // WebSocket 구독 — 서버가 1초마다 스냅샷 push
+  _hmSubscribeLive() {
+    const ws = (typeof WS !== 'undefined' && WS.socket) || null;
+    if (!ws || ws.readyState !== 1) {
+      // WS 미연결 — 무시 (사용자가 새로고침 사용)
+      return;
+    }
+    try {
+      ws.send(JSON.stringify({ type: 'healthmap-subscribe' }));
+    } catch (_) { /* ignore */ }
+  },
+
+  _hmUnsubscribeLive() {
+    const ws = (typeof WS !== 'undefined' && WS.socket) || null;
+    if (!ws || ws.readyState !== 1) return;
+    try {
+      ws.send(JSON.stringify({ type: 'healthmap-unsubscribe' }));
+    } catch (_) { /* ignore */ }
+  },
+
+  // WS 메시지 수신 → 노드 부분 갱신 (전체 리렌더 X)
+  _hmOnSnapshot(data) {
+    if (!data || !Array.isArray(data.nodes)) return;
+    this.hmState.data = data;
+
+    // 노드별 in-place 업데이트
+    for (const node of data.nodes) {
+      const card = document.querySelector(`.hm-node[data-node-id="${this._cssEsc(node.id)}"]`);
+      if (!card) continue;
+      // 기존 상태 클래스 제거
+      card.classList.remove('hm-st-up', 'hm-st-warn', 'hm-st-critical', 'hm-st-down');
+      card.classList.add('hm-st-' + node.status);
+      // 트래픽 활성 — 1초 내 호출이 있던 노드
+      const recent = node.metrics?.lastSeenAgoSec != null && node.metrics.lastSeenAgoSec <= 2;
+      card.classList.toggle('hm-active', !!recent);
+      // 메트릭 갱신
+      const meta = card.querySelector('.hm-node-meta');
+      if (meta) {
+        const m = node.metrics || {};
+        let text = '';
+        if (node.type === 'api') {
+          text = `${m.avgMs || 0}ms · ${m.totalCalls || 0}req`;
+          if (m.errRate > 0) text += ` · err ${m.errRate}%`;
+        } else if (node.type === 'db') {
+          text = m.connected ? `conn ${m.connections || 0} · ${m.avgQueryMs || 0}ms` : 'disconnected';
+        } else if (node.type === 'process') {
+          text = `${m.memoryMb || 0}MB · ${Math.round((m.cpu || 0) * 100)}%`;
+        } else if (node.type === 'external') {
+          text = m.lastStatus || '체크 중';
+        } else if (node.type === 'gateway') {
+          text = m.uptimeSec ? `up ${Math.round(m.uptimeSec / 60)}m` : '';
+        }
+        meta.textContent = text;
+      }
+    }
+
+    // 요약 갱신
+    const s = data.summary;
+    const setStat = (cls, val) => {
+      const el = document.querySelector(`.hm-stat-card.${cls} .hm-stat-value`);
+      if (el) el.textContent = val;
+    };
+    setStat('hm-st-up',       s.up);
+    setStat('hm-st-warn',     s.warn);
+    setStat('hm-st-critical', s.critical);
+    setStat('hm-st-down',     s.down);
+
+    // 최악 배지
+    const worstBadge = document.querySelector('.hm-summary-badge');
+    if (worstBadge) {
+      worstBadge.classList.remove('hm-st-up', 'hm-st-warn', 'hm-st-critical', 'hm-st-down');
+      worstBadge.classList.add('hm-st-' + s.worstSeverity);
+      const w = this.HM_STATUS[s.worstSeverity] || this.HM_STATUS.up;
+      worstBadge.textContent = `${w.icon} ${w.label}`;
+    }
+
+    // 타임스탬프
+    const ts = document.querySelector('.dev-section-header p');
+    if (ts) {
+      ts.textContent = `마지막 갱신: ${new Date(data.timestamp).toLocaleTimeString('ko-KR')} · ${data.nodes.length}개 노드`;
+    }
+  },
+
+  // CSS selector 용 escape
+  _cssEsc(s) {
+    return String(s).replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+  },
+
+  async _hmFetch() {
+    try {
+      const r = await API.get('/admin/healthmap/snapshot');
+      this.hmState.data = r.data;
+    } catch (e) {
+      this.hmState.data = null;
+       
+      console.error('healthmap fetch failed:', e.message);
+    }
+  },
+
+  _hmRender() {
+    const el = document.getElementById('dev-content');
+    const d  = this.hmState.data;
+    if (!d) {
+      el.innerHTML = `<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">
+        헬스맵 데이터 불러오기 실패. <button class="btn btn-sm btn-ghost" id="hm-retry">다시 시도</button>
+      </div>`;
+      document.getElementById('hm-retry')?.addEventListener('click', () => this.renderHealthmap());
+      return;
+    }
+
+    const { nodes, summary, timestamp } = d;
+    const worst = this.HM_STATUS[summary.worstSeverity] || this.HM_STATUS.up;
+
+    // 카테고리별 노드 분류
+    const groups = this.HM_GROUPS.map(g => ({
+      ...g,
+      nodes: nodes.filter(n => g.types.includes(n.type)),
+    })).filter(g => g.nodes.length > 0);
+
+    el.innerHTML = `
+      <div class="dev-section-header">
+        <div>
+          <h3 style="margin:0;font-size:15px">🩺 운영 헬스맵</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
+            마지막 갱신: ${esc(new Date(timestamp).toLocaleTimeString('ko-KR'))} ·
+            ${nodes.length}개 노드
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="hm-summary-badge hm-st-${summary.worstSeverity}"
+                title="최악 상태">${worst.icon} ${esc(worst.label)}</span>
+          <button class="btn btn-sm btn-secondary" id="hm-refresh-btn">🔄 새로고침</button>
+        </div>
+      </div>
+
+      <!-- 요약 통계 -->
+      <div class="hm-summary-grid">
+        <div class="hm-stat-card hm-st-up">
+          <div class="hm-stat-icon">🟢</div>
+          <div><div class="hm-stat-value">${summary.up}</div><div class="hm-stat-label">정상</div></div>
+        </div>
+        <div class="hm-stat-card hm-st-warn">
+          <div class="hm-stat-icon">🟡</div>
+          <div><div class="hm-stat-value">${summary.warn}</div><div class="hm-stat-label">주의</div></div>
+        </div>
+        <div class="hm-stat-card hm-st-critical">
+          <div class="hm-stat-icon">🔴</div>
+          <div><div class="hm-stat-value">${summary.critical}</div><div class="hm-stat-label">위험</div></div>
+        </div>
+        <div class="hm-stat-card hm-st-down">
+          <div class="hm-stat-icon">💀</div>
+          <div><div class="hm-stat-value">${summary.down}</div><div class="hm-stat-label">다운</div></div>
+        </div>
+      </div>
+
+      <!-- 노드 그래프 -->
+      <div class="hm-canvas" id="hm-canvas">
+        ${groups.map((g, gi) => `
+          <div class="hm-group" data-group="${esc(g.key)}">
+            <div class="hm-group-header">
+              <span>${esc(g.label)}</span>
+              <span class="hm-group-count">${g.nodes.length}</span>
+            </div>
+            <div class="hm-group-body">
+              ${g.nodes.map(n => this._hmRenderNode(n)).join('')}
+            </div>
+          </div>
+          ${gi < groups.length - 1 ? '<div class="hm-arrow">↓</div>' : ''}
+        `).join('')}
+      </div>
+
+      <!-- 범례 -->
+      <div class="hm-legend">
+        <span>📖 범례:</span>
+        ${Object.entries(this.HM_STATUS).map(([k, s]) => `
+          <span class="hm-legend-item hm-st-${k}">${s.icon} ${esc(s.label)}</span>
+        `).join('')}
+        <span style="margin-left:auto;font-size:11px;color:var(--text-3)">
+          💡 Phase 3 에서 실시간 펄스 애니메이션 적용 예정 · Phase 4 에서 노드 클릭 시 상세 표시
+        </span>
+      </div>
+    `;
+
+    document.getElementById('hm-refresh-btn')?.addEventListener('click', () => this.renderHealthmap());
+
+    // 노드 클릭 → 사이드패널 열기
+    document.querySelectorAll('.hm-node').forEach(node => {
+      node.addEventListener('click', () => {
+        const id = node.dataset.nodeId;
+        const n  = this.hmState.data.nodes.find(x => x.id === id);
+        if (n) this._hmOpenDetail(n);
+      });
+    });
+  },
+
+  // ─── 노드 상세 사이드패널 (Phase 4) ──────────────────────
+  async _hmOpenDetail(node) {
+    this.hmState.selected = node;
+    // 사이드패널 이미 있으면 재사용, 없으면 만들기
+    let panel = document.getElementById('hm-side-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'hm-side-panel';
+      panel.className = 'hm-side-panel';
+      document.body.appendChild(panel);
+    }
+    panel.classList.add('is-open');
+    panel.innerHTML = `
+      <div class="hm-sp-header">
+        <div>
+          <div class="hm-sp-title">${esc(node.label)}</div>
+          <div class="hm-sp-sub">
+            <span class="hm-summary-badge hm-st-${esc(node.status)}">
+              ${this.HM_STATUS[node.status]?.icon || ''} ${esc(this.HM_STATUS[node.status]?.label || node.status)}
+            </span>
+            <code style="font-size:11px;color:var(--text-3)">${esc(node.id)}</code>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="hm-sp-close" title="닫기">✕</button>
+      </div>
+
+      <div class="hm-sp-tabs">
+        <button class="hm-sp-tab active" data-sp-tab="metrics">📊 메트릭</button>
+        <button class="hm-sp-tab" data-sp-tab="logs">📋 최근 로그</button>
+        <button class="hm-sp-tab" data-sp-tab="guide">📖 트러블슈팅</button>
+        <button class="hm-sp-tab" data-sp-tab="ai">🤖 AI 해석</button>
+      </div>
+
+      <div class="hm-sp-body" id="hm-sp-body">
+        <div class="loading">로딩...</div>
+      </div>
+    `;
+
+    document.getElementById('hm-sp-close')?.addEventListener('click', () => this._hmCloseDetail());
+    panel.querySelectorAll('.hm-sp-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        panel.querySelectorAll('.hm-sp-tab').forEach(b => b.classList.toggle('active', b === btn));
+        this._hmRenderDetailTab(btn.dataset.spTab, node);
+      });
+    });
+
+    // 기본 탭 — 메트릭
+    this._hmRenderDetailTab('metrics', node);
+  },
+
+  _hmCloseDetail() {
+    const panel = document.getElementById('hm-side-panel');
+    if (panel) panel.classList.remove('is-open');
+    this.hmState.selected = null;
+  },
+
+  async _hmRenderDetailTab(tab, node) {
+    const body = document.getElementById('hm-sp-body');
+    if (!body) return;
+
+    if (tab === 'metrics') {
+      const m = node.metrics || {};
+      const rows = Object.entries(m).map(([k, v]) => `
+        <div class="hm-sp-kv">
+          <span class="hm-sp-kv-k">${esc(k)}</span>
+          <span class="hm-sp-kv-v">${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span>
+        </div>
+      `).join('');
+      body.innerHTML = `
+        <div class="hm-sp-section">
+          <div class="hm-sp-section-title">현재 메트릭</div>
+          ${rows || '<div class="empty">메트릭 없음</div>'}
+        </div>
+      `;
+      return;
+    }
+
+    if (tab === 'logs') {
+      body.innerHTML = '<div class="loading">로그 불러오는 중...</div>';
+      try {
+        const key = encodeURIComponent(node.metrics?.key || node.key || node.label || '');
+        const r = await API.get(`/admin/healthmap/node/${esc(node.type)}/${key}/logs?limit=10`);
+        const logs = r.data || [];
+        if (logs.length === 0) {
+          body.innerHTML = '<div class="empty" style="padding:20px;text-align:center">최근 로그 없음</div>';
+          return;
+        }
+        body.innerHTML = `
+          <div class="hm-sp-section">
+            <div class="hm-sp-section-title">최근 ${logs.length}건</div>
+            <table class="data-table hm-log-table">
+              <thead><tr><th>시각</th><th>메서드</th><th>경로</th><th>상태</th><th>소요</th></tr></thead>
+              <tbody>
+                ${logs.map(l => {
+                  const sc = parseInt(l.status_code, 10) || 0;
+                  const dur = parseInt(l.duration_ms, 10) || 0;
+                  const scClass = sc >= 500 ? 'hm-log-err' : sc >= 400 ? 'hm-log-warn' : '';
+                  return `
+                    <tr>
+                      <td style="font-size:11px">${esc(new Date(l.created_at).toLocaleTimeString('ko-KR'))}</td>
+                      <td><code>${esc(l.method || '')}</code></td>
+                      <td><code style="font-size:11px">${esc(l.path || '')}</code></td>
+                      <td class="${scClass}">${sc}</td>
+                      <td style="font-variant-numeric:tabular-nums">${dur}ms</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (e) {
+        body.innerHTML = `<div class="empty" style="color:var(--oci-red)">불러오기 실패: ${esc(e.message || '')}</div>`;
+      }
+      return;
+    }
+
+    if (tab === 'guide') {
+      body.innerHTML = '<div class="loading">가이드 불러오는 중...</div>';
+      try {
+        const r = await API.get(`/admin/healthmap/guides?node_type=${esc(node.type)}&severity=${esc(node.status)}`);
+        const guides = r.data || [];
+        if (guides.length === 0) {
+          body.innerHTML = `
+            <div class="empty" style="padding:20px;text-align:center">
+              해당 노드에 대한 가이드가 없습니다.
+            </div>
+          `;
+          return;
+        }
+        body.innerHTML = guides.map(g => `
+          <div class="hm-sp-section hm-guide-card">
+            <div class="hm-sp-section-title">
+              ${g.is_system ? '🔒 ' : ''}${esc(g.title)}
+              <span class="badge badge-gray" style="font-size:10px;margin-left:6px">${esc(g.severity)}</span>
+            </div>
+            ${g.symptom    ? `<div class="hm-guide-block"><strong>증상</strong><pre>${esc(g.symptom)}</pre></div>` : ''}
+            ${g.diagnosis  ? `<div class="hm-guide-block"><strong>진단</strong><pre>${esc(g.diagnosis)}</pre></div>` : ''}
+            ${g.remedy     ? `<div class="hm-guide-block"><strong>조치</strong><pre>${esc(g.remedy)}</pre></div>` : ''}
+            ${g.prevention ? `<div class="hm-guide-block"><strong>예방</strong><pre>${esc(g.prevention)}</pre></div>` : ''}
+          </div>
+        `).join('');
+      } catch (e) {
+        body.innerHTML = `<div class="empty" style="color:var(--oci-red)">불러오기 실패: ${esc(e.message || '')}</div>`;
+      }
+      return;
+    }
+
+    if (tab === 'ai') {
+      body.innerHTML = `
+        <div class="hm-sp-section">
+          <div class="hm-sp-section-title">AI 해석 (Gemini)</div>
+          <div style="font-size:11px;color:var(--text-3);line-height:1.6;margin-bottom:12px">
+            현재 노드 상태·메트릭·로그를 AI가 한국어로 해석합니다.<br>
+            ⚡ 비용 통제: 같은 패턴은 24시간 캐시됨 · 클릭해야만 호출.
+          </div>
+          <button class="btn btn-primary btn-sm" id="hm-ai-run">🤖 AI 해석 실행</button>
+          <div id="hm-ai-result" style="margin-top:16px"></div>
+        </div>
+      `;
+      document.getElementById('hm-ai-run')?.addEventListener('click', async () => {
+        const btn = document.getElementById('hm-ai-run');
+        const out = document.getElementById('hm-ai-result');
+        if (!btn || !out) return;
+        btn.disabled = true;
+        btn.textContent = '⏳ 해석 중...';
+        out.innerHTML = '';
+        try {
+          // 최근 로그도 함께 전송 (AI 가 컨텍스트 활용)
+          let recent_logs = [];
+          try {
+            const key = encodeURIComponent(node.metrics?.key || node.key || node.label || '');
+            const lr = await API.get(`/admin/healthmap/node/${esc(node.type)}/${key}/logs?limit=5`);
+            recent_logs = lr.data || [];
+          } catch (_) { /* ignore */ }
+
+          const r = await API.post('/admin/healthmap/ai-interpret', {
+            node_type: node.type,
+            node_key:  node.key,
+            status:    node.status,
+            metrics:   node.metrics,
+            recent_logs,
+          });
+          const cached = r.data?.cached ? '<span style="color:#F59C00;font-size:11px">⚡ 캐시</span> ' : '';
+          // 마크다운 간이 렌더 — **굵게** 만 처리, XSS 안전
+          const escaped = esc(r.data?.interpretation || '');
+          const html = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+          out.innerHTML = `<div class="hm-ai-out">${cached}${html}</div>`;
+        } catch (e) {
+          out.innerHTML = `<div class="empty" style="color:var(--oci-red)">AI 해석 실패: ${esc(e.message || '')}</div>`;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '🤖 다시 실행';
+        }
+      });
+      return;
+    }
+  },
+
+  _hmRenderNode(n) {
+    const st  = this.HM_STATUS[n.status] || this.HM_STATUS.up;
+    const m   = n.metrics || {};
+    // 노드 타입별 메트릭 요약 (1-2개 핵심값만)
+    let meta = '';
+    if (n.type === 'api') {
+      const calls = m.totalCalls || 0;
+      meta = `${m.avgMs || 0}ms · ${calls}req`;
+      if (m.errRate > 0) meta += ` · err ${m.errRate}%`;
+    } else if (n.type === 'db') {
+      meta = m.connected ? `conn ${m.connections || 0} · ${m.avgQueryMs || 0}ms` : 'disconnected';
+    } else if (n.type === 'process') {
+      meta = `${m.memoryMb || 0}MB · ${Math.round((m.cpu || 0) * 100)}%`;
+    } else if (n.type === 'external') {
+      meta = m.lastStatus || '체크 중';
+    } else if (n.type === 'gateway') {
+      meta = m.uptimeSec ? `up ${Math.round(m.uptimeSec / 60)}m` : '';
+    }
+    return `
+      <div class="hm-node hm-st-${n.status}" data-node-id="${esc(n.id)}"
+           data-node-type="${esc(n.type)}" title="${esc(n.label)}">
+        <div class="hm-node-status-dot"></div>
+        <div class="hm-node-body">
+          <div class="hm-node-label">${esc(n.label)}</div>
+          ${meta ? `<div class="hm-node-meta">${esc(meta)}</div>` : ''}
+        </div>
+      </div>
+    `;
   },
 
   // ══════════════════════════════════════════════════════════

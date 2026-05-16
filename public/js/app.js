@@ -1304,6 +1304,13 @@ const WS = {
           Notifications.load();
         }
 
+        // ── 헬스맵 실시간 스냅샷 ──────────────────────────
+        if (msg.type === 'healthmap-snapshot') {
+          if (typeof DevPage !== 'undefined' && DevPage.activeTab === 'healthmap') {
+            DevPage._hmOnSnapshot?.(msg.data);
+          }
+        }
+
         // ── 스키마 변경 (DDL 실행 후 브로드캐스트) ────────
         // 자동 리로드 없이 [스키마 동기화] 버튼 활성화 + 알림만 표시
         if (msg.type === 'schema_changed') {
