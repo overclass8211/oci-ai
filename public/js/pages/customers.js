@@ -624,7 +624,7 @@ const CustomersPage = {
     for (let i = dataStart; i < rows.length; i++) {
       const r = rows[i];
       if (r.every(c => !c)) continue;
-      let obj = {};
+      const obj = {};
       if (headerRow) {
         headerRow.forEach((h, ci) => {
           const field = COL_FIELD[h] || COL_FIELD[h.replace(/[^a-z가-힣]/g,'')];
@@ -848,6 +848,7 @@ const CustomersPage = {
           </form>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" id="cm-delete-btn" style="margin-right:auto;color:var(--oci-red)">🗑 삭제</button>
+            <button class="btn btn-ghost" id="cm-email-btn" title="이메일 보내기">✉️ 이메일</button>
             <button class="btn btn-ghost" id="cm-cancel-btn">취소</button>
             <button class="btn btn-primary" id="cm-save-btn">💾 저장</button>
           </div>
@@ -902,6 +903,14 @@ const CustomersPage = {
     document.getElementById('cm-cancel-btn').addEventListener('click', () => Modal.close());
     document.getElementById('cm-save-btn').addEventListener('click', () => this._saveCustomerEdit(id));
     document.getElementById('cm-delete-btn').addEventListener('click', () => this._deleteCustomer(id, cust.name));
+    document.getElementById('cm-email-btn')?.addEventListener('click', () => {
+      if (typeof Email !== 'undefined') {
+        Email.open({
+          customer: cust,
+          defaultCategory: 'customer',
+        });
+      }
+    });
 
     // 브리핑 생성 버튼
     document.getElementById('cm-brief-gen').addEventListener('click', () => this._generateBrief(id));

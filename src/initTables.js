@@ -240,6 +240,37 @@ async function initTables() {
       INDEX idx_recorded (recorded_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── 이메일 템플릿 — Mailto 발송용 ─────────────────────────
+    // 카테고리: lead | customer | project | general
+    // is_system=1 시드 템플릿은 수정/삭제 불가 (UI 에서 제한)
+    await pool.query(`CREATE TABLE IF NOT EXISTS email_templates (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      name         VARCHAR(150) NOT NULL,
+      category     VARCHAR(20)  NOT NULL DEFAULT 'general',
+      subject      VARCHAR(300) NOT NULL,
+      body         TEXT         NOT NULL,
+      is_system    TINYINT(1)   NOT NULL DEFAULT 0,
+      created_by   INT          NULL,
+      created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+      updated_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_category (category),
+      INDEX idx_system   (is_system)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    // 시드 5개 — 한국 B2B 영업 표준 패턴 (시스템 템플릿)
+    const { DEFAULT_EMAIL_TEMPLATES } = require('./data/emailTemplateDefaults');
+    for (const t of DEFAULT_EMAIL_TEMPLATES) {
+      // 이름 + is_system 조합으로 중복 방지 — 멱등성
+      await pool.query(
+        `INSERT INTO email_templates (name, category, subject, body, is_system)
+         SELECT ?, ?, ?, ?, 1
+         WHERE NOT EXISTS (
+           SELECT 1 FROM email_templates WHERE name = ? AND is_system = 1
+         )`,
+        [t.name, t.category, t.subject, t.body, t.name]
+      );
+    }
+
     // 시드 (INSERT IGNORE 로 멱등성 보장 — 기존 설정 덮어쓰지 않음)
     const { DEFAULT_SECTIONS, DEFAULT_ITEMS } = require('./data/menuDefaults');
     for (const s of DEFAULT_SECTIONS) {

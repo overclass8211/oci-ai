@@ -903,6 +903,7 @@ const App = {
         `,
         footer: `
           <button class="ai-gen-btn" id="ld-ai" data-feature="ai.lead_summary">🤖 AI 요약</button>
+          <button class="btn btn-ghost" id="ld-email">✉️ 이메일</button>
           <button class="btn btn-ghost" id="ld-close">닫기</button>
           <button class="btn btn-primary" id="ld-edit">편집</button>
         `,
@@ -912,6 +913,19 @@ const App = {
           '#ld-ai':      () => { Modal.close(); AI.summarizeLead(l.id, l.project_name); },
           '#ld-close':   () => Modal.close(),
           '#ld-edit':    () => { Modal.close(); App.openLeadForm(l.id); },
+          '#ld-email':   () => {
+            if (typeof Email !== 'undefined') {
+              Email.open({
+                to:       contactEmail || '',
+                customer: { id: customerId, name: l.customer_name,
+                            email: contactEmail, contact_person: contactPerson },
+                lead:     { id: l.id, project_name: l.project_name,
+                            customer_name: l.customer_name,
+                            bidding_deadline: l.bidding_deadline },
+                defaultCategory: 'lead',
+              });
+            }
+          },
           // ── 고객사/고객담당자 클릭 → 고객사 모달 ──
           '[data-cust-link]': (e) => {
             e.preventDefault();

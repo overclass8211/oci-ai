@@ -127,6 +127,16 @@ const SettingsPage = {
         </div>
       </div>
 
+      <div class="card mb-3">
+        <div class="card-header">
+          <div class="card-title">✉️ 이메일 템플릿</div>
+          <button class="btn btn-primary btn-sm" id="email-tpl-new-btn">+ 새 템플릿</button>
+        </div>
+        <div class="card-body" id="email-tpl-list">
+          <div class="loading">불러오는 중...</div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><div class="card-title">시스템 정보</div></div>
         <div class="card-body">
@@ -149,7 +159,159 @@ const SettingsPage = {
       if (btn) this.openIntegration(btn.dataset.integration);
     });
 
+    // 이메일 템플릿
+    document.getElementById('email-tpl-new-btn')?.addEventListener('click', () => this.openTemplateForm());
+    this.loadEmailTemplates();
+
     this.checkDb();
+  },
+
+  // ─── 이메일 템플릿 관리 ─────────────────────────────────
+  async loadEmailTemplates() {
+    const el = document.getElementById('email-tpl-list');
+    if (!el) return;
+    try {
+      const r = await API.get('/email-templates');
+      const tpls = r.data || [];
+      if (!tpls.length) {
+        el.innerHTML = '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">템플릿이 없습니다.</div>';
+        return;
+      }
+      const catLabel = { lead:'영업', customer:'고객사', project:'프로젝트', general:'일반' };
+      el.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:60px">카테고리</th>
+              <th>이름</th>
+              <th>제목</th>
+              <th style="width:80px">유형</th>
+              <th style="width:140px;text-align:right">작업</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tpls.map(t => `
+              <tr data-tpl-id="${t.id}">
+                <td><span class="badge badge-blue">${esc(catLabel[t.category] || t.category)}</span></td>
+                <td><strong>${esc(t.name)}</strong></td>
+                <td style="font-size:12px;color:var(--text-2)">${esc(t.subject)}</td>
+                <td>${t.is_system
+                  ? '<span class="badge badge-gray" title="시스템 시드 — 수정 불가">🔒 시스템</span>'
+                  : '<span class="badge badge-green">사용자</span>'}</td>
+                <td style="text-align:right">
+                  <button class="btn btn-ghost btn-sm" data-tpl-action="edit" data-id="${t.id}"
+                          ${t.is_system ? 'disabled title="시스템 템플릿은 수정 불가"' : ''}>편집</button>
+                  <button class="btn btn-ghost btn-sm" data-tpl-action="delete" data-id="${t.id}"
+                          ${t.is_system ? 'disabled title="시스템 템플릿은 삭제 불가"' : 'style="color:var(--oci-red)"'}>삭제</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      // 이벤트 위임
+      el.querySelectorAll('[data-tpl-action]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = parseInt(btn.dataset.id, 10);
+          const action = btn.dataset.tplAction;
+          if (action === 'edit')   this.openTemplateForm(id);
+          if (action === 'delete') this.deleteTemplate(id);
+        });
+      });
+    } catch (e) {
+      el.innerHTML = `<div class="empty" style="color:var(--oci-red)">불러오기 실패: ${esc(e.message || '')}</div>`;
+    }
+  },
+
+  async openTemplateForm(id = null) {
+    let tpl = { id: null, name: '', category: 'general', subject: '', body: '' };
+    if (id) {
+      try {
+        const r = await API.get(`/email-templates/${id}`);
+        tpl = r.data;
+      } catch (e) {
+        Toast.error('템플릿 로드 실패: ' + (e.message || ''));
+        return;
+      }
+    }
+
+    Modal.open({
+      title: id ? '✉️ 템플릿 편집' : '✉️ 새 템플릿',
+      width: 720,
+      body: `
+        <div class="form-grid" style="grid-template-columns: 120px 1fr; gap: 10px 12px; align-items: center">
+          <label class="form-label">이름 *</label>
+          <input type="text" class="form-input" id="tpl-name" maxlength="150" value="${esc(tpl.name)}">
+
+          <label class="form-label">카테고리</label>
+          <select class="form-input" id="tpl-category">
+            <option value="lead"     ${tpl.category==='lead'?'selected':''}>영업 리드</option>
+            <option value="customer" ${tpl.category==='customer'?'selected':''}>고객사</option>
+            <option value="project"  ${tpl.category==='project'?'selected':''}>프로젝트</option>
+            <option value="general"  ${tpl.category==='general'?'selected':''}>일반</option>
+          </select>
+
+          <label class="form-label">제목 *</label>
+          <input type="text" class="form-input" id="tpl-subject" maxlength="300" value="${esc(tpl.subject)}">
+
+          <label class="form-label" style="align-self:flex-start;padding-top:6px">본문 *</label>
+          <textarea class="form-input" id="tpl-body" rows="12"
+                    style="font-family:inherit;line-height:1.6">${esc(tpl.body)}</textarea>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text-3);line-height:1.6">
+          💡 변수: <code>{{customer_name}}</code>, <code>{{contact_person}}</code>,
+          <code>{{project_name}}</code>, <code>{{my_name}}</code>,
+          <code>{{my_company}}</code>, <code>{{today}}</code>,
+          <code>{{bidding_deadline}}</code>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="tpl-cancel">취소</button>
+        <button class="btn btn-primary" id="tpl-save">저장</button>
+      `,
+      bind: {
+        '#tpl-cancel': () => Modal.close(),
+        '#tpl-save': async () => {
+          const data = {
+            name:     document.getElementById('tpl-name').value.trim(),
+            category: document.getElementById('tpl-category').value,
+            subject:  document.getElementById('tpl-subject').value.trim(),
+            body:     document.getElementById('tpl-body').value,
+          };
+          if (!data.name || !data.subject || !data.body) {
+            Toast.warn('이름·제목·본문은 필수입니다.');
+            return;
+          }
+          try {
+            if (id) {
+              await API.put(`/email-templates/${id}`, data);
+              Toast.success('템플릿이 수정되었습니다.');
+            } else {
+              await API.post('/email-templates', data);
+              Toast.success('템플릿이 추가되었습니다.');
+            }
+            Modal.close();
+            // Email 캐시 무효화
+            if (typeof Email !== 'undefined') Email.templates = null;
+            await this.loadEmailTemplates();
+          } catch (e) {
+            Toast.error('저장 실패: ' + (e.message || ''));
+          }
+        },
+      },
+    });
+  },
+
+  async deleteTemplate(id) {
+    if (!confirm('이 템플릿을 삭제하시겠습니까?')) return;
+    try {
+      await API.del(`/email-templates/${id}`);
+      Toast.success('템플릿이 삭제되었습니다.');
+      this.loadEmailTemplates();
+      if (typeof Email !== 'undefined') Email.templates = null;
+    } catch (e) {
+      Toast.error('삭제 실패: ' + (e.message || ''));
+    }
   },
 
   async checkDb() {
