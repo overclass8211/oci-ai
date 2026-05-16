@@ -240,6 +240,67 @@ async function initTables() {
       INDEX idx_recorded (recorded_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // ── 운영 헬스맵 — 노드별 트러블슈팅 가이드 ─────────────
+    // node_type: 'api' | 'db' | 'external' | 'process' | 'page'
+    // node_key:  특정 노드 식별자 (예: '/api/leads', 'db.mariadb', 'ext.gemini')
+    //            NULL 이면 node_type 전체에 적용되는 범용 가이드
+    // severity:  guide 가 트리거되는 상태 ('warn' | 'critical' | 'down' | 'any')
+    await pool.query(`CREATE TABLE IF NOT EXISTS healthmap_guides (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      node_type   VARCHAR(20)  NOT NULL,
+      node_key    VARCHAR(200) NULL,
+      severity    VARCHAR(20)  NOT NULL DEFAULT 'any',
+      title       VARCHAR(200) NOT NULL,
+      symptom     TEXT         NULL,
+      diagnosis   TEXT         NULL,
+      remedy      TEXT         NULL,
+      prevention  TEXT         NULL,
+      is_system   TINYINT(1)   NOT NULL DEFAULT 0,
+      created_by  INT          NULL,
+      created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_node (node_type, node_key),
+      INDEX idx_severity (severity)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    // 시드 가이드 (시스템) — 일반적인 트러블슈팅 패턴
+    const { DEFAULT_HEALTHMAP_GUIDES } = require('./data/healthmapGuideDefaults');
+    for (const g of DEFAULT_HEALTHMAP_GUIDES) {
+      await pool.query(
+        `INSERT INTO healthmap_guides
+           (node_type, node_key, severity, title, symptom, diagnosis, remedy, prevention, is_system)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, 1
+         WHERE NOT EXISTS (
+           SELECT 1 FROM healthmap_guides
+           WHERE node_type <=> ? AND node_key <=> ? AND title = ? AND is_system = 1
+         )`,
+        [
+          g.node_type,
+          g.node_key || null,
+          g.severity,
+          g.title,
+          g.symptom,
+          g.diagnosis,
+          g.remedy,
+          g.prevention,
+          g.node_type,
+          g.node_key || null,
+          g.title,
+        ]
+      );
+    }
+
+    // ── 운영 헬스맵 — AI 해석 캐시 (24h TTL) ─────────────────
+    // node_key + log_hash 조합으로 같은 패턴 재해석 방지
+    await pool.query(`CREATE TABLE IF NOT EXISTS healthmap_ai_cache (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      cache_key    VARCHAR(255) NOT NULL UNIQUE,
+      interpretation TEXT         NOT NULL,
+      tokens_used  INT          DEFAULT 0,
+      created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     // ── 이메일 템플릿 — Mailto 발송용 ─────────────────────────
     // 카테고리: lead | customer | project | general
     // is_system=1 시드 템플릿은 수정/삭제 불가 (UI 에서 제한)
