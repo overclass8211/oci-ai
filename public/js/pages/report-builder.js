@@ -32,7 +32,7 @@ const ReportBuilderPage = {
 
   // ─── 진입점 ────────────────────────────────────────────
   async render() {
-    const root = document.getElementById('app-content');
+    const root = document.getElementById('content');
     if (!root) return;
 
     root.innerHTML = this._html();
