@@ -207,7 +207,18 @@ router.get('/callback', async (req, res) => {
   }
 });
 
-/** 팝업 완료 HTML — postMessage로 부모 창에 결과 전달 후 자동 닫힘 */
+/** HTML 안전 escape (XSS 방지 — email/error 가 사용자 입력은 아니지만 방어적 처리) */
+function _escHtml(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** 팝업 완료 HTML — 외부 JS (/js/google-oauth-callback.js) 가 postMessage + close 처리.
+ *  inline script 는 helmet CSP 가 차단하므로 외부 파일 사용. */
 function popupHtml({ success, email, error }) {
   const payload = JSON.stringify({
     type: 'google_oauth',
@@ -215,16 +226,17 @@ function popupHtml({ success, email, error }) {
     email: email || null,
     error: error || null,
   });
+  const safeEmail = _escHtml(email);
+  const safeError = _escHtml(error);
+  const safePayload = _escHtml(payload);
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Google 연결</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:40px;color:${success ? '#1a73e8' : '#d93025'}">
   <div style="font-size:48px">${success ? '✅' : '❌'}</div>
   <div style="margin:16px 0;font-size:15px;font-weight:600">${success ? 'Google 계정 연결 완료' : '연결 실패'}</div>
-  ${success ? `<div style="font-size:13px;color:#666">${email}</div>` : `<div style="font-size:12px;color:#999">${error || ''}</div>`}
+  ${success ? `<div style="font-size:13px;color:#666">${safeEmail}</div>` : `<div style="font-size:12px;color:#999">${safeError}</div>`}
   <div style="margin-top:20px;font-size:12px;color:#999">이 창은 자동으로 닫힙니다...</div>
-  <script>
-    try { window.opener.postMessage(${payload}, '*'); } catch(e) {}
-    setTimeout(() => window.close(), 1500);
-  </script>
+  <div id="oauth-data" style="display:none" data-payload="${safePayload}"></div>
+  <script src="/js/google-oauth-callback.js"></script>
 </body></html>`;
 }
 

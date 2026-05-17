@@ -102,11 +102,30 @@ async function pollOne(userId) {
   try {
     messages = await gmail.listSince(userId, sinceMs, { limit: PER_POLL_LIMIT });
   } catch (err) {
-    summary.error = err.message || 'gmail_fetch_failed';
-    await pool.query(`UPDATE google_oauth_tokens SET gmail_sync_error = ? WHERE user_id = ?`, [
-      summary.error.slice(0, 500),
-      userId,
-    ]);
+    const rawMsg = err.message || 'gmail_fetch_failed';
+    // refresh token 무효/회수 — 재연결 필요. 더 이상 폴링 금지 (계속 시도하면 Google 알람).
+    const isInvalidGrant =
+      /invalid_grant/i.test(rawMsg) || err?.response?.data?.error === 'invalid_grant';
+    summary.error = isInvalidGrant
+      ? 'Google 인증이 만료되었거나 권한이 회수되었습니다 — 연동 해제 → 재연결 필요'
+      : rawMsg;
+    summary.reason = isInvalidGrant ? 'invalid_grant' : 'fetch_failed';
+
+    if (isInvalidGrant) {
+      // 자동 비활성화 — 사용자가 재연결할 때까지 폴링 중단
+      await pool.query(
+        `UPDATE google_oauth_tokens
+            SET gmail_sync_enabled = 0,
+                gmail_sync_error   = ?
+          WHERE user_id = ?`,
+        [summary.error.slice(0, 500), userId]
+      );
+    } else {
+      await pool.query(`UPDATE google_oauth_tokens SET gmail_sync_error = ? WHERE user_id = ?`, [
+        summary.error.slice(0, 500),
+        userId,
+      ]);
+    }
     return summary;
   }
 

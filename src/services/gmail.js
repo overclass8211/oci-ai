@@ -143,6 +143,22 @@ function classifyError(err) {
   }
   const code = err?.code || err?.response?.status;
   const msg = err?.message || '';
+  const oauthErr = err?.response?.data?.error || '';
+
+  // OAuth refresh token 무효/회수 — 사용자가 권한을 회수했거나 토큰 만료된 케이스
+  // googleapis SDK 는 err.message = 'invalid_grant' 로 throw
+  if (oauthErr === 'invalid_grant' || /invalid_grant/i.test(msg)) {
+    return {
+      status: 401,
+      body: {
+        success: false,
+        error:
+          'Google 인증이 만료되었거나 권한이 회수되었습니다 — Google 연동을 해제하고 다시 연결해 주세요.',
+        notConnected: true,
+        reason: 'invalid_grant',
+      },
+    };
+  }
   // Insufficient permission (scope 미보유)
   if (code === 403 || /insufficient|forbidden|permission/i.test(msg)) {
     return {

@@ -384,12 +384,16 @@ const MeetingPage = (() => {
       const d = r.data || {};
       toggle.checked = !!d.enabled;
       if (status) {
+        const isInvalidGrant = (d.error || '').includes('인증이 만료') || /invalid_grant/i.test(d.error || '');
         if (d.enabled) {
           const last = d.last_polled_at
             ? new Date(d.last_polled_at).toLocaleString('ko-KR')
             : '아직 없음';
           status.textContent = `· 마지막 폴링: ${last}`;
           if (d.error) status.innerHTML += ` · <span style="color:var(--oci-red)">⚠️ ${esc(d.error)}</span>`;
+        } else if (isInvalidGrant) {
+          // 자동 비활성화된 상태 — 재연결 안내
+          status.innerHTML = `· <span style="color:var(--oci-red);font-weight:600">⚠️ 재연결 필요</span> · <span style="font-size:11px">${esc(d.error)}</span>`;
         } else {
           status.textContent = '· 비활성';
         }
@@ -416,6 +420,9 @@ const MeetingPage = (() => {
         const d = r.data || {};
         if (d.error === 'disabled') {
           Toast.warn?.('동기화가 비활성 상태입니다. 토글을 켜주세요.');
+        } else if (d.reason === 'invalid_grant') {
+          // 자동 비활성화됨 — 재연결 안내
+          Toast.error('⚠️ Google 재연결 필요 — 위 "연결 해제" 클릭 후 다시 연결해 주세요');
         } else if (d.error) {
           Toast.error('동기화 실패: ' + d.error);
         } else {
