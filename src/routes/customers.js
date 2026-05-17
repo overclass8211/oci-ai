@@ -5,6 +5,7 @@ const upload = require('../middleware/upload');
 const { handleError, friendlyError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { validateId, schema } = require('../middleware/validate');
+const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { fromExcelBuffer } = require('../utils/excelHelper');
 const { sendExport, normalizeFormat } = require('../utils/exportHelper');
@@ -182,7 +183,7 @@ router.post(
 );
 
 // 명함 OCR
-router.post('/ocr', upload.array('cards', 20), async (req, res) => {
+router.post('/ocr', requireFeature('ai.ocr'), upload.array('cards', 20), async (req, res) => {
   if (!process.env.GEMINI_API_KEY) {
     return res
       .status(400)
@@ -242,7 +243,7 @@ JSON 형식: {"name":"회사명","contact_person":"이름","industry":"산업군
 });
 
 // 고객사 인텔리전스
-router.get('/:id/intelligence', validateId, async (req, res) => {
+router.get('/:id/intelligence', requireFeature('ai.intelligence'), validateId, async (req, res) => {
   let sseStarted = false;
   try {
     const [[customer]] = await pool.query('SELECT * FROM customers WHERE id=?', [req.params.id]);

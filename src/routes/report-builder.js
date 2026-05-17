@@ -32,6 +32,10 @@ const router = require('express').Router();
 const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/featureGuard');
+
+// 라우트 전체에 feature flag 적용 — crm.report_builder OFF 시 모든 엔드포인트 차단
+router.use(requireFeature('crm.report_builder'));
 
 // ── 자가 마이그레이션 (idempotent) ────────────────────────────
 async function ensureSchema() {

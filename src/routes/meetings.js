@@ -4,6 +4,7 @@ const pool = require('../db');
 const upload = require('../middleware/upload');
 const { handleError, friendlyError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/featureGuard');
 const {
   genAI,
   MODEL_FAST,
@@ -28,6 +29,7 @@ const MEETING_COLS = [
 // 1) 음성 → 텍스트
 router.post(
   '/transcribe',
+  requireFeature('ai.meeting'),
   (req, res, next) => {
     // 장시간 (20분+) 녹음 → Gemini 처리시간 길어짐.
     // Node http 기본 requestTimeout (5분) 으로 끊기지 않도록 라우트별 15분 override.
@@ -76,6 +78,7 @@ router.post(
 // 기존 동기 /transcribe 는 하위 호환 위해 그대로 유지.
 router.post(
   '/transcribe-async',
+  requireFeature('ai.meeting'),
   (req, res, next) => {
     upload.audio.single('audio')(req, res, err => {
       if (err && err.code === 'LIMIT_FILE_SIZE') {

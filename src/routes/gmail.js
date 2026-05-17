@@ -16,6 +16,7 @@ const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireAuth } = require('./google');
+const { requireFeature } = require('../middleware/featureGuard');
 const gmailSvc = require('../services/gmail');
 
 // 모든 라우트 인증 필요
@@ -69,7 +70,7 @@ router.get('/scope-status', async (req, res) => {
 });
 
 // ── 특정 이메일 주소로 메시지 조회 ─────────────────────────────
-router.get('/messages', async (req, res) => {
+router.get('/messages', requireFeature('gmail.read'), async (req, res) => {
   try {
     const userId = getUserId(req);
     const email = (req.query.email || '').trim().toLowerCase();
@@ -87,7 +88,7 @@ router.get('/messages', async (req, res) => {
 });
 
 // ── 리드 자동 매칭 ────────────────────────────────────────────
-router.get('/match/lead/:id', async (req, res) => {
+router.get('/match/lead/:id', requireFeature('gmail.read'), async (req, res) => {
   try {
     const userId = getUserId(req);
     const leadId = parseInt(req.params.id);
@@ -130,7 +131,7 @@ router.get('/match/lead/:id', async (req, res) => {
 });
 
 // ── 고객 자동 매칭 ────────────────────────────────────────────
-router.get('/match/customer/:id', async (req, res) => {
+router.get('/match/customer/:id', requireFeature('gmail.read'), async (req, res) => {
   try {
     const userId = getUserId(req);
     const custId = parseInt(req.params.id);
@@ -249,7 +250,7 @@ router.put('/sync-settings', async (req, res) => {
 });
 
 // ── 수동 동기화 트리거 (Phase G3) ─────────────────────────────
-router.post('/sync-now', async (req, res) => {
+router.post('/sync-now', requireFeature('gmail.sync'), async (req, res) => {
   try {
     const userId = getUserId(req);
     const sync = require('../services/gmailSync');
@@ -263,7 +264,7 @@ router.post('/sync-now', async (req, res) => {
 // ── 메일 발송 (Phase G2) ─────────────────────────────────────
 // body: { to, subject, body, cc?, bcc? }
 // 응답: { success, data: { message_id, thread_id, from } }
-router.post('/send', async (req, res) => {
+router.post('/send', requireFeature('gmail.send'), async (req, res) => {
   try {
     const userId = getUserId(req);
     const { to, subject, body, cc, bcc } = req.body || {};

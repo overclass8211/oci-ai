@@ -18,7 +18,11 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/featureGuard');
 const dispatcher = require('../services/webhookDispatcher');
+
+// Webhook 시스템 전체에 feature flag 적용
+router.use(requireFeature('webhook.system'));
 
 const MAX_URL = 500;
 const MAX_NAME = 150;

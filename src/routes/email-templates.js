@@ -13,6 +13,10 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
+const { requireFeature } = require('../middleware/featureGuard');
+
+// 이메일 템플릿 전체에 feature flag 적용
+router.use(requireFeature('email.templates'));
 const { getUserId } = require('../middleware/auth');
 
 const ALLOWED_CATEGORIES = new Set(['lead', 'customer', 'project', 'general']);

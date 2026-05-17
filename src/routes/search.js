@@ -34,6 +34,10 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
+const { requireFeature } = require('../middleware/featureGuard');
+
+// 글로벌 검색 전체에 feature flag 적용
+router.use(requireFeature('crm.search'));
 
 const ALLOWED_TYPES = new Set(['leads', 'customers', 'projects', 'meetings', 'activities']);
 const DEFAULT_LIMIT = 5;

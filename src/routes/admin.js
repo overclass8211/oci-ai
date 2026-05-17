@@ -3,6 +3,7 @@ const pool = require('../db');
 const { handleError, friendlyError } = require('../middleware/errorHandler');
 const { getClientCount } = require('../ws');
 const { genAI, MODEL_FAST, SAFETY_SETTINGS } = require('../services/gemini');
+const featureGuard = require('../middleware/featureGuard');
 
 // ── DB 자동 마이그레이션 ───────────────────────────────────────
 pool
@@ -764,6 +765,9 @@ router.put('/dev/features/:key', devOnly, async (req, res) => {
       [key, oldEnabled, newEnabled, userId, reason || null]
     );
 
+    // featureGuard 캐시 즉시 무효화 → 다음 요청부터 새 상태 반영
+    featureGuard.invalidate();
+
     res.json({ success: true, data: { feature_key: key, old: oldEnabled, new: newEnabled } });
   } catch (err) {
     handleError(res, err);
@@ -818,6 +822,8 @@ router.delete('/dev/features/:key', devOnly, async (req, res) => {
     await pool.query('DELETE FROM dev_features WHERE feature_key = ?', [key]);
     // audit 도 같이 정리 (감사 추적성 위해 옵션으로 유지하려면 주석 처리)
     await pool.query('DELETE FROM dev_features_audit WHERE feature_key = ?', [key]);
+    // featureGuard 캐시 무효화
+    featureGuard.invalidate();
     res.json({ success: true, data: { deleted: key } });
   } catch (err) {
     handleError(res, err);

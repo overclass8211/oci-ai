@@ -2,6 +2,7 @@ const router = require('express').Router();
 const pool = require('../db');
 const { handleError, friendlyError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/featureGuard');
 const {
   genAI,
   MODEL_FAST,
@@ -15,7 +16,7 @@ const {
 } = require('../services/gemini');
 
 // 챗봇 (스트리밍)
-router.post('/chat', async (req, res) => {
+router.post('/chat', requireFeature('ai.assistant'), async (req, res) => {
   let sseStarted = false;
   try {
     const { messages, context } = req.body;
@@ -58,7 +59,7 @@ ${context ? '추가 컨텍스트: ' + context : ''}
 });
 
 // 고객사 브리핑
-router.get('/briefing/:customerId', async (req, res) => {
+router.get('/briefing/:customerId', requireFeature('ai.intelligence'), async (req, res) => {
   let sseStarted = false;
   try {
     const [[customer]] = await pool.query('SELECT * FROM customers WHERE id = ?', [
@@ -117,7 +118,7 @@ ${activities.map(a => `- [${a.activity_type}] ${a.title} (${a.performer || '시�
 });
 
 // 리드 히스토리 요약
-router.get('/summary/:leadId', async (req, res) => {
+router.get('/summary/:leadId', requireFeature('ai.lead_summary'), async (req, res) => {
   let sseStarted = false;
   try {
     const [[lead]] = await pool.query(
@@ -309,7 +310,7 @@ router.get('/insights', async (req, res) => {
 });
 
 // 회의록 텍스트 요약 (레거시 — 단순 텍스트 입력)
-router.post('/meeting-notes', async (req, res) => {
+router.post('/meeting-notes', requireFeature('ai.meeting'), async (req, res) => {
   let sseStarted = false;
   try {
     const { text, customer_name, meeting_type } = req.body;
