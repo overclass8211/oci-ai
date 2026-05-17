@@ -135,13 +135,14 @@ const SettingsPage = {
         </div>
         <div class="card-body">
           <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-            <div style="flex:0 0 220px;display:flex;flex-direction:column;align-items:center;gap:8px">
-              <div style="font-size:11px;color:var(--text-3);font-weight:600">현재 로고</div>
-              <div style="width:200px;height:80px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;padding:8px">
-                <img id="logo-preview" src="/assets/default-logo.svg" alt="현재 로고"
-                     style="max-width:100%;max-height:100%;object-fit:contain">
+            <div style="flex:0 0 320px;display:flex;flex-direction:column;align-items:center;gap:8px">
+              <div style="font-size:11px;color:var(--text-3);font-weight:600">현재 로고 (실제 표시 크기)</div>
+              <div style="width:300px;height:80px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:flex-start;padding:10px 14px">
+                <!-- src 는 _initLogoManager 에서 API 응답으로 동적 설정 -->
+                <img id="logo-preview" alt="현재 로고"
+                     style="height:60px;max-width:300px;width:auto;object-fit:contain">
               </div>
-              <div id="logo-status" style="font-size:11px;color:var(--text-3)">기본 로고</div>
+              <div id="logo-status" style="font-size:11px;color:var(--text-3)">로딩 중...</div>
             </div>
             <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:10px">
               <label style="font-size:13px;font-weight:600;color:var(--text-1)">새 로고 업로드</label>
@@ -150,9 +151,15 @@ const SettingsPage = {
                 <button class="btn btn-primary btn-sm" id="logo-upload-btn">📤 업로드</button>
                 <button class="btn btn-ghost btn-sm" id="logo-restore-btn" style="color:var(--oci-red)">🔄 기본 로고로 복원</button>
               </div>
-              <div style="font-size:11px;color:var(--text-3);line-height:1.6">
-                💡 PNG/JPG/SVG 형식만 가능 · 권장 크기: 가로 240px × 세로 80px (높이 32px로 표시됨)<br>
-                업로드 후 즉시 모든 사용자의 사이드바에 반영됩니다.
+              <div style="font-size:12px;color:var(--text-2);line-height:1.7;padding:10px 12px;background:var(--surface-2);border-radius:6px;border-left:3px solid var(--oci-red)">
+                <strong>📐 권장 사양</strong><br>
+                • <strong>가로 480px 이상</strong> (Retina 2x — 실제 표시 240px)<br>
+                • <strong>여백 없이</strong> 콘텐츠가 가장자리에 닿도록<br>
+                • 가로:세로 비율 <strong>3:1 권장</strong> (예: 480×160, 360×120)<br>
+                • PNG (투명 배경 지원) / JPG / SVG<br>
+                <span style="color:var(--text-3);font-size:11px">
+                  ⚠️ 정사각형이나 여백 많은 로고는 작게 표시됩니다 — 좌우 여백 제거 후 업로드 권장
+                </span>
               </div>
             </div>
           </div>

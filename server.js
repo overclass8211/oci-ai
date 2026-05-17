@@ -184,6 +184,10 @@ app.use(cookieParser()); // ③ HttpOnly 쿠키 파싱
 const SW_CACHE_VERSION = `v-${Date.now()}`;
 console.log(`📦 Service Worker 캐시 버전: ${SW_CACHE_VERSION}`);
 
+// ── Logo URL 캐시 (60초 TTL) — 별도 모듈에서 관리 ────────
+// logo.js 의 업로드/삭제 시 캐시 invalidate 호출 가능
+const logoCache = require('./src/utils/logoCache');
+
 app.get('/sw.js', (req, res) => {
   try {
     const fs = require('fs');
@@ -203,9 +207,32 @@ app.get('/sw.js', (req, res) => {
   }
 });
 
+// ── GET / 동적 로고 주입 (Flash 제거) ──────────────────────
+// index.html 의 __LOGO_URL__ placeholder 를 현재 로고 URL 로 치환
+// → 페이지 로드 즉시 정확한 로고 표시 (기본 로고 깜빡임 방지)
+// express.static 보다 먼저 마운트해야 자동 디렉토리 인덱스를 가로챔
+app.get('/', async (req, res, next) => {
+  try {
+    const fs = require('fs');
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    if (!fs.existsSync(indexPath)) return next();
+
+    const logoUrl = await logoCache.getCurrentLogoUrl();
+    let html = fs.readFileSync(indexPath, 'utf8');
+    html = html.replace(/__LOGO_URL__/g, logoUrl);
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(html);
+  } catch (_err) {
+    next(); // 실패 시 정적 서빙으로 fallback
+  }
+});
+
 // manifest.json 도 짧은 캐시로 (PWA 메타 변경 시 빠른 반영)
 app.use(
   express.static(path.join(__dirname, 'public'), {
+    index: false, // GET / 자동 index.html 서빙 비활성 — 위 동적 핸들러가 처리
     setHeaders: (res, filePath) => {
       if (filePath.endsWith(`${path.sep}sw.js`) || filePath.endsWith('/sw.js')) {
         // 정적 경로로 직접 접근 시에도 동일하게 no-cache
@@ -326,8 +353,7 @@ app.use('/api/admin/logo', logoRouter);
 // 로그인 페이지
 app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 
-// SPA 폴백
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// SPA 폴백 — 위쪽의 동적 로고 inject 핸들러가 이미 처리하므로 여기는 fallback 안전망
 
 // 404
 app.use('/api', (_req, res) => {

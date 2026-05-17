@@ -90,18 +90,21 @@ a { text-decoration: none; color: inherit; }
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 14px 16px;
+  gap: 10px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  height: var(--topbar-h);
+  height: 80px;          /* 더 키움: 사용자 보고 — 로고 너무 작게 표시되는 문제 */
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.12s;
+  overflow: hidden;
 }
 .sidebar-logo:hover { background: var(--surface-2); }
 .logo-img {
-  height: 22px;
+  height: 60px;          /* 48 → 60px (25% 더 큼) */
   width: auto;
+  max-width: 300px;      /* 240 → 300px */
+  object-fit: contain;
   display: block;
 }
 .logo-divider {

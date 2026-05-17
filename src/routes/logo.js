@@ -28,6 +28,7 @@ const sharp = require('sharp');
 const { optimize: svgOptimize } = require('svgo');
 const { handleError } = require('../middleware/errorHandler');
 const upload = require('../middleware/upload');
+const logoCache = require('../utils/logoCache');
 
 const DEFAULT_LOGO_URL = '/assets/default-logo.svg';
 
@@ -111,14 +112,17 @@ async function optimizeImage(filePath, ext) {
     throw new Error(`이미지가 너무 큽니다 (${meta.width}x${meta.height}, 최대 5000x5000)`);
   }
 
-  // 리사이즈 + 압축
-  // 가로 480px 이하 (Retina 2x — 실제 표시 240px), withoutEnlargement: 더 작으면 그대로
+  // 리사이즈 + 압축 — 로고가 작게 표시되는 문제 해결
+  // 1) trim(): 가장자리 흰색/투명 여백 자동 제거 → 콘텐츠가 박스 꽉 채움
+  // 2) resize: 가로 600px 이하 (Retina + 큰 화면 대응)
+  // 3) withoutEnlargement: 작은 이미지 확대 안 함 (화질 보호)
   const optimized = await sharp(filePath, { limitInputPixels: 25_000_000 })
+    .trim({ threshold: 10 }) // 가장자리 동일 색상 자동 제거 (threshold: 색차 허용도)
     .resize({
-      width: 480,
-      height: 160,
-      fit: 'inside', // 비율 유지하면서 박스 안에 맞춤
-      withoutEnlargement: true, // 원본이 작으면 확대 안 함
+      width: 600, // 가로 600px (실제 표시 240px 의 2.5배 — 큰 화면 / Retina 대응)
+      height: 200,
+      fit: 'inside',
+      withoutEnlargement: true,
     })
     .png({
       quality: 90,
@@ -127,14 +131,24 @@ async function optimizeImage(filePath, ext) {
     })
     .toBuffer();
 
+  // trim 후 실제 dimension 확인 (UI에 정보 표시)
+  let finalMeta = meta;
+  try {
+    finalMeta = await sharp(optimized).metadata();
+  } catch (_) {
+    /* meta 조회 실패해도 진행 */
+  }
+
   fs.writeFileSync(filePath, optimized);
   const optimizedSize = optimized.length;
   return {
     originalSize,
     optimizedSize,
     savingsPercent: Math.round((1 - optimizedSize / originalSize) * 100),
-    width: meta.width,
-    height: meta.height,
+    width: finalMeta.width || meta.width,
+    height: finalMeta.height || meta.height,
+    originalDimensions: `${meta.width}x${meta.height}`,
+    trimmed: finalMeta.width !== meta.width || finalMeta.height !== meta.height,
     type: 'raster',
   };
 }
@@ -229,6 +243,9 @@ router.post('/upload', upload.logo.single('logo'), async (req, res) => {
       [newUrl]
     );
 
+    // 5) GET / 핸들러용 로고 캐시 즉시 invalidate (다음 페이지 로드 즉시 반영)
+    logoCache.invalidate();
+
     res.json({
       success: true,
       data: {
@@ -277,6 +294,9 @@ router.delete('/', async (req, res) => {
 
     // setting 자체 삭제 (NULL 또는 row 제거)
     await pool.query(`DELETE FROM system_settings WHERE setting_key = 'logo_path'`);
+
+    // GET / 핸들러용 로고 캐시 즉시 invalidate
+    logoCache.invalidate();
 
     res.json({
       success: true,
