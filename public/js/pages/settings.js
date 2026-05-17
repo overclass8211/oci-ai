@@ -135,12 +135,14 @@ const SettingsPage = {
         </div>
         <div class="card-body">
           <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-            <div style="flex:0 0 320px;display:flex;flex-direction:column;align-items:center;gap:8px">
-              <div style="font-size:11px;color:var(--text-3);font-weight:600">현재 로고 (실제 표시 크기)</div>
-              <div style="width:300px;height:80px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:flex-start;padding:10px 14px">
-                <!-- src 는 _initLogoManager 에서 API 응답으로 동적 설정 -->
+            <div style="flex:0 0 240px;display:flex;flex-direction:column;align-items:center;gap:8px">
+              <div style="font-size:11px;color:var(--text-3);font-weight:600">현재 로고 (사이드바 실제 표시 크기)</div>
+              <div style="width:220px;height:64px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:flex-start;padding:8px 14px;gap:8px">
+                <!-- 실제 사이드바와 동일 비율: 로고 + divider + "CRM AI" 시뮬레이션 -->
                 <img id="logo-preview" alt="현재 로고"
-                     style="height:60px;max-width:300px;width:auto;object-fit:contain">
+                     style="height:40px;max-width:140px;width:auto;object-fit:contain">
+                <div style="width:1px;height:16px;background:var(--border-2)"></div>
+                <span style="font-size:11px;color:var(--text-3);font-weight:500;letter-spacing:0.5px">CRM <span style="color:var(--oci-red);font-weight:700">AI</span></span>
               </div>
               <div id="logo-status" style="font-size:11px;color:var(--text-3)">로딩 중...</div>
             </div>
@@ -153,12 +155,12 @@ const SettingsPage = {
               </div>
               <div style="font-size:12px;color:var(--text-2);line-height:1.7;padding:10px 12px;background:var(--surface-2);border-radius:6px;border-left:3px solid var(--oci-red)">
                 <strong>📐 권장 사양</strong><br>
-                • <strong>가로 480px 이상</strong> (Retina 2x — 실제 표시 240px)<br>
-                • <strong>여백 없이</strong> 콘텐츠가 가장자리에 닿도록<br>
-                • 가로:세로 비율 <strong>3:1 권장</strong> (예: 480×160, 360×120)<br>
-                • PNG (투명 배경 지원) / JPG / SVG<br>
+                • 실제 사이드바 표시: <strong>40px × ~140px</strong> (가로 한도)<br>
+                • 업로드 권장: <strong>가로 280px × 세로 80px</strong> 이상 (Retina 2x)<br>
+                • 가로:세로 비율 <strong>3.5:1 권장</strong> (예: 280×80, 350×100)<br>
+                • PNG (투명 배경) / JPG / SVG (자동 sanitize)<br>
                 <span style="color:var(--text-3);font-size:11px">
-                  ⚠️ 정사각형이나 여백 많은 로고는 작게 표시됩니다 — 좌우 여백 제거 후 업로드 권장
+                  ⚠️ 정사각형 로고는 사이드바에 작게 표시됩니다 — 가로 긴 형태 권장
                 </span>
               </div>
             </div>
