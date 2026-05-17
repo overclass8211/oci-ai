@@ -1093,6 +1093,8 @@ const CustomersPage = {
       App._renderGmailCard(body, {
         success: false,
         error: err.message || 'Gmail 조회 실패',
+        code: err.code,
+        feature: err.feature,
       }, () => this._loadGmailForCustomer(customerId));
     }
   },

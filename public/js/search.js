@@ -242,7 +242,12 @@ const SearchModal = {
       this._renderResults();
     } catch (e) {
       if (e.name === 'AbortError') return;
-      this._renderError(e.message || '검색 실패');
+      // Graceful Degradation — 기능 비활성화 시 친절한 안내
+      if (e.code === 'FEATURE_DISABLED') {
+        this._renderError('🔍 검색 기능이 비활성화되어 있습니다. 관리자에게 문의하세요.');
+      } else {
+        this._renderError(e.message || '검색 실패');
+      }
     } finally {
       this.loading = false;
     }

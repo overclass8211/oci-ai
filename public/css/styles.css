@@ -4271,6 +4271,15 @@ body,
   border: 1px dashed var(--border);
 }
 
+/* ─── Graceful Degradation — 기능 비활성화 안내 (UI 일관성) ─── */
+.feature-disabled-soft {
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  margin: 6px;
+  color: var(--text-3) !important;
+}
+
 /* ─── Configuration Preset 카드 (고객사 납품용) ──────────── */
 .preset-card {
   background: var(--surface);

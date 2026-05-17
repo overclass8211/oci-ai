@@ -1061,11 +1061,13 @@ const App = {
       this._renderGmailCard(body, r, () => this._loadGmailForLead(leadId));
     } catch (err) {
       // 401/403/500 등 — API 자체에서 던진 에러
-      const status = err.status || 0;
+      // FEATURE_DISABLED (클라이언트 가드) 도 _renderGmailCard 에서 분기 처리
       this._renderGmailCard(body, {
         success: false,
         error: err.message || 'Gmail 조회 실패',
-        statusCode: status,
+        statusCode: err.status || 0,
+        code: err.code,
+        feature: err.feature,
       }, () => this._loadGmailForLead(leadId));
     }
   },
@@ -1074,6 +1076,16 @@ const App = {
   _renderGmailCard(bodyEl, res, retryFn) {
     const refreshBtn = document.getElementById('ld-gmail-refresh') ||
                        document.getElementById('cust-gmail-refresh');
+
+    // 0) 기능 토글 OFF — Graceful Degradation (에러 X, 친절한 안내)
+    if (res && res.code === 'FEATURE_DISABLED') {
+      bodyEl.innerHTML = `<div class="feature-disabled-soft" style="padding:14px;font-size:12px;color:var(--text-3);text-align:center">
+        📧 <strong>Gmail 기능이 비활성화 상태입니다</strong><br>
+        <span style="font-size:11px">사용을 원하시면 관리자에게 문의하세요.</span>
+      </div>`;
+      if (refreshBtn) refreshBtn.style.display = 'none';
+      return;
+    }
 
     // 1) 미연결 / scope 부족 안내
     if (res && res.notConnected) {

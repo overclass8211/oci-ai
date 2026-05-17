@@ -522,6 +522,13 @@ const Notifications = {
 
   async load() {
     try {
+      // 기능 토글 OFF 시 호출 자체 skip (Circuit Breaker)
+      if (typeof Features !== 'undefined' && !Features.isEnabled('crm.notifications')) {
+        this.items = [];
+        this.count = 0;
+        this.updateBadge();
+        return;
+      }
       const res = await API.get('/notifications');
       this.items = res.data || [];
       this.count = this.items.length;
