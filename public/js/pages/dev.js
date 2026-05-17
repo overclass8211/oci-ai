@@ -689,20 +689,55 @@ const DevPage = {
 
   renderFeatures() {
     const categories = {
-      ai:          { label: '🤖 AI 기능',        color: '#7C4DFF' },
-      auth:        { label: '🔐 인증 & 보안',    color: '#E63329' },
-      realtime:    { label: '📡 실시간',          color: '#17A85A' },
-      crm:         { label: '📋 CRM 기능',        color: '#1664E5' },
-      integration: { label: '🔌 외부 연동',       color: '#F59C00' },
-      data:        { label: '📊 데이터 처리',     color: '#0F7A3F' },
-      security:    { label: '🛡️ 보안 정책',      color: '#6B7280' },
-      dev:         { label: '🛠️ 개발자 도구',    color: '#8B5CF6' },
+      ai:          { label: '🤖 AI 기능',        color: '#7C4DFF', order: 1 },
+      auth:        { label: '🔐 인증 & 보안',    color: '#E63329', order: 2 },
+      crm:         { label: '📋 CRM 기능',        color: '#1664E5', order: 3 },
+      integration: { label: '🔌 외부 연동',       color: '#F59C00', order: 4 },
+      data:        { label: '📊 데이터 처리',     color: '#0F7A3F', order: 5 },
+      realtime:    { label: '📡 실시간 / PWA',    color: '#17A85A', order: 6 },
+      security:    { label: '🛡️ 보안 정책',      color: '#6B7280', order: 7 },
+      dev:         { label: '🛠️ 개발자 도구',    color: '#8B5CF6', order: 8 },
+      _deprecated: { label: '🗑 Deprecated',     color: '#9CA3AF', order: 99 },
     };
 
+    // 위험도 배지 매핑
+    const riskMeta = {
+      safe:     { label: '안전',   color: '#0F7A3F', badge: '✅' },
+      medium:   { label: '주의',   color: '#F59C00', badge: '⚠️' },
+      high:     { label: '높음',   color: '#E63329', badge: '🔥' },
+      critical: { label: '치명적', color: '#7C0000', badge: '⛔' },
+    };
+
+    // Deprecated 분리 + 카테고리별 그룹
     const grouped = {};
     this.features.forEach(f => {
-      if (!grouped[f.category]) grouped[f.category] = [];
-      grouped[f.category].push(f);
+      const cat = f.is_deprecated ? '_deprecated' : (f.category || 'general');
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(f);
+    });
+
+    // 활성/비활성/Deprecated 통계
+    const active = this.features.filter(f => f.is_enabled && !f.is_deprecated).length;
+    const inactive = this.features.filter(f => !f.is_enabled && !f.is_deprecated).length;
+    const deprecatedCount = this.features.filter(f => f.is_deprecated).length;
+    const total = this.features.length;
+
+    // 의존성 역참조 맵 — "이 feature 를 require 하는 기능들"
+    const dependentsMap = {};
+    this.features.forEach(f => {
+      let req = [];
+      try { req = JSON.parse(f.required_features || '[]'); } catch (_) {}
+      req.forEach(reqKey => {
+        if (!dependentsMap[reqKey]) dependentsMap[reqKey] = [];
+        dependentsMap[reqKey].push(f.feature_key);
+      });
+    });
+
+    // 카테고리 정렬
+    const sortedCats = Object.entries(grouped).sort(([a], [b]) => {
+      const oa = categories[a]?.order ?? 50;
+      const ob = categories[b]?.order ?? 50;
+      return oa - ob;
     });
 
     const html = `
@@ -710,44 +745,66 @@ const DevPage = {
         <div>
           <h3 style="margin:0;font-size:15px">서비스 기능 플래그</h3>
           <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">
-            UI 레벨에서 기능을 즉시 ON/OFF합니다. 변경사항은 DB에 저장되며 전체 사용자에게 즉시 반영됩니다.
+            매니페스트(<code>src/data/featureRegistry.js</code>) 기반 자동 동기화 — 신규 기능 추가 시 자동 등록
           </p>
         </div>
-        <!-- id="feat-stats": 토글 후 실시간 업데이트 -->
-        <div id="feat-stats" style="font-size:12px;color:var(--text-3)">
-          활성: <strong style="color:#17A85A">${this.features.filter(f=>f.is_enabled).length}</strong>
-          / 비활성: <strong style="color:#E63329">${this.features.filter(f=>!f.is_enabled).length}</strong>
-          / 전체: <strong>${this.features.length}</strong>
+        <div id="feat-stats" style="font-size:12px;color:var(--text-3);text-align:right">
+          활성: <strong style="color:#17A85A">${active}</strong>
+          / 비활성: <strong style="color:#E63329">${inactive}</strong>
+          ${deprecatedCount > 0 ? `/ <span style="color:#9CA3AF">Deprecated: <strong>${deprecatedCount}</strong></span>` : ''}
+          / 전체: <strong>${total}</strong>
         </div>
       </div>
 
       <div class="dev-feature-grid">
-        ${Object.entries(grouped).map(([cat, list]) => {
+        ${sortedCats.map(([cat, list]) => {
           const meta = categories[cat] || { label: cat, color: '#888' };
+          const isDeprecatedSection = cat === '_deprecated';
           return `
-            <div class="dev-cat-block">
+            <div class="dev-cat-block ${isDeprecatedSection ? 'dev-cat-deprecated' : ''}">
               <div class="dev-cat-title" style="border-left:3px solid ${meta.color}">
                 ${meta.label}
+                ${isDeprecatedSection
+                  ? `<span style="font-size:11px;color:var(--text-3);font-weight:normal;margin-left:8px">매니페스트에서 제거됨 — 수동 정리 가능</span>`
+                  : ''}
               </div>
-              ${list.map(f => `
-                <div class="dev-feature-row ${f.is_enabled ? '' : 'disabled'}" data-fkey="${f.feature_key}">
+              ${list.map(f => {
+                const risk = riskMeta[f.risk_level] || riskMeta.safe;
+                let depList = [];
+                try { depList = JSON.parse(f.required_features || '[]'); } catch (_) {}
+                const dependents = dependentsMap[f.feature_key] || [];
+                const isDep = f.is_deprecated;
+                return `
+                <div class="dev-feature-row ${f.is_enabled ? '' : 'disabled'} ${isDep ? 'is-deprecated' : ''}" data-fkey="${f.feature_key}">
                   <div class="dev-feature-info">
                     <div class="dev-feature-name">
                       ${esc(f.feature_name)}
                       ${f.is_experimental ? '<span class="dev-badge-exp">실험적</span>' : ''}
+                      ${!isDeprecatedSection && f.risk_level !== 'safe'
+                        ? `<span class="dev-badge-risk" style="background:${risk.color}22;color:${risk.color};border-color:${risk.color}66" title="위험도: ${risk.label}">${risk.badge} ${risk.label}</span>`
+                        : ''}
+                      ${isDep ? '<span class="dev-badge-deprecated">DEPRECATED</span>' : ''}
                     </div>
-                    <div class="dev-feature-desc">${esc(f.description || '')}</div>
+                    <div class="dev-feature-desc">
+                      <code style="font-size:10px;color:var(--text-4);margin-right:6px">${esc(f.feature_key)}</code>
+                      ${esc(f.description || '')}
+                    </div>
                     <div class="dev-feature-meta">
-                      ${f.affects_routes ? `<span class="dev-chip blue">API: ${esc(f.affects_routes)}</span>` : ''}
-                      ${f.affects_tables ? `<span class="dev-chip green">Table: ${esc(f.affects_tables)}</span>` : ''}
+                      ${f.affects_routes ? `<span class="dev-chip blue" title="영향받는 API">API: ${esc(f.affects_routes)}</span>` : ''}
+                      ${f.affects_tables ? `<span class="dev-chip green" title="영향받는 DB 테이블">Table: ${esc(f.affects_tables)}</span>` : ''}
+                      ${depList.length > 0 ? `<span class="dev-chip orange" title="이 기능을 사용하려면 다음이 ON 이어야 함">⬆ Requires: ${depList.map(d => esc(d)).join(', ')}</span>` : ''}
+                      ${dependents.length > 0 ? `<span class="dev-chip purple" title="이 기능을 require 하는 다른 기능들 (끄면 영향)">⬇ Required by: ${dependents.length}</span>` : ''}
                     </div>
                   </div>
-                  <label class="dev-toggle" title="${f.is_enabled ? 'ON — 클릭하여 비활성화' : 'OFF — 클릭하여 활성화'}">
-                    <input type="checkbox" ${f.is_enabled ? 'checked' : ''} data-feature="${f.feature_key}">
-                    <span class="dev-toggle-slider"></span>
-                  </label>
+                  ${isDep
+                    ? `<button class="btn btn-ghost btn-sm" data-rb-cleanup="${esc(f.feature_key)}" style="color:#E63329" title="DB에서 삭제 (매니페스트에 없으므로 안전)">🗑 정리</button>`
+                    : `<label class="dev-toggle" title="${f.is_enabled ? 'ON — 클릭하여 비활성화' : 'OFF — 클릭하여 활성화'}">
+                        <input type="checkbox" ${f.is_enabled ? 'checked' : ''} data-feature="${esc(f.feature_key)}" data-risk="${esc(f.risk_level || 'safe')}">
+                        <span class="dev-toggle-slider"></span>
+                      </label>`}
                 </div>
-              `).join('')}
+                `;
+              }).join('')}
             </div>
           `;
         }).join('')}
@@ -770,20 +827,53 @@ const DevPage = {
       if (!inp) return;
       const key     = inp.dataset.feature;
       const enabled = inp.checked;
+      const risk    = inp.dataset.risk || 'safe';
       const row     = inp.closest('.dev-feature-row');
       const label   = inp.closest('.dev-toggle');
+
+      // ── 위험도 high/critical 인 경우 confirmation ─────────────
+      if ((risk === 'high' || risk === 'critical') && !enabled) {
+        const riskLabel = risk === 'critical' ? '치명적' : '높음';
+        const msg = `⚠️ 위험도: ${riskLabel}\n\n"${key}" 기능을 비활성화하면 서비스에 영향을 줄 수 있습니다.\n\n정말 비활성화하시겠습니까?`;
+        if (!confirm(msg)) {
+          inp.checked = true;  // 롤백
+          return;
+        }
+      }
 
       // 처리 중 시각적 피드백
       inp.disabled       = true;
       row.style.opacity  = '0.65';
 
       try {
-        await API.put(`/admin/dev/features/${key}`, { is_enabled: enabled });
+        // 1차 시도 — 의존성 체크 포함
+        try {
+          await API.put(`/admin/dev/features/${key}`, { is_enabled: enabled });
+        } catch (err) {
+          // 409 — 의존성 충돌
+          if (err.response?.status === 409 || /의존|dependents|unmet/i.test(err.message || '')) {
+            const body = err.response?.data || {};
+            if (!enabled && Array.isArray(body.dependents)) {
+              // 비활성화 시도 + 의존자 있음
+              const list = body.dependents.map(d => `  • ${d.name}`).join('\n');
+              const ok = confirm(`⚠️ 이 기능에 의존하는 활성 기능이 있습니다:\n\n${list}\n\n그래도 비활성화하시겠습니까? (의존 기능도 영향받음)`);
+              if (!ok) throw new Error('cancelled');
+              // force=1 재시도
+              await API.put(`/admin/dev/features/${key}?force=1`, { is_enabled: enabled });
+            } else if (enabled && Array.isArray(body.unmet_dependencies)) {
+              const list = body.unmet_dependencies.map(d => `  • ${d.name}`).join('\n');
+              alert(`⚠️ 다음 의존 기능이 OFF 상태입니다. 먼저 활성화해주세요:\n\n${list}`);
+              throw new Error('unmet_deps');
+            } else {
+              throw err;
+            }
+          } else {
+            throw err;
+          }
+        }
 
         // 행 스타일 업데이트
         row.classList.toggle('disabled', !enabled);
-
-        // Bug Fix #2: title 속성 동기화 (hover 툴팁)
         if (label) {
           label.title = enabled ? 'ON — 클릭하여 비활성화' : 'OFF — 클릭하여 활성화';
         }
@@ -792,27 +882,31 @@ const DevPage = {
         const feat = this.features.find(f => f.feature_key === key);
         if (feat) feat.is_enabled = enabled ? 1 : 0;
 
-        // 전역 기능 플래그 즉시 동기화 → DOM 반영 (페이지 새로고침 없이 적용)
+        // 전역 기능 플래그 즉시 동기화 → DOM 반영
         if (typeof Features !== 'undefined') {
           Features._flags[key] = !!enabled;
           Features.apply();
         }
 
-        // Bug Fix #3: 통계 카운터 실시간 업데이트
-        const active   = this.features.filter(f => f.is_enabled).length;
-        const inactive = this.features.filter(f => !f.is_enabled).length;
+        // 통계 카운터 실시간 업데이트
+        const active = this.features.filter(f => f.is_enabled && !f.is_deprecated).length;
+        const inactive = this.features.filter(f => !f.is_enabled && !f.is_deprecated).length;
+        const deprecatedCount = this.features.filter(f => f.is_deprecated).length;
         const statsEl  = document.getElementById('feat-stats');
         if (statsEl) {
           statsEl.innerHTML =
             `활성: <strong style="color:#17A85A">${active}</strong>` +
             ` / 비활성: <strong style="color:#E63329">${inactive}</strong>` +
+            (deprecatedCount > 0 ? ` / <span style="color:#9CA3AF">Deprecated: <strong>${deprecatedCount}</strong></span>` : '') +
             ` / 전체: <strong>${this.features.length}</strong>`;
         }
 
         Toast.success(`${enabled ? '✅ 활성화' : '⏹️ 비활성화'}: ${key}`);
       } catch (_err) {
         inp.checked = !enabled;  // 시각적 롤백
-        Toast.error('변경에 실패했습니다');
+        if (_err.message !== 'cancelled' && _err.message !== 'unmet_deps') {
+          Toast.error('변경 실패: ' + (_err.message || '서버 오류'));
+        }
       }
 
       inp.disabled      = false;
@@ -820,6 +914,25 @@ const DevPage = {
     };
 
     container.addEventListener('change', this._featChangeHandler);
+
+    // ── Deprecated 정리 버튼 핸들러 ──────────────────────────
+    if (this._cleanupHandler) container.removeEventListener('click', this._cleanupHandler);
+    this._cleanupHandler = async e => {
+      const btn = e.target.closest('[data-rb-cleanup]');
+      if (!btn) return;
+      const key = btn.dataset.rbCleanup;
+      if (!confirm(`Deprecated 기능 "${key}" 을 DB에서 영구 삭제하시겠습니까?\n(audit log 도 함께 삭제됩니다)`)) return;
+      try {
+        await API.del(`/admin/dev/features/${key}`);
+        Toast.success(`🗑 삭제 완료: ${key}`);
+        // 로컬 캐시에서 제거 + 재렌더
+        this.features = this.features.filter(f => f.feature_key !== key);
+        this.renderFeatures();
+      } catch (err) {
+        Toast.error('삭제 실패: ' + (err.message || ''));
+      }
+    };
+    container.addEventListener('click', this._cleanupHandler);
   },
 
   // ══════════════════════════════════════════════════════════

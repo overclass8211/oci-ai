@@ -3983,6 +3983,57 @@ body,
   vertical-align: middle;
 }
 
+/* 위험도 배지 */
+.dev-badge-risk {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+  font-weight: 600;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Deprecated 배지 */
+.dev-badge-deprecated {
+  font-size: 9px;
+  background: #9CA3AF;
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Deprecated row 스타일 */
+.dev-feature-row.is-deprecated {
+  background: var(--surface-2);
+  opacity: 0.7;
+  border-left: 3px solid #9CA3AF;
+}
+.dev-feature-row.is-deprecated .dev-feature-name {
+  text-decoration: line-through;
+  color: var(--text-3);
+}
+
+.dev-cat-block.dev-cat-deprecated {
+  margin-top: 20px;
+}
+
+/* 추가 chip 색상 */
+.dev-chip.orange {
+  background: rgba(245, 156, 0, 0.1);
+  color: #B97300;
+  border-color: rgba(245, 156, 0, 0.3);
+}
+.dev-chip.purple {
+  background: rgba(124, 77, 255, 0.1);
+  color: #6B3FE3;
+  border-color: rgba(124, 77, 255, 0.3);
+}
+
 /* ── 토글 스위치 ─────────────────────────────────────────────── */
 .dev-toggle {
   position: relative;

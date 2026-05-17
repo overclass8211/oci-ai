@@ -683,12 +683,142 @@ router.get('/dev/features/public', async (req, res) => {
 // PUT  /api/admin/dev/features/:key
 router.put('/dev/features/:key', devOnly, async (req, res) => {
   try {
-    const { is_enabled } = req.body;
-    await pool.query('UPDATE dev_features SET is_enabled=? WHERE feature_key=?', [
-      is_enabled ? 1 : 0,
-      req.params.key,
-    ]);
-    res.json({ success: true });
+    const { is_enabled, reason } = req.body;
+    const newEnabled = is_enabled ? 1 : 0;
+    const userId = req.user?.id || null;
+    const key = req.params.key;
+
+    // 1) 현재 상태 + 의존성 정보 조회
+    const [[current]] = await pool.query(
+      'SELECT is_enabled, required_features, feature_name, risk_level FROM dev_features WHERE feature_key = ?',
+      [key]
+    );
+    if (!current) {
+      return res.status(404).json({ success: false, error: '기능을 찾을 수 없습니다' });
+    }
+    const oldEnabled = current.is_enabled;
+
+    // 변경 없으면 no-op
+    if (oldEnabled === newEnabled) {
+      return res.json({ success: true, data: { unchanged: true } });
+    }
+
+    // 2) 의존성 체크 — 활성화 시 의존하는 feature 가 OFF 면 거부
+    if (newEnabled === 1) {
+      let required = [];
+      try {
+        required = JSON.parse(current.required_features || '[]');
+      } catch (_) {}
+      if (required.length > 0) {
+        const placeholders = required.map(() => '?').join(',');
+        const [deps] = await pool.query(
+          `SELECT feature_key, feature_name, is_enabled FROM dev_features
+            WHERE feature_key IN (${placeholders})`,
+          required
+        );
+        const disabled = deps.filter(d => !d.is_enabled);
+        if (disabled.length > 0) {
+          return res.status(409).json({
+            success: false,
+            error: '의존 기능이 비활성화 상태입니다',
+            unmet_dependencies: disabled.map(d => ({ key: d.feature_key, name: d.feature_name })),
+          });
+        }
+      }
+    }
+
+    // 3) 비활성화 시 — 이 기능을 require 하는 다른 기능이 켜져 있으면 경고
+    if (newEnabled === 0) {
+      const [dependents] = await pool.query(
+        `SELECT feature_key, feature_name FROM dev_features
+          WHERE is_enabled = 1
+            AND required_features IS NOT NULL
+            AND JSON_CONTAINS(required_features, JSON_QUOTE(?))`,
+        [key]
+      );
+      if (dependents.length > 0) {
+        // confirm 플래그 없으면 경고만 — 강제 진행하려면 ?force=1
+        if (req.query.force !== '1') {
+          return res.status(409).json({
+            success: false,
+            error: '이 기능에 의존하는 다른 활성 기능이 있습니다',
+            dependents: dependents.map(d => ({ key: d.feature_key, name: d.feature_name })),
+            hint: '강제 진행하려면 ?force=1 쿼리 파라미터를 추가하세요',
+          });
+        }
+      }
+    }
+
+    // 4) 변경 + audit 기록
+    await pool.query(
+      `UPDATE dev_features
+          SET is_enabled = ?,
+              last_changed_by = ?,
+              last_changed_at = NOW()
+        WHERE feature_key = ?`,
+      [newEnabled, userId, key]
+    );
+    await pool.query(
+      `INSERT INTO dev_features_audit (feature_key, old_enabled, new_enabled, changed_by, reason)
+       VALUES (?, ?, ?, ?, ?)`,
+      [key, oldEnabled, newEnabled, userId, reason || null]
+    );
+
+    res.json({ success: true, data: { feature_key: key, old: oldEnabled, new: newEnabled } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET  /api/admin/dev/features/audit  — 변경 이력 조회 (최근 N건)
+router.get('/dev/features/audit', devOnly, async (req, res) => {
+  try {
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+    const featureKey = req.query.feature_key;
+    const where = featureKey ? 'WHERE a.feature_key = ?' : '';
+    const params = featureKey ? [featureKey, limit] : [limit];
+    const [rows] = await pool.query(
+      `SELECT a.id, a.feature_key, a.old_enabled, a.new_enabled,
+              a.changed_at, a.reason,
+              u.username AS changed_by_username,
+              u.full_name AS changed_by_name,
+              f.feature_name
+         FROM dev_features_audit a
+         LEFT JOIN users u ON u.id = a.changed_by
+         LEFT JOIN dev_features f ON f.feature_key = a.feature_key
+         ${where}
+        ORDER BY a.changed_at DESC
+        LIMIT ?`,
+      params
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// DELETE  /api/admin/dev/features/:key  — Deprecated 기능 수동 정리
+router.delete('/dev/features/:key', devOnly, async (req, res) => {
+  try {
+    const key = req.params.key;
+    // 안전장치: deprecated 상태만 삭제 허용
+    const [[row]] = await pool.query(
+      'SELECT is_deprecated FROM dev_features WHERE feature_key = ?',
+      [key]
+    );
+    if (!row) {
+      return res.status(404).json({ success: false, error: '기능을 찾을 수 없습니다' });
+    }
+    if (!row.is_deprecated) {
+      return res.status(400).json({
+        success: false,
+        error: 'Deprecated 상태가 아닌 기능은 삭제할 수 없습니다 (매니페스트에서 먼저 제거하세요)',
+      });
+    }
+    await pool.query('DELETE FROM dev_features WHERE feature_key = ?', [key]);
+    // audit 도 같이 정리 (감사 추적성 위해 옵션으로 유지하려면 주석 처리)
+    await pool.query('DELETE FROM dev_features_audit WHERE feature_key = ?', [key]);
+    res.json({ success: true, data: { deleted: key } });
   } catch (err) {
     handleError(res, err);
   }

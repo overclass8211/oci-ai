@@ -612,31 +612,102 @@ async function initTables() {
       updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )`);
 
-    // 기본 기능 플래그 시드 데이터 (중복 무시)
-    await pool.query(`INSERT IGNORE INTO dev_features
-      (feature_key, feature_name, description, category, affects_routes, affects_tables, is_experimental) VALUES
-      ('ai.assistant',    'AI 어시스턴트 채팅',    'Gemini 기반 AI 채팅 및 보고서 자동 생성', 'ai', '/api/ai', 'ai_usage', 0),
-      ('ai.ocr',          '명함 OCR 인식',         'Google Vision AI 기반 명함 자동 파싱',    'ai', '/api/customers/ocr', 'customers', 0),
-      ('ai.intelligence', '고객사 AI 인텔리전스',   '고객사별 영업 전략 AI 분석 리포트',       'ai', '/api/customers/:id/intelligence', 'customers', 0),
-      ('ai.lead_summary', '리드 AI 요약',           '리드 활동 이력 AI 자동 요약',             'ai', '/api/ai/summarize-lead', 'leads,activities', 0),
-      ('ai.meeting',      '회의록 AI 분석',         '음성 녹음 STT + AI 회의록 자동 작성',    'ai', '/api/meeting', 'meeting_minutes', 0),
-      ('auth.google',     'Google OAuth 로그인',    'Google 계정 소셜 로그인 연동',            'auth', '/api/google', 'google_oauth_tokens', 0),
-      ('auth.otp',        'OTP 2차 인증 (TOTP)',    'Google Authenticator 기반 TOTP 인증',    'auth', '/api/auth/setup-otp', 'users', 0),
-      ('auth.biometric',  '생체인증 (WebAuthn)',     'Fingerprint/FaceID 로그인',              'auth', '/api/auth/bio', 'users', 1),
-      ('realtime.ws',     'WebSocket 실시간 알림',  '리드 변경사항 브라우저 푸시 알림',        'realtime', '', '', 0),
-      ('crm.pipeline',    '파이프라인 칸반보드',    '드래그앤드롭 영업 단계 관리',             'crm', '/api/leads', 'leads', 0),
-      ('crm.calendar',    '영업 캘린더',            '일정 등록 및 활동 연동',                  'crm', '/api/calendar', 'calendar_events', 0),
-      ('crm.board',       '커뮤니케이션 게시판',    '팀 공지·자유게시판·FAQ',                  'crm', '/api/board', 'announcements,comments,faq,announcement_views', 0),
-      ('crm.meeting_rec', '회의록 Google Meet 연동','Google Meet 연결 및 회의록 연동',         'crm', '/api/meeting', 'meeting_minutes,google_meet_sessions', 0),
-      ('erp.integration', 'ERP 연동 (OnERP/가온아이)','외부 ERP 시스템 데이터 동기화',         'integration', '/api/products/erp', 'products,cost_history', 1),
-      ('data.excel_exp',  '엑셀 내보내기',          '테이블 데이터 Excel 파일 다운로드',       'data', '', '', 0),
-      ('data.excel_imp',  '엑셀 가져오기',          'Excel 파일로 데이터 일괄 등록',           'data', '', '', 0),
-      ('data.bulk_paste', 'Copy & Paste 일괄 등록', '엑셀 복붙으로 빠른 데이터 등록',          'data', '', '', 0),
-      ('security.rate_limit','API Rate Limiting',   '분당 요청 수 제한으로 DDoS 방어',         'security', '', '', 0),
-      ('security.csp',    'Content Security Policy','XSS 방어 CSP 헤더 적용',                  'security', '', '', 0),
-      ('security.encrypt','토큰/OTP 암호화 저장',   'AES-256-GCM 기반 민감정보 암호화',        'security', '', 'users,google_oauth_tokens', 0),
-      ('dev.options',     '개발자 옵션 패널',       '이 화면 자체 (superadmin 전용)',           'dev', '/api/admin/dev', 'dev_features', 0)
-    `);
+    // ── 확장 컬럼 추가 (idempotent ALTER) ──────────────────────
+    // risk_level, required_features, is_deprecated, last_changed_by/at
+    const devFeaturesAlters = [
+      `ALTER TABLE dev_features
+         ADD COLUMN IF NOT EXISTS risk_level
+         ENUM('safe','medium','high','critical') DEFAULT 'safe'
+         COMMENT '토글 위험도 — UI에 배지 표시'`,
+      `ALTER TABLE dev_features
+         ADD COLUMN IF NOT EXISTS required_features VARCHAR(500) NULL
+         COMMENT 'JSON 배열 [feature_key,...] — 의존성'`,
+      `ALTER TABLE dev_features
+         ADD COLUMN IF NOT EXISTS is_deprecated TINYINT(1) DEFAULT 0
+         COMMENT '매니페스트에서 제거된 기능 (수동 정리 대기)'`,
+      `ALTER TABLE dev_features
+         ADD COLUMN IF NOT EXISTS last_changed_by INT NULL`,
+      `ALTER TABLE dev_features
+         ADD COLUMN IF NOT EXISTS last_changed_at TIMESTAMP NULL`,
+    ];
+    for (const sql of devFeaturesAlters) {
+      try {
+        await pool.query(sql);
+      } catch (_) {
+        /* 이미 존재 — 무시 */
+      }
+    }
+
+    // ── 변경 audit 로그 테이블 ─────────────────────────────────
+    await pool.query(`CREATE TABLE IF NOT EXISTS dev_features_audit (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      feature_key VARCHAR(100) NOT NULL,
+      old_enabled TINYINT(1),
+      new_enabled TINYINT(1),
+      changed_by  INT NULL,
+      changed_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      reason      VARCHAR(255),
+      INDEX idx_feature_date (feature_key, changed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    // ── 기능 플래그 자동 동기화 (매니페스트 → DB) ─────────────
+    // 정책:
+    //   1) 매니페스트에 있는 기능 → UPSERT (메타데이터 갱신, is_enabled 보존)
+    //   2) DB 에 있는데 매니페스트에 없으면 → is_deprecated = 1
+    //   3) Deprecated 자동 삭제 안 함 (수동 정리만)
+    try {
+      const { FEATURE_REGISTRY } = require('./data/featureRegistry');
+
+      for (const f of FEATURE_REGISTRY) {
+        const requiredJson = JSON.stringify(f.required_features || []);
+        await pool.query(
+          `INSERT INTO dev_features
+             (feature_key, feature_name, description, category,
+              risk_level, required_features, affects_routes, affects_tables,
+              is_experimental, is_enabled, is_deprecated)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+           ON DUPLICATE KEY UPDATE
+             feature_name       = VALUES(feature_name),
+             description        = VALUES(description),
+             category           = VALUES(category),
+             risk_level         = VALUES(risk_level),
+             required_features  = VALUES(required_features),
+             affects_routes     = VALUES(affects_routes),
+             affects_tables     = VALUES(affects_tables),
+             is_experimental    = VALUES(is_experimental),
+             is_deprecated      = 0`,
+          [
+            f.key,
+            f.name,
+            f.description || '',
+            f.category || 'general',
+            f.risk_level || 'safe',
+            requiredJson,
+            f.affects_routes || '',
+            f.affects_tables || '',
+            f.is_experimental ? 1 : 0,
+            f.default_enabled === false ? 0 : 1,
+          ]
+        );
+      }
+
+      // 매니페스트에 없는 옛 기능 → deprecated 표시
+      const keys = FEATURE_REGISTRY.map(f => f.key);
+      if (keys.length > 0) {
+        const placeholders = keys.map(() => '?').join(',');
+        await pool.query(
+          `UPDATE dev_features
+              SET is_deprecated = 1
+            WHERE feature_key NOT IN (${placeholders})
+              AND is_deprecated = 0`,
+          keys
+        );
+      }
+
+      console.log(`✅ Feature flags sync: ${FEATURE_REGISTRY.length} registered`);
+    } catch (err) {
+      console.error('⚠️ Feature flags sync 실패:', err.message);
+    }
 
     console.log('✅ DB 확장 테이블 + 인덱스 초기화 완료');
   } catch (err) {
