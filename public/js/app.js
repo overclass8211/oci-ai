@@ -18,6 +18,7 @@ const App = {
     calendar:  { obj: () => CalendarPage,   title: '영업 캘린더',    crumb: '영업관리 / 캘린더' },
     team:      { obj: () => TeamPage,       title: '팀 현황',        crumb: '분석 / 팀' },
     reports:   { obj: () => ReportsPage,    title: '리포트',         crumb: '분석 / 리포트' },
+    'report-builder': { obj: () => ReportBuilderPage, title: '리포트 빌더', crumb: '분석 / 리포트 빌더' },
     board:     { obj: () => BoardPage,      title: '커뮤니케이션',   crumb: '소통 / 게시판' },
     meeting:       { obj: () => MeetingPage,        title: '회의록 AI',      crumb: 'AI 기능 / 회의록' },
     'meeting-list':{ obj: () => MeetingListPage,    title: '회의록 목록',    crumb: 'AI 기능 / 회의록 목록' },

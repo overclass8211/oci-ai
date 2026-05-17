@@ -40,6 +40,7 @@ const ROLE_PAGES = {
     'calendar',
     'team',
     'reports',
+    'report-builder',
     'meeting',
     'meeting-list',
     'board',
@@ -54,6 +55,7 @@ const ROLE_PAGES = {
     'calendar',
     'team',
     'reports',
+    'report-builder',
     'meeting',
     'meeting-list',
     'board',
@@ -69,6 +71,7 @@ const ROLE_PAGES = {
     'calendar',
     'team',
     'reports',
+    'report-builder',
     'meeting',
     'meeting-list',
     'board',
@@ -86,6 +89,7 @@ const API_LEVEL_MAP = {
   '/admin': 3, // executive 이상
   '/team': 2, // team_lead 이상
   '/reports': 2,
+  '/report-builder': 2, // 리포트 빌더는 team_lead 이상만
 };
 
 // ── 패스워드 ────────────────────────────────────────────────

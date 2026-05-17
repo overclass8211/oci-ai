@@ -25,6 +25,7 @@ const DEFAULT_ITEMS = [
   { menu_key: 'calendar', section_key: 'sales', display_order: 4, is_system: 0 },
   { menu_key: 'team', section_key: 'analysis', display_order: 1, is_system: 0 },
   { menu_key: 'reports', section_key: 'analysis', display_order: 2, is_system: 0 },
+  { menu_key: 'report-builder', section_key: 'analysis', display_order: 3, is_system: 0 },
   { menu_key: 'board', section_key: 'comm', display_order: 1, is_system: 0 },
   { menu_key: 'ai-assistant', section_key: 'ai', display_order: 1, is_system: 0 },
   { menu_key: 'meeting', section_key: 'ai', display_order: 2, is_system: 0 },

@@ -235,6 +235,17 @@ const API = {
     }
   },
 
+  // ── 리포트 빌더 (Phase 1 MVP) ─────────────────────────────────
+  reportBuilder: {
+    fields:     ()              => API.get('/report-builder/fields'),
+    query:      (config)        => API.post('/report-builder/query', config),
+    listSaved:  ()              => API.get('/report-builder/saved'),
+    getSaved:   (id)            => API.get(`/report-builder/saved/${id}`),
+    save:       (data)          => API.post('/report-builder/saved', data),
+    update:     (id, data)      => API.put(`/report-builder/saved/${id}`, data),
+    delete:     (id)            => API.del(`/report-builder/saved/${id}`),
+  },
+
   // ── Gmail (Phase G1 — 읽기 + 매칭, G2 — 보내기) ──────────────
   gmail: {
     scopeStatus:    ()      => API.get('/gmail/scope-status'),

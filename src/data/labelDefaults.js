@@ -431,6 +431,13 @@ const LABEL_DEFAULTS = {
     },
     team: { desc: '팀 현황', ko: '팀 현황', en: 'Team', ja: 'チーム', zh: '团队' },
     reports: { desc: '리포트', ko: '리포트', en: 'Reports', ja: 'レポート', zh: '报表' },
+    'report-builder': {
+      desc: '리포트 빌더',
+      ko: '리포트 빌더',
+      en: 'Report Builder',
+      ja: 'レポートビルダー',
+      zh: '报表构建器',
+    },
     board: {
       desc: '커뮤니케이션',
       ko: '커뮤니케이션',

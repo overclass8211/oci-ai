@@ -57,7 +57,7 @@ const spaGlobals = {
   ProjectsPage: 'readonly', CustomersPage: 'readonly', CalendarPage: 'readonly',
   TeamPage: 'readonly', BoardPage: 'readonly', MeetingPage: 'readonly',
   MeetingListPage: 'readonly', AdminPage: 'readonly', SettingsPage: 'readonly',
-  ReportsPage: 'readonly', CostPage: 'readonly',
+  ReportsPage: 'readonly', ReportBuilderPage: 'readonly', CostPage: 'readonly',
   OrdersPage: 'readonly', NotificationsListPage: 'readonly', DevPage: 'readonly',
   // login.js
   Login: 'readonly',
