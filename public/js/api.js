@@ -262,6 +262,13 @@ const API = {
     }
   },
 
+  // ── 로고 관리 ─────────────────────────────────────────────
+  logo: {
+    get:     ()      => API.get('/system/logo'),
+    // upload 는 multipart — 별도 fetch 사용 (settings.js 에서 직접 호출)
+    restore: ()      => API.del('/admin/logo'),
+  },
+
   // ── 리포트 빌더 (crm.report_builder 가드) ───────────────────
   reportBuilder: {
     fields:     ()              => { API._checkFeature('crm.report_builder'); return API.get('/report-builder/fields'); },

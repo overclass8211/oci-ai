@@ -36,6 +36,9 @@ const App = {
     await Features.load();
     Features.apply();
 
+    // ── 시스템 로고 로드 (커스텀 로고 적용) ─────────────────
+    this._loadLogo();
+
     // ── 전역 이벤트 위임 (CSP: 인라인 onclick 제거) ─────────
     this._initEventDelegation();
 
@@ -387,6 +390,22 @@ const App = {
     const d = new Date();
     const days = ['일', '월', '화', '수', '목', '금', '토'];
     el.textContent = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} (${days[d.getDay()]})`;
+  },
+
+  // ─── 시스템 로고 로드 (사이드바 좌측 상단) ────────────────
+  // 커스텀 로고 업로드 시 즉시 반영 (DEV 옵션 / 설정 페이지에서 변경)
+  async _loadLogo() {
+    const img = document.getElementById('sidebar-logo-img');
+    if (!img) return;
+    try {
+      const r = await API.get('/system/logo');
+      const url = r?.data?.url;
+      if (url && url !== img.src) {
+        img.src = url;
+      }
+    } catch (_) {
+      // 실패 시 기본 로고 유지 (HTML 의 src 그대로)
+    }
   },
 
   // ── 모바일 햄버거 네비게이션 ─────────────────────────────

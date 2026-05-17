@@ -127,6 +127,38 @@ const SettingsPage = {
         </div>
       </div>
 
+      <!-- 🎨 로고 관리 ─────────────────────────────────────── -->
+      <div class="card mb-3" id="logo-mgmt-card">
+        <div class="card-header">
+          <div class="card-title">🎨 로고 관리</div>
+          <span style="font-size:11px;color:var(--text-3)">사이드바 좌측 상단에 표시되는 로고 (PNG / JPG / SVG, 2MB 이하)</span>
+        </div>
+        <div class="card-body">
+          <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+            <div style="flex:0 0 220px;display:flex;flex-direction:column;align-items:center;gap:8px">
+              <div style="font-size:11px;color:var(--text-3);font-weight:600">현재 로고</div>
+              <div style="width:200px;height:80px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;padding:8px">
+                <img id="logo-preview" src="/assets/default-logo.svg" alt="현재 로고"
+                     style="max-width:100%;max-height:100%;object-fit:contain">
+              </div>
+              <div id="logo-status" style="font-size:11px;color:var(--text-3)">기본 로고</div>
+            </div>
+            <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:10px">
+              <label style="font-size:13px;font-weight:600;color:var(--text-1)">새 로고 업로드</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input type="file" id="logo-file-input" accept="image/png,image/jpeg,image/svg+xml" style="font-size:12px;flex:1;min-width:180px">
+                <button class="btn btn-primary btn-sm" id="logo-upload-btn">📤 업로드</button>
+                <button class="btn btn-ghost btn-sm" id="logo-restore-btn" style="color:var(--oci-red)">🔄 기본 로고로 복원</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-3);line-height:1.6">
+                💡 PNG/JPG/SVG 형식만 가능 · 권장 크기: 가로 240px × 세로 80px (높이 32px로 표시됨)<br>
+                업로드 후 즉시 모든 사용자의 사이드바에 반영됩니다.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-header">
           <div class="card-title">✉️ 이메일 템플릿</div>
@@ -168,6 +200,9 @@ const SettingsPage = {
       const btn = e.target.closest('[data-integration]');
       if (btn) this.openIntegration(btn.dataset.integration);
     });
+
+    // 🎨 로고 관리
+    this._initLogoManager();
 
     // 이메일 템플릿
     document.getElementById('email-tpl-new-btn')?.addEventListener('click', () => this.openTemplateForm());
@@ -493,6 +528,97 @@ const SettingsPage = {
     } catch (e) {
       Toast.error('이력 로드 실패: ' + (e.message || ''));
     }
+  },
+
+  // ─── 🎨 로고 관리 ───────────────────────────────────────
+  async _initLogoManager() {
+    const preview = document.getElementById('logo-preview');
+    const statusEl = document.getElementById('logo-status');
+    const fileInput = document.getElementById('logo-file-input');
+    const uploadBtn = document.getElementById('logo-upload-btn');
+    const restoreBtn = document.getElementById('logo-restore-btn');
+    if (!preview || !uploadBtn) return;
+
+    // 현재 로고 로드
+    const refreshPreview = async () => {
+      try {
+        const r = await API.logo.get();
+        const url = r?.data?.url || '/assets/default-logo.svg';
+        const isCustom = r?.data?.is_custom;
+        // 캐시 회피용 timestamp 쿼리 (업로드 직후 갱신)
+        preview.src = url + (isCustom ? '?t=' + Date.now() : '');
+        if (statusEl) {
+          statusEl.textContent = isCustom ? '✅ 커스텀 로고 적용됨' : '기본 로고';
+          statusEl.style.color = isCustom ? '#17A85A' : 'var(--text-3)';
+        }
+        // 사이드바 로고도 즉시 동기화
+        const sidebarImg = document.getElementById('sidebar-logo-img');
+        if (sidebarImg) sidebarImg.src = url + (isCustom ? '?t=' + Date.now() : '');
+      } catch (_) { /* ignore */ }
+    };
+    await refreshPreview();
+
+    // 업로드 버튼
+    uploadBtn.onclick = async () => {
+      const file = fileInput?.files?.[0];
+      if (!file) {
+        Toast.warn?.('파일을 먼저 선택하세요 (PNG/JPG/SVG)');
+        return;
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        Toast.error('파일 크기는 2MB 이하만 가능합니다');
+        return;
+      }
+      uploadBtn.disabled = true;
+      const orig = uploadBtn.textContent;
+      uploadBtn.textContent = '⏳ 업로드 중...';
+      try {
+        const formData = new FormData();
+        formData.append('logo', file);
+        // multipart 라 fetch 직접 사용 (Bearer 헤더 포함)
+        const token = sessionStorage.getItem('oci_token') || localStorage.getItem('oci_token');
+        const res = await fetch('/api/admin/logo/upload', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token },
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || '업로드 실패');
+        }
+        // 최적화 결과 표시 (Sharp + svgo)
+        const opt = data.data?.optimization;
+        if (opt) {
+          const fmt = b => b < 1024 ? `${b}B` : b < 1024 * 1024 ? `${(b/1024).toFixed(1)}KB` : `${(b/1024/1024).toFixed(2)}MB`;
+          const savings = opt.savings_percent > 0
+            ? ` (${opt.savings_percent}% 절감)`
+            : '';
+          const dims = opt.width && opt.height ? ` · ${opt.width}×${opt.height}` : '';
+          Toast.success(`✅ 로고 변경 완료 — ${fmt(opt.original_size)} → ${fmt(opt.optimized_size)}${savings}${dims}`);
+        } else {
+          Toast.success('✅ 로고가 변경되었습니다');
+        }
+        fileInput.value = '';
+        await refreshPreview();
+      } catch (err) {
+        Toast.error('업로드 실패: ' + (err.message || ''));
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = orig;
+      }
+    };
+
+    // 복원 버튼
+    restoreBtn.onclick = async () => {
+      if (!confirm('기본 로고로 복원하시겠습니까?\n(업로드된 커스텀 로고 파일이 삭제됩니다)')) return;
+      try {
+        await API.logo.restore();
+        Toast.success('🔄 기본 로고로 복원되었습니다');
+        await refreshPreview();
+      } catch (err) {
+        Toast.error('복원 실패: ' + (err.message || ''));
+      }
+    };
   },
 
   // ─── 이메일 템플릿 관리 ─────────────────────────────────

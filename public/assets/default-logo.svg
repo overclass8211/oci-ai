@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <!-- 빨간 손가락 아이콘 (검지 위) -->
+  <g stroke="#E63329" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- 손가락 + 손바닥 외곽선 -->
+    <path d="M 28 18 L 28 40 L 22 44 L 22 56 Q 22 64 30 64 L 50 64 Q 56 64 56 58 L 56 36 Q 56 32 52 32 L 48 32"/>
+    <!-- 중지 (살짝) -->
+    <path d="M 38 32 L 38 36 Q 38 32 42 32 L 48 32"/>
+    <!-- 약지 (살짝) -->
+    <path d="M 32 30 L 32 36"/>
+    <!-- 손가락 끝 (검지 상단) -->
+    <path d="M 28 18 Q 28 14 32 14 Q 36 14 36 18 L 36 32"/>
+  </g>
+  <!-- FINGER AI 텍스트 -->
+  <text x="74" y="52" font-family="'Noto Sans KR', system-ui, sans-serif" font-size="28" font-weight="800" fill="#1F2329" letter-spacing="-0.5">
+    FINGER AI
+  </text>
+</svg>

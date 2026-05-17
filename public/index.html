@@ -40,7 +40,8 @@
 <!-- ============== SIDEBAR ============== -->
 <aside class="sidebar">
   <div class="sidebar-logo" data-action="navigate" data-page="dashboard" title="대시보드 홈">
-    <img src="/assets/oci_logo.png" alt="OCI" class="logo-img" style="height:26px;width:auto">
+    <!-- 로고 이미지 — 부팅 시 App._loadLogo() 가 /api/system/logo 에서 가져와 src 갱신 -->
+    <img id="sidebar-logo-img" src="/assets/default-logo.svg" alt="Logo" class="logo-img" style="height:32px;width:auto;max-width:160px;object-fit:contain">
     <div class="logo-divider"></div>
     <div class="logo-sub">CRM <span style="color:var(--oci-red);font-weight:700">AI</span></div>
   </div>

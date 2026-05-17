@@ -41,6 +41,28 @@ const uploadAudio = multer({
   },
 });
 
+// 로고 업로드 전용 — PNG/JPG/SVG 만 허용, 2MB 제한
+// public/uploads/logos/ 디렉토리에 timestamp 포함 파일명으로 저장
+const logoDir = path.join(uploadDir, 'logos');
+if (!fs.existsSync(logoDir)) fs.mkdirSync(logoDir, { recursive: true });
+const uploadLogo = multer({
+  storage: multer.diskStorage({
+    destination: logoDir,
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `logo-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+  fileFilter: (req, file, cb) => {
+    const ok =
+      /\.(png|jpg|jpeg|svg)$/i.test(file.originalname) ||
+      /^image\/(png|jpeg|svg\+xml)$/.test(file.mimetype || '');
+    cb(null, ok);
+  },
+});
+
 module.exports = upload;
 module.exports.memory = uploadMemory;
 module.exports.audio = uploadAudio;
+module.exports.logo = uploadLogo;

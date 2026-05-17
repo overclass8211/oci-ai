@@ -316,6 +316,13 @@ app.use('/api/admin/labels', adminLabelsRouter);
 app.use('/api/labels', adminLabelsRouter.publicRouter);
 app.use('/api/menu', require('./src/routes/menu'));
 
+// 로고 관리
+// GET /api/system/logo — 누구나 (로그인 페이지 포함, 인증 미들웨어 전에 마운트)
+// POST/DELETE /api/admin/logo — admin 라우트로 분리 (RBAC autoLevel 미들웨어 자동 적용)
+const logoRouter = require('./src/routes/logo');
+app.use('/api/system/logo', logoRouter);
+app.use('/api/admin/logo', logoRouter);
+
 // 로그인 페이지
 app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 

@@ -86,6 +86,7 @@ const API_LEVEL_MAP = {
   '/admin/team-members': 4, // admin(IT운영관리자) 이상
   '/admin/menu-config': 4, // 메뉴 구조 변경은 admin 이상만
   '/admin/labels': 4, // 워드 사전 관리는 admin 이상만
+  '/admin/logo': 4, // 로고 관리는 admin 이상만
   '/admin': 3, // executive 이상
   '/team': 2, // team_lead 이상
   '/reports': 2,
