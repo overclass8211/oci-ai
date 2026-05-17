@@ -6,6 +6,18 @@ const API = {
   _refreshing: false,       // 중복 갱신 방지 플래그
   _refreshQueue: [],        // 갱신 대기 큐
 
+  // ── Circuit Breaker: 기능 토글 OFF 시 네트워크 요청 차단 ───
+  // 백엔드 featureGuard 가 어차피 403 차단하지만, 클라이언트에서 미리
+  // 막아서 ① 불필요한 네트워크 트래픽 절약 ② 일관된 에러 처리 ③ 빠른 UI 응답
+  _checkFeature(featureKey) {
+    if (typeof Features !== 'undefined' && !Features.isEnabled(featureKey)) {
+      const err = new Error(`이 기능은 현재 비활성화 상태입니다 (${featureKey})`);
+      err.code = 'FEATURE_DISABLED';
+      err.feature = featureKey;
+      throw err;
+    }
+  },
+
   // ── Access Token 갱신 (Refresh Token 쿠키 사용) ─────────
   async _tryRefresh() {
     if (this._refreshing) {
@@ -148,9 +160,12 @@ const API = {
     delete: (id)          => API.del(`/activities/${id}`)
   },
 
-  // 알림
+  // 알림 (crm.notifications 토글 가드)
   notifications: {
-    list: () => API.get('/notifications')
+    list: () => {
+      API._checkFeature('crm.notifications');
+      return API.get('/notifications');
+    },
   },
 
   // 캘린더
@@ -203,24 +218,36 @@ const API = {
     manualRecharge: (id, amount) => API.post(`/admin/token-recharge/${id}`, { amount }),
   },
 
-  // 회의록
+  // 회의록 (목록/조회는 자유, 생성/요약은 ai.meeting 가드)
   meetings: {
     list:   ()        => API.get('/meetings'),
     get:    (id)      => API.get(`/meetings/${id}`),
     create: (body)    => API.post('/meetings', body),
     delete: (id)      => API.del(`/meetings/${id}`),
-    summarize:        (body) => API.post('/meeting/summarize', body),
+    summarize: (body) => {
+      API._checkFeature('ai.meeting');
+      return API.post('/meeting/summarize', body);
+    },
     registerCalendar: (id, body) => API.post(`/meetings/${id}/register-calendar`, body)
     // transcribe 는 multipart 라 fetch 직접 사용
   },
 
-  // AI (스트리밍은 fetch 직접 사용, 여기선 non-streaming만)
+  // AI (각 기능별 토글 가드)
   ai: {
     insights: () => API.get('/ai/insights'),
-    chat:     (body) => API.post('/ai/chat', body),
-    report:   (type) => API.post('/ai/report', { type }),
-    meetingNotes: (body) => API.post('/ai/meeting-notes', body),
-    usageToday:   () => API.get('/ai/usage/today')
+    chat: (body) => {
+      API._checkFeature('ai.assistant');
+      return API.post('/ai/chat', body);
+    },
+    report: (type) => {
+      API._checkFeature('ai.assistant');
+      return API.post('/ai/report', { type });
+    },
+    meetingNotes: (body) => {
+      API._checkFeature('ai.meeting');
+      return API.post('/ai/meeting-notes', body);
+    },
+    usageToday: () => API.get('/ai/usage/today'),
   },
 
   // Google Meet 연동
@@ -235,29 +262,43 @@ const API = {
     }
   },
 
-  // ── 리포트 빌더 (Phase 1 MVP) ─────────────────────────────────
+  // ── 리포트 빌더 (crm.report_builder 가드) ───────────────────
   reportBuilder: {
-    fields:     ()              => API.get('/report-builder/fields'),
-    query:      (config)        => API.post('/report-builder/query', config),
-    listSaved:  ()              => API.get('/report-builder/saved'),
-    getSaved:   (id)            => API.get(`/report-builder/saved/${id}`),
-    save:       (data)          => API.post('/report-builder/saved', data),
-    update:     (id, data)      => API.put(`/report-builder/saved/${id}`, data),
-    delete:     (id)            => API.del(`/report-builder/saved/${id}`),
+    fields:     ()              => { API._checkFeature('crm.report_builder'); return API.get('/report-builder/fields'); },
+    query:      (config)        => { API._checkFeature('crm.report_builder'); return API.post('/report-builder/query', config); },
+    listSaved:  ()              => { API._checkFeature('crm.report_builder'); return API.get('/report-builder/saved'); },
+    getSaved:   (id)            => { API._checkFeature('crm.report_builder'); return API.get(`/report-builder/saved/${id}`); },
+    save:       (data)          => { API._checkFeature('crm.report_builder'); return API.post('/report-builder/saved', data); },
+    update:     (id, data)      => { API._checkFeature('crm.report_builder'); return API.put(`/report-builder/saved/${id}`, data); },
+    delete:     (id)            => { API._checkFeature('crm.report_builder'); return API.del(`/report-builder/saved/${id}`); },
   },
 
-  // ── Gmail (Phase G1 — 읽기 + 매칭, G2 — 보내기) ──────────────
+  // ── Gmail (G1=gmail.read / G2=gmail.send / G3=gmail.sync) ──
   gmail: {
-    scopeStatus:    ()      => API.get('/gmail/scope-status'),
-    messages: (email, limit = 10) =>
-      API.get(`/gmail/messages?email=${encodeURIComponent(email)}&limit=${limit}`),
-    matchLead:     (id, limit = 10) => API.get(`/gmail/match/lead/${id}?limit=${limit}`),
-    matchCustomer: (id, limit = 10) => API.get(`/gmail/match/customer/${id}?limit=${limit}`),
-    send:          (body)   => API.post('/gmail/send', body),  // { to, subject, body, cc?, bcc? }
+    scopeStatus: () => API.get('/gmail/scope-status'),  // OAuth 상태 확인은 가드 없음 (UI 분기용)
+    messages: (email, limit = 10) => {
+      API._checkFeature('gmail.read');
+      return API.get(`/gmail/messages?email=${encodeURIComponent(email)}&limit=${limit}`);
+    },
+    matchLead: (id, limit = 10) => {
+      API._checkFeature('gmail.read');
+      return API.get(`/gmail/match/lead/${id}?limit=${limit}`);
+    },
+    matchCustomer: (id, limit = 10) => {
+      API._checkFeature('gmail.read');
+      return API.get(`/gmail/match/customer/${id}?limit=${limit}`);
+    },
+    send: (body) => {
+      API._checkFeature('gmail.send');
+      return API.post('/gmail/send', body);
+    },
     // G3 — 자동 동기화
-    syncSettings:  ()       => API.get('/gmail/sync-settings'),
-    setSync:       (enabled)=> API.put('/gmail/sync-settings', { enabled: !!enabled }),
-    syncNow:       ()       => API.post('/gmail/sync-now'),
+    syncSettings: () => API.get('/gmail/sync-settings'),  // 설정 조회는 가드 없음 (관리자가 켜기 위해 필요)
+    setSync: (enabled) => API.put('/gmail/sync-settings', { enabled: !!enabled }),
+    syncNow: () => {
+      API._checkFeature('gmail.sync');
+      return API.post('/gmail/sync-now');
+    },
   },
 
   // ── 엑셀 다운로드 헬퍼 (인증 헤더 포함) — 레거시 ────────────────

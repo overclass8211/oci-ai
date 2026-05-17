@@ -234,6 +234,7 @@ const SearchModal = {
     this.abortCtrl = new AbortController();
 
     try {
+      API._checkFeature('crm.search');
       const r = await API.get(`/search?q=${encodeURIComponent(q)}`);
       // 입력이 바뀌었으면 결과 무시
       if (this.query !== q) return;
