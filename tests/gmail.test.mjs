@@ -44,4 +44,60 @@ describe('Gmail API — 인증/검증', () => {
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
   });
+
+  // Phase G3 — 자동 동기화 라우트
+  it('GET /api/gmail/sync-settings — 토큰 없으면 401', async () => {
+    const res = await api().get('/api/gmail/sync-settings');
+    expect(res.status).toBe(401);
+  });
+
+  it('PUT /api/gmail/sync-settings — 토큰 없으면 401', async () => {
+    const res = await api().put('/api/gmail/sync-settings').send({ enabled: true });
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /api/gmail/sync-now — 토큰 없으면 401', async () => {
+    const res = await api().post('/api/gmail/sync-now');
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── G3 스키마 자가 마이그레이션 회귀 ─────────────────────────────
+import { pool } from './helpers.mjs';
+
+describe('Gmail Sync — 자가 마이그레이션', () => {
+  it('google_oauth_tokens 에 G3 컬럼 3개 존재', async () => {
+    // 마이그레이션 promise 명시적 대기
+    const mod = await import('../src/services/gmailSync.js');
+    await mod._migrationPromise;
+    const [rows] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'google_oauth_tokens'
+          AND COLUMN_NAME IN ('gmail_sync_enabled','gmail_last_polled_at','gmail_sync_error')`
+    );
+    const names = rows.map(r => r.COLUMN_NAME);
+    expect(names).toEqual(expect.arrayContaining(['gmail_sync_enabled','gmail_last_polled_at','gmail_sync_error']));
+  });
+
+  it('activities.gmail_message_id 컬럼 + UNIQUE 인덱스 존재', async () => {
+    const mod = await import('../src/services/gmailSync.js');
+    await mod._migrationPromise;
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'activities'
+          AND COLUMN_NAME  = 'gmail_message_id'`
+    );
+    expect(cols.length).toBe(1);
+
+    const [idx] = await pool.query(
+      `SELECT INDEX_NAME, NON_UNIQUE FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'activities'
+          AND COLUMN_NAME  = 'gmail_message_id'`
+    );
+    expect(idx.length).toBeGreaterThan(0);
+    expect(Number(idx[0].NON_UNIQUE)).toBe(0); // UNIQUE
+  });
 });

@@ -339,6 +339,28 @@ const MeetingPage = (() => {
         </div>
       </div>
 
+      <!-- 📧 Gmail 자동 동기화 (Phase G3) ───────────────────────── -->
+      <div id="gmail-sync-box" style="margin-top:14px;padding:12px 14px;background:var(--surface-2);border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px">
+              📧 Gmail 자동 동기화
+              <span id="gmail-sync-status" style="font-size:10px;color:var(--text-3);margin-left:6px"></span>
+            </div>
+            <div style="font-size:11px;color:var(--text-2);line-height:1.5">
+              5분 주기로 새 메일 자동 매칭 → 고객사 활동 이력에 자동 기록
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <button class="btn btn-ghost btn-sm" id="gmail-sync-now-btn" title="지금 즉시 동기화">⚡ 지금 동기화</button>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:500">
+              <input type="checkbox" id="gmail-sync-toggle" style="width:16px;height:16px;cursor:pointer">
+              <span id="gmail-sync-label">활성화</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <!-- 최근 Meet 세션 -->
       <div id="gmeet-recent" style="margin-top:14px"></div>
     `;
@@ -347,6 +369,66 @@ const MeetingPage = (() => {
     document.getElementById('gmeet-disconnect-btn')?.addEventListener('click', () => disconnectGoogle());
 
     _loadRecentMeetSessions();
+    _loadGmailSyncSettings();
+  }
+
+  // ── 📧 Gmail 자동 동기화 설정 로드/토글 (Phase G3) ────────────
+  async function _loadGmailSyncSettings() {
+    const toggle = document.getElementById('gmail-sync-toggle');
+    const status = document.getElementById('gmail-sync-status');
+    const syncBtn = document.getElementById('gmail-sync-now-btn');
+    if (!toggle) return;
+
+    try {
+      const r = await API.gmail.syncSettings();
+      const d = r.data || {};
+      toggle.checked = !!d.enabled;
+      if (status) {
+        if (d.enabled) {
+          const last = d.last_polled_at
+            ? new Date(d.last_polled_at).toLocaleString('ko-KR')
+            : '아직 없음';
+          status.textContent = `· 마지막 폴링: ${last}`;
+          if (d.error) status.innerHTML += ` · <span style="color:var(--oci-red)">⚠️ ${esc(d.error)}</span>`;
+        } else {
+          status.textContent = '· 비활성';
+        }
+      }
+    } catch (_) {}
+
+    toggle.onchange = async () => {
+      try {
+        await API.gmail.setSync(toggle.checked);
+        Toast.success(toggle.checked ? '📧 Gmail 자동 동기화 활성화' : 'Gmail 자동 동기화 비활성화');
+        _loadGmailSyncSettings();
+      } catch (err) {
+        toggle.checked = !toggle.checked; // 롤백
+        Toast.error('설정 변경 실패: ' + (err.message || ''));
+      }
+    };
+
+    syncBtn.onclick = async () => {
+      syncBtn.disabled = true;
+      const orig = syncBtn.textContent;
+      syncBtn.textContent = '⏳ 동기화 중...';
+      try {
+        const r = await API.gmail.syncNow();
+        const d = r.data || {};
+        if (d.error === 'disabled') {
+          Toast.warn?.('동기화가 비활성 상태입니다. 토글을 켜주세요.');
+        } else if (d.error) {
+          Toast.error('동기화 실패: ' + d.error);
+        } else {
+          Toast.success(`✅ ${d.inserted || 0}건 새로 기록 · ${d.matched || 0}건 매칭`);
+        }
+        _loadGmailSyncSettings();
+      } catch (err) {
+        Toast.error('동기화 실패: ' + (err.message || ''));
+      } finally {
+        syncBtn.disabled = false;
+        syncBtn.textContent = orig;
+      }
+    };
   }
 
   async function _loadRecentMeetSessions() {

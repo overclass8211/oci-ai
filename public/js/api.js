@@ -243,6 +243,10 @@ const API = {
     matchLead:     (id, limit = 10) => API.get(`/gmail/match/lead/${id}?limit=${limit}`),
     matchCustomer: (id, limit = 10) => API.get(`/gmail/match/customer/${id}?limit=${limit}`),
     send:          (body)   => API.post('/gmail/send', body),  // { to, subject, body, cc?, bcc? }
+    // G3 — 자동 동기화
+    syncSettings:  ()       => API.get('/gmail/sync-settings'),
+    setSync:       (enabled)=> API.put('/gmail/sync-settings', { enabled: !!enabled }),
+    syncNow:       ()       => API.post('/gmail/sync-now'),
   },
 
   // ── 엑셀 다운로드 헬퍼 (인증 헤더 포함) — 레거시 ────────────────

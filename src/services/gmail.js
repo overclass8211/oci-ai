@@ -227,4 +227,88 @@ async function sendMessage(userId, opts) {
   };
 }
 
-module.exports = { listByEmail, getOwnEmail, getGmailClient, classifyError, sendMessage };
+/**
+ * 특정 시각 이후의 메시지 N건 (백그라운드 동기화용)
+ * Gmail 쿼리 `after:` 는 초 단위 epoch.
+ * @param {number} userId
+ * @param {Date|number} sinceTs   — Date 또는 epoch ms. null/undefined 면 최근 24시간
+ * @param {object} opts           — { limit (기본 100), maxBack: 24*60*60*1000 }
+ * @returns {Promise<Array>}      — listByEmail 와 동일한 메시지 포맷
+ */
+async function listSince(userId, sinceTs, opts = {}) {
+  const limit = Math.min(500, Math.max(1, parseInt(opts.limit) || 100));
+  const maxBack = opts.maxBack || 24 * 60 * 60 * 1000; // 첫 폴링 시 백트래킹 한계: 24h
+
+  let sinceMs;
+  if (sinceTs instanceof Date) sinceMs = sinceTs.getTime();
+  else if (typeof sinceTs === 'number') sinceMs = sinceTs;
+  else sinceMs = Date.now() - maxBack;
+
+  // 너무 오래된 데이터 백트래킹 금지 — 단일 폴링 최대 maxBack
+  const minAllowed = Date.now() - maxBack;
+  if (sinceMs < minAllowed) sinceMs = minAllowed;
+
+  const afterSec = Math.floor(sinceMs / 1000);
+  const { gmail } = await getGmailClient(userId);
+
+  const listRes = await gmail.users.messages.list({
+    userId: 'me',
+    q: `after:${afterSec}`,
+    maxResults: limit,
+  });
+  const ids = (listRes.data.messages || []).map(m => m.id);
+  if (!ids.length) return [];
+
+  let myEmail = '';
+  try {
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    myEmail = (profile.data.emailAddress || '').toLowerCase();
+  } catch (_) {}
+
+  const detailed = await Promise.all(
+    ids.map(id =>
+      gmail.users.messages
+        .get({
+          userId: 'me',
+          id,
+          format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+        })
+        .then(r => r.data)
+        .catch(() => null)
+    )
+  );
+
+  return detailed.filter(Boolean).map(m => {
+    const headers = m.payload?.headers || [];
+    const from = _hdr(headers, 'From');
+    const to = _hdr(headers, 'To');
+    const subject = _hdr(headers, 'Subject') || '(제목 없음)';
+    const date = m.internalDate ? new Date(parseInt(m.internalDate)) : null;
+    const fromAddr = _extractAddr(from);
+    const toAddrs = (to || '').split(',').map(_extractAddr).filter(Boolean);
+    const direction = myEmail && fromAddr === myEmail ? 'outbound' : 'inbound';
+    return {
+      id: m.id,
+      threadId: m.threadId,
+      from,
+      fromAddr,
+      to,
+      toAddrs,
+      subject,
+      snippet: m.snippet || '',
+      date,
+      direction,
+      gmail_url: `https://mail.google.com/mail/u/0/#all/${m.threadId}`,
+    };
+  });
+}
+
+module.exports = {
+  listByEmail,
+  listSince,
+  getOwnEmail,
+  getGmailClient,
+  classifyError,
+  sendMessage,
+};

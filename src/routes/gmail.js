@@ -152,6 +152,76 @@ router.get('/match/customer/:id', async (req, res) => {
   }
 });
 
+// ── 동기화 설정 조회 (Phase G3) ───────────────────────────────
+router.get('/sync-settings', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const [[row]] = await pool.query(
+      `SELECT google_email, gmail_sync_enabled, gmail_last_polled_at, gmail_sync_error
+         FROM google_oauth_tokens WHERE user_id = ?`,
+      [userId]
+    );
+    if (!row) {
+      return res.json({
+        success: true,
+        data: { connected: false, enabled: false, last_polled_at: null, error: null },
+      });
+    }
+    res.json({
+      success: true,
+      data: {
+        connected: true,
+        google_email: row.google_email,
+        enabled: !!row.gmail_sync_enabled,
+        last_polled_at: row.gmail_last_polled_at,
+        error: row.gmail_sync_error,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── 동기화 토글 (Phase G3) ────────────────────────────────────
+router.put('/sync-settings', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const enabled = req.body && req.body.enabled === true ? 1 : 0;
+    const [[row]] = await pool.query('SELECT user_id FROM google_oauth_tokens WHERE user_id = ?', [
+      userId,
+    ]);
+    if (!row) {
+      return res.status(400).json({
+        success: false,
+        error: 'Google 계정이 연결되지 않았습니다. 먼저 Google 연결 후 동기화를 활성화하세요.',
+        notConnected: true,
+      });
+    }
+    await pool.query(
+      `UPDATE google_oauth_tokens
+          SET gmail_sync_enabled = ?,
+              gmail_sync_error   = NULL
+        WHERE user_id = ?`,
+      [enabled, userId]
+    );
+    res.json({ success: true, data: { enabled: !!enabled } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── 수동 동기화 트리거 (Phase G3) ─────────────────────────────
+router.post('/sync-now', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const sync = require('../services/gmailSync');
+    const result = await sync.pollOne(userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── 메일 발송 (Phase G2) ─────────────────────────────────────
 // body: { to, subject, body, cc?, bcc? }
 // 응답: { success, data: { message_id, thread_id, from } }

@@ -404,6 +404,28 @@ if (require.main === module) {
     }
     scheduleFxRefresh();
 
+    // ── Gmail 자동 동기화 (Phase G3) — 5분 주기 ────────────────────────
+    // gmail_sync_enabled=1 인 사용자만 폴링. 옵트인 기본.
+    // server.js 부팅 후 30초 뒤 첫 실행 (DB 마이그레이션 + 토큰 로드 완료 대기)
+    const GMAIL_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+    setTimeout(() => {
+      const gmailSync = require('./src/services/gmailSync');
+      const tick = async () => {
+        try {
+          const results = await gmailSync.pollAll();
+          const total = results.reduce((s, r) => s + (r.inserted || 0), 0);
+          if (total > 0) {
+            console.log(`[gmailSync] ${results.length} users, ${total} new activities`);
+          }
+        } catch (e) {
+          console.error('[gmailSync] tick failed:', e.message);
+        }
+      };
+      tick(); // 즉시 1회
+      setInterval(tick, GMAIL_SYNC_INTERVAL_MS).unref?.();
+      console.log(`[gmailSync] 자동 동기화 등록 (${GMAIL_SYNC_INTERVAL_MS / 60000}분 주기)`);
+    }, 30 * 1000);
+
     // 서버 시작 시 1회 즉시 갱신 + 백필
     setTimeout(async () => {
       try {
