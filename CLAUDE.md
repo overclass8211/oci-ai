@@ -144,12 +144,12 @@ npx playwright test e2e/<시나리오>.spec.js
 
 ## 📚 관련 문서
 
-- 📘 [docs/USER_MANUAL.md](./docs/USER_MANUAL.md) - 사용자 매뉴얼
-- 🏛 [docs/PROGRAM_DESIGN.md](./docs/PROGRAM_DESIGN.md) - 프로그램 설계서
-- 🔌 [docs/API_DOCUMENTATION.md](./docs/API_DOCUMENTATION.md) - API 명세
-- 🛠 [docs/ADMIN_SETUP_GUIDE.md](./docs/ADMIN_SETUP_GUIDE.md) - 관리자 셋업
-- 🔧 [docs/TROUBLESHOOTING_GUIDE.md](./docs/TROUBLESHOOTING_GUIDE.md) - 트러블슈팅
-- 🔄 [docs/DEV_WORKFLOW.md](./docs/DEV_WORKFLOW.md) - 개발 워크플로우 (이 파일 사람용 버전)
+- 📘 [src/docs/USER_MANUAL.md](./src/src/docs/USER_MANUAL.md) - 사용자 매뉴얼
+- 🏛 [src/docs/PROGRAM_DESIGN.md](./src/src/docs/PROGRAM_DESIGN.md) - 프로그램 설계서
+- 🔌 [src/docs/API_DOCUMENTATION.md](./src/src/docs/API_DOCUMENTATION.md) - API 명세
+- 🛠 [src/docs/ADMIN_SETUP_GUIDE.md](./src/src/docs/ADMIN_SETUP_GUIDE.md) - 관리자 셋업
+- 🔧 [src/docs/TROUBLESHOOTING_GUIDE.md](./src/src/docs/TROUBLESHOOTING_GUIDE.md) - 트러블슈팅
+- 🔄 [src/docs/DEV_WORKFLOW.md](./src/src/docs/DEV_WORKFLOW.md) - 개발 워크플로우 (이 파일 사람용 버전)
 
 ---
 

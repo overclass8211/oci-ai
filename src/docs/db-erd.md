@@ -328,3 +328,72 @@ comments (polymorphic)
 | **CASCADE** | activities ← leads, projects / cost_history ← products | 부모 삭제 시 자식도 함께 삭제 |
 | **SET NULL** | leads ← customers, team_members / projects ← customers, leads, team_members | 부모 삭제 시 FK를 NULL로 처리 (데이터 보존) |
 | 논리적 참조 | 나머지 모든 참조 | FK 미선언, 애플리케이션 레벨에서 정합성 관리 |
+
+---
+
+# 🆕 v5.0 추가 테이블
+
+## 1. report_definitions — 사용자 정의 리포트
+
+```
+┌─────────────────────────┐
+│ report_definitions      │
+├─────────────────────────┤
+│ id (PK)                 │
+│ user_id ──────► users   │
+│ name                    │
+│ description             │
+│ config_json (JSON)      │
+│ is_shared (Phase 2)     │
+│ created_at, updated_at  │
+└─────────────────────────┘
+```
+
+**config_json** 형식:
+```json
+{
+  "datasource": "leads",
+  "rows": ["stage"],
+  "columns": ["region"],
+  "filters": [{"field":"region","op":"eq","value":"국내"}],
+  "measures": ["count", "sum_expected_amount"],
+  "chartType": "auto"
+}
+```
+
+## 2. dev_features_audit — 토글 변경 이력
+
+```
+┌─────────────────────────┐
+│ dev_features_audit      │
+├─────────────────────────┤
+│ id (PK)                 │
+│ feature_key ──► dev_features  │
+│ old_enabled (0/1)       │
+│ new_enabled (0/1)       │
+│ changed_by ──► users    │
+│ changed_at              │
+│ reason                  │
+└─────────────────────────┘
+INDEX (feature_key, changed_at)
+```
+
+## 3. dev_features 컬럼 확장
+
+기존 `dev_features` 테이블에 추가된 컬럼:
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `risk_level` | ENUM('safe','medium','high','critical') | 위험도 |
+| `required_features` | VARCHAR(500) | JSON 배열 — 의존성 |
+| `is_deprecated` | TINYINT(1) | 매니페스트 제거 표시 |
+| `last_changed_by` | INT | 마지막 변경자 |
+| `last_changed_at` | TIMESTAMP | 마지막 변경 시각 |
+
+## 4. system_settings 신규 키
+
+`logo_path` — 커스텀 로고 URL 저장 (NULL 시 기본 SVG 사용)
+
+---
+
+# 📐 v5.0 전체 테이블 수: **27개** (기존 24 + 신규 2 + 컬럼 확장 1)

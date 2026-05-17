@@ -1111,5 +1111,109 @@ const ws = new WebSocket(`wss://<domain>/?token=${JWT_TOKEN}`);
 | email-templates.js | `/email-templates` | 2 |
 | webhooks.js | `/webhooks` | 3 |
 | exchange.js | `/exchange` | (예약) |
+| logo.js | `/system/logo`, `/admin/logo` | 3 |
+| report-builder.js | `/report-builder` | 7 |
 
 > 총 **100+ 엔드포인트** 제공
+
+---
+
+# 🆕 v5.0 추가 엔드포인트
+
+## 17. 로고 관리 API
+
+### 17.1 현재 로고 조회 (Public)
+```http
+GET /api/system/logo
+```
+응답: `{ url, is_custom }`
+
+### 17.2 로고 업로드 (admin 4+)
+```http
+POST /api/admin/logo/upload
+Content-Type: multipart/form-data
+logo: <File>  # PNG/JPG/SVG, 2MB
+```
+**자동 최적화 결과**:
+```json
+{
+  "success": true,
+  "data": {
+    "url": "/uploads/logos/logo-1779030773885.png",
+    "optimization": {
+      "original_size": 1745920,
+      "optimized_size": 234567,
+      "savings_percent": 86,
+      "type": "raster",
+      "width": 600, "height": 165,
+      "trimmed": true
+    }
+  }
+}
+```
+
+### 17.3 기본 로고로 복원
+```http
+DELETE /api/admin/logo
+```
+
+---
+
+## 18. 리포트 빌더 API
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/report-builder/fields` | 필드 카탈로그 (차원 8 + 지표 4) |
+| POST | `/report-builder/query` | 리포트 실행 (config_json 기반) |
+| GET | `/report-builder/saved` | 본인 저장 리포트 목록 |
+| GET | `/report-builder/saved/:id` | 단건 조회 |
+| POST | `/report-builder/saved` | 신규 저장 |
+| PUT | `/report-builder/saved/:id` | 수정 |
+| DELETE | `/report-builder/saved/:id` | 삭제 |
+
+**Query Body**:
+```json
+{
+  "datasource": "leads",
+  "rows": ["stage"],
+  "columns": ["region"],
+  "filters": [{ "field": "business_type", "op": "eq", "value": "EPC" }],
+  "measures": ["count", "sum_expected_amount"],
+  "chartType": "auto"
+}
+```
+
+---
+
+## 19. 기능 플래그 / Preset API (superadmin)
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/admin/dev/presets` | 패키지 목록 (Minimal/Standard/Premium) |
+| GET | `/admin/dev/presets/:key/preview` | 적용 시 변경 사항 미리보기 |
+| POST | `/admin/dev/presets/:key/apply` | 일괄 적용 + audit log |
+| GET | `/admin/dev/features/audit?limit=100` | 변경 이력 조회 |
+| PUT | `/admin/dev/features/:key?force=1` | 토글 변경 (force=1: 의존성 강제) |
+| DELETE | `/admin/dev/features/:key` | Deprecated 토글 정리 |
+
+### 의존성 충돌 응답 (409)
+```json
+{
+  "success": false,
+  "error": "이 기능에 의존하는 다른 활성 기능이 있습니다",
+  "dependents": [{ "key": "gmail.send", "name": "Gmail 발송" }],
+  "hint": "강제 진행하려면 ?force=1"
+}
+```
+
+---
+
+## 20. 클라이언트 가드 (Circuit Breaker)
+
+`API.gmail.send()` 등 11개 메서드 호출 시 토글 OFF면 즉시 throw:
+```javascript
+err.code = 'FEATURE_DISABLED';
+err.feature = 'gmail.send';
+```
+
+네트워크 요청 0건 + 일관된 에러 처리.

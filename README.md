@@ -33,7 +33,7 @@ npm run dev
 open http://localhost:3001
 ```
 
-상세 설정은 [📚 docs/ADMIN_SETUP_GUIDE.md](./docs/ADMIN_SETUP_GUIDE.md) 참고.
+상세 설정은 [📚 docs/ADMIN_SETUP_GUIDE.md](./src/docs/ADMIN_SETUP_GUIDE.md) 참고.
 
 ---
 
@@ -109,25 +109,25 @@ open http://localhost:3001
   └── Kakao Map (선택)
 ```
 
-상세 아키텍처는 [🏛 docs/PROGRAM_DESIGN.md](./docs/PROGRAM_DESIGN.md) 참고.
+상세 아키텍처는 [🏛 docs/PROGRAM_DESIGN.md](./src/docs/PROGRAM_DESIGN.md) 참고.
 
 ---
 
 ## 📚 문서
 
-모든 개발 문서는 [`docs/`](./docs/) 폴더에서 통합 관리됩니다.
+모든 개발 문서는 [`docs/`](./src/docs/) 폴더에서 통합 관리됩니다.
 
 | 문서 | 설명 |
 |------|------|
-| 📘 [USER_MANUAL.md](./docs/USER_MANUAL.md) | 사용자 매뉴얼 (화면별 가이드, FAQ) |
-| 🏛 [PROGRAM_DESIGN.md](./docs/PROGRAM_DESIGN.md) | 프로그램 설계서 (아키텍처, 모듈 설계, ADR) |
-| 🔌 [API_DOCUMENTATION.md](./docs/API_DOCUMENTATION.md) | REST API + WebSocket 명세 |
-| 🛠 [ADMIN_SETUP_GUIDE.md](./docs/ADMIN_SETUP_GUIDE.md) | 관리자 셋업 + 배포 가이드 |
-| 🔧 [TROUBLESHOOTING_GUIDE.md](./docs/TROUBLESHOOTING_GUIDE.md) | 트러블슈팅 가이드 (에러 코드 + 진단) |
-| 🗄 [db-erd.md](./docs/db-erd.md) | DB ER 다이어그램 |
-| 🗄 [db-table-design.md](./docs/db-table-design.md) | 테이블 상세 설계 |
+| 📘 [USER_MANUAL.md](./src/docs/USER_MANUAL.md) | 사용자 매뉴얼 (화면별 가이드, FAQ) |
+| 🏛 [PROGRAM_DESIGN.md](./src/docs/PROGRAM_DESIGN.md) | 프로그램 설계서 (아키텍처, 모듈 설계, ADR) |
+| 🔌 [API_DOCUMENTATION.md](./src/docs/API_DOCUMENTATION.md) | REST API + WebSocket 명세 |
+| 🛠 [ADMIN_SETUP_GUIDE.md](./src/docs/ADMIN_SETUP_GUIDE.md) | 관리자 셋업 + 배포 가이드 |
+| 🔧 [TROUBLESHOOTING_GUIDE.md](./src/docs/TROUBLESHOOTING_GUIDE.md) | 트러블슈팅 가이드 (에러 코드 + 진단) |
+| 🗄 [db-erd.md](./src/docs/db-erd.md) | DB ER 다이어그램 |
+| 🗄 [db-table-design.md](./src/docs/db-table-design.md) | 테이블 상세 설계 |
 
-📌 **문서 인덱스**: [docs/README.md](./docs/README.md)
+📌 **문서 인덱스**: [docs/README.md](./src/docs/README.md)
 
 ---
 
@@ -173,8 +173,10 @@ oci-crm-ai/
 ├── src/
 │   ├── routes/                # 27개 API 라우트
 │   ├── services/              # 비즈니스 로직 (Auth, AI, Gmail, ...)
-│   ├── middleware/            # Auth, RBAC, ErrorHandler, ...
-│   ├── data/labelDefaults.js  # 4개국어 라벨
+│   ├── middleware/            # Auth, RBAC, ErrorHandler, featureGuard, ...
+│   ├── data/                  # featureRegistry, featurePresets, labelDefaults 등
+│   ├── utils/                 # logoCache, routeHelper 등
+│   ├── docs/                  # 📚 모든 개발 산출물 (19개 문서)
 │   ├── db.js                  # mysql2 pool
 │   ├── ws.js                  # WebSocket 서버
 │   └── initTables.js          # 자가 마이그레이션
@@ -184,6 +186,7 @@ oci-crm-ai/
 │   ├── manifest.json          # PWA
 │   ├── sw.js                  # Service Worker
 │   ├── offline.html
+│   ├── assets/                # 로고/아이콘
 │   ├── css/styles.css
 │   ├── js/
 │   │   ├── api.js
@@ -192,18 +195,11 @@ oci-crm-ai/
 │   │   ├── labels.js          # 다국어 모듈
 │   │   ├── offlineQueue.js
 │   │   └── pages/             # 17개 페이지 모듈
-│   └── uploads/               # 회의록 오디오 (gitignore)
+│   └── uploads/               # 회의록 오디오 + 로고 (gitignore)
 │
 ├── scripts/                   # 시드 / 마이그레이션 스크립트
 ├── tests/                     # vitest + supertest
-└── docs/                      # 📚 모든 개발 문서
-    ├── README.md              # 문서 인덱스
-    ├── USER_MANUAL.md
-    ├── PROGRAM_DESIGN.md
-    ├── API_DOCUMENTATION.md
-    ├── ADMIN_SETUP_GUIDE.md
-    ├── TROUBLESHOOTING_GUIDE.md
-    └── db-*.md / .sql
+└── e2e/                       # Playwright E2E 테스트
 ```
 
 ---
@@ -257,7 +253,7 @@ oci-crm-ai/
 | Data | AES-256-GCM (OAuth tokens, OTP secrets) |
 | Audit | access_logs, admin_label_audit, token_recharge_log |
 
-상세 보안 설계는 [PROGRAM_DESIGN.md § 12](./docs/PROGRAM_DESIGN.md#12-보안-설계) 참고.
+상세 보안 설계는 [PROGRAM_DESIGN.md § 12](./src/docs/PROGRAM_DESIGN.md#12-보안-설계) 참고.
 
 ---
 
