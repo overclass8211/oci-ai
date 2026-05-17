@@ -789,6 +789,7 @@ const DevPage = {
           </select>
           <button class="btn btn-ghost btn-sm" id="dev-feat-expand-all" title="모든 카테고리 펴기">⊕</button>
           <button class="btn btn-ghost btn-sm" id="dev-feat-collapse-all" title="모든 카테고리 접기">⊖</button>
+          <button class="btn btn-primary btn-sm" id="dev-feat-preset-btn" title="검증된 패키지로 일괄 적용 (고객사 납품용)">📦 패키지 적용</button>
           <button class="btn btn-primary btn-sm" id="dev-feat-audit-btn" title="변경 이력 조회">🕒 변경 이력</button>
         </div>
       </div>
@@ -871,6 +872,9 @@ const DevPage = {
     });
     document.getElementById('dev-feat-audit-btn')?.addEventListener('click', () => {
       this._showAuditModal();
+    });
+    document.getElementById('dev-feat-preset-btn')?.addEventListener('click', () => {
+      this._showPresetModal();
     });
 
     // ── Bug Fix #1: 중복 이벤트 리스너 방지 ──────────────────
@@ -1165,6 +1169,150 @@ const DevPage = {
             </label>`}
       </div>
     `;
+  },
+
+  // ─── Configuration Preset 모달 (고객사 납품용) ────────────
+  async _showPresetModal() {
+    Modal.open({
+      title: '📦 Configuration Preset — 검증된 패키지 적용',
+      width: 760,
+      body: `
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:12px;padding:10px 12px;background:var(--surface-2);border-radius:6px;line-height:1.6">
+          💡 <strong>고객사 납품용 검증된 패키지</strong> — 무작위 토글 조합 대신 사전 검증된 구성을 일괄 적용합니다.<br>
+          🔒 보안 핵심 기능 (CSP, Rate Limit, 암호화, Dev Options)은 어떤 패키지에서도 자동 ON 유지됩니다.
+        </div>
+        <div id="rb-preset-list" style="min-height:200px">
+          <div class="loading">로딩 중...</div>
+        </div>
+      `,
+      footer: `<button class="btn btn-ghost" id="rb-preset-close">닫기</button>`,
+      bind: { '#rb-preset-close': () => Modal.close() },
+    });
+
+    try {
+      const r = await API.get('/admin/dev/presets');
+      const presets = r.data.presets || [];
+      const listEl = document.getElementById('rb-preset-list');
+      if (!listEl) return;
+      listEl.innerHTML = presets.map(p => `
+        <div class="preset-card" data-preset="${esc(p.key)}">
+          <div class="preset-header">
+            <div class="preset-title">${esc(p.label)}</div>
+            <div class="preset-meta">
+              <span class="dev-chip green">활성 ${p.enabled_count === 'all' ? '전체' : p.enabled_count}</span>
+              ${p.disabled_count > 0 ? `<span class="dev-chip blue">비활성 ${p.disabled_count}</span>` : ''}
+            </div>
+          </div>
+          <div class="preset-desc">${esc(p.description)}</div>
+          <div class="preset-target">🎯 ${esc(p.target_audience)}</div>
+          <div class="preset-actions">
+            <button class="btn btn-ghost btn-sm" data-rb-preset-preview="${esc(p.key)}">👁 미리보기</button>
+            <button class="btn btn-primary btn-sm" data-rb-preset-apply="${esc(p.key)}">📦 적용</button>
+          </div>
+        </div>
+      `).join('');
+
+      // 미리보기 버튼
+      listEl.querySelectorAll('[data-rb-preset-preview]').forEach(btn => {
+        btn.onclick = async () => {
+          const key = btn.dataset.rbPresetPreview;
+          await this._previewPreset(key);
+        };
+      });
+
+      // 적용 버튼
+      listEl.querySelectorAll('[data-rb-preset-apply]').forEach(btn => {
+        btn.onclick = async () => {
+          const key = btn.dataset.rbPresetApply;
+          await this._applyPreset(key);
+        };
+      });
+    } catch (err) {
+      const listEl = document.getElementById('rb-preset-list');
+      if (listEl) listEl.innerHTML = `<div style="padding:30px;text-align:center;color:var(--oci-red)">로드 실패: ${esc(err.message || '')}</div>`;
+    }
+  },
+
+  async _previewPreset(presetKey) {
+    try {
+      const r = await API.get(`/admin/dev/presets/${presetKey}/preview`);
+      const { preset, changes, change_count, total_features } = r.data;
+      Modal.close();
+      Modal.open({
+        title: `👁 ${preset.label} — 적용 미리보기`,
+        width: 720,
+        body: `
+          <div style="margin-bottom:12px;font-size:12px;color:var(--text-2)">
+            현재 상태와 비교 — <strong>${change_count}개 변경</strong> (전체 ${total_features}개 중)
+          </div>
+          ${change_count === 0 ? `
+            <div style="padding:30px;text-align:center;color:var(--text-3)">
+              ✅ 이미 이 패키지 상태입니다 — 변경 사항 없음
+            </div>
+          ` : `
+            <table class="data-table" style="font-size:12px">
+              <thead>
+                <tr>
+                  <th>기능</th>
+                  <th style="width:90px;text-align:center">변경</th>
+                  <th style="width:80px">위험도</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${changes.map(c => `
+                  <tr>
+                    <td>
+                      <strong>${esc(c.feature_name)}</strong>
+                      <div style="font-size:10px;color:var(--text-4);font-family:monospace">${esc(c.feature_key)}</div>
+                    </td>
+                    <td style="text-align:center">
+                      ${c.from ? '<span style="color:#17A85A">ON</span>' : '<span style="color:#E63329">OFF</span>'}
+                      →
+                      <strong>${c.to ? '<span style="color:#17A85A">ON</span>' : '<span style="color:#E63329">OFF</span>'}</strong>
+                    </td>
+                    <td>${esc(c.risk_level || 'safe')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `}
+        `,
+        footer: `
+          <button class="btn btn-ghost" id="rb-pv-back">← 패키지 목록</button>
+          ${change_count > 0
+            ? `<button class="btn btn-primary" id="rb-pv-apply" data-key="${esc(presetKey)}">📦 이 패키지 적용</button>`
+            : ''}
+        `,
+        bind: {
+          '#rb-pv-back': () => { Modal.close(); this._showPresetModal(); },
+          '#rb-pv-apply': () => this._applyPreset(presetKey),
+        },
+      });
+    } catch (err) {
+      Toast.error('미리보기 실패: ' + (err.message || ''));
+    }
+  },
+
+  async _applyPreset(presetKey) {
+    if (!confirm(`📦 "${presetKey}" 패키지를 적용하시겠습니까?\n\n변경된 모든 토글이 audit log 에 기록됩니다.\n작업 후 모든 사용자에게 즉시 반영됩니다.`)) {
+      return;
+    }
+    try {
+      const r = await API.post(`/admin/dev/presets/${presetKey}/apply`, {});
+      Toast.success(`✅ 패키지 적용 완료: ${r.data.applied}개 변경, ${r.data.skipped}개 유지`);
+      Modal.close();
+      // 페이지 재로딩 (토글 상태 새로 fetch)
+      await this.loadFeatures();
+      // Features._flags 도 즉시 동기화
+      if (typeof Features !== 'undefined') {
+        const flagsRes = await API.get('/admin/dev/features/public');
+        Features._flags = flagsRes.data || {};
+        Features.apply();
+      }
+      this.renderFeatures();
+    } catch (err) {
+      Toast.error('적용 실패: ' + (err.message || ''));
+    }
   },
 
   // ─── 변경 이력 모달 ────────────────────────────────────────

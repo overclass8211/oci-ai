@@ -4271,6 +4271,51 @@ body,
   border: 1px dashed var(--border);
 }
 
+/* ─── Configuration Preset 카드 (고객사 납품용) ──────────── */
+.preset-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  transition: all 0.15s;
+}
+.preset-card:hover {
+  border-color: var(--oci-red);
+  box-shadow: 0 2px 8px rgba(230, 51, 41, 0.08);
+}
+.preset-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.preset-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.preset-meta {
+  display: flex;
+  gap: 6px;
+}
+.preset-desc {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+.preset-target {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 10px;
+}
+.preset-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* 추가 chip 색상 */
 .dev-chip.orange {
   background: rgba(245, 156, 0, 0.1);

@@ -830,6 +830,143 @@ router.delete('/dev/features/:key', devOnly, async (req, res) => {
   }
 });
 
+// ─── Configuration Preset API ──────────────────────────────
+const { FEATURE_PRESETS, LOCKED_FEATURES, buildTargetState } = require('../data/featurePresets');
+
+// GET /api/admin/dev/presets — 사용 가능한 프리셋 목록
+router.get('/dev/presets', devOnly, (req, res) => {
+  try {
+    const list = Object.entries(FEATURE_PRESETS).map(([key, preset]) => ({
+      key,
+      label: preset.label,
+      description: preset.description,
+      target_audience: preset.target_audience,
+      enabled_count: preset.enabled_features === '*' ? 'all' : preset.enabled_features?.length || 0,
+      disabled_count: preset.enabled_features === '*' ? 0 : preset.disabled_features?.length || 0,
+    }));
+    res.json({
+      success: true,
+      data: {
+        presets: list,
+        locked_features: LOCKED_FEATURES,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /api/admin/dev/presets/:key/preview — 프리셋 적용 시 변경 사항 미리보기
+router.get('/dev/presets/:key/preview', devOnly, async (req, res) => {
+  try {
+    const presetKey = req.params.key;
+    if (!FEATURE_PRESETS[presetKey]) {
+      return res.status(404).json({ success: false, error: '알 수 없는 프리셋' });
+    }
+
+    const [features] = await pool.query(
+      'SELECT feature_key, feature_name, is_enabled, risk_level FROM dev_features WHERE is_deprecated = 0'
+    );
+    const target = buildTargetState(presetKey, features);
+
+    const changes = [];
+    features.forEach(f => {
+      const desired = target.get(f.feature_key);
+      const current = !!f.is_enabled;
+      if (desired !== current) {
+        changes.push({
+          feature_key: f.feature_key,
+          feature_name: f.feature_name,
+          risk_level: f.risk_level,
+          from: current,
+          to: desired,
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        preset: FEATURE_PRESETS[presetKey],
+        total_features: features.length,
+        change_count: changes.length,
+        changes,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST /api/admin/dev/presets/:key/apply — 프리셋 일괄 적용
+router.post('/dev/presets/:key/apply', devOnly, async (req, res) => {
+  try {
+    const presetKey = req.params.key;
+    if (!FEATURE_PRESETS[presetKey]) {
+      return res.status(404).json({ success: false, error: '알 수 없는 프리셋' });
+    }
+    const userId = req.user?.id || null;
+
+    const [features] = await pool.query(
+      'SELECT feature_key, is_enabled FROM dev_features WHERE is_deprecated = 0'
+    );
+    const target = buildTargetState(presetKey, features);
+
+    let applied = 0;
+    let skipped = 0;
+    const auditEntries = [];
+
+    for (const f of features) {
+      const desired = target.get(f.feature_key);
+      const current = !!f.is_enabled;
+      if (desired === current) {
+        skipped++;
+        continue;
+      }
+      const newEnabled = desired ? 1 : 0;
+      await pool.query(
+        `UPDATE dev_features
+            SET is_enabled = ?, last_changed_by = ?, last_changed_at = NOW()
+          WHERE feature_key = ?`,
+        [newEnabled, userId, f.feature_key]
+      );
+      auditEntries.push([
+        f.feature_key,
+        f.is_enabled,
+        newEnabled,
+        userId,
+        `프리셋 적용: ${presetKey}`,
+      ]);
+      applied++;
+    }
+
+    // audit 일괄 insert
+    if (auditEntries.length > 0) {
+      await pool.query(
+        `INSERT INTO dev_features_audit
+          (feature_key, old_enabled, new_enabled, changed_by, reason)
+         VALUES ?`,
+        [auditEntries]
+      );
+    }
+
+    // featureGuard 캐시 무효화
+    featureGuard.invalidate();
+
+    res.json({
+      success: true,
+      data: {
+        preset: presetKey,
+        applied,
+        skipped,
+        total: features.length,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── 스키마 서버사이드 캐시 (30초 TTL) ──────────────────────────
 const _schemaCache = { schema: null, relations: null, ts: 0, relTs: 0 };
 const SCHEMA_TTL = 30_000; // 30s
