@@ -220,6 +220,13 @@ async function pollOne(userId) {
 async function pollAll() {
   const results = [];
   try {
+    // 기능 토글 OFF 시 백그라운드 cron 도 즉시 skip (리소스/외부 API 호출 방지)
+    const { isFeatureEnabled } = require('../middleware/featureGuard');
+    const enabled = await isFeatureEnabled('gmail.sync');
+    if (!enabled) {
+      return { skipped: true, reason: 'feature_disabled' };
+    }
+
     const [users] = await pool.query(
       `SELECT user_id FROM google_oauth_tokens
         WHERE gmail_sync_enabled = 1`

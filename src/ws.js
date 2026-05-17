@@ -111,7 +111,42 @@ function verifyClient(info, callback) {
   }
 }
 
+// 기능 토글별 broadcast 가드 매핑
+// (data.type 에 따라 해당 기능이 OFF면 emit 안 함)
+const WS_FEATURE_MAP = {
+  announcement: 'crm.notifications', // 공지사항 — 알림 시스템 토글
+  // 향후 추가: 다른 실시간 이벤트도 여기 매핑
+};
+
 function wsBroadcast(data) {
+  // 기능 토글 OFF 시 broadcast skip — 클라이언트가 OFF 기능 이벤트 수신 방지
+  const featureKey = WS_FEATURE_MAP[data?.type];
+  if (featureKey) {
+    try {
+      const { isFeatureEnabled } = require('./middleware/featureGuard');
+      // 동기 캐시 사용 — broadcast 는 성능 중요, 비동기 await 회피
+      // 캐시가 stale 이면 다음 호출에서 자동 갱신 (5초 TTL)
+      isFeatureEnabled(featureKey)
+        .then(enabled => {
+          if (!enabled) return; // 토글 OFF — broadcast skip
+          const msg = JSON.stringify(data);
+          wsClients.forEach(c => {
+            if (c.readyState === WebSocket.OPEN) c.send(msg);
+          });
+        })
+        .catch(() => {
+          // 안전 fallback — 캐시 조회 실패 시에도 broadcast (잠금보다 안전성 우선)
+          _doSendAll(data);
+        });
+      return;
+    } catch (_) {
+      // 모듈 로드 실패 시에도 fallback
+    }
+  }
+  _doSendAll(data);
+}
+
+function _doSendAll(data) {
   const msg = JSON.stringify(data);
   wsClients.forEach(c => {
     if (c.readyState === WebSocket.OPEN) c.send(msg);
