@@ -55,9 +55,13 @@ const App = {
     // — 비동기, 실패 시 하드코딩 폴백으로 안전하게 유지
     this.applyMenuConfig();
 
-    // 알림 로드
-    Notifications.load();
-    setInterval(() => Notifications.load(), 5 * 60 * 1000);
+    // 알림 로드 (기능 토글 ON 일 때만)
+    if (Features.isEnabled('crm.notifications')) {
+      Notifications.load();
+      setInterval(() => {
+        if (Features.isEnabled('crm.notifications')) Notifications.load();
+      }, 5 * 60 * 1000);
+    }
 
     // 알림 패널 외부 클릭 닫기
     document.addEventListener('click', (e) => {
@@ -416,6 +420,30 @@ const App = {
     const page = this.pages[pageId];
     if (!page) {
       Toast.error('알 수 없는 페이지: ' + pageId);
+      return;
+    }
+
+    // ── 기능 토글 OFF 페이지 차단 (URL 직접 접근 방어) ───────
+    // 사이드바 nav-item 의 data-feature 와 매핑 — UI 와 일관성 확보
+    const featureMap = {
+      'dashboard': 'crm.dashboard',
+      'pipeline': 'crm.pipeline',
+      'calendar': 'crm.calendar',
+      'reports': 'crm.reports',
+      'report-builder': 'crm.report_builder',
+      'board': 'crm.board',
+      'meeting': 'ai.meeting',
+      'meeting-list': 'ai.meeting',
+      'dev': 'dev.options',
+    };
+    const featKey = featureMap[pageId];
+    if (featKey && typeof Features !== 'undefined' && !Features.isEnabled(featKey)) {
+      Toast.warn?.(`"${page.title}" 기능이 비활성화 상태입니다. 관리자에게 문의하세요.`);
+      // 대시보드로 자동 이동 (단, dashboard 자체가 OFF 인 경우 leads 로 fallback)
+      const fallback = Features.isEnabled('crm.dashboard') ? 'dashboard' : 'leads';
+      if (pageId !== fallback) {
+        return this.navigate(fallback);
+      }
       return;
     }
 

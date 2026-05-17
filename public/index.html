@@ -48,7 +48,7 @@
   <nav class="sidebar-nav">
     <div class="nav-section" data-section-key="main">
       <div class="nav-section-title" data-label="menu.section_main">메인</div>
-      <a class="nav-item active" data-page="dashboard" data-action="navigate" data-menu-key="dashboard">
+      <a class="nav-item active" data-page="dashboard" data-action="navigate" data-menu-key="dashboard" data-feature="crm.dashboard">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm7 0a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1V4zM3 11a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zm7 0a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-3z"/></svg>
         <span data-label="menu.dashboard">대시보드</span>
       </a>
@@ -95,11 +95,11 @@
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
         <span data-label="menu.team">팀 현황</span>
       </a>
-      <a class="nav-item" data-page="reports" data-action="navigate" data-menu-key="reports">
+      <a class="nav-item" data-page="reports" data-action="navigate" data-menu-key="reports" data-feature="crm.reports">
         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"/></svg>
         <span data-label="menu.reports">리포트</span>
       </a>
-      <a class="nav-item" data-page="report-builder" data-action="navigate" data-menu-key="report-builder">
+      <a class="nav-item" data-page="report-builder" data-action="navigate" data-menu-key="report-builder" data-feature="crm.report_builder">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z"/></svg>
         <span data-label="menu.report-builder">리포트 빌더</span>
       </a>
@@ -196,12 +196,12 @@
       <span class="topbar-date" id="topbar-date"></span>
 
       <!-- 전체 검색 (Cmd+K / Ctrl+K) -->
-      <button class="icon-btn" data-title-label="topbar.search" title="전체 검색 (Ctrl+K)" id="global-search-btn" data-action="open-search">
+      <button class="icon-btn" data-title-label="topbar.search" title="전체 검색 (Ctrl+K)" id="global-search-btn" data-action="open-search" data-feature="crm.search">
         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
       </button>
 
       <!-- 알림 버튼 -->
-      <div class="notif-wrap" style="position:relative">
+      <div class="notif-wrap" data-feature="crm.notifications" style="position:relative">
         <button class="icon-btn" data-title-label="topbar.notifications" title="알림" id="notif-btn">
           <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/></svg>
           <span class="badge-dot" style="display:none"></span>

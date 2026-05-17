@@ -84,6 +84,8 @@ const SearchModal = {
     document.addEventListener('keydown', e => {
       // Cmd+K (Mac) / Ctrl+K (Win) — 어디서든 검색 열기
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        // 기능 토글 OFF 시 단축키 무시
+        if (typeof Features !== 'undefined' && !Features.isEnabled('crm.search')) return;
         // 입력 필드에서도 작동 (브라우저 기본 동작 차단)
         e.preventDefault();
         this.toggle();
