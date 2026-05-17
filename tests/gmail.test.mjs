@@ -35,4 +35,13 @@ describe('Gmail API — 인증/검증', () => {
     const res = await api().get('/api/gmail/match/customer/1');
     expect(res.status).toBe(401);
   });
+
+  // Phase G2 — 발송
+  it('POST /api/gmail/send — 토큰 없으면 401', async () => {
+    const res = await api().post('/api/gmail/send').send({
+      to: 'x@example.com', subject: 't', body: 'b',
+    });
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
 });

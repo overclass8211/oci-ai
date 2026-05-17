@@ -235,13 +235,14 @@ const API = {
     }
   },
 
-  // ── Gmail (Phase G1 — 읽기 + 매칭) ─────────────────────────────
+  // ── Gmail (Phase G1 — 읽기 + 매칭, G2 — 보내기) ──────────────
   gmail: {
     scopeStatus:    ()      => API.get('/gmail/scope-status'),
     messages: (email, limit = 10) =>
       API.get(`/gmail/messages?email=${encodeURIComponent(email)}&limit=${limit}`),
     matchLead:     (id, limit = 10) => API.get(`/gmail/match/lead/${id}?limit=${limit}`),
     matchCustomer: (id, limit = 10) => API.get(`/gmail/match/customer/${id}?limit=${limit}`),
+    send:          (body)   => API.post('/gmail/send', body),  // { to, subject, body, cc?, bcc? }
   },
 
   // ── 엑셀 다운로드 헬퍼 (인증 헤더 포함) — 레거시 ────────────────

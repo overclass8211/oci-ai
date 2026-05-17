@@ -152,4 +152,29 @@ router.get('/match/customer/:id', async (req, res) => {
   }
 });
 
+// ── 메일 발송 (Phase G2) ─────────────────────────────────────
+// body: { to, subject, body, cc?, bcc? }
+// 응답: { success, data: { message_id, thread_id, from } }
+router.post('/send', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const { to, subject, body, cc, bcc } = req.body || {};
+    if (!to || !/@/.test(String(to))) {
+      return res.status(400).json({ success: false, error: '유효한 수신자(to)가 필요합니다' });
+    }
+    if (!subject || !String(subject).trim()) {
+      return res.status(400).json({ success: false, error: '제목이 필요합니다' });
+    }
+    const result = await gmailSvc.sendMessage(userId, { to, subject, body, cc, bcc });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    const cls = gmailSvc.classifyError(err);
+    if (cls.status !== 500) return res.status(cls.status).json(cls.body);
+    handleError(res, err);
+  }
+});
+
 module.exports = router;

@@ -156,6 +156,8 @@ router.get('/auth-url', requireAuth, (req, res) => {
         'https://www.googleapis.com/auth/userinfo.profile',
         // Gmail 읽기 (리드/고객 매칭) — Phase G1
         'https://www.googleapis.com/auth/gmail.readonly',
+        // Gmail 보내기 (CRM 내부 발송) — Phase G2
+        'https://www.googleapis.com/auth/gmail.send',
       ],
       state: String(userId || ''),
     });

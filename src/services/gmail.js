@@ -167,4 +167,64 @@ function classifyError(err) {
   return { status: 500, body: { success: false, error: msg || 'Gmail API 오류' } };
 }
 
-module.exports = { listByEmail, getOwnEmail, getGmailClient, classifyError };
+// ── RFC 2822 raw 메시지 빌드 + base64url 인코딩 ────────────────
+// Gmail API users.messages.send 는 base64url encoded raw 만 받음.
+// Korean 제목은 RFC 2047 인코딩 (=?UTF-8?B?...?=) 으로 비ASCII 안전.
+function _buildRawMessage({ from, to, subject, body, cc, bcc }) {
+  const enc2047 = s => '=?UTF-8?B?' + Buffer.from(String(s), 'utf8').toString('base64') + '?=';
+  const lines = [`From: ${from}`, `To: ${to}`];
+  if (cc) lines.push(`Cc: ${cc}`);
+  if (bcc) lines.push(`Bcc: ${bcc}`);
+  // 비-ASCII (Korean) 안전 위해 항상 2047 인코딩
+  lines.push(`Subject: ${enc2047(subject || '')}`);
+  lines.push('MIME-Version: 1.0');
+  lines.push('Content-Type: text/plain; charset=UTF-8');
+  lines.push('Content-Transfer-Encoding: base64');
+  lines.push('');
+  // body 도 base64 — 한국어/이모지 + 긴 줄 안전 (Quoted-Printable 대안 가능하지만 base64 가 단순)
+  lines.push(Buffer.from(String(body || ''), 'utf8').toString('base64'));
+  const raw = lines.join('\r\n');
+  // base64url
+  return Buffer.from(raw, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+/**
+ * Gmail 로 직접 발송
+ * @param {number} userId
+ * @param {object} opts — { to, subject, body, cc?, bcc? }
+ * @returns {Promise<{ message_id, thread_id }>}
+ */
+async function sendMessage(userId, opts) {
+  if (!opts || !opts.to || !/@/.test(opts.to)) {
+    throw Object.assign(new Error('유효한 수신자(to) 가 필요합니다'), { status: 400 });
+  }
+  if (!opts.subject || !String(opts.subject).trim()) {
+    throw Object.assign(new Error('제목이 필요합니다'), { status: 400 });
+  }
+  const { gmail } = await getGmailClient(userId);
+  // 본인 이메일 — From 헤더에 사용
+  const myEmail = await getOwnEmail(userId);
+  const raw = _buildRawMessage({
+    from: myEmail,
+    to: opts.to,
+    subject: opts.subject,
+    body: opts.body || '',
+    cc: opts.cc || '',
+    bcc: opts.bcc || '',
+  });
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw },
+  });
+  return {
+    message_id: res.data.id,
+    thread_id: res.data.threadId,
+    from: myEmail,
+  };
+}
+
+module.exports = { listByEmail, getOwnEmail, getGmailClient, classifyError, sendMessage };

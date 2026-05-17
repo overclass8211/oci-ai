@@ -37,11 +37,13 @@ const Email = {
       body: this._buildBody(tpls, initial.id, ctx, initial),
       footer: `
         <button class="btn btn-secondary" id="email-cancel-btn">취소</button>
-        <button class="btn btn-primary" id="email-send-btn">📤 메일 클라이언트 열기</button>
+        <button class="btn btn-ghost" id="email-send-btn" title="OS 기본 메일 앱(Outlook/Mail 등) 열기">📤 메일 클라이언트 열기</button>
+        <button class="btn btn-primary" id="email-gmail-send-btn" title="Gmail API 로 직접 발송">📧 Gmail 로 발송</button>
       `,
       bind: {
-        '#email-cancel-btn': () => Modal.close(),
-        '#email-send-btn':   () => this._send(ctx),
+        '#email-cancel-btn':       () => Modal.close(),
+        '#email-send-btn':         () => this._send(ctx),
+        '#email-gmail-send-btn':   () => this._sendViaGmail(ctx),
       },
     });
 
@@ -226,6 +228,59 @@ const Email = {
       return;
     }
     window.location.href = url;
+  },
+
+  // ─── Gmail API 로 직접 발송 (Phase G2) ──────────────────
+  async _sendViaGmail(ctx) {
+    const to      = document.getElementById('email-to')?.value?.trim() || '';
+    const subject = document.getElementById('email-subject')?.value || '';
+    const body    = document.getElementById('email-body')?.value || '';
+    const logAct  = document.getElementById('email-log-activity')?.checked;
+
+    if (!to)                  { Toast?.show?.('받는 사람 이메일을 입력하세요.', 'warn'); return; }
+    if (!subject.trim())      { Toast?.show?.('제목을 입력하세요.', 'warn'); return; }
+
+    // 발송 중 버튼 비활성화
+    const btn = document.getElementById('email-gmail-send-btn');
+    const origLabel = btn?.textContent;
+    if (btn) { btn.disabled = true; btn.textContent = '📧 발송 중...'; }
+
+    try {
+      const r = await API.gmail.send({ to, subject, body });
+      // 성공
+      Toast?.show?.(`📧 Gmail 발송 완료 (${r.data?.from || ''})`, 'success');
+
+      // 활동 자동 기록 (옵션) — 기존 _send 와 동일 패턴
+      if (logAct && (ctx.activityParent.lead_id || ctx.activityParent.project_id)) {
+        try {
+          await API.post('/activities', {
+            lead_id:       ctx.activityParent.lead_id,
+            project_id:    ctx.activityParent.project_id,
+            activity_type: '이메일',
+            title:         (subject || '이메일 발송').slice(0, 290),
+            content:       `[Gmail 발송] 수신자: ${to}\n\n${body}`.slice(0, 5000),
+          });
+        } catch (e) {
+          Toast?.show?.('Gmail 발송은 성공했으나 활동 기록 실패: ' + (e.message || ''), 'warn');
+        }
+      }
+
+      Modal.close();
+    } catch (err) {
+      // API helper 가 throw — err.message 또는 응답 본문
+      // notConnected / scopeRequired 친절 안내
+      const msg = err?.body?.error || err?.message || '';
+      const scopeRequired = err?.body?.scopeRequired;
+      const notConnected  = err?.body?.notConnected;
+      if (scopeRequired === 'gmail.readonly' || /권한이 없/i.test(msg)) {
+        Toast?.show?.('⚠️ Gmail 권한 없음 — Google 계정 재연결 필요 (설정 메뉴)', 'error');
+      } else if (notConnected || /연결되지|만료/i.test(msg)) {
+        Toast?.show?.('🔌 Google 미연결 — 설정에서 Google 계정 연결 후 다시 시도', 'error');
+      } else {
+        Toast?.show?.('Gmail 발송 실패: ' + msg, 'error');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = origLabel || '📧 Gmail 로 발송'; }
+    }
   },
 
   // ─── HTML 이스케이프 ────────────────────────────────────
