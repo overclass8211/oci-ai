@@ -531,7 +531,7 @@ const SettingsPage = {
               <tr data-tpl-id="${t.id}">
                 <td><span class="badge badge-blue">${esc(catLabel[t.category] || t.category)}</span></td>
                 <td><strong>${esc(t.name)}</strong></td>
-                <td style="font-size:12px;color:var(--text-2)">${esc(t.subject)}</td>
+                <td style="font-size:12px;color:var(--text-2)">${this._renderTplVars(t.subject)}</td>
                 <td>${t.is_system
                   ? '<span class="badge badge-gray" title="시스템 시드 — 복제 후 편집 가능">🔒 시스템</span>'
                   : '<span class="badge badge-green">사용자</span>'}</td>
@@ -563,6 +563,32 @@ const SettingsPage = {
     } catch (e) {
       el.innerHTML = `<div class="empty" style="color:var(--oci-red)">불러오기 실패: ${esc(e.message || '')}</div>`;
     }
+  },
+
+  // ─── 템플릿 변수 → 칩 스타일 렌더링 (시각적 강조 + 샘플 툴팁) ───
+  // {{my_company}} → <span class="tpl-var" title="회사명 — 발송 시 'OCI' 같은 값으로 치환">my_company</span>
+  // 알 수 없는 변수는 warning 스타일 (.tpl-var-unknown)
+  _TPL_VARS: {
+    customer_name:    { label: '고객사명',          sample: '한국동서발전' },
+    contact_person:   { label: '고객사 담당자',     sample: '박팀장' },
+    project_name:     { label: '프로젝트명',        sample: '30MW EPC 입찰' },
+    my_name:          { label: '내 이름',           sample: '김영업' },
+    my_company:       { label: '회사명',            sample: 'OCI' },
+    today:            { label: '오늘 날짜',         sample: '2026-05-17' },
+    bidding_deadline: { label: '입찰 마감일',       sample: '2026-05-31' },
+  },
+  _renderTplVars(text) {
+    if (!text) return '';
+    const safe = esc(text);
+    // esc() 가 {와 }는 변경 안 함 — \w+ 매칭으로 안전
+    return safe.replace(/\{\{(\w+)\}\}/g, (_, name) => {
+      const v = this._TPL_VARS[name];
+      if (!v) {
+        return `<span class="tpl-var tpl-var-unknown" title="⚠️ 알 수 없는 변수 — 발송 시 그대로 표시됩니다">${esc(name)}</span>`;
+      }
+      const tip = `${v.label} — 발송 시 '${v.sample}' 같은 값으로 자동 치환됩니다`;
+      return `<span class="tpl-var" title="${esc(tip)}">${esc(name)}</span>`;
+    });
   },
 
   // ─── 시스템 템플릿 복제 → 사용자 템플릿으로 ─────────────

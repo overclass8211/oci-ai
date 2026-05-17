@@ -7952,3 +7952,48 @@ body,
   font-weight: 700;
   color: var(--text-1);
 }
+
+/* ─── 이메일 템플릿 변수 칩 (settings.js _renderTplVars) ─── */
+/* {{my_company}} 같은 raw 변수 구문 대신 시각적 칩으로 표시 */
+.tpl-var {
+  display: inline-block;
+  padding: 1px 7px;
+  background: #E8F0FE;
+  color: #1967D2;
+  border: 1px solid #C6DAFC;
+  border-radius: 3px;
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  margin: 0 1px;
+  vertical-align: baseline;
+  cursor: help;
+  white-space: nowrap;
+}
+.tpl-var:hover {
+  background: #D2E3FC;
+  border-color: #A4C3F7;
+}
+/* 알 수 없는 변수 (정의되지 않은 변수명) — 경고 스타일 */
+.tpl-var-unknown {
+  background: #FFF3CD;
+  color: #856404;
+  border-color: #FFEAA7;
+}
+.tpl-var-unknown:hover {
+  background: #FFE69C;
+  border-color: #F5D87A;
+}
+/* 다크모드 대응 */
+@media (prefers-color-scheme: dark) {
+  body.dark .tpl-var {
+    background: rgba(26, 115, 232, 0.15);
+    color: #8AB4F8;
+    border-color: rgba(26, 115, 232, 0.35);
+  }
+  body.dark .tpl-var-unknown {
+    background: rgba(255, 193, 7, 0.15);
+    color: #FFD54F;
+    border-color: rgba(255, 193, 7, 0.35);
+  }
+}
