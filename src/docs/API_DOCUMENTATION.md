@@ -1,0 +1,1219 @@
+# 🔌 OCI CRM AI — API 문서
+
+> **버전**: 2026.05 (Phase G3)
+> **Base URL**: `https://<your-domain>/api` (Production) / `http://localhost:3001/api` (Dev)
+> **인증 방식**: JWT Bearer Token + HttpOnly Refresh Cookie
+
+---
+
+## 📑 목차
+
+1. [공통 사항](#1-공통-사항)
+2. [인증 API](#2-인증-api-auth)
+3. [대시보드 API](#3-대시보드-api-dashboard)
+4. [리드 API](#4-리드-api-leads)
+5. [고객사 API](#5-고객사-api-customers)
+6. [프로젝트 API](#6-프로젝트-api-projects)
+7. [활동 이력 API](#7-활동-이력-api-activities)
+8. [캘린더 API](#8-캘린더-api-calendar)
+9. [회의록 / STT API](#9-회의록--stt-api-meetings)
+10. [AI API](#10-ai-api-ai)
+11. [Google 연동 API](#11-google-연동-api-google)
+12. [Gmail 통합 API](#12-gmail-통합-api-gmail-g1g2g3)
+13. [관리자 API](#13-관리자-api-admin)
+14. [다국어 라벨 API](#14-다국어-라벨-api-admin-labels)
+15. [알림 / 검색 / 게시판](#15-알림--검색--게시판)
+16. [WebSocket 이벤트](#16-websocket-이벤트)
+
+---
+
+## 1. 공통 사항
+
+### 1.1 인증 헤더
+
+```http
+Authorization: Bearer <JWT_ACCESS_TOKEN>
+Cookie: oci_refresh=<REFRESH_TOKEN>  # HttpOnly, 자동 전송
+```
+
+- **Access Token**: 15분 만료, 모든 API 요청에 포함
+- **Refresh Token**: 7일 유효, HttpOnly 쿠키로 자동 관리
+
+### 1.2 표준 응답 포맷
+
+**성공 (2xx):**
+```json
+{
+  "success": true,
+  "data": { /* ... */ },
+  "page": 1,
+  "limit": 50,
+  "total": 120,
+  "totalPages": 3
+}
+```
+
+**실패 (4xx/5xx):**
+```json
+{
+  "success": false,
+  "error": "에러 메시지 (한국어)",
+  "code": "ERROR_CODE",
+  "field": "유효성 검증 실패 필드 (선택)"
+}
+```
+
+### 1.3 HTTP 상태 코드
+
+| Code | 의미 | 발생 케이스 |
+|------|------|-----------|
+| `200` | OK | 일반 성공 |
+| `201` | Created | 리소스 생성 (POST) |
+| `400` | Bad Request | 필수 필드 누락, 유효성 검증 실패 |
+| `401` | Unauthorized | 토큰 없음/만료/무효 |
+| `403` | Forbidden | RBAC 권한 부족 |
+| `404` | Not Found | 리소스 없음 |
+| `413` | Payload Too Large | 파일 크기 초과 (25MB) |
+| `429` | Too Many Requests | Rate Limit 초과 |
+| `500` | Internal Server Error | 서버 오류 |
+| `503` | Service Unavailable | DB 미연결 |
+
+### 1.4 페이지네이션
+
+```http
+GET /api/leads?page=1&limit=50
+```
+
+응답에 `page`, `limit`, `total`, `totalPages` 포함.
+
+### 1.5 Rate Limit
+
+| 환경 | 일반 API | AI API |
+|------|---------|--------|
+| Production | 300/15min | 20/min |
+| Development | 3000/15min | 100/min |
+| Test | skip | skip |
+
+---
+
+## 2. 인증 API (`/auth`)
+
+### 2.1 로그인
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "username": "user@oci.co.kr",
+  "password": "password123"
+}
+```
+
+**Response (OTP 미활성, 200):**
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "expiresIn": "15m",
+  "user": {
+    "id": 1,
+    "username": "user@oci.co.kr",
+    "full_name": "김영업",
+    "email": "user@oci.co.kr",
+    "role": "manager",
+    "roleLabel": "관리자",
+    "roleColor": "#ff5722",
+    "pages": ["dashboard", "leads", "projects", "..."]
+  }
+}
+```
+
+**Response (OTP 활성 — 2단계 필요, 200):**
+```json
+{
+  "success": true,
+  "requireOtp": true,
+  "userId": 1
+}
+```
+
+### 2.2 OTP 로그인 (2단계)
+
+```http
+POST /api/auth/login-otp
+```
+
+**Request:**
+```json
+{
+  "userId": 1,
+  "otp": "123456"
+}
+```
+
+### 2.3 WebAuthn 로그인 (생체인증)
+
+```http
+POST /api/auth/login-webauthn
+```
+
+### 2.4 Refresh Token
+
+```http
+POST /api/auth/refresh
+Cookie: oci_refresh=<refresh_token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "token": "<new_access_token>",
+  "expiresIn": "15m"
+}
+```
+
+### 2.5 로그아웃
+
+```http
+POST /api/auth/logout
+Authorization: Bearer <token>
+```
+
+→ JTI를 `token_blacklist`에 기록 + Refresh Token 무효화
+
+### 2.6 OTP 설정
+
+```http
+POST /api/auth/otp/setup
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "qr_code_url": "otpauth://totp/...",
+  "secret": "ABCDEFGHIJK..."
+}
+```
+
+---
+
+## 3. 대시보드 API (`/dashboard`)
+
+### 3.1 종합 통계
+
+```http
+GET /api/dashboard?year=2026
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "stats": {
+      "active_leads": 45,
+      "bidding_in_progress": 12,
+      "ytd_won_amount": 8500.5,
+      "ytd_win_rate": 23.5
+    },
+    "funnel": [
+      { "stage": "lead", "count": 30, "amount": 1500 },
+      { "stage": "review", "count": 15, "amount": 2000 }
+    ],
+    "monthly_leads": [
+      { "month": "2026-01", "count": 8 }
+    ],
+    "recent_activities": [ /* ... */ ]
+  }
+}
+```
+
+### 3.2 기타 엔드포인트
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/dashboard/stats` | 선택 연도 통계 |
+| GET | `/dashboard/funnel` | 단계별 펀넬 |
+| GET | `/dashboard/monthly` | 월별/분기별/연간 통계 |
+| GET | `/dashboard/activities` | 최근 활동 |
+
+---
+
+## 4. 리드 API (`/leads`)
+
+### 4.1 목록 조회
+
+```http
+GET /api/leads
+  ?page=1
+  &limit=50
+  &stage=bidding
+  &region=국내
+  &assigned_to=1
+  &business_type=EPC
+  &search=한국전력
+  &date_from=2026-01-01
+  &date_to=2026-12-31
+  &date_field=close  # close|stage|created|updated
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 101,
+      "customer_id": 5,
+      "customer_name": "한국동서발전",
+      "project_name": "30MW EPC 입찰",
+      "business_type": "EPC",
+      "region": "국내",
+      "capacity_mw": 30.0,
+      "expected_amount": 150.0,
+      "currency": "KRW",
+      "stage": "bidding",
+      "assigned_to": 1,
+      "assigned_name": "김영업",
+      "expected_close_date": "2026-06-30",
+      "bidding_deadline": "2026-05-31",
+      "notes": "긴급 입찰",
+      "created_at": "2026-01-15T08:30:00Z",
+      "updated_at": "2026-05-17T14:22:00Z"
+    }
+  ],
+  "page": 1,
+  "limit": 50,
+  "total": 120,
+  "totalPages": 3
+}
+```
+
+### 4.2 생성
+
+```http
+POST /api/leads
+```
+
+**Required:**
+- `customer_name` (string)
+- `project_name` (string)
+
+**Optional:**
+```json
+{
+  "customer_id": 5,
+  "business_type": "태양광",  // 태양광|모듈|EPC|ESS|전기|설치
+  "region": "국내",            // 국내|해외
+  "capacity_mw": 30.0,
+  "expected_amount": 150.0,
+  "currency": "KRW",
+  "stage": "lead",
+  "assigned_to": 1,
+  "expected_close_date": "2026-06-30",
+  "bidding_deadline": "2026-05-31",
+  "source": "전시회",
+  "notes": "추가 정보"
+}
+```
+
+### 4.3 수정 / 삭제
+
+```http
+PUT /api/leads/:id
+DELETE /api/leads/:id
+```
+
+### 4.4 대량 등록 (Copy & Paste)
+
+```http
+POST /api/leads/bulk
+```
+
+**Request:**
+```json
+{
+  "rows": [
+    { "customer_name": "...", "project_name": "...", "..." },
+    { "customer_name": "...", "project_name": "...", "..." }
+  ]
+}
+```
+
+### 4.5 내보내기
+
+```http
+GET /api/leads/export?format=xlsx|csv
+```
+
+---
+
+## 5. 고객사 API (`/customers`)
+
+### 5.1 목록
+
+```http
+GET /api/customers?page=1&limit=50&search=동서&region=국내&industry=에너지
+```
+
+### 5.2 생성
+
+```http
+POST /api/customers
+```
+
+**Body:**
+```json
+{
+  "name": "한국동서발전",
+  "region": "국내",
+  "country": "대한민국",
+  "industry": "에너지",
+  "contact_person": "박팀장",
+  "phone": "02-1234-5678",
+  "email": "contact@example.com",
+  "address": "서울특별시 중구 ...",
+  "notes": "주력 고객"
+}
+```
+
+| Method | Path | 설명 |
+|--------|------|------|
+| PUT | `/customers/:id` | 수정 |
+| DELETE | `/customers/:id` | 삭제 |
+| POST | `/customers/bulk` | 대량 등록 |
+| GET | `/customers/export` | 내보내기 |
+
+---
+
+## 6. 프로젝트 API (`/projects`)
+
+### 6.1 목록
+
+```http
+GET /api/projects?status=진행중&search=...
+```
+
+### 6.2 생성
+
+```http
+POST /api/projects
+```
+
+**Body:**
+```json
+{
+  "name": "프로젝트명",
+  "customer_id": 5,
+  "customer_name": "...",
+  "project_type": "EPC",
+  "contract_amount": 150.0,
+  "estimated_cost": 120.0,
+  "margin_pct": 20.0,  // 자동 계산
+  "status": "진행중",   // 진행중|제조중|납기지연|완료|취소
+  "due_date": "2026-12-31",
+  "assigned_to": 1,
+  "lead_id": 101
+}
+```
+
+---
+
+## 7. 활동 이력 API (`/activities`)
+
+### 7.1 목록
+
+```http
+GET /api/activities?lead_id=101&project_id=10
+```
+
+### 7.2 생성
+
+```http
+POST /api/activities
+```
+
+**Body:**
+```json
+{
+  "lead_id": 101,
+  "project_id": null,
+  "activity_type": "미팅",  // 미팅|전화|이메일|제안서|입찰|수주|드롭|기타
+  "title": "킥오프 미팅",
+  "content": "주요 요구사항 논의 ...",
+  "performed_by": 1,
+  "performed_at": "2026-05-17T14:00:00Z",
+  "calendar_event_id": null
+}
+```
+
+### 7.3 캘린더 후보 조회
+
+```http
+GET /api/activities/:id/calendar-candidates
+```
+
+### 7.4 자동 일정화
+
+```http
+POST /api/activities/auto-link
+```
+
+---
+
+## 8. 캘린더 API (`/calendar`)
+
+### 8.1 이벤트 목록
+
+```http
+GET /api/calendar/events?start=2026-05-01&end=2026-05-31&assigned_to=1
+```
+
+### 8.2 이벤트 생성
+
+```http
+POST /api/calendar/events
+```
+
+**Body:**
+```json
+{
+  "title": "고객 미팅",
+  "description": "...",
+  "start_datetime": "2026-05-17T14:00:00Z",
+  "end_datetime": "2026-05-17T15:00:00Z",
+  "all_day": false,
+  "event_type": "meeting",
+  "lead_id": 101,
+  "assigned_to": 1,
+  "color": "#1a73e8",
+  "recurrence": null
+}
+```
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/calendar/events/:id` | 상세 |
+| PUT | `/calendar/events/:id` | 수정 |
+| DELETE | `/calendar/events/:id` | 삭제 |
+
+---
+
+## 9. 회의록 / STT API (`/meetings`)
+
+### 9.1 동기 STT (짧은 녹음, ~20분)
+
+```http
+POST /api/meetings/transcribe
+Content-Type: multipart/form-data
+
+audio: <File>  # MP3/WAV/M4A/WEBM/OGG, 최대 25MB
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "transcript": "회의 텍스트...",
+    "speakers": [
+      { "speaker": "스피커1", "text": "..." }
+    ],
+    "duration_sec": 1245
+  }
+}
+```
+
+### 9.2 비동기 STT (긴 녹음, 20~120분)
+
+```http
+POST /api/meetings/transcribe-async
+Content-Type: multipart/form-data
+
+audio: <File>
+```
+
+**Response (즉시 반환):**
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "stt_job_xyz789",
+    "status": "processing"
+  }
+}
+```
+
+### 9.3 작업 상태 폴링
+
+```http
+GET /api/meetings/transcribe-status/:jobId
+```
+
+**Response (진행 중):**
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "stt_job_xyz789",
+    "status": "processing"
+  }
+}
+```
+
+**Response (완료):**
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "stt_job_xyz789",
+    "status": "completed",
+    "transcript": "...",
+    "speakers": [ /* ... */ ],
+    "duration_sec": 5400
+  }
+}
+```
+
+### 9.4 회의록 저장
+
+```http
+POST /api/meetings
+```
+
+**Body:**
+```json
+{
+  "title": "5월 17일 영업 미팅",
+  "meeting_date": "2026-05-17",
+  "raw_transcript": "...",
+  "speakers_json": [ /* ... */ ],
+  "summary_md": "## 핵심 내용\n- ...",
+  "action_items": "...",
+  "customer_name": "...",
+  "lead_id": 101,
+  "calendar_event_id": null
+}
+```
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/meetings` | 회의록 목록 |
+| GET | `/meetings/:id` | 상세 |
+| PUT | `/meetings/:id` | 수정 |
+| DELETE | `/meetings/:id` | 삭제 |
+
+---
+
+## 10. AI API (`/ai`)
+
+### 10.1 챗봇 (스트리밍 SSE)
+
+```http
+POST /api/ai/chat
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+**Request:**
+```json
+{
+  "messages": [
+    { "role": "user", "content": "이번 분기 입찰 마감 임박 리드 알려줘" }
+  ]
+}
+```
+
+**Response (text/event-stream):**
+```
+data: {"text":"이번 분기"}
+
+data: {"text":"에 입찰 마감이"}
+
+data: {"text":" 임박한 리드는 ..."}
+
+data: [DONE]
+```
+
+**자동 주입 컨텍스트:**
+- 활성 리드 수 / 입찰 진행 / 올해 수주
+- 최근 주요 리드 5건
+- 긴박한 입찰 일정
+
+### 10.2 고객사 AI 브리핑
+
+```http
+GET /api/ai/briefing/:customerId
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "briefing_md": "## 한국동서발전 브리핑\n\n### 진행 중인 리드\n- ...\n\n### 추천 액션\n- ...",
+    "generated_at": "2026-05-17T15:00:00Z",
+    "model": "gemini-2.5-pro"
+  }
+}
+```
+
+### 10.3 토큰 사용량 확인
+
+```http
+GET /api/ai/token-usage
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "month_used": 125000,
+    "month_limit": 500000,
+    "usage_pct": 25.0,
+    "auto_recharge_enabled": true
+  }
+}
+```
+
+---
+
+## 11. Google 연동 API (`/google`)
+
+### 11.1 OAuth 시작
+
+```http
+GET /api/google/auth
+```
+
+→ Google OAuth 동의 화면으로 리다이렉트
+
+### 11.2 OAuth 콜백
+
+```http
+GET /api/google/callback?code=<authorization_code>&state=<state>
+```
+
+→ 팝업 자동 닫힘 + 부모 창에 postMessage
+
+### 11.3 연결 상태
+
+```http
+GET /api/google/status
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "connected": true,
+    "google_email": "user@gmail.com"
+  }
+}
+```
+
+### 11.4 연결 해제
+
+```http
+POST /api/google/disconnect
+```
+
+### 11.5 Google Meet 링크 생성
+
+```http
+POST /api/google/calendar/create
+```
+
+**Body:**
+```json
+{
+  "title": "영업 미팅",
+  "scheduled_at": "2026-05-18T10:00:00Z",
+  "duration_min": 60
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "google_event_id": "...",
+    "meet_link": "https://meet.google.com/abc-defg-hij",
+    "session_id": 42
+  }
+}
+```
+
+---
+
+## 12. Gmail 통합 API (`/gmail`) — G1/G2/G3
+
+### 12.1 Scope 보유 확인 (G1)
+
+```http
+GET /api/gmail/scope-status
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "connected": true,
+    "hasGmailScope": true,
+    "google_email": "user@gmail.com"
+  }
+}
+```
+
+### 12.2 메시지 조회 (G1)
+
+```http
+GET /api/gmail/messages?email=contact@example.com&limit=10
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "msg_id",
+      "threadId": "thread_id",
+      "from": "박팀장 <contact@example.com>",
+      "to": "user@gmail.com",
+      "subject": "재견적 요청",
+      "snippet": "...",
+      "date": "2026-05-17T10:00:00Z",
+      "direction": "inbound",
+      "gmail_url": "https://mail.google.com/mail/u/0/#all/thread_id"
+    }
+  ],
+  "count": 5,
+  "email": "contact@example.com"
+}
+```
+
+### 12.3 리드 / 고객 자동 매칭 (G1)
+
+```http
+GET /api/gmail/match/lead/:id?limit=10
+GET /api/gmail/match/customer/:id?limit=10
+```
+
+**Response (이메일 없음):**
+```json
+{
+  "success": true,
+  "data": [],
+  "count": 0,
+  "reason": "no_contact_email",
+  "message": "고객 담당자 이메일이 등록되어 있지 않습니다"
+}
+```
+
+### 12.4 Gmail 발송 (G2)
+
+```http
+POST /api/gmail/send
+```
+
+**Body:**
+```json
+{
+  "to": "contact@example.com",
+  "subject": "재견적서 송부드립니다",
+  "body": "안녕하세요 ...",
+  "cc": "team@oci.co.kr",   // 선택
+  "bcc": null                // 선택
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message_id": "...",
+    "thread_id": "...",
+    "from": "user@gmail.com"
+  }
+}
+```
+
+### 12.5 동기화 설정 (G3)
+
+```http
+GET /api/gmail/sync-settings
+PUT /api/gmail/sync-settings
+POST /api/gmail/sync-now
+```
+
+**PUT Body:**
+```json
+{ "enabled": true }
+```
+
+**POST /sync-now Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "matched": 3,
+    "inserted": 2,
+    "skipped": 1,
+    "error": null
+  }
+}
+```
+
+---
+
+## 13. 관리자 API (`/admin`)
+
+> ⚠️ 모든 `/admin/*` 경로는 권한 레벨 3 (executive) 이상 필요. 일부는 레벨 4 (admin) 이상.
+
+### 13.1 사용자 / 팀원
+
+| Method | Path | 권한 | 설명 |
+|--------|------|------|------|
+| GET | `/admin/users` | 3 | 사용자 목록 |
+| GET | `/admin/team-stats` | 3 | 팀원 현황 |
+| GET | `/admin/team-members` | 4 | 팀원 관리 |
+| PATCH | `/admin/team-members/:id/token-limit` | 4 | 토큰 한도 설정 |
+
+### 13.2 토큰 모니터링
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/admin/token-usage-by-user` | 사용자별 토큰 사용량 |
+| GET | `/admin/token-monitor` | 실시간 모니터링 |
+| PUT | `/admin/token-recharge-settings/:id` | 자동충전 설정 |
+| POST | `/admin/token-recharge/:id` | 수동 충전 |
+
+### 13.3 시스템 통계 / 로그
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/admin/stats` | 시스템 통계 |
+| GET | `/admin/access-logs` | API 호출 로그 |
+| GET | `/admin/daily-logs` | 일별 통계 |
+| GET | `/admin/top-paths` | 인기 엔드포인트 |
+| DELETE | `/admin/access-logs` | 로그 삭제 |
+
+### 13.4 시스템 설정
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/admin/settings` | 설정 조회 |
+| PUT | `/admin/settings` | 설정 수정 |
+
+---
+
+## 14. 다국어 라벨 API (`/admin/labels`)
+
+### 14.1 공개 조회
+
+```http
+GET /api/labels?locale=ko  # 모든 인증 사용자
+```
+
+### 14.2 관리자 전용
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/admin/labels?locale=ko` | 전체 라벨 |
+| GET | `/admin/labels/scope/:scope` | 특정 scope |
+| PUT | `/admin/labels` | 일괄 저장 |
+| PUT | `/admin/labels/:scope/:key` | 단건 저장 |
+| POST | `/admin/labels/reset` | 초기화 |
+| GET | `/admin/labels/audit` | 변경 이력 |
+| GET | `/admin/labels/locales` | 지원 언어 |
+| PUT | `/admin/labels/system-locale` | 기본 언어 변경 |
+
+### 14.3 단건 저장 예시
+
+```http
+PUT /api/admin/labels/leads/expected_amount
+```
+
+**Body:**
+```json
+{
+  "ko": "예상 수주액",
+  "en": "Expected Award",
+  "ja": "予想受注額",
+  "zh": "预期中标额"
+}
+```
+
+---
+
+## 15. 알림 / 검색 / 게시판
+
+### 15.1 알림
+
+```http
+GET /api/notifications
+GET /api/notifications?extended=true  # 30일 확장
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "overdue": [ /* 마감 초과 리드 */ ],
+    "bidding_deadline": [ /* 입찰 마감 임박 */ ],
+    "close_deadline": [ /* 마감 임박 */ ],
+    "project_due": [ /* 납기 임박 */ ],
+    "today_events": [ /* 오늘 일정 */ ]
+  }
+}
+```
+
+### 15.2 글로벌 검색 (`Cmd+K`)
+
+```http
+GET /api/search?q=한국동서발전&limit=10
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "leads": [ /* ... */ ],
+    "customers": [ /* ... */ ],
+    "projects": [ /* ... */ ],
+    "meetings": [ /* ... */ ],
+    "activities": [ /* ... */ ]
+  }
+}
+```
+
+### 15.3 게시판
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/board` | 인덱스 (공지+FAQ 메타) |
+| GET | `/board/announcements` | 공지 목록 |
+| POST | `/board/announcements` | 공지 생성 |
+| PUT | `/board/announcements/:id` | 공지 수정 |
+| DELETE | `/board/announcements/:id` | 공지 삭제 |
+| GET | `/board/faq` | FAQ 목록 |
+| POST | `/board/faq` | FAQ 생성 |
+| GET | `/board/comments?ref_type=lead&ref_id=101` | 댓글 조회 |
+| POST | `/board/comments` | 댓글 작성 |
+
+---
+
+## 16. WebSocket 이벤트
+
+### 16.1 연결
+
+```javascript
+const ws = new WebSocket(`wss://<domain>/?token=${JWT_TOKEN}`);
+```
+
+**미인증 시:** 즉시 종료 (코드 4001)
+
+### 16.2 헬스맵 구독 (관리자)
+
+**Client → Server:**
+```json
+{ "type": "healthmap-subscribe" }
+```
+
+**Server → Client (1초 간격):**
+```json
+{
+  "type": "healthmap-snapshot",
+  "data": {
+    "cpu": 23.5,
+    "memory": 1024,
+    "db_connections": 5,
+    "ws_clients": 3
+  }
+}
+```
+
+### 16.3 공지사항 푸시 (자동)
+
+**Server → All Clients:**
+```json
+{
+  "type": "announcement",
+  "id": 42,
+  "title": "시스템 점검 안내",
+  "preview": "5월 18일 새벽 2~4시 점검 예정...",
+  "is_pinned": true,
+  "author": "관리자"
+}
+```
+
+---
+
+## 📎 부록: 에러 코드 참조
+
+| Code | 설명 |
+|------|------|
+| `VALIDATION_ERROR` | 필수 필드 누락 또는 형식 오류 |
+| `AUTH_FAILED` | 로그인 실패 (ID/PW 불일치) |
+| `TOKEN_EXPIRED` | Access Token 만료 |
+| `TOKEN_INVALID` | Token 서명 불일치 |
+| `PERMISSION_DENIED` | RBAC 권한 부족 |
+| `NOT_FOUND` | 리소스 없음 |
+| `DUPLICATE_KEY` | 중복 제약 위반 |
+| `RATE_LIMIT` | 요청 횟수 초과 |
+| `API_KEY_INVALID` | 외부 API 키 (Gemini) 무효 |
+| `OAUTH_INVALID_GRANT` | Google OAuth 토큰 만료/회수 |
+| `DB_DISCONNECTED` | DB 연결 끊김 |
+
+---
+
+## 📎 부록: 라우트 전체 맵 (27개 파일)
+
+| 라우트 파일 | 주요 Prefix | 엔드포인트 수 |
+|------------|------------|--------------|
+| auth.js | `/auth` | 8 |
+| dashboard.js | `/dashboard` | 5 |
+| leads.js | `/leads` | 7 |
+| customers.js | `/customers` | 6 |
+| projects.js | `/projects` | 5 |
+| activities.js | `/activities` | 7 |
+| notifications.js | `/notifications` | 2 |
+| calendar.js | `/calendar` | 5 |
+| meetings.js | `/meetings` | 7 |
+| ai.js | `/ai` | 4 |
+| google.js | `/google` | 6 |
+| gmail.js | `/gmail` | 9 |
+| products.js | `/products` | 5 |
+| admin.js | `/admin` | 14 |
+| admin-labels.js | `/admin/labels`, `/labels` | 8 |
+| board.js | `/board` | 9 |
+| search.js | `/search` | 1 |
+| team.js | `/team` | 2 |
+| healthmap.js | `/healthmap` | 2 |
+| pipeline-stages.js | `/pipeline-stages` | 1 |
+| menu-config.js | `/menu-config` | 1 |
+| schema-export.js | `/schema-export` | 1 |
+| email-templates.js | `/email-templates` | 2 |
+| webhooks.js | `/webhooks` | 3 |
+| exchange.js | `/exchange` | (예약) |
+| logo.js | `/system/logo`, `/admin/logo` | 3 |
+| report-builder.js | `/report-builder` | 7 |
+
+> 총 **100+ 엔드포인트** 제공
+
+---
+
+# 🆕 v5.0 추가 엔드포인트
+
+## 17. 로고 관리 API
+
+### 17.1 현재 로고 조회 (Public)
+```http
+GET /api/system/logo
+```
+응답: `{ url, is_custom }`
+
+### 17.2 로고 업로드 (admin 4+)
+```http
+POST /api/admin/logo/upload
+Content-Type: multipart/form-data
+logo: <File>  # PNG/JPG/SVG, 2MB
+```
+**자동 최적화 결과**:
+```json
+{
+  "success": true,
+  "data": {
+    "url": "/uploads/logos/logo-1779030773885.png",
+    "optimization": {
+      "original_size": 1745920,
+      "optimized_size": 234567,
+      "savings_percent": 86,
+      "type": "raster",
+      "width": 600, "height": 165,
+      "trimmed": true
+    }
+  }
+}
+```
+
+### 17.3 기본 로고로 복원
+```http
+DELETE /api/admin/logo
+```
+
+---
+
+## 18. 리포트 빌더 API
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/report-builder/fields` | 필드 카탈로그 (차원 8 + 지표 4) |
+| POST | `/report-builder/query` | 리포트 실행 (config_json 기반) |
+| GET | `/report-builder/saved` | 본인 저장 리포트 목록 |
+| GET | `/report-builder/saved/:id` | 단건 조회 |
+| POST | `/report-builder/saved` | 신규 저장 |
+| PUT | `/report-builder/saved/:id` | 수정 |
+| DELETE | `/report-builder/saved/:id` | 삭제 |
+
+**Query Body**:
+```json
+{
+  "datasource": "leads",
+  "rows": ["stage"],
+  "columns": ["region"],
+  "filters": [{ "field": "business_type", "op": "eq", "value": "EPC" }],
+  "measures": ["count", "sum_expected_amount"],
+  "chartType": "auto"
+}
+```
+
+---
+
+## 19. 기능 플래그 / Preset API (superadmin)
+
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/admin/dev/presets` | 패키지 목록 (Minimal/Standard/Premium) |
+| GET | `/admin/dev/presets/:key/preview` | 적용 시 변경 사항 미리보기 |
+| POST | `/admin/dev/presets/:key/apply` | 일괄 적용 + audit log |
+| GET | `/admin/dev/features/audit?limit=100` | 변경 이력 조회 |
+| PUT | `/admin/dev/features/:key?force=1` | 토글 변경 (force=1: 의존성 강제) |
+| DELETE | `/admin/dev/features/:key` | Deprecated 토글 정리 |
+
+### 의존성 충돌 응답 (409)
+```json
+{
+  "success": false,
+  "error": "이 기능에 의존하는 다른 활성 기능이 있습니다",
+  "dependents": [{ "key": "gmail.send", "name": "Gmail 발송" }],
+  "hint": "강제 진행하려면 ?force=1"
+}
+```
+
+---
+
+## 20. 클라이언트 가드 (Circuit Breaker)
+
+`API.gmail.send()` 등 11개 메서드 호출 시 토글 OFF면 즉시 throw:
+```javascript
+err.code = 'FEATURE_DISABLED';
+err.feature = 'gmail.send';
+```
+
+네트워크 요청 0건 + 일관된 에러 처리.
