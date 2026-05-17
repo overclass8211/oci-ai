@@ -246,7 +246,7 @@ a { text-decoration: none; color: inherit; }
 
 .topbar {
   height: var(--topbar-h);
-  background: #FFF;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -435,7 +435,7 @@ a { text-decoration: none; color: inherit; }
 
 /* ============== CARDS ============== */
 .card {
-  background: #FFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -446,7 +446,7 @@ a { text-decoration: none; color: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #FFF;
+  background: var(--surface);
 }
 .card-title {
   font-size: 13px;
@@ -3039,6 +3039,150 @@ body,
 [data-theme="dark"] .fc .fc-daygrid-day-number,
 [data-theme="dark"] .cal-day-num { color: var(--text-1); }
 [data-theme="dark"] .fc .fc-day-other .cal-day-num { color: var(--text-4); }
+
+/* ─── 추가: FullCalendar 다크모드 보강 ──────────────────── */
+[data-theme="dark"] .cal-week-view { background: var(--surface); border-color: var(--border); }
+[data-theme="dark"] .cal-event-item { background: var(--surface); border-color: var(--border); }
+[data-theme="dark"] .cal-event-item:hover { background: var(--surface-2); }
+[data-theme="dark"] .fc .fc-list-event { background: var(--surface-2) !important; }
+[data-theme="dark"] .fc .fc-list-event:hover td { background: var(--surface-3) !important; }
+[data-theme="dark"] .fc .fc-list-event-title,
+[data-theme="dark"] .fc .fc-list-event-time,
+[data-theme="dark"] .fc .fc-list-day-cushion { color: var(--text-1) !important; }
+[data-theme="dark"] .fc .fc-list-day-cushion { background: var(--surface-2) !important; }
+[data-theme="dark"] .fc .fc-day-sun .fc-col-header-cell-cushion,
+[data-theme="dark"] .fc .fc-day-sun .fc-daygrid-day-number { color: #ff9999; }
+[data-theme="dark"] .fc .fc-day-sat .fc-col-header-cell-cushion,
+[data-theme="dark"] .fc .fc-day-sat .fc-daygrid-day-number { color: #6ba3f5; }
+[data-theme="dark"] .fc-more-link { color: #6ba3f5; }
+[data-theme="dark"] .fc .fc-timegrid-slot,
+[data-theme="dark"] .fc .fc-timegrid-axis { color: var(--text-3); }
+
+/* ─── 추가: 회의록 입출력 영역 (사용자 보고 — 흰색 배경 글자 안 보임) ─── */
+[data-theme="dark"] .meeting-input-area {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+[data-theme="dark"] .meeting-output {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+[data-theme="dark"] .meeting-textarea {
+  background: var(--surface-2);
+  color: var(--text-1);
+  border-color: var(--border);
+}
+
+/* ─── 추가: 알림 패널 ─────────────────────────────────────── */
+[data-theme="dark"] .notif-panel {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+
+/* ─── 추가: 고객사 카드 / 보기 토글 ──────────────────────── */
+[data-theme="dark"] .cust-card {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+[data-theme="dark"] .cust-card:hover {
+  border-color: var(--oci-red);
+}
+[data-theme="dark"] .view-toggle-btn.active {
+  background: var(--surface);
+  color: var(--text-1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* ─── 추가: 게시판 (Quill / FAQ) ──────────────────────────── */
+[data-theme="dark"] #quill-editor,
+[data-theme="dark"] .ql-container,
+[data-theme="dark"] .ql-editor {
+  background: var(--surface) !important;
+  color: var(--text-1) !important;
+}
+[data-theme="dark"] .ql-toolbar {
+  background: var(--surface-2) !important;
+  border-color: var(--border) !important;
+}
+[data-theme="dark"] .ql-toolbar .ql-stroke { stroke: var(--text-2); }
+[data-theme="dark"] .ql-toolbar .ql-fill { fill: var(--text-2); }
+[data-theme="dark"] .ql-toolbar .ql-picker-label { color: var(--text-2); }
+[data-theme="dark"] .ql-editor.ql-blank::before { color: var(--text-3); }
+[data-theme="dark"] .faq-question-btn { background: var(--surface) !important; color: var(--text-1) !important; }
+[data-theme="dark"] .faq-answer-area { background: var(--surface-2) !important; color: var(--text-2) !important; }
+
+/* ─── 추가: Google 연결됨 배지 (회의록 페이지) ───────────── */
+.badge-google-connected {
+  background: #E6F4EA;
+  color: #1E7E34;
+}
+[data-theme="dark"] .badge-google-connected {
+  background: rgba(52, 168, 83, 0.15);
+  color: #6FCF8F;
+}
+
+/* ─── 추가: 워드 사전 - 오버라이드된 input (admin.js) ────── */
+.wr-input-overridden {
+  border-color: #FD7E14;
+  background: #FFF8F0;
+}
+[data-theme="dark"] .wr-input-overridden {
+  border-color: #FD7E14;
+  background: rgba(253, 126, 20, 0.12);
+  color: var(--text-1);
+}
+
+/* ─── 추가: form-input 등 폼 요소 보강 ──────────────────── */
+[data-theme="dark"] input[type="text"]:not(.form-input):not(.tpl-var),
+[data-theme="dark"] input[type="number"]:not(.form-input),
+[data-theme="dark"] input[type="email"]:not(.form-input),
+[data-theme="dark"] input[type="password"]:not(.form-input),
+[data-theme="dark"] input[type="date"]:not(.form-input),
+[data-theme="dark"] input[type="search"]:not(.form-input),
+[data-theme="dark"] textarea:not(.form-input),
+[data-theme="dark"] select:not(.form-input) {
+  background: var(--surface-2);
+  color: var(--text-1);
+  border-color: var(--border);
+}
+
+/* ─── 다크모드 일괄 보강: 라이트에 #fff 하드코딩된 셀렉터들 ─── */
+/* 라이트 모드에는 영향 없음 (var(--surface)=#FFFFFF 라이트), 다크에서만 #25232a 적용 */
+[data-theme="dark"] .btn-ghost,
+[data-theme="dark"] .metric-card,
+[data-theme="dark"] .kanban-card,
+[data-theme="dark"] .tab-btn.active,
+[data-theme="dark"] .toast,
+[data-theme="dark"] .cal-toolbar,
+[data-theme="dark"] .cal-view-btn.active,
+[data-theme="dark"] .cal-week-view,
+[data-theme="dark"] .fc .fc-col-header-cell,
+[data-theme="dark"] .view-toggle-btn.active,
+[data-theme="dark"] .cust-card,
+[data-theme="dark"] .meeting-input-area,
+[data-theme="dark"] .meeting-output,
+[data-theme="dark"] .notif-panel {
+  background: var(--surface);
+  color: var(--text-1);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .btn-ghost:hover {
+  background: var(--surface-2);
+}
+[data-theme="dark"] .kanban-card:hover {
+  background: var(--surface-2);
+}
+[data-theme="dark"] .tab-btn:not(.active) {
+  color: var(--text-3);
+}
+[data-theme="dark"] .tab-btn:not(.active):hover {
+  color: var(--text-1);
+}
 
 /* 폰트 크기 - / + 컨트롤 */
 .font-size-ctrl {

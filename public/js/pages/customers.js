@@ -998,14 +998,14 @@ const CustomersPage = {
         position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10010;
         display:flex; align-items:center; justify-content:center;`;
       overlay.innerHTML = `
-        <div style="background:#fff; width:min(540px,92vw); height:min(560px,86vh);
+        <div style="background:var(--surface); color:var(--text-1); width:min(540px,92vw); height:min(560px,86vh);
                     border-radius:8px; box-shadow:0 12px 40px rgba(0,0,0,.3); overflow:hidden;
                     display:flex; flex-direction:column">
           <div style="display:flex; justify-content:space-between; align-items:center;
-                      padding:10px 14px; border-bottom:1px solid #e5e7eb; background:#f9fafb">
+                      padding:10px 14px; border-bottom:1px solid var(--border); background:var(--surface-2)">
             <div style="font-size:14px; font-weight:600">📮 주소 검색</div>
             <button id="cm-postcode-close" style="border:none; background:none; cursor:pointer;
-                    font-size:18px; color:#666">×</button>
+                    font-size:18px; color:var(--text-3)">×</button>
           </div>
           <div id="cm-postcode-box" style="flex:1; overflow:auto"></div>
         </div>`;

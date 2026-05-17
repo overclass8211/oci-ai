@@ -127,7 +127,7 @@ const BoardPage = (() => {
         </div>
         <div>
           <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">내용 <span style="color:#ef4444;">*</span></label>
-          <div id="quill-editor" style="min-height:180px;background:#fff;"></div>
+          <div id="quill-editor" style="min-height:180px;background:var(--surface);color:var(--text-1);"></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <input id="ann-pinned" type="checkbox" style="width:16px;height:16px;cursor:pointer;">
@@ -317,13 +317,13 @@ const BoardPage = (() => {
                 </div>
                 <div class="faq-accordion">
                   ${grouped[cat].map(f => `
-                    <div class="faq-item" style="border:1px solid var(--border,#e5e7eb);border-radius:8px;margin-bottom:6px;overflow:hidden;">
-                      <button class="faq-q-btn" data-faq-id="${f.id}"
-                        style="width:100%;text-align:left;background:#fff;border:none;padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:600;color:var(--text,#111827);">
+                    <div class="faq-item" style="border:1px solid var(--border);border-radius:8px;margin-bottom:6px;overflow:hidden;">
+                      <button class="faq-q-btn faq-question-btn" data-faq-id="${f.id}"
+                        style="width:100%;text-align:left;background:var(--surface);border:none;padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:600;color:var(--text-1);">
                         <span>${esc(f.question)}</span>
-                        <span class="faq-chevron" style="font-size:12px;color:var(--text-muted,#6b7280);transition:transform .2s;">▼</span>
+                        <span class="faq-chevron" style="font-size:12px;color:var(--text-3);transition:transform .2s;">▼</span>
                       </button>
-                      <div class="faq-answer" data-faq-id="${f.id}" style="display:none;padding:12px 16px 16px;background:#fafafa;border-top:1px solid var(--border,#e5e7eb);font-size:14px;color:var(--text,#374151);line-height:1.7;white-space:pre-wrap;">${esc(f.answer)}<div style="margin-top:10px;display:flex;justify-content:flex-end;"><button class="btn btn-ghost btn-del-faq" data-id="${f.id}" style="font-size:12px;padding:3px 10px;color:#ef4444;">삭제</button></div></div>
+                      <div class="faq-answer faq-answer-area" data-faq-id="${f.id}" style="display:none;padding:12px 16px 16px;background:var(--surface-2);border-top:1px solid var(--border);font-size:14px;color:var(--text-2);line-height:1.7;white-space:pre-wrap;">${esc(f.answer)}<div style="margin-top:10px;display:flex;justify-content:flex-end;"><button class="btn btn-ghost btn-del-faq" data-id="${f.id}" style="font-size:12px;padding:3px 10px;color:#ef4444;">삭제</button></div></div>
                     </div>
                   `).join('')}
                 </div>

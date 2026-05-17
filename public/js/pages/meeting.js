@@ -254,7 +254,7 @@ const MeetingPage = (() => {
 
     if (badge) {
       badge.innerHTML = connected
-        ? `<span class="badge" style="background:#e6f4ea;color:#1e7e34;border:none;font-size:11px">● 연결됨 · ${esc(email||'')}</span>`
+        ? `<span class="badge badge-google-connected" style="border:none;font-size:11px">● 연결됨 · ${esc(email||'')}</span>`
         : `<span class="badge" style="background:var(--surface-2);color:var(--text-3);border:none;font-size:11px">미연결</span>`;
     }
 

@@ -229,9 +229,9 @@ const AdminPage = {
           </div>
           <button class="btn-primary" id="admin-create-user-btn">+ 사용자 추가</button>
         </div>
-        <div style="background:#f0f4ff;border:1px solid #c7d7fa;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px">
+        <div class="admin-role-help-box" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--text-1)">
           <strong>역할 설명:</strong>
-          &nbsp;<span style="color:#6c757d">매니저(일반)</span> →
+          &nbsp;<span style="color:var(--text-3)">매니저(일반)</span> →
           <span style="color:#3788d8">팀장(관리자)</span> →
           <span style="color:#fd7e14">경영진(전체열람)</span> →
           <span style="color:#e63946">IT운영(수퍼어드민)</span>
@@ -2422,9 +2422,9 @@ const AdminPage = {
           <td><span class="mono fs-12" style="color:var(--text-3)">${esc(k)}</span></td>
           <td><span style="color:var(--text-2)">${esc(v.default)}</span></td>
           <td>
-            <input type="text" class="form-control wr-input" value="${esc(curr)}"
+            <input type="text" class="form-control wr-input ${isOverridden ? 'wr-input-overridden' : ''}" value="${esc(curr)}"
                    maxlength="200" placeholder="${esc(v.default)}"
-                   style="font-size:13px;${isOverridden ? 'border-color:#fd7e14;background:#fff8f0' : ''}"
+                   style="font-size:13px"
                    data-original="${esc(v.current)}">
           </td>
           <td style="font-size:11px;color:var(--text-3)">${esc(v.desc || '')}</td>
