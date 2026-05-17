@@ -4022,6 +4022,111 @@ body,
   margin-top: 20px;
 }
 
+/* ─── Step 3: 검색/정렬/접기 툴바 ────────────────────────── */
+.dev-feat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 16px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+.dev-feat-search-wrap {
+  flex: 1;
+  min-width: 240px;
+  position: relative;
+}
+.dev-feat-search-wrap input {
+  width: 100%;
+  padding-right: 32px;
+  font-size: 13px;
+}
+.dev-feat-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  cursor: pointer;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.dev-feat-search-clear:hover {
+  background: var(--oci-red);
+  color: #fff;
+  border-color: var(--oci-red);
+}
+.dev-feat-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.dev-feat-sort-label {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+.dev-feat-sort {
+  width: auto;
+  min-width: 110px;
+  font-size: 12px;
+}
+
+/* 카테고리 접기/펴기 */
+.dev-cat-title {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s;
+}
+.dev-cat-title:hover {
+  background: var(--surface-3);
+}
+.dev-cat-chevron {
+  font-size: 9px;
+  color: var(--text-3);
+  display: inline-block;
+  width: 12px;
+  transition: transform 0.15s;
+}
+.dev-cat-count {
+  font-size: 10px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.dev-cat-block.is-collapsed .dev-cat-body {
+  display: none;
+}
+
+/* 검색 결과 없음 */
+.dev-feat-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  background: var(--surface-2);
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+}
+
 /* 추가 chip 색상 */
 .dev-chip.orange {
   background: rgba(245, 156, 0, 0.1);

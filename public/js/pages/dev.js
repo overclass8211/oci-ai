@@ -685,6 +685,27 @@ const DevPage = {
       const r = await API.get('/admin/dev/features');
       this.features = r.data || [];
     } catch { this.features = []; }
+
+    // 상태 초기화 (검색/정렬/접기) — localStorage 복원
+    if (!this._fState) {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem('dev.featState') || '{}'); } catch (_) {}
+      this._fState = {
+        filter: '',
+        sortBy: saved.sortBy || 'category',  // category | name | risk | recent
+        collapsedCats: new Set(saved.collapsedCats || []),
+      };
+    }
+  },
+
+  // 상태 저장 (정렬/접힌 카테고리)
+  _saveFeatState() {
+    try {
+      localStorage.setItem('dev.featState', JSON.stringify({
+        sortBy: this._fState.sortBy,
+        collapsedCats: [...this._fState.collapsedCats],
+      }));
+    } catch (_) { /* localStorage 차단 — 무시 */ }
   },
 
   renderFeatures() {
@@ -708,20 +729,6 @@ const DevPage = {
       critical: { label: '치명적', color: '#7C0000', badge: '⛔' },
     };
 
-    // Deprecated 분리 + 카테고리별 그룹
-    const grouped = {};
-    this.features.forEach(f => {
-      const cat = f.is_deprecated ? '_deprecated' : (f.category || 'general');
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push(f);
-    });
-
-    // 활성/비활성/Deprecated 통계
-    const active = this.features.filter(f => f.is_enabled && !f.is_deprecated).length;
-    const inactive = this.features.filter(f => !f.is_enabled && !f.is_deprecated).length;
-    const deprecatedCount = this.features.filter(f => f.is_deprecated).length;
-    const total = this.features.length;
-
     // 의존성 역참조 맵 — "이 feature 를 require 하는 기능들"
     const dependentsMap = {};
     this.features.forEach(f => {
@@ -732,14 +739,17 @@ const DevPage = {
         dependentsMap[reqKey].push(f.feature_key);
       });
     });
+    this._dependentsMap = dependentsMap;
+    this._categories = categories;
+    this._riskMeta = riskMeta;
 
-    // 카테고리 정렬
-    const sortedCats = Object.entries(grouped).sort(([a], [b]) => {
-      const oa = categories[a]?.order ?? 50;
-      const ob = categories[b]?.order ?? 50;
-      return oa - ob;
-    });
+    // 활성/비활성/Deprecated 통계 (전체 기준 — 필터와 무관)
+    const active = this.features.filter(f => f.is_enabled && !f.is_deprecated).length;
+    const inactive = this.features.filter(f => !f.is_enabled && !f.is_deprecated).length;
+    const deprecatedCount = this.features.filter(f => f.is_deprecated).length;
+    const total = this.features.length;
 
+    const s = this._fState;
     const html = `
       <div class="dev-section-header">
         <div>
@@ -756,63 +766,112 @@ const DevPage = {
         </div>
       </div>
 
-      <div class="dev-feature-grid">
-        ${sortedCats.map(([cat, list]) => {
-          const meta = categories[cat] || { label: cat, color: '#888' };
-          const isDeprecatedSection = cat === '_deprecated';
-          return `
-            <div class="dev-cat-block ${isDeprecatedSection ? 'dev-cat-deprecated' : ''}">
-              <div class="dev-cat-title" style="border-left:3px solid ${meta.color}">
-                ${meta.label}
-                ${isDeprecatedSection
-                  ? `<span style="font-size:11px;color:var(--text-3);font-weight:normal;margin-left:8px">매니페스트에서 제거됨 — 수동 정리 가능</span>`
-                  : ''}
-              </div>
-              ${list.map(f => {
-                const risk = riskMeta[f.risk_level] || riskMeta.safe;
-                let depList = [];
-                try { depList = JSON.parse(f.required_features || '[]'); } catch (_) {}
-                const dependents = dependentsMap[f.feature_key] || [];
-                const isDep = f.is_deprecated;
-                return `
-                <div class="dev-feature-row ${f.is_enabled ? '' : 'disabled'} ${isDep ? 'is-deprecated' : ''}" data-fkey="${f.feature_key}">
-                  <div class="dev-feature-info">
-                    <div class="dev-feature-name">
-                      ${esc(f.feature_name)}
-                      ${f.is_experimental ? '<span class="dev-badge-exp">실험적</span>' : ''}
-                      ${!isDeprecatedSection && f.risk_level !== 'safe'
-                        ? `<span class="dev-badge-risk" style="background:${risk.color}22;color:${risk.color};border-color:${risk.color}66" title="위험도: ${risk.label}">${risk.badge} ${risk.label}</span>`
-                        : ''}
-                      ${isDep ? '<span class="dev-badge-deprecated">DEPRECATED</span>' : ''}
-                    </div>
-                    <div class="dev-feature-desc">
-                      <code style="font-size:10px;color:var(--text-4);margin-right:6px">${esc(f.feature_key)}</code>
-                      ${esc(f.description || '')}
-                    </div>
-                    <div class="dev-feature-meta">
-                      ${f.affects_routes ? `<span class="dev-chip blue" title="영향받는 API">API: ${esc(f.affects_routes)}</span>` : ''}
-                      ${f.affects_tables ? `<span class="dev-chip green" title="영향받는 DB 테이블">Table: ${esc(f.affects_tables)}</span>` : ''}
-                      ${depList.length > 0 ? `<span class="dev-chip orange" title="이 기능을 사용하려면 다음이 ON 이어야 함">⬆ Requires: ${depList.map(d => esc(d)).join(', ')}</span>` : ''}
-                      ${dependents.length > 0 ? `<span class="dev-chip purple" title="이 기능을 require 하는 다른 기능들 (끄면 영향)">⬇ Required by: ${dependents.length}</span>` : ''}
-                    </div>
-                  </div>
-                  ${isDep
-                    ? `<button class="btn btn-ghost btn-sm" data-rb-cleanup="${esc(f.feature_key)}" style="color:#E63329" title="DB에서 삭제 (매니페스트에 없으므로 안전)">🗑 정리</button>`
-                    : `<label class="dev-toggle" title="${f.is_enabled ? 'ON — 클릭하여 비활성화' : 'OFF — 클릭하여 활성화'}">
-                        <input type="checkbox" ${f.is_enabled ? 'checked' : ''} data-feature="${esc(f.feature_key)}" data-risk="${esc(f.risk_level || 'safe')}">
-                        <span class="dev-toggle-slider"></span>
-                      </label>`}
-                </div>
-                `;
-              }).join('')}
-            </div>
-          `;
-        }).join('')}
+      <!-- 검색 / 정렬 / 이력 툴바 -->
+      <div class="dev-feat-toolbar">
+        <div class="dev-feat-search-wrap">
+          <input
+            id="dev-feat-search"
+            type="search"
+            class="form-input"
+            placeholder="🔍 기능 이름, key, 설명, API, 테이블에서 검색..."
+            value="${esc(s.filter || '')}"
+            autocomplete="off"
+          />
+          ${s.filter ? '<button class="dev-feat-search-clear" id="dev-feat-clear" title="검색어 지우기">✕</button>' : ''}
+        </div>
+        <div class="dev-feat-toolbar-right">
+          <label class="dev-feat-sort-label">정렬:</label>
+          <select id="dev-feat-sort" class="form-input dev-feat-sort">
+            <option value="category" ${s.sortBy === 'category' ? 'selected' : ''}>카테고리</option>
+            <option value="name"     ${s.sortBy === 'name' ? 'selected' : ''}>이름</option>
+            <option value="risk"     ${s.sortBy === 'risk' ? 'selected' : ''}>위험도</option>
+            <option value="recent"   ${s.sortBy === 'recent' ? 'selected' : ''}>최근 변경</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" id="dev-feat-expand-all" title="모든 카테고리 펴기">⊕</button>
+          <button class="btn btn-ghost btn-sm" id="dev-feat-collapse-all" title="모든 카테고리 접기">⊖</button>
+          <button class="btn btn-primary btn-sm" id="dev-feat-audit-btn" title="변경 이력 조회">🕒 변경 이력</button>
+        </div>
       </div>
+
+      <!-- 본문 (검색/정렬 변경 시 이 영역만 재렌더) -->
+      <div id="dev-feat-body" class="dev-feature-grid"></div>
     `;
 
     const container = document.getElementById('dev-content');
     container.innerHTML = html;
+
+    // 본문 (검색/정렬 적용) 렌더링
+    this._renderFeatureBody();
+
+    // ── 툴바 이벤트 바인딩 ──────────────────────────────────
+    const searchEl = document.getElementById('dev-feat-search');
+    if (searchEl) {
+      let debounceTimer = null;
+      searchEl.addEventListener('input', e => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          this._fState.filter = e.target.value.trim().toLowerCase();
+          this._renderFeatureBody();
+          // 검색어 클리어 버튼 토글 위해 툴바 재렌더 (검색바만)
+          const clearBtn = document.getElementById('dev-feat-clear');
+          if (this._fState.filter && !clearBtn) {
+            // X 버튼 동적 추가
+            const wrap = searchEl.parentElement;
+            const btn = document.createElement('button');
+            btn.className = 'dev-feat-search-clear';
+            btn.id = 'dev-feat-clear';
+            btn.title = '검색어 지우기';
+            btn.textContent = '✕';
+            btn.onclick = () => {
+              searchEl.value = '';
+              this._fState.filter = '';
+              this._renderFeatureBody();
+              btn.remove();
+            };
+            wrap.appendChild(btn);
+          } else if (!this._fState.filter && clearBtn) {
+            clearBtn.remove();
+          }
+        }, 200);
+      });
+    }
+
+    const clearBtn = document.getElementById('dev-feat-clear');
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        searchEl.value = '';
+        this._fState.filter = '';
+        this._renderFeatureBody();
+        clearBtn.remove();
+      };
+    }
+
+    const sortEl = document.getElementById('dev-feat-sort');
+    if (sortEl) {
+      sortEl.onchange = () => {
+        this._fState.sortBy = sortEl.value;
+        this._saveFeatState();
+        this._renderFeatureBody();
+      };
+    }
+
+    document.getElementById('dev-feat-expand-all')?.addEventListener('click', () => {
+      this._fState.collapsedCats.clear();
+      this._saveFeatState();
+      this._renderFeatureBody();
+    });
+    document.getElementById('dev-feat-collapse-all')?.addEventListener('click', () => {
+      const cats = new Set();
+      this.features.forEach(f => {
+        cats.add(f.is_deprecated ? '_deprecated' : (f.category || 'general'));
+      });
+      this._fState.collapsedCats = cats;
+      this._saveFeatState();
+      this._renderFeatureBody();
+    });
+    document.getElementById('dev-feat-audit-btn')?.addEventListener('click', () => {
+      this._showAuditModal();
+    });
 
     // ── Bug Fix #1: 중복 이벤트 리스너 방지 ──────────────────
     // 탭 전환 시 #dev-content의 innerHTML만 교체되고 element 자체는 유지됨.
@@ -933,6 +992,237 @@ const DevPage = {
       }
     };
     container.addEventListener('click', this._cleanupHandler);
+  },
+
+  // ─── 검색 매칭 헬퍼 ────────────────────────────────────────
+  _filterMatch(feat, q) {
+    if (!q) return true;
+    const haystack = [
+      feat.feature_key,
+      feat.feature_name,
+      feat.description,
+      feat.affects_routes,
+      feat.affects_tables,
+      feat.category,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(q);
+  },
+
+  // ─── 정렬 헬퍼 ─────────────────────────────────────────────
+  _sortFeatures(features, sortBy) {
+    const arr = [...features];
+    if (sortBy === 'name') {
+      arr.sort((a, b) => (a.feature_name || '').localeCompare(b.feature_name || '', 'ko'));
+    } else if (sortBy === 'risk') {
+      const order = { critical: 0, high: 1, medium: 2, safe: 3 };
+      arr.sort((a, b) => (order[a.risk_level] ?? 9) - (order[b.risk_level] ?? 9));
+    } else if (sortBy === 'recent') {
+      arr.sort((a, b) => {
+        const ta = a.last_changed_at ? new Date(a.last_changed_at).getTime() : 0;
+        const tb = b.last_changed_at ? new Date(b.last_changed_at).getTime() : 0;
+        return tb - ta;  // 최근 변경 우선
+      });
+    }
+    // 'category' 정렬은 카테고리별 그룹화에서 처리 — 여기선 그대로 반환
+    return arr;
+  },
+
+  // ─── 본문만 재렌더링 (검색/정렬 변경 시) ──────────────────
+  _renderFeatureBody() {
+    const body = document.getElementById('dev-feat-body');
+    if (!body) return;
+    const s = this._fState;
+    const categories = this._categories;
+    const riskMeta = this._riskMeta;
+    const dependentsMap = this._dependentsMap;
+
+    // 1) 필터링
+    const filtered = this.features.filter(f => this._filterMatch(f, s.filter));
+    if (filtered.length === 0) {
+      body.innerHTML = `
+        <div class="dev-feat-empty">
+          ${s.filter
+            ? `🔍 검색 결과 없음 — "<strong>${esc(s.filter)}</strong>" 에 매칭되는 기능 없음`
+            : '등록된 기능 없음'}
+        </div>
+      `;
+      return;
+    }
+
+    // 2) 정렬 모드별 처리
+    if (s.sortBy === 'category') {
+      // 카테고리별 그룹 + 카테고리 정렬 + 카테고리 내부는 매니페스트 순서 유지
+      const grouped = {};
+      filtered.forEach(f => {
+        const cat = f.is_deprecated ? '_deprecated' : (f.category || 'general');
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(f);
+      });
+      const sortedCats = Object.entries(grouped).sort(([a], [b]) => {
+        const oa = categories[a]?.order ?? 50;
+        const ob = categories[b]?.order ?? 50;
+        return oa - ob;
+      });
+      body.innerHTML = sortedCats.map(([cat, list]) =>
+        this._renderCategoryBlock(cat, list, categories, riskMeta, dependentsMap)
+      ).join('');
+    } else {
+      // 평면 정렬 (카테고리 무시) — 단일 블록에 모두 표시
+      const sorted = this._sortFeatures(filtered, s.sortBy);
+      const items = sorted.map(f => this._renderFeatureRow(f, riskMeta, dependentsMap, false)).join('');
+      body.innerHTML = `
+        <div class="dev-cat-block">
+          <div class="dev-cat-title" style="border-left:3px solid #888">
+            📊 ${this._sortLabel(s.sortBy)} 순 (${sorted.length}개)
+          </div>
+          <div class="dev-cat-body">${items}</div>
+        </div>
+      `;
+    }
+
+    // 카테고리 헤더 클릭 → 접기/펴기 (category 모드만)
+    if (s.sortBy === 'category') {
+      body.querySelectorAll('.dev-cat-title').forEach(el => {
+        el.style.cursor = 'pointer';
+        el.onclick = () => {
+          const cat = el.dataset.cat;
+          if (!cat) return;
+          if (this._fState.collapsedCats.has(cat)) {
+            this._fState.collapsedCats.delete(cat);
+          } else {
+            this._fState.collapsedCats.add(cat);
+          }
+          this._saveFeatState();
+          this._renderFeatureBody();
+        };
+      });
+    }
+  },
+
+  _sortLabel(sortBy) {
+    return { name: '이름', risk: '위험도', recent: '최근 변경' }[sortBy] || '카테고리';
+  },
+
+  // ─── 카테고리 블록 HTML ─────────────────────────────────────
+  _renderCategoryBlock(cat, list, categories, riskMeta, dependentsMap) {
+    const meta = categories[cat] || { label: cat, color: '#888' };
+    const isDeprecatedSection = cat === '_deprecated';
+    const isCollapsed = this._fState.collapsedCats.has(cat);
+    const chevron = isCollapsed ? '▶' : '▼';
+    return `
+      <div class="dev-cat-block ${isDeprecatedSection ? 'dev-cat-deprecated' : ''} ${isCollapsed ? 'is-collapsed' : ''}">
+        <div class="dev-cat-title" data-cat="${esc(cat)}" style="border-left:3px solid ${meta.color}">
+          <span class="dev-cat-chevron">${chevron}</span>
+          ${meta.label}
+          <span class="dev-cat-count">${list.length}</span>
+          ${isDeprecatedSection
+            ? `<span style="font-size:11px;color:var(--text-3);font-weight:normal;margin-left:8px">매니페스트에서 제거됨 — 수동 정리 가능</span>`
+            : ''}
+        </div>
+        ${isCollapsed ? '' : `
+          <div class="dev-cat-body">
+            ${list.map(f => this._renderFeatureRow(f, riskMeta, dependentsMap, isDeprecatedSection)).join('')}
+          </div>
+        `}
+      </div>
+    `;
+  },
+
+  // ─── 개별 기능 row HTML ────────────────────────────────────
+  _renderFeatureRow(f, riskMeta, dependentsMap, isDeprecatedSection) {
+    const risk = riskMeta[f.risk_level] || riskMeta.safe;
+    let depList = [];
+    try { depList = JSON.parse(f.required_features || '[]'); } catch (_) {}
+    const dependents = dependentsMap[f.feature_key] || [];
+    const isDep = f.is_deprecated;
+    return `
+      <div class="dev-feature-row ${f.is_enabled ? '' : 'disabled'} ${isDep ? 'is-deprecated' : ''}" data-fkey="${esc(f.feature_key)}">
+        <div class="dev-feature-info">
+          <div class="dev-feature-name">
+            ${esc(f.feature_name)}
+            ${f.is_experimental ? '<span class="dev-badge-exp">실험적</span>' : ''}
+            ${!isDeprecatedSection && f.risk_level !== 'safe'
+              ? `<span class="dev-badge-risk" style="background:${risk.color}22;color:${risk.color};border-color:${risk.color}66" title="위험도: ${risk.label}">${risk.badge} ${risk.label}</span>`
+              : ''}
+            ${isDep ? '<span class="dev-badge-deprecated">DEPRECATED</span>' : ''}
+          </div>
+          <div class="dev-feature-desc">
+            <code style="font-size:10px;color:var(--text-4);margin-right:6px">${esc(f.feature_key)}</code>
+            ${esc(f.description || '')}
+          </div>
+          <div class="dev-feature-meta">
+            ${f.affects_routes ? `<span class="dev-chip blue" title="영향받는 API">API: ${esc(f.affects_routes)}</span>` : ''}
+            ${f.affects_tables ? `<span class="dev-chip green" title="영향받는 DB 테이블">Table: ${esc(f.affects_tables)}</span>` : ''}
+            ${depList.length > 0 ? `<span class="dev-chip orange" title="이 기능을 사용하려면 다음이 ON 이어야 함">⬆ Requires: ${depList.map(d => esc(d)).join(', ')}</span>` : ''}
+            ${dependents.length > 0 ? `<span class="dev-chip purple" title="이 기능을 require 하는 다른 기능들 (끄면 영향)">⬇ Required by: ${dependents.length}</span>` : ''}
+          </div>
+        </div>
+        ${isDep
+          ? `<button class="btn btn-ghost btn-sm" data-rb-cleanup="${esc(f.feature_key)}" style="color:#E63329" title="DB에서 삭제 (매니페스트에 없으므로 안전)">🗑 정리</button>`
+          : `<label class="dev-toggle" title="${f.is_enabled ? 'ON — 클릭하여 비활성화' : 'OFF — 클릭하여 활성화'}">
+              <input type="checkbox" ${f.is_enabled ? 'checked' : ''} data-feature="${esc(f.feature_key)}" data-risk="${esc(f.risk_level || 'safe')}">
+              <span class="dev-toggle-slider"></span>
+            </label>`}
+      </div>
+    `;
+  },
+
+  // ─── 변경 이력 모달 ────────────────────────────────────────
+  async _showAuditModal() {
+    Modal.open({
+      title: '🕒 기능 토글 변경 이력',
+      width: 720,
+      body: `<div id="dev-audit-body" style="min-height:200px"><div class="loading">로딩 중...</div></div>`,
+      footer: `<button class="btn btn-ghost" id="dev-audit-close">닫기</button>`,
+      bind: { '#dev-audit-close': () => Modal.close() },
+    });
+
+    try {
+      const r = await API.get('/admin/dev/features/audit?limit=100');
+      const rows = r.data || [];
+      const body = document.getElementById('dev-audit-body');
+      if (!body) return;
+      if (rows.length === 0) {
+        body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-3)">변경 이력 없음</div>';
+        return;
+      }
+      body.innerHTML = `
+        <table class="data-table" style="font-size:12px">
+          <thead>
+            <tr>
+              <th style="width:140px">변경 시각</th>
+              <th>기능</th>
+              <th style="width:90px;text-align:center">변경</th>
+              <th style="width:120px">변경자</th>
+              <th>사유</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td style="white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-size:11px">
+                  ${new Date(r.changed_at).toLocaleString('ko-KR')}
+                </td>
+                <td>
+                  <strong>${esc(r.feature_name || r.feature_key)}</strong>
+                  <div style="font-size:10px;color:var(--text-4);font-family:monospace">${esc(r.feature_key)}</div>
+                </td>
+                <td style="text-align:center">
+                  ${r.old_enabled ? '<span style="color:#17A85A">ON</span>' : '<span style="color:#E63329">OFF</span>'}
+                  →
+                  ${r.new_enabled ? '<span style="color:#17A85A">ON</span>' : '<span style="color:#E63329">OFF</span>'}
+                </td>
+                <td>${esc(r.changed_by_name || r.changed_by_username || '시스템')}</td>
+                <td style="font-size:11px;color:var(--text-3)">${esc(r.reason || '')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      const body = document.getElementById('dev-audit-body');
+      if (body) body.innerHTML = `<div style="padding:30px;text-align:center;color:var(--oci-red)">이력 조회 실패: ${esc(err.message || '')}</div>`;
+    }
   },
 
   // ══════════════════════════════════════════════════════════
