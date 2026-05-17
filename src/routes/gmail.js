@@ -29,7 +29,7 @@ router.get('/scope-status', async (req, res) => {
       return res.json({ success: true, data: { connected: false, hasGmailScope: false } });
 
     const [[row]] = await pool.query(
-      'SELECT google_email FROM google_oauth_tokens WHERE user_id = ?',
+      'SELECT google_email, gmail_sync_error FROM google_oauth_tokens WHERE user_id = ?',
       [userId]
     );
     if (!row) return res.json({ success: true, data: { connected: false, hasGmailScope: false } });
@@ -43,6 +43,22 @@ router.get('/scope-status', async (req, res) => {
     } catch (_) {
       hasGmailScope = false;
     }
+
+    // OAuth 정상 동작 확인됐는데 invalid_grant 잔존 에러 있으면 stale — 자동 클리어
+    // (재연결 직후 상태에서 사용자에게 stale 에러가 계속 보이는 것 방지)
+    if (hasGmailScope && row.gmail_sync_error) {
+      const isStaleAuthErr = /invalid_grant|인증이 만료|권한이 회수|재연결/i.test(
+        row.gmail_sync_error
+      );
+      if (isStaleAuthErr) {
+        await pool
+          .query(`UPDATE google_oauth_tokens SET gmail_sync_error = NULL WHERE user_id = ?`, [
+            userId,
+          ])
+          .catch(() => {});
+      }
+    }
+
     res.json({
       success: true,
       data: { connected: true, hasGmailScope, google_email: email || row.google_email },
@@ -78,10 +94,10 @@ router.get('/match/lead/:id', async (req, res) => {
     if (!leadId || isNaN(leadId)) {
       return res.status(400).json({ success: false, error: '유효한 리드 ID 필요' });
     }
-    // 리드의 contact_email (없으면 고객사 contact_email fallback)
+    // 리드의 고객사 email (leads 자체에 email 컬럼 없음 — customers.email 만 사용)
     const [[lead]] = await pool.query(
       `SELECT l.id, l.customer_id, l.customer_name,
-              COALESCE(NULLIF(c.contact_email, ''), '') AS contact_email
+              COALESCE(NULLIF(c.email, ''), '') AS contact_email
          FROM leads l
          LEFT JOIN customers c ON c.id = l.customer_id
         WHERE l.id = ?`,
@@ -122,7 +138,7 @@ router.get('/match/customer/:id', async (req, res) => {
       return res.status(400).json({ success: false, error: '유효한 고객사 ID 필요' });
     }
     const [[c]] = await pool.query(
-      `SELECT id, name, COALESCE(NULLIF(contact_email, ''), '') AS contact_email
+      `SELECT id, name, COALESCE(NULLIF(email, ''), '') AS contact_email
          FROM customers WHERE id = ?`,
       [custId]
     );
@@ -167,6 +183,28 @@ router.get('/sync-settings', async (req, res) => {
         data: { connected: false, enabled: false, last_polled_at: null, error: null },
       });
     }
+
+    // stale invalid_grant 에러 자동 클리어 — OAuth 가 현재 동작하는지 확인 후 그렇다면 에러 제거
+    // (재연결 후에도 옛 "재연결 필요" 메시지가 계속 보이는 문제 방지)
+    let returnedError = row.gmail_sync_error;
+    if (returnedError && /invalid_grant|인증이 만료|권한이 회수|재연결/i.test(returnedError)) {
+      let oauthHealthy = false;
+      try {
+        await gmailSvc.getOwnEmail(userId);
+        oauthHealthy = true;
+      } catch (_) {
+        oauthHealthy = false;
+      }
+      if (oauthHealthy) {
+        await pool
+          .query(`UPDATE google_oauth_tokens SET gmail_sync_error = NULL WHERE user_id = ?`, [
+            userId,
+          ])
+          .catch(() => {});
+        returnedError = null;
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -174,7 +212,7 @@ router.get('/sync-settings', async (req, res) => {
         google_email: row.google_email,
         enabled: !!row.gmail_sync_enabled,
         last_polled_at: row.gmail_last_polled_at,
-        error: row.gmail_sync_error,
+        error: returnedError,
       },
     });
   } catch (err) {

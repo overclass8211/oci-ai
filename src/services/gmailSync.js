@@ -6,7 +6,7 @@
 //   1) 5분 주기로 server.js 가 pollAll() 호출
 //   2) gmail_sync_enabled=1 인 사용자별로 pollOne(userId) 실행
 //   3) 마지막 폴링 시각 이후의 새 메시지 fetch
-//   4) From/To 의 이메일 주소를 customers.contact_email 과 매칭
+//   4) From/To 의 이메일 주소를 customers.email 과 매칭
 //   5) 매칭 시 activities INSERT (gmail_message_id UNIQUE 로 중복 차단)
 //   6) gmail_last_polled_at 갱신
 //
@@ -15,7 +15,7 @@
 //   서버 재시작, cron 재실행, 두 사용자가 같은 메시지를 받는 경우 등 모두 안전.
 //
 // 매칭 정책:
-//   - From/To 주소 중 어느 것이라도 customers.contact_email 과 일치하면 매칭
+//   - From/To 주소 중 어느 것이라도 customers.email 과 일치하면 매칭
 //   - 매칭된 customer 의 최근 활성 lead (stage NOT IN won/lost/dropped) 가 있으면 lead_id 함께 기록
 //   - 매칭 0건 시 INSERT 안 함 (개인 메일은 활동에 안 들어감 — 프라이버시 보호)
 //
@@ -141,9 +141,9 @@ async function pollOne(userId) {
 
       const placeholders = addrs.map(() => '?').join(',');
       const [custRows] = await pool.query(
-        `SELECT id, name, contact_email
+        `SELECT id, name, email AS contact_email
            FROM customers
-          WHERE LOWER(contact_email) IN (${placeholders})
+          WHERE LOWER(email) IN (${placeholders})
           LIMIT 1`,
         addrs.map(a => a.toLowerCase())
       );

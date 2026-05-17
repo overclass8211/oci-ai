@@ -189,14 +189,17 @@ router.get('/callback', async (req, res) => {
     // 저장 전 토큰 암호화 (AES-256-GCM)
     const encAccess = tokens.access_token ? encrypt(tokens.access_token) : null;
     const encRefresh = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
+    // 재연결 시 stale Gmail 동기화 에러도 함께 클리어
+    // (이전에 invalid_grant 로 자동 비활성/에러 저장되었을 수 있음 — 토큰이 새것이 되었으니 에러 메시지도 무효)
     await pool.query(
       `INSERT INTO google_oauth_tokens (user_id, access_token, refresh_token, expiry_date, google_email)
        VALUES (?,?,?,?,?)
        ON DUPLICATE KEY UPDATE
-         access_token  = VALUES(access_token),
-         refresh_token = COALESCE(VALUES(refresh_token), refresh_token),
-         expiry_date   = VALUES(expiry_date),
-         google_email  = VALUES(google_email)`,
+         access_token     = VALUES(access_token),
+         refresh_token    = COALESCE(VALUES(refresh_token), refresh_token),
+         expiry_date      = VALUES(expiry_date),
+         google_email     = VALUES(google_email),
+         gmail_sync_error = NULL`,
       [userId, encAccess, encRefresh, tokens.expiry_date || null, email]
     );
 
