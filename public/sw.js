@@ -8,12 +8,14 @@
 //   - /uploads/*: 캐시 안 함 (대용량 + 업로드 직후 변경)
 //
 // 캐시 무효화:
-//   CACHE_VERSION 변경 시 옛 캐시 삭제됨.
-//   배포 시 CACHE_VERSION 만 올리면 됨 (예: 'v1' → 'v2').
+//   서버(server.js)가 /sw.js 요청 시 부팅 시각을 동적으로 주입.
+//   PM2 restart 마다 새 CACHE_VERSION 적용 → 사용자 브라우저 자동 갱신.
+//   아래 'v1' 은 fallback (서버 동적 주입 실패 시 또는 로컬 file:// 사용 시).
 // =============================================================
 
 'use strict';
 
+// 서버가 부팅 시각으로 자동 교체함 — `const CACHE_VERSION = 'v-1700000000000'` 같은 형태로
 const CACHE_VERSION = 'v1';
 const APP_CACHE = `oci-crm-${CACHE_VERSION}`;
 

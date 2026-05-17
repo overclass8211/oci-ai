@@ -177,12 +177,38 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser()); // ③ HttpOnly 쿠키 파싱
-// Service Worker 는 캐시 안 함 — 즉시 업데이트 반영 (앱 셸 갱신용)
+
+// ── Service Worker 동적 버전 ─────────────────────────────────
+// 서버 부팅 시각으로 CACHE_VERSION 자동 주입 → PM2 restart 마다 새 버전
+// → 사용자 브라우저의 SW 캐시 자동 무효화 (PWA 업데이트 자동화)
+const SW_CACHE_VERSION = `v-${Date.now()}`;
+console.log(`📦 Service Worker 캐시 버전: ${SW_CACHE_VERSION}`);
+
+app.get('/sw.js', (req, res) => {
+  try {
+    const fs = require('fs');
+    const swPath = path.join(__dirname, 'public/sw.js');
+    let content = fs.readFileSync(swPath, 'utf8');
+    // 정적 'v1' 같은 값 → 서버 부팅 시각 기반 동적 값으로 치환
+    content = content.replace(
+      /const CACHE_VERSION = '[^']*'/,
+      `const CACHE_VERSION = '${SW_CACHE_VERSION}'`
+    );
+    res.type('application/javascript');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    console.error('[sw.js] load failed:', err.message);
+    res.status(500).send('// Service Worker load error');
+  }
+});
+
 // manifest.json 도 짧은 캐시로 (PWA 메타 변경 시 빠른 반영)
 app.use(
   express.static(path.join(__dirname, 'public'), {
     setHeaders: (res, filePath) => {
       if (filePath.endsWith(`${path.sep}sw.js`) || filePath.endsWith('/sw.js')) {
+        // 정적 경로로 직접 접근 시에도 동일하게 no-cache
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       } else if (filePath.endsWith('manifest.json')) {
         res.setHeader('Cache-Control', 'public, max-age=3600'); // 1시간
