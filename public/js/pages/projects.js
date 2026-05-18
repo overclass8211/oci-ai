@@ -419,7 +419,9 @@ const ProjectsPage = {
           </div>
           <div class="form-field">
             <label class="form-label">고객사</label>
-            <input class="form-control" id="p-customer" value="${esc(project.customer_name || '')}">
+            <input class="form-control" id="p-customer" value="${esc(project.customer_name || '')}" autocomplete="off">
+            <!-- Combobox 선택 시 customer_id 클라이언트 보관 (백엔드 destructure 에서 무시됨 — 사이드이펙 0) -->
+            <input type="hidden" id="p-customer-id" value="${esc(project.customer_id || '')}">
           </div>
           <div class="form-field">
             <label class="form-label">유형</label>
@@ -495,6 +497,58 @@ const ProjectsPage = {
         };
         setupPreview('p-amount', 'p-amount-preview');
         setupPreview('p-cost',   'p-cost-preview');
+
+        // ─── 고객사 자동완성 (Combobox) ─────────────────
+        // 사이드이펙 방지:
+        //  - hidden #p-customer-id 는 save() 의 body 객체에 포함되지 않음 (변경 0)
+        //  - Combobox 미로드 시 일반 input 동작 (graceful degradation)
+        //  - 자유 입력 허용 (신규 고객사 등록은 별도 메뉴)
+        const custInput = document.getElementById('p-customer');
+        const custHidden = document.getElementById('p-customer-id');
+        if (custInput && typeof Combobox !== 'undefined') {
+          // 사용자가 input 텍스트 직접 수정 시 hidden id 동기화 해제
+          custInput.addEventListener('input', () => {
+            if (custHidden) custHidden.value = '';
+          });
+          Combobox.attach({
+            inputEl: custInput,
+            fetchFn: async (q) => {
+              try {
+                const r = await API.customers.autocomplete(q, 10);
+                return r.data || [];
+              } catch (_) { return []; }
+            },
+            renderItem: (item, q, { highlightMatch }) => {
+              const meta = [];
+              if (item.industry) meta.push(esc(item.industry));
+              if (item.region) meta.push(esc(item.region));
+              if (item.active_deals_count > 0) {
+                meta.push(`<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`);
+              }
+              const myBadge = item.is_my_customer
+                ? `<span style="font-size:9px;background:var(--oci-red-light);color:var(--oci-red);padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px">본인담당</span>`
+                : '';
+              return `
+                <div class="combobox-item-content">
+                  <div class="combobox-item-title">🏢 ${highlightMatch(item.name, q)}${myBadge}</div>
+                  ${meta.length ? `<div class="combobox-item-meta">${meta.join(' · ')}</div>` : ''}
+                </div>
+              `;
+            },
+            onSelect: (item) => {
+              custInput.value = item.name;
+              if (custHidden) custHidden.value = item.id;
+            },
+            onCustomCreate: (query) => {
+              custInput.value = query;
+              if (custHidden) custHidden.value = '';
+            },
+            minChars: 2,
+            debounceMs: 250,
+            allowCustom: true,
+            customLabel: '+ "X" 그대로 등록 (신규 고객사)',
+          });
+        }
       }
     });
   },

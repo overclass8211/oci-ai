@@ -555,10 +555,10 @@ const App = {
           <div class="form-row-2">
             <div class="form-row">
               <label class="form-label" data-label="leads.customer_name">고객사 *</label>
-              <input class="form-input" name="customer_name" value="${esc(lead?.customer_name || '')}" required list="customer-list">
-              <datalist id="customer-list">
-                ${this.customers.map(c => `<option value="${esc(c.name)}">`).join('')}
-              </datalist>
+              <input class="form-input" name="customer_name" id="lead-customer-input"
+                     value="${esc(lead?.customer_name || '')}" required autocomplete="off">
+              <!-- Combobox 선택 시 customer_id 클라이언트 보관 (백엔드 destructure 에서 무시됨 — 사이드이펙 0) -->
+              <input type="hidden" name="customer_id" id="lead-customer-id" value="${esc(lead?.customer_id || '')}">
             </div>
             <div class="form-row">
               <label class="form-label" data-label="leads.project_name">프로젝트명 *</label>
@@ -696,6 +696,60 @@ const App = {
         amtEl?.addEventListener('input', debounce(updatePreview, 400));
         curEl?.addEventListener('change', updatePreview);
         updatePreview();  // 초기 호출
+
+        // ─── 고객사 자동완성 (Combobox) ───────────────────
+        // 기존 <datalist> 제거 후 Combobox.attach 로 교체
+        // 사이드이펙 방지:
+        //  - hidden #lead-customer-id 백엔드 destructure 에서 무시됨 (검증 완료)
+        //  - Combobox 미로드 시 일반 input 으로 동작 (graceful degradation)
+        //  - 자유 입력 허용 (신규 고객사 등록은 별도 메뉴)
+        const custInput = document.getElementById('lead-customer-input');
+        const custHidden = document.getElementById('lead-customer-id');
+        if (custInput && typeof Combobox !== 'undefined') {
+          // 사용자가 input 텍스트 직접 수정 시 hidden id 동기화 해제
+          // (JS 로 input.value 변경 시엔 input 이벤트 미발생 — 사용자 타이핑만 트리거)
+          custInput.addEventListener('input', () => {
+            if (custHidden) custHidden.value = '';
+          });
+          Combobox.attach({
+            inputEl: custInput,
+            fetchFn: async (q) => {
+              try {
+                const r = await API.customers.autocomplete(q, 10);
+                return r.data || [];
+              } catch (_) { return []; }
+            },
+            renderItem: (item, q, { highlightMatch }) => {
+              const meta = [];
+              if (item.industry) meta.push(esc(item.industry));
+              if (item.region) meta.push(esc(item.region));
+              if (item.active_deals_count > 0) {
+                meta.push(`<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`);
+              }
+              const myBadge = item.is_my_customer
+                ? `<span style="font-size:9px;background:var(--oci-red-light);color:var(--oci-red);padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px">본인담당</span>`
+                : '';
+              return `
+                <div class="combobox-item-content">
+                  <div class="combobox-item-title">🏢 ${highlightMatch(item.name, q)}${myBadge}</div>
+                  ${meta.length ? `<div class="combobox-item-meta">${meta.join(' · ')}</div>` : ''}
+                </div>
+              `;
+            },
+            onSelect: (item) => {
+              custInput.value = item.name;
+              if (custHidden) custHidden.value = item.id;
+            },
+            onCustomCreate: (query) => {
+              custInput.value = query;
+              if (custHidden) custHidden.value = '';
+            },
+            minChars: 2,
+            debounceMs: 250,
+            allowCustom: true,
+            customLabel: '+ "X" 그대로 등록 (신규 고객사)',
+          });
+        }
       }
     });
   },
