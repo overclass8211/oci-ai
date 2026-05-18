@@ -60,18 +60,31 @@ const Combobox = {
       return { destroy: () => {}, clear: () => {} };
     }
 
-    // ── 드롭다운 컨테이너 (input 아래에 위치) ──────────────
+    // ── 드롭다운 컨테이너 ─────────────────────────────────
+    // 🚨 핵심: document.body 에 직접 append + position:fixed
+    //   ↳ 모달의 .modal-body { overflow-y:auto } 클리핑 회피
+    //   ↳ 어떤 부모의 transform/contain 도 영향 없음
     const dropdown = document.createElement('div');
     dropdown.className = 'combobox-dropdown';
     dropdown.style.display = 'none';
+    dropdown.style.position = 'fixed';
+    dropdown.style.zIndex = '1200';  // modal-overlay(1000) 위
     dropdown.setAttribute('role', 'listbox');
+    document.body.appendChild(dropdown);
 
-    // input 을 감싸는 wrapper (positioning)
+    // input 을 감싸는 wrapper (선택 시 외부 클릭 검지용)
     const wrapper = document.createElement('div');
     wrapper.className = 'combobox-wrapper';
     inputEl.parentNode.insertBefore(wrapper, inputEl);
     wrapper.appendChild(inputEl);
-    wrapper.appendChild(dropdown);
+
+    // 입력 위치를 따라 드롭다운 좌표 갱신
+    function reposition() {
+      const r = inputEl.getBoundingClientRect();
+      dropdown.style.left = `${r.left}px`;
+      dropdown.style.top = `${r.bottom + 2}px`;
+      dropdown.style.width = `${r.width}px`;
+    }
 
     // ── 상태 ──────────────────────────────────────────────
     let items = [];
@@ -128,6 +141,7 @@ const Combobox = {
 
       dropdown.innerHTML = emptyHtml + itemsHtml + customHtml;
       dropdown.style.display = 'block';
+      reposition();  // 표시 직전 좌표 갱신 (모달 스크롤 대응)
       isOpen = true;
     }
 
@@ -234,8 +248,17 @@ const Combobox = {
     }
 
     // ── 외부 클릭 닫기 ────────────────────────────────────
+    // 드롭다운은 body 직속이라 wrapper 밖이지만, 드롭다운 내부 클릭은 제외
     function onDocClick(e) {
-      if (!wrapper.contains(e.target)) close();
+      if (wrapper.contains(e.target)) return;
+      if (dropdown.contains(e.target)) return;
+      close();
+    }
+
+    // ── 스크롤/리사이즈 시 좌표 갱신 ──────────────────────
+    // 모달 내부 스크롤 대응 위해 capture phase 로 모든 스크롤 이벤트 수신
+    function onWindowChange() {
+      if (isOpen) reposition();
     }
 
     // ── focus 시 재오픈 ──────────────────────────────────
@@ -253,6 +276,9 @@ const Combobox = {
     dropdown.addEventListener('click', onDropdownClick);
     dropdown.addEventListener('mouseover', onDropdownMouseover);
     document.addEventListener('click', onDocClick);
+    // capture=true → 자식 스크롤(모달 내부 등) 도 감지
+    window.addEventListener('scroll', onWindowChange, true);
+    window.addEventListener('resize', onWindowChange);
 
     // ARIA
     inputEl.setAttribute('role', 'combobox');
@@ -266,11 +292,15 @@ const Combobox = {
       inputEl.removeEventListener('keydown', onKeyDown);
       inputEl.removeEventListener('focus', onFocus);
       document.removeEventListener('click', onDocClick);
-      // input 을 wrapper 밖으로 이동 + wrapper/dropdown 제거
+      window.removeEventListener('scroll', onWindowChange, true);
+      window.removeEventListener('resize', onWindowChange);
+      // input 을 wrapper 밖으로 이동 + wrapper 제거
       if (wrapper.parentNode) {
         wrapper.parentNode.insertBefore(inputEl, wrapper);
         wrapper.remove();
       }
+      // body 직속 dropdown 제거
+      if (dropdown.parentNode) dropdown.parentNode.removeChild(dropdown);
     }
 
     function clear() {

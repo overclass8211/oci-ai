@@ -252,7 +252,14 @@ const CalendarPage = (() => {
   function _attachCustomerCombobox(selectedCustomerId, initialLeadId) {
     const input = document.getElementById('cal-customer');
     const leadSel = document.getElementById('cal-lead-id');
-    if (!input || typeof Combobox === 'undefined') return null;
+    if (!input) {
+      console.warn('[calendar] cal-customer input not found');
+      return null;
+    }
+    if (typeof Combobox === 'undefined') {
+      console.warn('[calendar] Combobox 컴포넌트 로드 실패 — /js/components/combobox.js 가 캐시되지 않았을 수 있음. Ctrl+Shift+R 강제 새로고침 필요.');
+      return null;
+    }
 
     // hidden field — customer_id 보관 (기존 데이터 호환 위해 옵션)
     let hiddenIdInput = document.getElementById('cal-customer-id');

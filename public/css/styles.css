@@ -4285,16 +4285,14 @@ body,
 
 /* ─── Combobox 자동완성 (재사용 컴포넌트) ─────────────────── */
 .combobox-wrapper {
-  position: relative;
   display: block;
   width: 100%;
 }
+/* 🚨 드롭다운은 document.body 직속 + position:fixed
+   → 모달의 overflow:auto 클리핑 회피 (JS 에서 좌표 동적 계산) */
 .combobox-dropdown {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  z-index: 1050;
+  position: fixed;
+  z-index: 1200;             /* modal-overlay(1000) 위 */
   max-height: 280px;
   overflow-y: auto;
   background: var(--surface);
