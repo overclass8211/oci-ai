@@ -150,7 +150,10 @@ const API = {
   customers: {
     list:   () => API.get('/customers'),
     create: (body) => API.post('/customers', body),
-    update: (id, body) => API.put(`/customers/${id}`, body)
+    update: (id, body) => API.put(`/customers/${id}`, body),
+    // 자동완성 (Smart Ranking 포함) — 캘린더 등에서 사용
+    autocomplete: (q, limit = 10) =>
+      API.get(`/customers?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
   // 활동

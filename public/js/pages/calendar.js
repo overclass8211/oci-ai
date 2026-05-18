@@ -237,10 +237,107 @@ const CalendarPage = (() => {
       all_day:       allDay ? 1 : 0,
       description:   document.getElementById('cal-description').value.trim(),
       customer_name: document.getElementById('cal-customer').value.trim(),
+      customer_id:   document.getElementById('cal-customer-id')?.value || null,  // Combobox 자동완성 선택 시
       lead_id:       document.getElementById('cal-lead-id').value || null,
       assigned_to:   document.getElementById('cal-assigned-to').value || null,
       color:         document.getElementById('cal-color').value,
     };
+  }
+
+  // ─── 고객사 Combobox + 영업기회 자동 필터 통합 ───────────
+  // 사이드이펙 방지:
+  //  - 기존 input/select 유지 (Combobox 가 input wrap 만 함)
+  //  - Combobox 미사용 시 (모듈 로드 실패) 기존 자유 입력 동작 그대로
+  //  - 선택 안 한 경우 customer_name 자유 텍스트로 저장됨
+  function _attachCustomerCombobox(selectedCustomerId, initialLeadId) {
+    const input = document.getElementById('cal-customer');
+    const leadSel = document.getElementById('cal-lead-id');
+    if (!input || typeof Combobox === 'undefined') return null;
+
+    // hidden field — customer_id 보관 (기존 데이터 호환 위해 옵션)
+    let hiddenIdInput = document.getElementById('cal-customer-id');
+    if (!hiddenIdInput) {
+      hiddenIdInput = document.createElement('input');
+      hiddenIdInput.type = 'hidden';
+      hiddenIdInput.id = 'cal-customer-id';
+      input.parentNode.appendChild(hiddenIdInput);
+    }
+    if (selectedCustomerId) hiddenIdInput.value = selectedCustomerId;
+
+    // 영업기회 드롭다운을 고객사로 필터링하는 헬퍼
+    const refreshLeadOptions = (customerId) => {
+      if (!leadSel) return;
+      const filtered = customerId
+        ? leads.filter(l => String(l.customer_id) === String(customerId))
+        : leads;
+      const currentSelected = leadSel.value;
+      leadSel.innerHTML =
+        `<option value="">-- 영업 기회 연결 안함 --</option>` +
+        filtered
+          .map(l =>
+            `<option value="${l.id}" ${String(l.id) === String(currentSelected) ? 'selected' : ''}>${esc(l.customer_name || '')}${l.project_name ? ' - ' + esc(l.project_name) : ''}</option>`
+          )
+          .join('');
+      // 선택 옵션이 필터 결과에 없으면 초기화
+      if (currentSelected && !filtered.find(l => String(l.id) === String(currentSelected))) {
+        leadSel.value = '';
+        leadSel.dispatchEvent(new Event('change'));
+      }
+    };
+
+    // 초기 lead_id 가 있으면 그것의 customer_id 로 필터링
+    if (initialLeadId && !selectedCustomerId) {
+      const initLead = leads.find(l => String(l.id) === String(initialLeadId));
+      if (initLead?.customer_id) {
+        hiddenIdInput.value = initLead.customer_id;
+        refreshLeadOptions(initLead.customer_id);
+      }
+    } else if (selectedCustomerId) {
+      refreshLeadOptions(selectedCustomerId);
+    }
+
+    return Combobox.attach({
+      inputEl: input,
+      fetchFn: async (q) => {
+        try {
+          const r = await API.customers.autocomplete(q, 10);
+          return r.data || [];
+        } catch (_) {
+          return [];
+        }
+      },
+      renderItem: (item, q, { highlightMatch }) => {
+        const meta = [];
+        if (item.industry) meta.push(esc(item.industry));
+        if (item.region) meta.push(esc(item.region));
+        if (item.active_deals_count > 0) meta.push(`<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`);
+        const myBadge = item.is_my_customer
+          ? `<span style="font-size:9px;background:var(--oci-red-light);color:var(--oci-red);padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px">본인담당</span>`
+          : '';
+        return `
+          <div class="combobox-item-content">
+            <div class="combobox-item-title">🏢 ${highlightMatch(item.name, q)}${myBadge}</div>
+            ${meta.length ? `<div class="combobox-item-meta">${meta.join(' · ')}</div>` : ''}
+          </div>
+        `;
+      },
+      onSelect: (item) => {
+        hiddenIdInput.value = item.id;
+        refreshLeadOptions(item.id);
+      },
+      onCustomCreate: (query) => {
+        // 자유 입력 유지 — 신규 등록은 별도 (가벼운 일정이라 강제 안 함)
+        // 사용자가 입력한 텍스트 그대로 저장 (customer_id NULL)
+        input.value = query;
+        hiddenIdInput.value = '';
+        refreshLeadOptions(null);
+        Toast.warn?.(`"${query}" — 신규 고객사로 입력됨 (등록은 고객사 메뉴에서)`);
+      },
+      minChars: 2,
+      debounceMs: 250,
+      allowCustom: true,
+      customLabel: '+ "X" 로 자유 입력 (신규 고객사)',
+    });
   }
 
   function openCreateModal(defaults = {}) {
@@ -257,6 +354,9 @@ const CalendarPage = (() => {
       bind: { '#cal-create-cancel-btn': () => Modal.close() }
     });
     wireAlldayToggle();
+
+    // 고객사 자동완성 + 영업기회 자동 필터링 활성화
+    _attachCustomerCombobox(defaults.customer_id || null, defaults.lead_id || null);
 
     // lead 선택 시 활동 이력 동기화 옵션 표시
     const leadSel = document.getElementById('cal-lead-id');
@@ -313,6 +413,8 @@ const CalendarPage = (() => {
       bind: { '#cal-edit-cancel-btn': () => Modal.close() }
     });
     wireAlldayToggle();
+    // 고객사 자동완성 + 영업기회 자동 필터링 (수정 모달도 동일)
+    _attachCustomerCombobox(eventData.customer_id || null, eventData.lead_id || null);
     document.getElementById('cal-update-btn').addEventListener('click', async () => {
       const data = collectForm();
       if (!data.title) { Toast.error('제목을 입력하세요'); return; }

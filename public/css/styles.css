@@ -4283,6 +4283,88 @@ body,
   color: var(--text-3) !important;
 }
 
+/* ─── Combobox 자동완성 (재사용 컴포넌트) ─────────────────── */
+.combobox-wrapper {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 1050;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+[data-theme="dark"] .combobox-dropdown {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+.combobox-item,
+.combobox-custom-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.combobox-item:last-child,
+.combobox-custom-item:last-child { border-bottom: none; }
+.combobox-item.is-highlighted,
+.combobox-custom-item.is-highlighted,
+.combobox-item:hover,
+.combobox-custom-item:hover {
+  background: var(--oci-red-light);
+}
+[data-theme="dark"] .combobox-item.is-highlighted,
+[data-theme="dark"] .combobox-custom-item.is-highlighted,
+[data-theme="dark"] .combobox-item:hover,
+[data-theme="dark"] .combobox-custom-item:hover {
+  background: rgba(230, 51, 41, 0.15);
+}
+.combobox-custom-item {
+  color: var(--oci-red);
+  font-weight: 500;
+  background: var(--surface-2);
+}
+[data-theme="dark"] .combobox-custom-item {
+  background: var(--surface);
+}
+.combobox-item-content { line-height: 1.4; }
+.combobox-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.combobox-item-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.combobox-match {
+  color: var(--oci-red);
+  font-weight: 700;
+  background: transparent;
+}
+.combobox-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--surface-2);
+}
+
 /* ─── Configuration Preset 카드 (고객사 납품용) ──────────── */
 .preset-card {
   background: var(--surface);

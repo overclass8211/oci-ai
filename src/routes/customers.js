@@ -43,9 +43,64 @@ const CUST_COLS = [
 
 router.get('/', async (req, res) => {
   try {
-    const { search, region, industry } = req.query;
+    const { search, region, industry, autocomplete } = req.query;
     const { page, limit, offset } = parsePage(req.query);
 
+    // ── Autocomplete 모드 (캘린더 자동완성 등) ──────────────
+    // - Smart Ranking 적용 (정확/시작/부분 일치 + 활성딜 + 본인담당 + 최근활동)
+    // - 응답에 active_deals_count, is_my_customer, last_activity_at 포함
+    // - 기존 응답 형식 유지 (success, data) — 추가 필드만 더해짐
+    if (autocomplete === '1' && search) {
+      const userId = getUserId(req);
+      const q = String(search).trim();
+      if (q.length < 2) {
+        return res.json({ success: true, data: [], query: q });
+      }
+      const acLimit = Math.min(20, parseInt(req.query.limit) || 10);
+      const [rows] = await pool.query(
+        `
+        SELECT
+          c.id, c.name, c.industry, c.region, c.country, c.contact_person,
+          c.email, c.phone,
+          (SELECT COUNT(*) FROM leads l
+             WHERE l.customer_id = c.id
+               AND l.stage NOT IN ('won','lost','dropped')) AS active_deals_count,
+          (SELECT MAX(a.performed_at) FROM activities a
+             JOIN leads l ON l.id = a.lead_id
+            WHERE l.customer_id = c.id) AS last_activity_at,
+          (SELECT 1 FROM leads l
+             WHERE l.customer_id = c.id AND l.assigned_to = ?
+             LIMIT 1) AS is_my_customer,
+          (
+            CASE WHEN c.name = ? THEN 100
+                 WHEN c.name LIKE ? THEN 70
+                 WHEN c.name LIKE ? THEN 40
+                 ELSE 10 END
+          ) AS match_score
+        FROM customers c
+        WHERE c.name LIKE ? OR c.contact_person LIKE ?
+        ORDER BY
+          match_score DESC,
+          is_my_customer DESC,
+          active_deals_count DESC,
+          last_activity_at DESC,
+          c.name ASC
+        LIMIT ?
+        `,
+        [userId || 0, q, `${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, acLimit]
+      );
+      return res.json({
+        success: true,
+        data: rows.map(r => ({
+          ...r,
+          is_my_customer: !!r.is_my_customer,
+          active_deals_count: Number(r.active_deals_count) || 0,
+        })),
+        query: q,
+      });
+    }
+
+    // ── 기본 목록 조회 (기존 동작 유지) ─────────────────────
     let where = 'WHERE 1=1';
     const params = [];
     if (search) {

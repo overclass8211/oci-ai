@@ -52,6 +52,8 @@ const spaGlobals = {
   App: 'readonly', WS: 'readonly',
   // 외부 라이브러리
   Chart: 'readonly', FullCalendar: 'readonly', Quill: 'readonly', Sortable: 'readonly',
+  // 공통 컴포넌트
+  Combobox: 'readonly',
   // pages/*.js (app.js 에서 참조)
   DashboardPage: 'readonly', PipelinePage: 'readonly', LeadsPage: 'readonly',
   ProjectsPage: 'readonly', CustomersPage: 'readonly', CalendarPage: 'readonly',
