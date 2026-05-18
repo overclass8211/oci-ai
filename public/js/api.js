@@ -180,7 +180,10 @@ const API = {
     create:   (body)    => API.post('/calendar/events', body),
     update:   (id,body) => API.put(`/calendar/events/${id}`, body),
     delete:   (id)      => API.del(`/calendar/events/${id}`),
-    seedDemo: ()        => API.post('/calendar/seed-demo', {})
+    seedDemo: ()        => API.post('/calendar/seed-demo', {}),
+    // 제목 자동완성 (Step 2) — 과거 이벤트 + 고객사+동사 템플릿
+    titleSuggestions: (q, limit = 8) =>
+      API.get(`/calendar/title-suggestions?q=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
   // 게시판

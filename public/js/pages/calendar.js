@@ -412,6 +412,98 @@ const CalendarPage = (() => {
     });
   }
 
+  // ─── 제목 Combobox (Step 2) ────────────────────────────
+  // 두 가지 추천:
+  //  1) 📝 과거 이벤트 제목 (use_count + 최근 사용)
+  //  2) 🏢 고객사 + 동사 템플릿 (매칭된 첫 번째 고객사의 5개 동사)
+  // 선택 시 customer_name/customer_id/lead_id 도 함께 자동 채움 (Step 3 미리)
+  function _attachTitleCombobox() {
+    const input = document.getElementById('cal-title');
+    if (!input || typeof Combobox === 'undefined') return null;
+
+    // 다른 필드 helper — Step 3 에서 본격 확장
+    const fillCustomer = (customerId, customerName) => {
+      const cInput = document.getElementById('cal-customer');
+      const cHidden = document.getElementById('cal-customer-id');
+      if (cInput && customerName) cInput.value = customerName;
+      if (cHidden) cHidden.value = customerId || '';
+      _leadFilterCustomerId = customerId || null;
+    };
+    const fillLead = (leadId) => {
+      const leadInput = document.getElementById('cal-lead-input');
+      const leadHidden = document.getElementById('cal-lead-id');
+      if (!leadInput || !leadHidden || !leadId) return;
+      const l = leads.find(x => String(x.id) === String(leadId));
+      if (!l) return;
+      leadInput.value = `${l.customer_name || ''}${l.project_name ? ' - ' + l.project_name : ''}`;
+      leadHidden.value = l.id;
+      leadInput.dispatchEvent(new Event('change'));
+    };
+
+    return Combobox.attach({
+      inputEl: input,
+      fetchFn: async (q) => {
+        try {
+          const r = await API.calendar.titleSuggestions(q, 8);
+          return r.data || [];
+        } catch (_) {
+          return [];
+        }
+      },
+      renderItem: (item, q, { highlightMatch }) => {
+        if (item.type === 'history') {
+          const dateStr = item.last_used_at
+            ? new Date(item.last_used_at).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })
+            : '';
+          const useBadge = item.use_count > 1 ? `${item.use_count}회` : '';
+          const metaParts = [];
+          if (item.customer_name) metaParts.push(`🏢 ${esc(item.customer_name)}`);
+          if (useBadge) metaParts.push(useBadge);
+          if (dateStr) metaParts.push(dateStr);
+          return `
+            <div class="combobox-item-content">
+              <div class="combobox-item-title">📝 ${highlightMatch(item.title, q)}</div>
+              ${metaParts.length ? `<div class="combobox-item-meta">${metaParts.join(' · ')}</div>` : ''}
+            </div>
+          `;
+        }
+        // type === 'template'
+        const dealMeta = item.active_deals_count > 0
+          ? `<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`
+          : '';
+        return `
+          <div class="combobox-item-content">
+            <div class="combobox-item-title">🏢 ${highlightMatch(item.customer_name || '', q)} <span style="color:var(--text-3);font-weight:400">+ ${esc(item.verb)}</span></div>
+            <div class="combobox-item-meta">→ "${esc(item.generated_title)}" 자동 입력 ${dealMeta ? '· ' + dealMeta : ''}</div>
+          </div>
+        `;
+      },
+      onSelect: (item) => {
+        if (item.type === 'history') {
+          input.value = item.title;
+          // 고객사 자동 채움 (customer_name 기반)
+          // customer_id 는 calendar_events 에 없으므로 leads 메모리에서 lead_id 로 lookup
+          if (item.lead_id) {
+            const l = leads.find(x => String(x.id) === String(item.lead_id));
+            if (l) fillCustomer(l.customer_id, l.customer_name || item.customer_name);
+            fillLead(item.lead_id);
+          } else if (item.customer_name) {
+            // lead 없는 경우 customer_name 만
+            fillCustomer(null, item.customer_name);
+          }
+        } else if (item.type === 'template') {
+          input.value = item.generated_title;
+          fillCustomer(item.customer_id, item.customer_name);
+          // 영업기회는 자동 필터링만 — 사용자가 명시적으로 선택해야 함
+        }
+      },
+      minChars: 2,
+      debounceMs: 250,
+      allowCustom: true,
+      customLabel: '+ "X" 그대로 사용',
+    });
+  }
+
   function openCreateModal(defaults = {}) {
     Modal.open({
       title: '새 일정 등록', width: 600,
@@ -431,6 +523,8 @@ const CalendarPage = (() => {
     _attachCustomerCombobox(defaults.customer_id || null, defaults.lead_id || null);
     // 영업기회 콤보박스 활성화
     _attachLeadCombobox();
+    // 제목 자동완성 (Step 2) — 과거 이벤트 + 고객사+동사 템플릿
+    _attachTitleCombobox();
 
     // lead 선택 시 활동 이력 동기화 옵션 표시
     const leadInput = document.getElementById('cal-lead-input');
@@ -492,6 +586,8 @@ const CalendarPage = (() => {
     // 고객사 자동완성 + 영업기회 자동 필터링 (수정 모달도 동일)
     _attachCustomerCombobox(eventData.customer_id || null, eventData.lead_id || null);
     _attachLeadCombobox();
+    // 제목 자동완성 (Step 2)
+    _attachTitleCombobox();
     document.getElementById('cal-update-btn').addEventListener('click', async () => {
       const data = collectForm();
       if (!data.title) { Toast.error('제목을 입력하세요'); return; }
