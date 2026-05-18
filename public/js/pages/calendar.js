@@ -5,6 +5,8 @@ const CalendarPage = (() => {
   let calendar = null;
   let currentFilter = '';
   let leads = [];
+  // 영업기회 콤보박스 — 고객사 선택에 의해 필터링되는 상태 (Step 1)
+  let _leadFilterCustomerId = null;
 
   const TYPE_COLORS = {
     '미팅':    '#1a73e8',
@@ -81,11 +83,12 @@ const CalendarPage = (() => {
     return `<option value="">담당자 전체</option>` +
       team.map(m => `<option value="${m.id}" ${String(m.id) === String(currentFilter) ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
   }
-  function leadSelectOptions(selectedId) {
-    return `<option value="">-- 영업 기회 연결 안함 --</option>` +
-      leads.map(l =>
-        `<option value="${l.id}" ${String(l.id) === String(selectedId) ? 'selected' : ''}>${esc(l.customer_name || '')}${l.project_name ? ' - ' + esc(l.project_name) : ''}</option>`
-      ).join('');
+  // 초기 lead_id 가 있을 때 input 에 표시할 텍스트 ("고객사 - 프로젝트")
+  function _leadInitialText(leadId) {
+    if (!leadId) return '';
+    const l = leads.find(x => String(x.id) === String(leadId));
+    if (!l) return '';
+    return `${l.customer_name || ''}${l.project_name ? ' - ' + l.project_name : ''}`;
   }
 
   function buildEventForm(d = {}) {
@@ -170,7 +173,10 @@ const CalendarPage = (() => {
           </div>
           <div class="form-row">
             <label class="form-label">영업 기회 연결</label>
-            <select class="form-input" id="cal-lead-id">${leadSelectOptions(d.lead_id)}</select>
+            <input class="form-input" id="cal-lead-input"
+                   placeholder="고객사/프로젝트 검색 (선택)" autocomplete="off"
+                   value="${esc(_leadInitialText(d.lead_id))}">
+            <input type="hidden" id="cal-lead-id" value="${esc(d.lead_id || '')}">
           </div>
         </div>
 
@@ -251,7 +257,6 @@ const CalendarPage = (() => {
   //  - 선택 안 한 경우 customer_name 자유 텍스트로 저장됨
   function _attachCustomerCombobox(selectedCustomerId, initialLeadId) {
     const input = document.getElementById('cal-customer');
-    const leadSel = document.getElementById('cal-lead-id');
     if (!input) {
       console.warn('[calendar] cal-customer input not found');
       return null;
@@ -271,24 +276,21 @@ const CalendarPage = (() => {
     }
     if (selectedCustomerId) hiddenIdInput.value = selectedCustomerId;
 
-    // 영업기회 드롭다운을 고객사로 필터링하는 헬퍼
+    // 영업기회 콤보박스를 고객사로 필터링하는 헬퍼
+    // (select → input + Combobox 로 바뀜 — _leadFilterCustomerId 만 업데이트)
     const refreshLeadOptions = (customerId) => {
-      if (!leadSel) return;
-      const filtered = customerId
-        ? leads.filter(l => String(l.customer_id) === String(customerId))
-        : leads;
-      const currentSelected = leadSel.value;
-      leadSel.innerHTML =
-        `<option value="">-- 영업 기회 연결 안함 --</option>` +
-        filtered
-          .map(l =>
-            `<option value="${l.id}" ${String(l.id) === String(currentSelected) ? 'selected' : ''}>${esc(l.customer_name || '')}${l.project_name ? ' - ' + esc(l.project_name) : ''}</option>`
-          )
-          .join('');
-      // 선택 옵션이 필터 결과에 없으면 초기화
-      if (currentSelected && !filtered.find(l => String(l.id) === String(currentSelected))) {
-        leadSel.value = '';
-        leadSel.dispatchEvent(new Event('change'));
+      _leadFilterCustomerId = customerId || null;
+      const leadInput = document.getElementById('cal-lead-input');
+      const leadHidden = document.getElementById('cal-lead-id');
+      if (!leadInput || !leadHidden) return;
+      // 현재 선택된 lead 가 새 customer 와 다르면 자동 해제
+      if (leadHidden.value && customerId) {
+        const currentLead = leads.find(l => String(l.id) === String(leadHidden.value));
+        if (currentLead && String(currentLead.customer_id) !== String(customerId)) {
+          leadInput.value = '';
+          leadHidden.value = '';
+          leadInput.dispatchEvent(new Event('change'));
+        }
       }
     };
 
@@ -301,6 +303,9 @@ const CalendarPage = (() => {
       }
     } else if (selectedCustomerId) {
       refreshLeadOptions(selectedCustomerId);
+    } else {
+      // 신규 모달: 필터 초기화
+      _leadFilterCustomerId = null;
     }
 
     return Combobox.attach({
@@ -347,6 +352,66 @@ const CalendarPage = (() => {
     });
   }
 
+  // ─── 영업기회 Combobox (Step 1) ────────────────────────
+  // <select> 대신 input + hidden id + Combobox 로 교체
+  // 사이드이펙 방지:
+  //  - hidden #cal-lead-id 의 .value 인터페이스 유지 (collectForm 등 호환)
+  //  - Combobox 미로드 시 일반 input 으로 동작 (lead_id 는 빈값 유지)
+  //  - leads 메모리 데이터를 클라이언트 사이드 필터 (백엔드 변경 없음)
+  function _attachLeadCombobox() {
+    const input = document.getElementById('cal-lead-input');
+    const hiddenId = document.getElementById('cal-lead-id');
+    if (!input || !hiddenId) return null;
+    if (typeof Combobox === 'undefined') {
+      console.warn('[calendar] Combobox 로드 실패 — 영업기회 자동완성 비활성');
+      return null;
+    }
+
+    // 사용자가 input 을 직접 비우면 hidden id 도 초기화 (선택 해제 효과)
+    input.addEventListener('input', () => {
+      if (!input.value.trim()) {
+        hiddenId.value = '';
+        // 활동이력 동기화 UI 토글을 위해 change 트리거
+        input.dispatchEvent(new Event('change'));
+      }
+    });
+
+    return Combobox.attach({
+      inputEl: input,
+      fetchFn: (q) => {
+        const ql = (q || '').toLowerCase();
+        const filtered = _leadFilterCustomerId
+          ? leads.filter(l => String(l.customer_id) === String(_leadFilterCustomerId))
+          : leads;
+        return filtered.filter(l =>
+          (l.customer_name || '').toLowerCase().includes(ql) ||
+          (l.project_name || '').toLowerCase().includes(ql)
+        ).slice(0, 10);
+      },
+      renderItem: (item, q, { highlightMatch }) => {
+        const title = `${highlightMatch(item.customer_name || '', q)}${item.project_name ? ' - ' + highlightMatch(item.project_name, q) : ''}`;
+        const meta = [];
+        if (item.stage) meta.push(esc(item.stage));
+        if (item.amount) meta.push('₩' + Number(item.amount).toLocaleString());
+        return `
+          <div class="combobox-item-content">
+            <div class="combobox-item-title">💼 ${title}</div>
+            ${meta.length ? `<div class="combobox-item-meta">${meta.join(' · ')}</div>` : ''}
+          </div>
+        `;
+      },
+      onSelect: (item) => {
+        input.value = `${item.customer_name || ''}${item.project_name ? ' - ' + item.project_name : ''}`;
+        hiddenId.value = item.id;
+        // 활동이력 토글을 위해 change 이벤트 발생
+        input.dispatchEvent(new Event('change'));
+      },
+      minChars: 1,
+      debounceMs: 100,
+      allowCustom: false,
+    });
+  }
+
   function openCreateModal(defaults = {}) {
     Modal.open({
       title: '새 일정 등록', width: 600,
@@ -364,16 +429,20 @@ const CalendarPage = (() => {
 
     // 고객사 자동완성 + 영업기회 자동 필터링 활성화
     _attachCustomerCombobox(defaults.customer_id || null, defaults.lead_id || null);
+    // 영업기회 콤보박스 활성화
+    _attachLeadCombobox();
 
     // lead 선택 시 활동 이력 동기화 옵션 표시
-    const leadSel = document.getElementById('cal-lead-id');
+    const leadInput = document.getElementById('cal-lead-input');
+    const leadHidden = document.getElementById('cal-lead-id');
     const actSyncRow = document.getElementById('cal-act-sync-row');
-    if (leadSel && actSyncRow) {
+    if (leadInput && leadHidden && actSyncRow) {
       const toggleActSync = () => {
-        actSyncRow.style.display = leadSel.value ? '' : 'none';
+        actSyncRow.style.display = leadHidden.value ? '' : 'none';
       };
       toggleActSync();
-      leadSel.addEventListener('change', toggleActSync);
+      // input change 이벤트는 onSelect/사용자 직접 비움 시 발생 (위 _attachLeadCombobox 에서 dispatch)
+      leadInput.addEventListener('change', toggleActSync);
     }
 
     document.getElementById('cal-save-btn').addEventListener('click', async () => {
@@ -422,6 +491,7 @@ const CalendarPage = (() => {
     wireAlldayToggle();
     // 고객사 자동완성 + 영업기회 자동 필터링 (수정 모달도 동일)
     _attachCustomerCombobox(eventData.customer_id || null, eventData.lead_id || null);
+    _attachLeadCombobox();
     document.getElementById('cal-update-btn').addEventListener('click', async () => {
       const data = collectForm();
       if (!data.title) { Toast.error('제목을 입력하세요'); return; }
