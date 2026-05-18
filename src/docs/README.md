@@ -56,6 +56,12 @@
 | 📜 [CHANGELOG.md](./CHANGELOG.md) | 변경 이력 (commit 기반) |
 | 🔄 [DEV_WORKFLOW.md](./DEV_WORKFLOW.md) | 개발 워크플로우 (Lint+Test+승인+Commit) |
 
+### 🎨 신규 기능 설계 (Phase 별)
+
+| 문서 | 대상 | 설명 |
+|------|------|------|
+| 📐 [CALENDAR_AUTOCOMPLETE_DESIGN.md](./CALENDAR_AUTOCOMPLETE_DESIGN.md) | 디자이너, 기획, 개발자 | 영업캘린더 자동완성 + UX 개선 (Phase 1~5) |
+
 ---
 
 ## 🎯 역할별 추천 읽기 순서
