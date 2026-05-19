@@ -19,6 +19,7 @@ const DEFAULT_ITEMS = [
   { menu_key: 'dashboard', section_key: 'main', display_order: 1, is_system: 0 },
   { menu_key: 'pipeline', section_key: 'main', display_order: 2, is_system: 0 },
   { menu_key: 'orders', section_key: 'erp', display_order: 1, is_system: 0 },
+  { menu_key: 'cost', section_key: 'erp', display_order: 2, is_system: 0 },
   { menu_key: 'leads', section_key: 'sales', display_order: 1, is_system: 0 },
   { menu_key: 'projects', section_key: 'sales', display_order: 2, is_system: 0 },
   { menu_key: 'customers', section_key: 'sales', display_order: 3, is_system: 0 },

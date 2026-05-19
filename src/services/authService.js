@@ -46,6 +46,7 @@ const ROLE_PAGES = {
     'board',
     'settings',
     'projects',
+    'cost',
   ],
   executive: [
     'dashboard',
@@ -61,6 +62,7 @@ const ROLE_PAGES = {
     'board',
     'settings',
     'projects',
+    'cost',
     'admin',
   ],
   admin: [
@@ -77,6 +79,7 @@ const ROLE_PAGES = {
     'board',
     'settings',
     'projects',
+    'cost',
     'admin',
   ],
   superadmin: ['*'],
@@ -91,6 +94,7 @@ const API_LEVEL_MAP = {
   '/team': 2, // team_lead 이상
   '/reports': 2,
   '/report-builder': 2, // 리포트 빌더는 team_lead 이상만
+  '/products': 2, // 원가관리(상품/원자재) — team_lead 이상 (마진 정보 보호)
 };
 
 // ── 패스워드 ────────────────────────────────────────────────

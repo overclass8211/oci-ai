@@ -11,6 +11,7 @@ const App = {
   pages: {
     dashboard: { obj: () => DashboardPage,  title: '대시보드',       crumb: '홈 / 대시보드' },
     orders:    { obj: () => OrdersPage,     title: '주문관리 (OMS)', crumb: 'OMS / 주문관리' },
+    cost:      { obj: () => CostPage,       title: '원가관리',       crumb: 'ERP / 원가관리' },
     pipeline:  { obj: () => PipelinePage,   title: '파이프라인',     crumb: '영업관리 / 파이프라인' },
     leads:     { obj: () => LeadsPage,      title: '영업 리드',       crumb: '영업관리 / 리드' },
     projects:  { obj: () => ProjectsPage,   title: '프로젝트',       crumb: '영업관리 / 프로젝트' },
