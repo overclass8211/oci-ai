@@ -8370,6 +8370,34 @@ body,
   transform: translateX(4px);
 }
 
+/* ─── 온보딩 완료 단계 시각화 (Phase 2) ─────────────────── */
+.onboarding-step.completed {
+  border-left-color: var(--success, #16a34a);
+  background: var(--surface-2);
+  opacity: 0.82;
+}
+.onboarding-step.completed .onboarding-step-icon {
+  filter: grayscale(0.35);
+}
+.onboarding-step.completed .onboarding-step-title {
+  color: var(--text-2);
+}
+.onboarding-step.completed:hover {
+  opacity: 1;
+  background: var(--surface);
+}
+.onboarding-step-check {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--success, #16a34a);
+  font-weight: 800;
+  font-size: 14px;
+  vertical-align: middle;
+}
+[data-theme="dark"] .onboarding-step-check {
+  color: #22c55e;
+}
+
 .onboarding-tips {
   padding: 12px 14px;
   background: var(--surface-2);

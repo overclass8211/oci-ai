@@ -90,7 +90,12 @@ const App = {
 
     // 첫 로그인이면 온보딩 환영 모달 자동 표시 (1초 지연 — 페이지 로딩 안정)
     setTimeout(() => {
-      if (typeof Onboarding !== 'undefined') Onboarding.maybeShow();
+      if (typeof Onboarding !== 'undefined') {
+        Onboarding.maybeShow();
+        // 3일 이상 미접속 + 미완료 단계 있을 때 부드러운 Toast nudge
+        // maybeShow 가 자동 표시되는 경우(신규 사용자)는 nudge 가 조건상 자동 skip
+        Onboarding.maybeShowNudge?.();
+      }
     }, 1000);
 
     // 브라우저 뒤로/앞으로 버튼 지원
@@ -125,6 +130,10 @@ const App = {
       } else if (action === 'open-search') {
         e.preventDefault();
         if (typeof SearchModal !== 'undefined') SearchModal.show();
+      } else if (action === 'open-onboarding') {
+        e.preventDefault();
+        // 사용자 명시적 다시 보기 — localStorage 플래그 무시하고 강제 표시
+        if (typeof Onboarding !== 'undefined') Onboarding.reset();
       }
     });
 

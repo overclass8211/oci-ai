@@ -214,8 +214,17 @@ const Shortcuts = {
           </div>
         </div>
       `,
-      footer: `<button class="btn btn-primary" id="sc-help-ok">확인</button>`,
-      bind: { '#sc-help-ok': () => Modal.close() },
+      footer: `
+        <button class="btn btn-ghost" id="sc-onboarding-open" title="5단계 시작 가이드 다시 보기">🎓 온보딩 가이드</button>
+        <button class="btn btn-primary" id="sc-help-ok">확인</button>
+      `,
+      bind: {
+        '#sc-help-ok': () => Modal.close(),
+        '#sc-onboarding-open': () => {
+          Modal.close();
+          if (typeof Onboarding !== 'undefined') Onboarding.reset();
+        },
+      },
     });
   },
 
