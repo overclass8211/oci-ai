@@ -8740,6 +8740,20 @@ body,
   opacity: 0.4;
   background: var(--surface-2);
 }
+/* ─── 견적서 품목 그리드 — 드래그앤드롭 ────────────────── */
+.qt-drag-handle:hover {
+  color: var(--oci-red);
+}
+.qt-drag-handle:active {
+  cursor: grabbing;
+}
+.qt-row-ghost {
+  opacity: 0.4;
+  background: var(--surface-2);
+}
+.qt-row-ghost td {
+  border-color: var(--oci-red) !important;
+}
 .rp-widgets-empty {
   grid-column: 1 / -1;
   text-align: center;

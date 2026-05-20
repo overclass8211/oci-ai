@@ -134,16 +134,25 @@ async function generateQuoteNo(conn, year) {
 }
 
 // ── 합계 계산 ───────────────────────────────────────────────
-// proposed_amount = unit_price × quantity × (1 - discount_pct/100)
-function calcItemAmount(item) {
+// 공급단가  = unit_price × (1 - discount_pct/100)  ← 할인 적용된 단가
+//            (할인율 0% 인 경우 unit_price 와 동일)
+// 제안금액  = supply_price × quantity              ← 공급단가 × 수량
+function calcSupplyPrice(item) {
   const unit = Number(item.unit_price) || 0;
-  const qty = Number(item.quantity) || 0;
   const disc = Math.max(0, Math.min(100, Number(item.discount_pct) || 0));
-  return Number((unit * qty * (1 - disc / 100)).toFixed(2));
+  return Number((unit * (1 - disc / 100)).toFixed(2));
 }
+function calcItemAmount(item) {
+  const supply = calcSupplyPrice(item);
+  const qty = Number(item.quantity) || 0;
+  return Number((supply * qty).toFixed(2));
+}
+// vat_included 의 의미 (사용자 정의 비즈니스 규칙):
+//   1 = "부가세 포함" → 총합계에 부가세 10% 가산 (사용자가 명시한 의미)
+//   0 = "부가세 미포함" → 가산 없음 (소계 = 총합계)
 function calcTotals(items, vatIncluded) {
   const subtotal = items.reduce((s, it) => s + calcItemAmount(it), 0);
-  const vat = vatIncluded ? 0 : Number((subtotal * 0.1).toFixed(2));
+  const vat = vatIncluded ? Number((subtotal * 0.1).toFixed(2)) : 0;
   const total = Number((subtotal + vat).toFixed(2));
   return { subtotal: Number(subtotal.toFixed(2)), vat_amount: vat, total_amount: total };
 }
@@ -254,6 +263,7 @@ router.post('/', async (req, res) => {
     const items = Array.isArray(body.items) ? body.items : [];
     // 각 품목의 proposed_amount 자동 계산
     items.forEach((it, idx) => {
+      it.supply_price = calcSupplyPrice(it); // 자동 계산 — 사용자 입력 무시
       it.proposed_amount = calcItemAmount(it);
       it.display_order = idx;
     });
@@ -332,6 +342,7 @@ router.put('/:id', async (req, res) => {
     const body = req.body || {};
     const items = Array.isArray(body.items) ? body.items : [];
     items.forEach((it, idx) => {
+      it.supply_price = calcSupplyPrice(it); // 자동 계산 — 사용자 입력 무시
       it.proposed_amount = calcItemAmount(it);
       it.display_order = idx;
     });
