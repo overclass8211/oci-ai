@@ -1,16 +1,18 @@
 'use strict';
 // =============================================================
-// /api/report-builder — 사용자 정의 리포트 빌더 (Phase 2-B-2)
+// /api/report-builder — 사용자 정의 리포트 빌더 (Phase 2-B-3)
 //
 // 데이터 소스:
 //   - leads (영업 리드) — 차원 8 / 지표 4
 //   - projects (프로젝트) — 차원 8 / 지표 5
 //   - customers (고객사) — 차원 5 / 지표 5 (LEFT JOIN leads 활용)
+//   - activities (영업 활동) — 차원 6 / 지표 1 (활동 유형 한국어 변환 포함)
 // 모든 필드 whitelist 기반 (SQL injection 방어)
 //
 // 권한: team_lead(level 2) 이상만 — RBAC 미들웨어에서 처리
 // 데이터 스코프:
 //   - leads / projects: manager 는 본인 데이터만 (assigned_to 필터)
+//   - activities: manager 는 본인이 수행한 활동만 (performed_by 필터)
 //   - customers: 전체 공개 (team_lead+ 만 접근 가능하므로 추가 제약 불필요)
 //
 // 엔드포인트:
@@ -338,6 +340,80 @@ const DATASOURCES = {
         label: '예상금액 합계',
         dataType: 'number',
         join: 'leads',
+      },
+    },
+  },
+
+  // ─── activities (Phase 2-B-3 신규) ─────────────────────────
+  // 영업 활동 분석 — 미팅/통화/방문/제안/입찰/메모 등 분포 + 담당자별 활동량 + 시간 추세
+  // 권한 스코프: manager 는 본인이 수행한 활동만 (performed_by 필터)
+  // 한국어 라벨 변환: activity_type 의 영문 키를 사용자 친화적 한국어로 표시
+  activities: {
+    label: '영업 활동',
+    table: 'activities',
+    scope: { manager: 'activities.performed_by' },
+    joins: {
+      team: 'LEFT JOIN team_members tm ON tm.id = activities.performed_by',
+    },
+    fields: {
+      // ─── 차원 ───────────────────────
+      activity_type: {
+        type: 'dimension',
+        sql: `CASE activities.activity_type
+              WHEN 'meeting' THEN '미팅'
+              WHEN 'site_visit' THEN '영업방문'
+              WHEN 'proposal' THEN '제안'
+              WHEN 'bidding' THEN '입찰'
+              WHEN 'call' THEN '통화'
+              WHEN 'email' THEN '이메일'
+              WHEN 'note' THEN '메모'
+              ELSE COALESCE(activities.activity_type, '(미지정)') END`,
+        label: '활동 유형',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      performed_by_name: {
+        type: 'dimension',
+        sql: 'COALESCE(tm.name, "(미지정)")',
+        label: '담당자',
+        dataType: 'text',
+        chartHint: 'bar',
+        join: 'team',
+      },
+      year_performed: {
+        type: 'dimension',
+        sql: 'YEAR(activities.performed_at)',
+        label: '수행 연도',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      month_performed: {
+        type: 'dimension',
+        sql: 'DATE_FORMAT(activities.performed_at, "%Y-%m")',
+        label: '수행 월',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      has_lead: {
+        type: 'dimension',
+        sql: "CASE WHEN activities.lead_id IS NOT NULL THEN 'Y' ELSE 'N' END",
+        label: '리드 연결 여부',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      has_project: {
+        type: 'dimension',
+        sql: "CASE WHEN activities.project_id IS NOT NULL THEN 'Y' ELSE 'N' END",
+        label: '프로젝트 연결 여부',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      // ─── 지표 ───────────────────────
+      count: {
+        type: 'measure',
+        sql: 'COUNT(*)',
+        label: '활동 건수',
+        dataType: 'number',
       },
     },
   },

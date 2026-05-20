@@ -267,18 +267,11 @@ const ReportBuilderPage = {
     document.getElementById('rb-zone-columns').innerHTML = cfg.columns.map(k => this._chipHtml(k, fieldsMap[k], 'columns')).join('');
     document.getElementById('rb-zone-measures').innerHTML = cfg.measures.map(k => this._chipHtml(k, fieldsMap[k], 'measures')).join('');
 
-    // Filter — 차원 필터: input + datalist (자동완성) 또는 select (캐시된 값)
-    // datalist 패턴: 사용자가 캐시된 값에서 선택 가능 + 자유 입력도 허용
+    // Filter — 차원 필터: 캘린더에서 검증된 Combobox 컴포넌트 활용
+    // datalist 패턴은 브라우저마다 클릭 동작이 달라 사용성 떨어짐 → Combobox 로 일관 UX
     document.getElementById('rb-zone-filters').innerHTML = cfg.filters.map((f, idx) => {
       const fld = fieldsMap[f.field];
       if (!fld) return '';
-      const dsKey = this._state.config.datasource || 'leads';
-      const cacheKey = `${dsKey}.${f.field}`;
-      const cached = this._state.valueCache?.[cacheKey];
-      const datalistId = `rb-values-${idx}-${f.field}`;
-      const datalistHtml = Array.isArray(cached)
-        ? `<datalist id="${datalistId}">${cached.map(v => `<option value="${esc(v)}"></option>`).join('')}</datalist>`
-        : '';
       return `
         <div class="rb-chip rb-chip-filter" data-zone="filters" data-idx="${idx}">
           <span class="rb-chip-label">${esc(fld.label)}</span>
@@ -288,33 +281,64 @@ const ReportBuilderPage = {
             ).join('')}
           </select>
           <input class="rb-chip-value" data-idx="${idx}" type="text"
-                 value="${esc(f.value || '')}" placeholder="값 선택 또는 입력"
-                 list="${datalistId}" autocomplete="off" />
-          ${datalistHtml}
+                 value="${esc(f.value || '')}" placeholder="🔽 값 선택 또는 입력" autocomplete="off" />
           <button class="rb-chip-remove" data-zone="filters" data-idx="${idx}" title="제거">✕</button>
         </div>
       `;
     }).join('');
 
-    // 필터 칩의 값 캐시 비동기 fetch — 캐시 없을 때만
-    cfg.filters.forEach((f) => {
-      const dsKey = this._state.config.datasource || 'leads';
-      const cacheKey = `${dsKey}.${f.field}`;
+    // 각 필터 input 에 Combobox 부착 — 클릭 즉시 드롭다운 + 자유 입력 허용
+    if (typeof Combobox !== 'undefined') {
       if (!this._state.valueCache) this._state.valueCache = {};
-      if (this._state.valueCache[cacheKey] !== undefined) return;  // 이미 fetch 했거나 fetching
-      this._state.valueCache[cacheKey] = null;  // pending 마커
-      API.reportBuilder.values(dsKey, f.field, 200)
-        .then(r => {
-          this._state.valueCache[cacheKey] = r.data || [];
-          // datalist 업데이트 (정확한 datalist 찾아 옵션 갱신)
-          document.querySelectorAll(`datalist[id^="rb-values-"][id$="-${f.field}"]`).forEach(dl => {
-            dl.innerHTML = (r.data || []).map(v => `<option value="${esc(v)}"></option>`).join('');
-          });
-        })
-        .catch(() => {
-          this._state.valueCache[cacheKey] = [];  // 실패 시 빈 배열로 fallback (재시도 안 함)
+      cfg.filters.forEach((f, idx) => {
+        const input = document.querySelector(`.rb-chip-value[data-idx="${idx}"]`);
+        if (!input) return;
+        const dsKey = this._state.config.datasource || 'leads';
+        const cacheKey = `${dsKey}.${f.field}`;
+        Combobox.attach({
+          inputEl: input,
+          // minChars:0 → 클릭만으로 (또는 빈 입력) 드롭다운 표시
+          minChars: 0,
+          debounceMs: 100,
+          allowCustom: true,
+          customLabel: '+ "X" 그대로 사용 (자유 입력)',
+          fetchFn: async (q) => {
+            // 캐시 활용 — 첫 호출만 백엔드 fetch, 이후는 클라이언트 필터링
+            let values = this._state.valueCache[cacheKey];
+            if (!Array.isArray(values)) {
+              try {
+                const r = await API.reportBuilder.values(dsKey, f.field, 500);
+                values = r.data || [];
+                this._state.valueCache[cacheKey] = values;
+              } catch (_) {
+                values = [];
+                this._state.valueCache[cacheKey] = values;
+              }
+            }
+            const ql = String(q || '').toLowerCase();
+            return values
+              .filter(v => !ql || String(v).toLowerCase().includes(ql))
+              .slice(0, 50);  // 너무 많으면 자르기
+          },
+          renderItem: (item, q, { highlightMatch }) => `
+            <div class="combobox-item-content">
+              <div class="combobox-item-title">${highlightMatch(String(item), q)}</div>
+            </div>
+          `,
+          onSelect: (item) => {
+            const val = String(item);
+            input.value = val;
+            this._state.config.filters[idx].value = val;
+            this._runQuery();
+          },
+          onCustomCreate: (query) => {
+            input.value = query;
+            this._state.config.filters[idx].value = query;
+            this._runQuery();
+          },
         });
-    });
+      });
+    }
 
     // 칩 제거 이벤트
     document.querySelectorAll('.rb-chip-remove').forEach(btn => {
@@ -1193,9 +1217,9 @@ const ReportBuilderPage = {
     return d.toLocaleDateString('ko-KR');
   },
 
-  // Phase 2-B-2: 데이터 소스별 아이콘 매핑 (확장 가능)
+  // Phase 2-B-3: 데이터 소스별 아이콘 매핑 (확장 가능)
   _dsIcon(dsKey) {
-    const ICONS = { leads: '📋', projects: '🏗', customers: '🏢' };
+    const ICONS = { leads: '📋', projects: '🏗', customers: '🏢', activities: '📌' };
     return ICONS[dsKey] || '📊';
   },
 
