@@ -32,6 +32,12 @@ const ReportBuilderPage = {
     savedPanelOpen: false,              // 우측 저장 리포트 패널 열림 여부
     savedSearchQuery: '',               // 검색어 (이름/설명 필터)
     _searchDebounce: null,              // 검색 디바운스 타이머
+    // 차트 다중 measure 버그 fix: pie/stacked-bar 시 어떤 지표를 차트에 표시할지
+    chartMeasureIndex: 0,               // 0 = 첫 번째 measure (기본값)
+    // 차트 정규화 버그 fix: 단위 다른 measure 들을 0~100% 비율로 환산하여 비교 가능
+    chartNormalize: false,
+    // 필터 값 캐시: 'datasource.field' → string[] (distinct 값) / null (pending) / undefined (미사용)
+    valueCache: {},
   },
 
   // ─── 진입점 ────────────────────────────────────────────
@@ -127,6 +133,13 @@ const ReportBuilderPage = {
                   <option value="line">선형 (Line)</option>
                   <option value="stacked-bar">누적 막대 (Stacked Bar)</option>
                 </select>
+                <!-- 다중 measure + pie/stacked-bar 차트 시 어떤 지표를 차트에 표시할지 선택 -->
+                <select id="rb-measure-select" class="form-input" style="display:none;width:auto;font-size:12px" title="차트에 표시할 지표 선택"></select>
+                <!-- 다중 measure + bar/line 시 단위 차이로 인한 시각화 문제 해결: 정규화 토글 (0~100%) -->
+                <label id="rb-normalize-wrap" style="display:none;align-items:center;gap:4px;font-size:11px;color:var(--text-2);cursor:pointer" title="각 지표를 최대값 기준 0~100% 로 정규화 — 단위가 다른 지표 시각 비교에 유용">
+                  <input type="checkbox" id="rb-normalize-toggle" style="cursor:pointer">
+                  <span>정규화 (0~100%)</span>
+                </label>
               </div>
               <div class="rb-chart-wrapper">
                 <canvas id="rb-chart"></canvas>
@@ -229,6 +242,7 @@ const ReportBuilderPage = {
         chartType: 'auto',
       };
       this._state.currentId = null;  // 다른 datasource — 다른 리포트로 취급
+      this._state.valueCache = {};   // 다른 datasource — 필터 값 캐시 무효화
       const ctype = document.getElementById('rb-chart-type');
       if (ctype) ctype.value = 'auto';
       this._renderFieldsPanel();
@@ -253,10 +267,18 @@ const ReportBuilderPage = {
     document.getElementById('rb-zone-columns').innerHTML = cfg.columns.map(k => this._chipHtml(k, fieldsMap[k], 'columns')).join('');
     document.getElementById('rb-zone-measures').innerHTML = cfg.measures.map(k => this._chipHtml(k, fieldsMap[k], 'measures')).join('');
 
-    // Filter — 좀 더 복잡 (op + value)
+    // Filter — 차원 필터: input + datalist (자동완성) 또는 select (캐시된 값)
+    // datalist 패턴: 사용자가 캐시된 값에서 선택 가능 + 자유 입력도 허용
     document.getElementById('rb-zone-filters').innerHTML = cfg.filters.map((f, idx) => {
       const fld = fieldsMap[f.field];
       if (!fld) return '';
+      const dsKey = this._state.config.datasource || 'leads';
+      const cacheKey = `${dsKey}.${f.field}`;
+      const cached = this._state.valueCache?.[cacheKey];
+      const datalistId = `rb-values-${idx}-${f.field}`;
+      const datalistHtml = Array.isArray(cached)
+        ? `<datalist id="${datalistId}">${cached.map(v => `<option value="${esc(v)}"></option>`).join('')}</datalist>`
+        : '';
       return `
         <div class="rb-chip rb-chip-filter" data-zone="filters" data-idx="${idx}">
           <span class="rb-chip-label">${esc(fld.label)}</span>
@@ -265,11 +287,34 @@ const ReportBuilderPage = {
               `<option value="${op}" ${f.op===op?'selected':''}>${this._opLabel(op)}</option>`
             ).join('')}
           </select>
-          <input class="rb-chip-value" data-idx="${idx}" type="text" value="${esc(f.value || '')}" placeholder="값" />
+          <input class="rb-chip-value" data-idx="${idx}" type="text"
+                 value="${esc(f.value || '')}" placeholder="값 선택 또는 입력"
+                 list="${datalistId}" autocomplete="off" />
+          ${datalistHtml}
           <button class="rb-chip-remove" data-zone="filters" data-idx="${idx}" title="제거">✕</button>
         </div>
       `;
     }).join('');
+
+    // 필터 칩의 값 캐시 비동기 fetch — 캐시 없을 때만
+    cfg.filters.forEach((f) => {
+      const dsKey = this._state.config.datasource || 'leads';
+      const cacheKey = `${dsKey}.${f.field}`;
+      if (!this._state.valueCache) this._state.valueCache = {};
+      if (this._state.valueCache[cacheKey] !== undefined) return;  // 이미 fetch 했거나 fetching
+      this._state.valueCache[cacheKey] = null;  // pending 마커
+      API.reportBuilder.values(dsKey, f.field, 200)
+        .then(r => {
+          this._state.valueCache[cacheKey] = r.data || [];
+          // datalist 업데이트 (정확한 datalist 찾아 옵션 갱신)
+          document.querySelectorAll(`datalist[id^="rb-values-"][id$="-${f.field}"]`).forEach(dl => {
+            dl.innerHTML = (r.data || []).map(v => `<option value="${esc(v)}"></option>`).join('');
+          });
+        })
+        .catch(() => {
+          this._state.valueCache[cacheKey] = [];  // 실패 시 빈 배열로 fallback (재시도 안 함)
+        });
+    });
 
     // 칩 제거 이벤트
     document.querySelectorAll('.rb-chip-remove').forEach(btn => {
@@ -470,6 +515,17 @@ const ReportBuilderPage = {
     const measureKeys = config.measures;
     const colKey = config.columns[0];
 
+    // 다중 measure 시 사용자가 선택한 인덱스 (pie/stacked-bar 차트에 사용)
+    // 범위 보정: measures 변경으로 인덱스가 초과된 경우 0 으로 리셋
+    if (this._state.chartMeasureIndex >= measureKeys.length) {
+      this._state.chartMeasureIndex = 0;
+    }
+    const selectedMIdx = Math.max(0, Math.min(this._state.chartMeasureIndex, measureKeys.length - 1));
+    const selectedM = measureKeys[selectedMIdx];
+
+    // 측정값 선택 드롭다운 갱신 — pie/stacked-bar + 다중 measure 일 때만 표시
+    this._updateMeasureSelector(chartType, measureKeys, fieldsMap);
+
     // ── chart.js 설정 ─────────────────────────────────
     const colors = [
       '#E63329', '#1A73E8', '#34A853', '#FBBC04', '#9C27B0',
@@ -479,46 +535,42 @@ const ReportBuilderPage = {
     let chartConfig;
 
     if (chartType === 'pie') {
-      // Pie: rows = labels, 첫 measure = values
+      // Pie: rows = labels, 선택된 measure = values (multi-measure 시 사용자 선택)
       const labels = rows.map(r => String(r.row_key || '(없음)'));
-      const data = rows.map(r => Number(r[measureKeys[0]] || 0));
+      const data = rows.map(r => Number(r[selectedM] || 0));
       chartConfig = {
         type: 'doughnut',
         data: {
           labels,
-          datasets: [{ data, backgroundColor: colors }],
+          datasets: [{ label: fieldsMap[selectedM]?.label || selectedM, data, backgroundColor: colors }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: 'right' } },
+          plugins: { legend: this._customLegend('right') },
         },
       };
     } else if (chartType === 'line') {
       const labels = rows.map(r => String(r.row_key || ''));
+      // 다축/정규화 적용 (multi-measure 단위 차이 해결)
+      const { datasets: lineDs, scales: lineScales } = this._buildMultiMeasureDatasets(
+        measureKeys, fieldsMap, rows, colors, 'line'
+      );
       chartConfig = {
         type: 'line',
-        data: {
-          labels,
-          datasets: measureKeys.map((m, i) => ({
-            label: fieldsMap[m]?.label || m,
-            data: rows.map(r => Number(r[m] || 0)),
-            borderColor: colors[i],
-            backgroundColor: colors[i] + '33',
-            tension: 0.3,
-          })),
-        },
+        data: { labels, datasets: lineDs },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: 'top' } },
+          plugins: { legend: this._customLegend('top') },
+          scales: lineScales,
         },
       };
     } else if (chartType === 'stacked-bar' && colKey) {
-      // pivot: row_key → 행, col_key → 스택
+      // pivot: row_key → 행, col_key → 스택, 선택된 measure (multi-measure 시 사용자 선택)
       const rowKeys = [...new Set(rows.map(r => String(r.row_key)))];
       const colKeys = [...new Set(rows.map(r => String(r.col_key)))];
-      const m = measureKeys[0];
+      const m = selectedM;
       const pivot = {};
       for (const rk of rowKeys) pivot[rk] = {};
       for (const r of rows) pivot[String(r.row_key)][String(r.col_key)] = Number(r[m] || 0);
@@ -535,32 +587,161 @@ const ReportBuilderPage = {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: 'top' } },
+          plugins: { legend: this._customLegend('top') },
           scales: { x: { stacked: true }, y: { stacked: true } },
         },
       };
     } else {
-      // bar (default)
+      // bar (default) — 다축/정규화 적용 (multi-measure 단위 차이 해결)
       const labels = rows.map(r => String(r.row_key || ''));
+      const { datasets: barDs, scales: barScales } = this._buildMultiMeasureDatasets(
+        measureKeys, fieldsMap, rows, colors, 'bar'
+      );
       chartConfig = {
         type: 'bar',
-        data: {
-          labels,
-          datasets: measureKeys.map((m, i) => ({
-            label: fieldsMap[m]?.label || m,
-            data: rows.map(r => Number(r[m] || 0)),
-            backgroundColor: colors[i],
-          })),
-        },
+        data: { labels, datasets: barDs },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: 'top' } },
+          plugins: { legend: this._customLegend('top') },
+          scales: barScales,
         },
       };
     }
 
+    // 정규화 토글 표시 여부 갱신 (bar/line + measures ≥ 2 일 때만)
+    this._updateNormalizeToggle(chartType, measureKeys);
+
     this._state.chart = new Chart(ctx, chartConfig);
+  },
+
+  // 다축 자동 분리 + 정규화 (bar/line 차트 공통)
+  // - measures 1개: 단일 축 (y)
+  // - measures 2개: y(좌, m0) + y1(우, m1) 분리
+  // - measures 3+개: y(좌, m0) + y1(우, m1, m2...) — 나머지는 우측 그룹화
+  // - 정규화 ON: 모든 measure 를 max 값 기준 0~100% 환산 → 단일 y 축 사용
+  _buildMultiMeasureDatasets(measureKeys, fieldsMap, rows, colors, chartKind) {
+    const normalize = this._state.chartNormalize === true;
+    const isLine = chartKind === 'line';
+
+    // 정규화: 각 measure 의 max 값으로 데이터 환산 (0~100 범위)
+    if (normalize && measureKeys.length > 0) {
+      const datasets = measureKeys.map((m, i) => {
+        const vals = rows.map(r => Number(r[m] || 0));
+        const max = Math.max(...vals, 0) || 1;
+        const data = vals.map(v => (v / max) * 100);
+        const base = {
+          label: `${fieldsMap[m]?.label || m} (정규화)`,
+          data,
+        };
+        return isLine
+          ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3 }
+          : { ...base, backgroundColor: colors[i] };
+      });
+      return {
+        datasets,
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { callback: v => v + '%' },
+            title: { display: true, text: '정규화 (%)' },
+          },
+        },
+      };
+    }
+
+    // 다축 자동 분리 (measures ≥ 2 일 때만)
+    const useMultiAxis = measureKeys.length >= 2;
+    const datasets = measureKeys.map((m, i) => {
+      const data = rows.map(r => Number(r[m] || 0));
+      const yAxisID = useMultiAxis && i >= 1 ? 'y1' : 'y';
+      const base = {
+        label: fieldsMap[m]?.label || m,
+        data,
+        yAxisID,
+      };
+      return isLine
+        ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3 }
+        : { ...base, backgroundColor: colors[i] };
+    });
+
+    const scales = {
+      y: {
+        type: 'linear',
+        position: 'left',
+        title: useMultiAxis
+          ? { display: true, text: fieldsMap[measureKeys[0]]?.label || measureKeys[0] }
+          : { display: false },
+      },
+    };
+    if (useMultiAxis) {
+      scales.y1 = {
+        type: 'linear',
+        position: 'right',
+        grid: { drawOnChartArea: false },  // 우측 grid 안 그림 (시각적 혼란 방지)
+        title: {
+          display: true,
+          text: measureKeys.slice(1).map(m => fieldsMap[m]?.label || m).join(' / '),
+        },
+      };
+    }
+    return { datasets, scales };
+  },
+
+  // ─── 범례 음영 처리 (취소선 → 회색 음영) ───────────────────
+  // Chart.js 기본 동작: 범례 클릭 → 시리즈 hide + 라벨에 취소선
+  // 사용자 요청: 취소선 대신 회색 음영으로 활성/비활성 시각 구분
+  // 적용 방식: generateLabels 에서 hidden=false 강제 + fillStyle 회색화
+  //           onClick 은 기본 토글 동작 유지 (커스텀 generateLabels 만 변경)
+  _customLegend(position = 'top') {
+    return {
+      position,
+      labels: {
+        usePointStyle: false,
+        generateLabels: function (chart) {
+          // Chart.js 기본 generateLabels 호출 → 그 결과 가공
+          const defaults = chart.legend.options.labels;
+          const defaultGen = Chart.defaults.plugins.legend.labels.generateLabels;
+          const original = defaultGen.call(defaults, chart);
+          return original.map((item) => {
+            const meta = chart.getDatasetMeta(item.datasetIndex);
+            const isHidden = meta.hidden === true;
+            return {
+              ...item,
+              hidden: false, // ← 취소선 안 그리도록 강제
+              fillStyle: isHidden ? '#cccccc' : item.fillStyle,
+              strokeStyle: isHidden ? '#bbbbbb' : item.strokeStyle,
+              // 라벨 텍스트는 그대로 — 색상만 회색으로 변경하여 음영 표현
+              fontColor: isHidden ? '#9ca3af' : undefined,
+            };
+          });
+        },
+      },
+      onClick: function (e, legendItem, legend) {
+        // 토글 동작 (Chart.js 표준 방식 유지)
+        const idx = legendItem.datasetIndex;
+        const ci = legend.chart;
+        const meta = ci.getDatasetMeta(idx);
+        meta.hidden = meta.hidden === null ? !ci.data.datasets[idx].hidden : !meta.hidden;
+        ci.update();
+      },
+    };
+  },
+
+  // 정규화 토글 표시/숨김 (bar/line + measures ≥ 2 일 때만)
+  _updateNormalizeToggle(chartType, measureKeys) {
+    const wrap = document.getElementById('rb-normalize-wrap');
+    const cb = document.getElementById('rb-normalize-toggle');
+    if (!wrap || !cb) return;
+    const eligible = (chartType === 'bar' || chartType === 'line') && measureKeys.length >= 2;
+    wrap.style.display = eligible ? 'inline-flex' : 'none';
+    // 이벤트 매번 재할당 (idempotent)
+    cb.checked = this._state.chartNormalize === true;
+    cb.onchange = () => {
+      this._state.chartNormalize = cb.checked;
+      if (this._state.queryResult) this._renderChart(this._state.queryResult);
+    };
   },
 
   _clearChart() {
@@ -568,6 +749,29 @@ const ReportBuilderPage = {
       this._state.chart.destroy();
       this._state.chart = null;
     }
+  },
+
+  // 차트 다중 measure 버그 fix: pie/stacked-bar + measures ≥ 2 시만 드롭다운 표시
+  // bar/line 은 이미 datasets 가 measures 별로 자동 생성됨 → 드롭다운 불필요
+  _updateMeasureSelector(chartType, measureKeys, fieldsMap) {
+    const sel = document.getElementById('rb-measure-select');
+    if (!sel) return;
+    const needsSelector = (chartType === 'pie' || chartType === 'stacked-bar') && measureKeys.length >= 2;
+    if (!needsSelector) {
+      sel.style.display = 'none';
+      return;
+    }
+    // 옵션 갱신 (현재 selectedIdx 보존)
+    const currentIdx = this._state.chartMeasureIndex;
+    sel.innerHTML = measureKeys.map((m, i) =>
+      `<option value="${i}" ${i === currentIdx ? 'selected' : ''}>📐 ${esc(fieldsMap[m]?.label || m)}</option>`
+    ).join('');
+    sel.style.display = '';
+    // 이벤트 (매번 onchange 재할당으로 idempotent — 동일 select 에 누적 안 됨)
+    sel.onchange = () => {
+      this._state.chartMeasureIndex = parseInt(sel.value, 10) || 0;
+      if (this._state.queryResult) this._renderChart(this._state.queryResult);
+    };
   },
 
   // ─── 데이터 테이블 (차트 하단) ─────────────────────────

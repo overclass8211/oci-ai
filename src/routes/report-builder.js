@@ -431,6 +431,66 @@ router.get('/fields', (req, res) => {
   }
 });
 
+// ── GET /values — 필터용 차원 distinct 값 목록 ─────────────
+// Query: ?datasource=leads&field=stage&limit=100
+// 응답: { success: true, data: ['lead','review','won',...] }
+// 권한: manager 는 본인 데이터 범위에서만 distinct 값 추출 (스코프 적용)
+// 보안: 차원 필드 whitelist 검증 (SQL injection 방어)
+router.get('/values', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const dsKey = String(req.query.datasource || 'leads');
+    const fieldKey = String(req.query.field || '');
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 100));
+
+    const ds = getDatasource(dsKey);
+    if (!ds) {
+      return res.status(400).json({ success: false, error: `지원하지 않는 데이터 소스: ${dsKey}` });
+    }
+    if (!isDimensionOf(dsKey, fieldKey)) {
+      return res
+        .status(400)
+        .json({ success: false, error: `차원 필드가 아니거나 알 수 없는 필드: ${fieldKey}` });
+    }
+
+    const fld = fieldOf(dsKey, fieldKey);
+
+    // JOIN 빌더 — 필드가 외부 join 의존 시 함께 적용 (예: leads.assigned_name → team)
+    let fromClause = `FROM ${ds.table}`;
+    if (fld.join && ds.joins?.[fld.join]) {
+      fromClause += ' ' + ds.joins[fld.join];
+    }
+
+    // 권한 스코프
+    const whereParts = [];
+    const params = [];
+    const scope = await getUserScope(userId);
+    if (scope.isManager && ds.scope?.manager) {
+      whereParts.push(`${ds.scope.manager} = (SELECT id FROM team_members WHERE id = ? LIMIT 1)`);
+      params.push(userId);
+    }
+    // NULL 제외 (DISTINCT 시 NULL 도 한 값으로 잡히므로 명시적 제외)
+    whereParts.push(`${fld.sql} IS NOT NULL`);
+    const whereSql = `WHERE ${whereParts.join(' AND ')}`;
+    params.push(limit);
+
+    const sql = `
+      SELECT DISTINCT ${fld.sql} AS value
+      ${fromClause}
+      ${whereSql}
+      ORDER BY value ASC
+      LIMIT ?
+    `;
+    const [rows] = await pool.query(sql, params);
+    res.json({
+      success: true,
+      data: rows.map(r => r.value).filter(v => v !== null && v !== ''),
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── POST /query — 리포트 실행 (datasource 동적 빌드) ─────────
 router.post('/query', async (req, res) => {
   try {
