@@ -562,7 +562,11 @@ const ReportBuilderPage = {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: this._customLegend('top') },
+          plugins: {
+            legend: this._customLegend('top'),
+            tooltip: this._chartInteractionAndTooltip().tooltip,
+          },
+          interaction: this._chartInteractionAndTooltip().interaction,
           scales: lineScales,
         },
       };
@@ -587,7 +591,11 @@ const ReportBuilderPage = {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: this._customLegend('top') },
+          plugins: {
+            legend: this._customLegend('top'),
+            tooltip: this._chartInteractionAndTooltip().tooltip,
+          },
+          interaction: this._chartInteractionAndTooltip().interaction,
           scales: { x: { stacked: true }, y: { stacked: true } },
         },
       };
@@ -603,7 +611,11 @@ const ReportBuilderPage = {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: this._customLegend('top') },
+          plugins: {
+            legend: this._customLegend('top'),
+            tooltip: this._chartInteractionAndTooltip().tooltip,
+          },
+          interaction: this._chartInteractionAndTooltip().interaction,
           scales: barScales,
         },
       };
@@ -625,6 +637,7 @@ const ReportBuilderPage = {
     const isLine = chartKind === 'line';
 
     // 정규화: 각 measure 의 max 값으로 데이터 환산 (0~100 범위)
+    // 원본 값(_originalValues)을 dataset 에 보존 → tooltip 에서 "실제값" 함께 표시
     if (normalize && measureKeys.length > 0) {
       const datasets = measureKeys.map((m, i) => {
         const vals = rows.map(r => Number(r[m] || 0));
@@ -633,9 +646,10 @@ const ReportBuilderPage = {
         const base = {
           label: `${fieldsMap[m]?.label || m} (정규화)`,
           data,
+          _originalValues: vals,  // tooltip 에서 "실제값: ..." 표시용
         };
         return isLine
-          ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3 }
+          ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3, pointRadius: 4, pointHoverRadius: 7, borderWidth: 2 }
           : { ...base, backgroundColor: colors[i] };
       });
       return {
@@ -662,7 +676,7 @@ const ReportBuilderPage = {
         yAxisID,
       };
       return isLine
-        ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3 }
+        ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3, pointRadius: 4, pointHoverRadius: 7, borderWidth: 2 }
         : { ...base, backgroundColor: colors[i] };
     });
 
@@ -725,6 +739,50 @@ const ReportBuilderPage = {
         const meta = ci.getDatasetMeta(idx);
         meta.hidden = meta.hidden === null ? !ci.data.datasets[idx].hidden : !meta.hidden;
         ci.update();
+      },
+    };
+  },
+
+  // ─── 차트 tooltip + interaction 헬퍼 ────────────────────────
+  // hover 영역 확대 + 천단위 콤마 + 정규화 시 원본 값 함께 표시
+  // bar/line 공통 사용 (pie/stacked-bar 는 단일 measure 라 기본 동작으로 충분)
+  _chartInteractionAndTooltip() {
+    return {
+      interaction: {
+        // 'index' = x축 위치 기준 모든 시리즈를 한 번에 표시 (사용자 친화적)
+        // intersect:false = 도트 정확히 hit 안 해도 가까이 가면 tooltip 표시
+        mode: 'index',
+        intersect: false,
+      },
+      tooltip: {
+        enabled: true,
+        mode: 'index',
+        intersect: false,
+        callbacks: {
+          // 값 포맷: ko-KR 천단위 콤마 + 정규화 시 원본 값 부가 표시
+          label: function (context) {
+            const ds = context.dataset;
+            const idx = context.dataIndex;
+            const label = ds.label || '';
+            const value = context.parsed.y;
+            if (value === null || value === undefined) return label;
+            // 정규화 모드: % 표시 + 원본 값 (캐시된 _originalValues) 함께
+            if (ds._originalValues && Array.isArray(ds._originalValues)) {
+              const orig = ds._originalValues[idx];
+              const origFmt =
+                typeof orig === 'number'
+                  ? orig.toLocaleString('ko-KR', { maximumFractionDigits: 2 })
+                  : orig;
+              return `${label}: ${value.toFixed(1)}% (실제값: ${origFmt})`;
+            }
+            // 일반 모드: 천단위 콤마
+            const fmt =
+              typeof value === 'number'
+                ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 })
+                : value;
+            return `${label}: ${fmt}`;
+          },
+        },
       },
     };
   },
