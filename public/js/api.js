@@ -1,6 +1,25 @@
 // ============================================================
 // API Client - 백엔드 통신 모듈
 // ============================================================
+
+// 내부 헬퍼 — fetch Response → Blob 다운로드 트리거
+// Content-Disposition 헤더에서 파일명 추출 (UTF-8 인코딩 지원)
+async function _downloadBlob(resp, format = 'xlsx', name = '') {
+  const cd = resp.headers.get('Content-Disposition') || '';
+  const match = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="([^"]+)"/i);
+  const filename = match ? decodeURIComponent(match[1]) : `${name || 'report'}.${format}`;
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { filename };
+}
+
 const API = {
   base: '/api',
   _refreshing: false,       // 중복 갱신 방지 플래그
@@ -286,38 +305,48 @@ const API = {
     update:     (id, data)      => { API._checkFeature('crm.report_builder'); return API.put(`/report-builder/saved/${id}`, data); },
     delete:     (id)            => { API._checkFeature('crm.report_builder'); return API.del(`/report-builder/saved/${id}`); },
     // 내보내기 (Excel/CSV/JSON) — config_json POST + Blob 다운로드
-    // PDF 는 클라이언트에서 jspdf+autotable 로 별도 생성
+    // PDF 는 클라이언트에서 html2canvas+jspdf 로 별도 생성
+    // 인증 헤더는 API.request 와 동일 패턴 (token: localStorage→sessionStorage / X-User-Id 포함)
     export:     async (config, format = 'xlsx', name = '') => {
       API._checkFeature('crm.report_builder');
-      const token = localStorage.getItem('oci_token') || '';
+      const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '';
+      const uid = localStorage.getItem('current_user_id');
       const qs = new URLSearchParams({ format, name }).toString();
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (uid) headers['X-User-Id'] = uid;
       const resp = await fetch(`${API.base}/report-builder/export?${qs}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers,
+        credentials: 'include',  // Refresh token 쿠키 (401 자동 갱신 호환)
         body: JSON.stringify(config),
       });
+      // 401 + 토큰 만료 → 자동 갱신 후 1회 재시도
+      if (resp.status === 401) {
+        try {
+          await API._tryRefresh();
+          const newToken = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '';
+          if (newToken) headers['Authorization'] = `Bearer ${newToken}`;
+          const retry = await fetch(`${API.base}/report-builder/export?${qs}`, {
+            method: 'POST',
+            headers,
+            credentials: 'include',
+            body: JSON.stringify(config),
+          });
+          if (!retry.ok) {
+            const errBody = await retry.json().catch(() => ({}));
+            throw new Error(errBody.error || `내보내기 실패 (${retry.status})`);
+          }
+          return _downloadBlob(retry, format, name);
+        } catch (_) {
+          throw new Error('세션이 만료되었습니다. 다시 로그인하세요.');
+        }
+      }
       if (!resp.ok) {
         const errBody = await resp.json().catch(() => ({}));
         throw new Error(errBody.error || `내보내기 실패 (${resp.status})`);
       }
-      // Content-Disposition 에서 파일명 추출
-      const cd = resp.headers.get('Content-Disposition') || '';
-      const match = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="([^"]+)"/i);
-      const filename = match ? decodeURIComponent(match[1]) : `${name || 'report'}.${format}`;
-      const blob = await resp.blob();
-      // 다운로드 트리거
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      return { filename };
+      return _downloadBlob(resp, format, name);
     },
   },
 

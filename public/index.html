@@ -315,9 +315,11 @@
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" crossorigin="anonymous"></script>
-<!-- 리포트 빌더 PDF 내보내기용 (jsPDF + autoTable) — defer 로딩, 사용 시점에만 활용 -->
+<!-- 리포트 빌더 PDF 내보내기용 — jsPDF + html2canvas (한국어 폰트 완벽 지원)
+     html2canvas: 임시 DOM 을 이미지화 → jsPDF 에 삽입 → 한국어 깨짐 0
+     defer 로 첫 페이지 로드 부담 없음 (사용 시점에만 평가) -->
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" defer crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" defer crossorigin="anonymous"></script>
 <script src="/js/api.js"></script>
 <script src="/js/utils.js"></script>
 <script src="/js/components/combobox.js"></script>

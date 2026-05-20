@@ -1373,10 +1373,11 @@ const ReportBuilderPage = {
     }
   },
 
-  // ─── 내보내기: PDF (jspdf + autotable) ──────────────────
-  // 차트 이미지(Base64) + 데이터 테이블 + 메타 → 1페이지 PDF
-  // 동기 작업 (Chart.js toBase64Image + jsPDF) — async 불필요
-  _exportPdf() {
+  // ─── 내보내기: PDF (html2canvas + jspdf) ────────────────
+  // 🐛 한국어 깨짐 fix: jsPDF 기본 폰트는 latin-1 만 지원 → html2canvas 로 DOM 캡처
+  // 임시 DOM 에 한국어 헤더/차트/테이블/푸터를 그려놓고 통째로 이미지화 → PDF 삽입
+  // → 한국어 글꼴 깨짐 0건 보장 (이미지화되므로)
+  async _exportPdf() {
     const cfg = this._state.config;
     if (cfg.rows.length === 0 && cfg.measures.length === 0) {
       Toast.warn('내보낼 내용이 없습니다 — 행 또는 지표를 추가하세요');
@@ -1386,93 +1387,142 @@ const ReportBuilderPage = {
       Toast.warn('먼저 차트가 표시된 상태여야 합니다');
       return;
     }
-    // jsPDF 가 전역에 있는지 확인 (index.html 에서 CDN 로드)
     const jsPDFCtor = window.jspdf?.jsPDF || window.jsPDF;
-    if (!jsPDFCtor) {
+    if (!jsPDFCtor || typeof window.html2canvas !== 'function') {
       Toast.error('PDF 라이브러리가 로드되지 않았습니다. 페이지 새로고침 후 다시 시도하세요.');
       return;
     }
 
+    let tempDiv = null;
     try {
       Toast.info?.('PDF 생성 중...');
-      const doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      const pageWidth = doc.internal.pageSize.getWidth();   // 297mm (landscape)
-      const pageHeight = doc.internal.pageSize.getHeight(); // 210mm
 
-      // ── 헤더 (제목 + 메타) ───────────────────────────────
+      // ── 메타 정보 ─────────────────────────────────────
       const savedName = this._state.savedReports.find(r => r.id === this._state.currentId)?.name;
       const reportName = savedName || `리포트 ${new Date().toLocaleDateString('ko-KR')}`;
       const dsLabel = (this._state.fields?.datasources || []).find(d => d.key === cfg.datasource)?.label || cfg.datasource;
       const generatedAt = new Date().toLocaleString('ko-KR');
+      const fieldsMap = this._fieldsByKey();
+      const { rows: data } = this._state.queryResult;
 
-      doc.setFontSize(16);
-      doc.setTextColor(230, 51, 41); // OCI Red
-      doc.text(`OCI CRM 리포트 — ${reportName}`, 14, 15);
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text(`데이터 소스: ${dsLabel}    |    생성: ${generatedAt}`, 14, 22);
-
-      // ── 차트 이미지 ──────────────────────────────────────
-      // Chart.js 의 toBase64Image() — 차트 캔버스를 PNG Base64 로
+      // ── 차트 이미지 (Chart.js → Base64 PNG) ──────────────
       const chartImg = this._state.chart.toBase64Image();
-      const chartW = 180;
-      const chartH = 90;
-      const chartX = (pageWidth - chartW) / 2;
-      doc.addImage(chartImg, 'PNG', chartX, 28, chartW, chartH);
 
-      // ── 데이터 테이블 (jspdf-autotable) ──────────────────
-      const tableY = 28 + chartH + 8;
-      if (typeof doc.autoTable === 'function') {
-        const { rows: data } = this._state.queryResult;
-        const fieldsMap = this._fieldsByKey();
-        // 컬럼 헤더 (한국어 라벨)
-        const head = [[]];
-        if (cfg.rows[0]) head[0].push(fieldsMap[cfg.rows[0]]?.label || cfg.rows[0]);
-        if (cfg.columns[0]) head[0].push(fieldsMap[cfg.columns[0]]?.label || cfg.columns[0]);
-        cfg.measures.forEach(m => head[0].push(fieldsMap[m]?.label || m));
+      // ── 테이블 HTML 생성 ─────────────────────────────────
+      const tableHeaders = [];
+      if (cfg.rows[0]) tableHeaders.push(fieldsMap[cfg.rows[0]]?.label || cfg.rows[0]);
+      if (cfg.columns[0]) tableHeaders.push(fieldsMap[cfg.columns[0]]?.label || cfg.columns[0]);
+      cfg.measures.forEach(m => tableHeaders.push(fieldsMap[m]?.label || m));
 
-        // 행 데이터 (최대 30행 — PDF 1페이지 공간 고려)
-        const body = data.slice(0, 30).map(r => {
-          const row = [];
-          if (cfg.rows[0]) row.push(String(r.row_key ?? ''));
-          if (cfg.columns[0]) row.push(String(r.col_key ?? ''));
-          cfg.measures.forEach(m => {
-            const v = Number(r[m] || 0);
-            row.push(v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }));
-          });
-          return row;
+      const tableRows = data.slice(0, 30).map(r => {
+        const row = [];
+        if (cfg.rows[0]) row.push(String(r.row_key ?? ''));
+        if (cfg.columns[0]) row.push(String(r.col_key ?? ''));
+        cfg.measures.forEach(m => {
+          const v = Number(r[m] || 0);
+          row.push(v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }));
         });
+        return row;
+      });
 
-        doc.autoTable({
-          startY: tableY,
-          head,
-          body,
-          theme: 'striped',
-          styles: { fontSize: 9, halign: 'center' },
-          headStyles: { fillColor: [230, 51, 41], textColor: 255 },
-          margin: { left: 14, right: 14 },
-        });
+      // ── 임시 DOM 생성 (화면 밖에 그려서 html2canvas 캡처) ─
+      // font-family 명시 + 한국어 깨짐 방지 위해 system-ui fallback
+      const _esc = (s) => esc(String(s));
+      tempDiv = document.createElement('div');
+      tempDiv.style.cssText = `
+        position: fixed;
+        left: -10000px;
+        top: 0;
+        width: 1100px;
+        padding: 30px 40px;
+        background: #ffffff;
+        color: #1f2937;
+        font-family: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', system-ui, -apple-system, sans-serif;
+        font-size: 13px;
+        line-height: 1.5;
+        box-sizing: border-box;
+      `;
+      tempDiv.innerHTML = `
+        <div style="border-bottom:2px solid #E63329;padding-bottom:12px;margin-bottom:18px">
+          <h1 style="margin:0 0 4px;color:#E63329;font-size:22px;font-weight:700">
+            OCI CRM 리포트 — ${_esc(reportName)}
+          </h1>
+          <div style="font-size:11px;color:#666">
+            데이터 소스: <strong>${_esc(dsLabel)}</strong>
+            &nbsp;|&nbsp; 생성: ${_esc(generatedAt)}
+            &nbsp;|&nbsp; 데이터 건수: <strong>${data.length}건</strong>
+          </div>
+        </div>
+        <div style="text-align:center;margin-bottom:20px">
+          <img src="${chartImg}" style="max-width:100%;max-height:400px;display:inline-block" alt="차트" />
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="background:#E63329;color:#ffffff">
+              ${tableHeaders.map(h => `<th style="padding:8px 10px;text-align:center;font-weight:600;border:1px solid #c52a23">${_esc(h)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows.map((row, i) => `
+              <tr style="background:${i % 2 ? '#f9fafb' : '#ffffff'}">
+                ${row.map(cell => `<td style="padding:6px 10px;text-align:center;border:1px solid #e5e7eb">${_esc(cell)}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ${data.length > 30 ? `
+          <div style="font-size:10px;color:#888;margin-top:8px;text-align:right">
+            …총 ${data.length}건 중 30건 표시 (전체 데이터는 Excel 로 내보내기)
+          </div>
+        ` : ''}
+        <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center">
+          OCI CRM Report Builder · ${_esc(generatedAt)}
+        </div>
+      `;
+      document.body.appendChild(tempDiv);
 
-        if (data.length > 30) {
-          const finalY = doc.lastAutoTable?.finalY || tableY;
-          doc.setFontSize(9);
-          doc.setTextColor(120);
-          doc.text(`...총 ${data.length}건 중 30건 표시 (전체 데이터는 Excel 로 내보내기)`, 14, finalY + 6);
-        }
+      // 이미지 로드 대기 (chartImg base64 라 즉시지만 한 frame 양보)
+      await new Promise(r => setTimeout(r, 50));
+
+      // ── html2canvas 캡처 ─────────────────────────────────
+      const canvas = await window.html2canvas(tempDiv, {
+        scale: 2, // 고해상도 (Retina)
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true,
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      // ── PDF 생성 + 이미지 삽입 ───────────────────────────
+      // A4 가로: 297 x 210mm — 캡처 이미지 가로/세로 비율에 맞춰 자동 조정
+      const doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();   // 297
+      const pageHeight = doc.internal.pageSize.getHeight(); // 210
+      const margin = 10;
+      const maxImgWidth = pageWidth - margin * 2;   // 277
+      const maxImgHeight = pageHeight - margin * 2; // 190
+
+      // 이미지 원본 비율 유지하면서 최대 영역에 맞춤
+      const imgRatio = canvas.width / canvas.height;
+      let imgW = maxImgWidth;
+      let imgH = imgW / imgRatio;
+      if (imgH > maxImgHeight) {
+        imgH = maxImgHeight;
+        imgW = imgH * imgRatio;
       }
+      const x = (pageWidth - imgW) / 2;
+      const y = margin;
+      doc.addImage(imgData, 'PNG', x, y, imgW, imgH);
 
-      // ── 푸터 ─────────────────────────────────────────────
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(`OCI CRM Report Builder · ${generatedAt}`, 14, pageHeight - 8);
-
-      // 다운로드
       const filename = `${reportName.replace(/[\\/:*?"<>|]/g, '_')}.pdf`;
       doc.save(filename);
       Toast.success(`"${filename}" 다운로드 완료`);
     } catch (err) {
       Toast.error('PDF 생성 실패: ' + (err.message || ''));
       console.error('[PDF Export]', err);
+    } finally {
+      // 임시 DOM 정리 (메모리 누수 방지)
+      if (tempDiv && tempDiv.parentNode) tempDiv.parentNode.removeChild(tempDiv);
     }
   },
 };
