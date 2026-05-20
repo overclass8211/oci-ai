@@ -59,90 +59,210 @@ async function ensureSchema() {
 }
 const _migrationPromise = ensureSchema();
 
-// ── 필드 카탈로그 (whitelist — SQL injection 방어) ───────────
-// 키: 클라이언트가 보내는 식별자 / sql: 실제 컬럼식 / label: 한국어 라벨
-// type: dimension | measure / dataType: text | number | date / chartHint: bar | line | pie
-const FIELDS = {
-  // ─── 차원 (Dimensions) ─────────────────────
-  stage: {
-    type: 'dimension',
-    sql: 'leads.stage',
-    label: '단계',
-    dataType: 'text',
-    chartHint: 'bar',
-  },
-  region: {
-    type: 'dimension',
-    sql: 'leads.region',
-    label: '지역',
-    dataType: 'text',
-    chartHint: 'pie',
-  },
-  business_type: {
-    type: 'dimension',
-    sql: 'leads.business_type',
-    label: '사업유형',
-    dataType: 'text',
-    chartHint: 'pie',
-  },
-  assigned_name: {
-    type: 'dimension',
-    sql: 'COALESCE(tm.name, "(미지정)")',
-    label: '담당자',
-    dataType: 'text',
-    chartHint: 'bar',
-    join: 'team',
-  },
-  currency: {
-    type: 'dimension',
-    sql: 'leads.currency',
-    label: '통화',
-    dataType: 'text',
-    chartHint: 'pie',
-  },
-  source: {
-    type: 'dimension',
-    sql: 'COALESCE(leads.source, "(없음)")',
-    label: '리드 소스',
-    dataType: 'text',
-    chartHint: 'pie',
-  },
-  year_created: {
-    type: 'dimension',
-    sql: 'YEAR(leads.created_at)',
-    label: '등록 연도',
-    dataType: 'date',
-    chartHint: 'line',
-  },
-  month_created: {
-    type: 'dimension',
-    sql: 'DATE_FORMAT(leads.created_at, "%Y-%m")',
-    label: '등록 월',
-    dataType: 'date',
-    chartHint: 'line',
+// ── 데이터 소스 카탈로그 (Phase 2-B-1: leads + projects) ────
+// 각 데이터 소스는 자체 필드 whitelist 보유 — SQL injection 방어 유지
+// scope.manager: role='manager' 일 때 본인 데이터만 보이도록 필터링하는 컬럼
+// joins: 차원/지표에서 외부 테이블 참조 시 사용
+const DATASOURCES = {
+  leads: {
+    label: '영업 리드',
+    table: 'leads',
+    scope: { manager: 'leads.assigned_to' },
+    joins: {
+      team: 'LEFT JOIN team_members tm ON tm.id = leads.assigned_to',
+    },
+    fields: {
+      // ─── 차원 ───────────────────────
+      stage: {
+        type: 'dimension',
+        sql: 'leads.stage',
+        label: '단계',
+        dataType: 'text',
+        chartHint: 'bar',
+      },
+      region: {
+        type: 'dimension',
+        sql: 'leads.region',
+        label: '지역',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      business_type: {
+        type: 'dimension',
+        sql: 'leads.business_type',
+        label: '사업유형',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      assigned_name: {
+        type: 'dimension',
+        sql: 'COALESCE(tm.name, "(미지정)")',
+        label: '담당자',
+        dataType: 'text',
+        chartHint: 'bar',
+        join: 'team',
+      },
+      currency: {
+        type: 'dimension',
+        sql: 'leads.currency',
+        label: '통화',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      source: {
+        type: 'dimension',
+        sql: 'COALESCE(leads.source, "(없음)")',
+        label: '리드 소스',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      year_created: {
+        type: 'dimension',
+        sql: 'YEAR(leads.created_at)',
+        label: '등록 연도',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      month_created: {
+        type: 'dimension',
+        sql: 'DATE_FORMAT(leads.created_at, "%Y-%m")',
+        label: '등록 월',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      // ─── 지표 ───────────────────────
+      count: { type: 'measure', sql: 'COUNT(*)', label: '건수', dataType: 'number' },
+      sum_expected_amount: {
+        type: 'measure',
+        sql: 'COALESCE(SUM(leads.expected_amount), 0)',
+        label: '예상금액 합계',
+        dataType: 'number',
+      },
+      avg_expected_amount: {
+        type: 'measure',
+        sql: 'COALESCE(AVG(leads.expected_amount), 0)',
+        label: '예상금액 평균',
+        dataType: 'number',
+      },
+      sum_capacity_mw: {
+        type: 'measure',
+        sql: 'COALESCE(SUM(leads.capacity_mw), 0)',
+        label: '용량 합계(MW)',
+        dataType: 'number',
+      },
+    },
   },
 
-  // ─── 지표 (Measures) ───────────────────────
-  count: { type: 'measure', sql: 'COUNT(*)', label: '건수', dataType: 'number' },
-  sum_expected_amount: {
-    type: 'measure',
-    sql: 'COALESCE(SUM(leads.expected_amount), 0)',
-    label: '예상금액 합계',
-    dataType: 'number',
-  },
-  avg_expected_amount: {
-    type: 'measure',
-    sql: 'COALESCE(AVG(leads.expected_amount), 0)',
-    label: '예상금액 평균',
-    dataType: 'number',
-  },
-  sum_capacity_mw: {
-    type: 'measure',
-    sql: 'COALESCE(SUM(leads.capacity_mw), 0)',
-    label: '용량 합계(MW)',
-    dataType: 'number',
+  // ─── projects (Phase 2-B-1 신규) ────────────────────────
+  projects: {
+    label: '프로젝트',
+    table: 'projects',
+    scope: { manager: 'projects.assigned_to' },
+    joins: {
+      team: 'LEFT JOIN team_members tm ON tm.id = projects.assigned_to',
+    },
+    fields: {
+      // ─── 차원 ───────────────────────
+      project_type: {
+        type: 'dimension',
+        sql: 'COALESCE(projects.project_type, "(미지정)")',
+        label: '프로젝트 유형',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      status: {
+        type: 'dimension',
+        sql: 'projects.status',
+        label: '상태',
+        dataType: 'text',
+        chartHint: 'bar',
+      },
+      customer_name: {
+        type: 'dimension',
+        sql: 'COALESCE(projects.customer_name, "(미지정)")',
+        label: '고객사',
+        dataType: 'text',
+        chartHint: 'bar',
+      },
+      assigned_name: {
+        type: 'dimension',
+        sql: 'COALESCE(tm.name, "(미지정)")',
+        label: '담당자',
+        dataType: 'text',
+        chartHint: 'bar',
+        join: 'team',
+      },
+      year_created: {
+        type: 'dimension',
+        sql: 'YEAR(projects.created_at)',
+        label: '등록 연도',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      month_created: {
+        type: 'dimension',
+        sql: 'DATE_FORMAT(projects.created_at, "%Y-%m")',
+        label: '등록 월',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      year_due: {
+        type: 'dimension',
+        sql: 'YEAR(projects.due_date)',
+        label: '납기 연도',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      month_due: {
+        type: 'dimension',
+        sql: 'DATE_FORMAT(projects.due_date, "%Y-%m")',
+        label: '납기 월',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      // ─── 지표 ───────────────────────
+      count: { type: 'measure', sql: 'COUNT(*)', label: '건수', dataType: 'number' },
+      sum_contract_amount: {
+        type: 'measure',
+        sql: 'COALESCE(SUM(projects.contract_amount), 0)',
+        label: '계약금액 합계',
+        dataType: 'number',
+      },
+      avg_contract_amount: {
+        type: 'measure',
+        sql: 'COALESCE(AVG(projects.contract_amount), 0)',
+        label: '계약금액 평균',
+        dataType: 'number',
+      },
+      sum_estimated_cost: {
+        type: 'measure',
+        sql: 'COALESCE(SUM(projects.estimated_cost), 0)',
+        label: '산정 원가 합계',
+        dataType: 'number',
+      },
+      avg_margin_pct: {
+        type: 'measure',
+        sql: 'COALESCE(AVG(projects.margin_pct), 0)',
+        label: '평균 마진율(%)',
+        dataType: 'number',
+      },
+    },
   },
 };
+
+// ── 헬퍼 — datasource 기반 ──────────────────────────────────
+function getDatasource(dsKey) {
+  return DATASOURCES[dsKey] || null;
+}
+function fieldOf(dsKey, fieldKey) {
+  return DATASOURCES[dsKey]?.fields?.[fieldKey] || null;
+}
+function isDimensionOf(dsKey, fieldKey) {
+  return fieldOf(dsKey, fieldKey)?.type === 'dimension';
+}
+function isMeasureOf(dsKey, fieldKey) {
+  return fieldOf(dsKey, fieldKey)?.type === 'measure';
+}
 
 // ── 필터 연산자 whitelist ───────────────────────────────────
 const FILTER_OPS = {
@@ -156,16 +276,8 @@ const FILTER_OPS = {
   in: 'IN',
 };
 
-// ── 차원 필드만 (필터에 사용 가능) ──────────────────────────
-function isDimension(key) {
-  return FIELDS[key] && FIELDS[key].type === 'dimension';
-}
-function isMeasure(key) {
-  return FIELDS[key] && FIELDS[key].type === 'measure';
-}
-
-// ── 자동 차트 타입 추천 ─────────────────────────────────────
-function suggestChartType(rows, columns, measures) {
+// ── 자동 차트 타입 추천 (datasource 인자 추가) ───────────────
+function suggestChartType(dsKey, rows, columns, measures) {
   const rowCount = rows.length;
   const colCount = columns.length;
   const measureCount = measures.length;
@@ -177,7 +289,7 @@ function suggestChartType(rows, columns, measures) {
 
   // 행 1개 + 열 0개
   if (rowCount === 1 && colCount === 0) {
-    const rowField = FIELDS[rows[0]];
+    const rowField = fieldOf(dsKey, rows[0]);
     if (rowField && rowField.dataType === 'date') return 'line';
     return rowField?.chartHint || 'bar';
   }
@@ -193,12 +305,19 @@ async function getUserScope(userId) {
   return { isManager: u.role === 'manager' };
 }
 
-// ── GET /fields — 필드 카탈로그 ─────────────────────────────
+// ── GET /fields — 필드 카탈로그 (datasource 별) ──────────────
+// Query param: ?datasource=leads|projects (default: leads)
 router.get('/fields', (req, res) => {
   try {
+    const dsKey = String(req.query.datasource || 'leads');
+    const ds = getDatasource(dsKey);
+    if (!ds) {
+      return res.status(400).json({ success: false, error: `지원하지 않는 데이터 소스: ${dsKey}` });
+    }
+
     const dimensions = [];
     const measures = [];
-    for (const [key, def] of Object.entries(FIELDS)) {
+    for (const [key, def] of Object.entries(ds.fields)) {
       const item = { key, label: def.label, dataType: def.dataType };
       if (def.chartHint) item.chartHint = def.chartHint;
       if (def.type === 'dimension') dimensions.push(item);
@@ -207,7 +326,8 @@ router.get('/fields', (req, res) => {
     res.json({
       success: true,
       data: {
-        datasources: [{ key: 'leads', label: '영업 리드' }],
+        datasource: dsKey,
+        datasources: Object.entries(DATASOURCES).map(([k, v]) => ({ key: k, label: v.label })),
         dimensions,
         measures,
         filter_ops: Object.keys(FILTER_OPS),
@@ -218,22 +338,26 @@ router.get('/fields', (req, res) => {
   }
 });
 
-// ── POST /query — 리포트 실행 ────────────────────────────────
+// ── POST /query — 리포트 실행 (datasource 동적 빌드) ─────────
 router.post('/query', async (req, res) => {
   try {
     const userId = getUserId(req);
     const config = req.body || {};
-    const datasource = config.datasource || 'leads';
-    if (datasource !== 'leads') {
-      return res
-        .status(400)
-        .json({ success: false, error: 'Phase 1 은 leads 데이터 소스만 지원합니다' });
+    const dsKey = config.datasource || 'leads';
+    const ds = getDatasource(dsKey);
+    if (!ds) {
+      return res.status(400).json({ success: false, error: `지원하지 않는 데이터 소스: ${dsKey}` });
     }
 
-    const rows = Array.isArray(config.rows) ? config.rows.filter(isDimension) : [];
-    const columns = Array.isArray(config.columns) ? config.columns.filter(isDimension) : [];
+    // datasource 별 whitelist 필터링 — 다른 소스 키가 섞여도 자동 drop
+    const rows = Array.isArray(config.rows) ? config.rows.filter(k => isDimensionOf(dsKey, k)) : [];
+    const columns = Array.isArray(config.columns)
+      ? config.columns.filter(k => isDimensionOf(dsKey, k))
+      : [];
     const filters = Array.isArray(config.filters) ? config.filters : [];
-    const measures = Array.isArray(config.measures) ? config.measures.filter(isMeasure) : [];
+    const measures = Array.isArray(config.measures)
+      ? config.measures.filter(k => isMeasureOf(dsKey, k))
+      : [];
 
     if (rows.length === 0 && measures.length === 0) {
       return res
@@ -256,42 +380,42 @@ router.post('/query', async (req, res) => {
     const groupParts = [];
 
     if (rows[0]) {
-      selectParts.push(`${FIELDS[rows[0]].sql} AS row_key`);
-      groupParts.push(FIELDS[rows[0]].sql);
+      selectParts.push(`${fieldOf(dsKey, rows[0]).sql} AS row_key`);
+      groupParts.push(fieldOf(dsKey, rows[0]).sql);
     }
     if (columns[0]) {
-      selectParts.push(`${FIELDS[columns[0]].sql} AS col_key`);
-      groupParts.push(FIELDS[columns[0]].sql);
+      selectParts.push(`${fieldOf(dsKey, columns[0]).sql} AS col_key`);
+      groupParts.push(fieldOf(dsKey, columns[0]).sql);
     }
     for (const m of measures) {
-      selectParts.push(`${FIELDS[m].sql} AS ${m}`);
+      selectParts.push(`${fieldOf(dsKey, m).sql} AS ${m}`);
     }
 
     // ── FROM + JOIN ───────────────────────────────────────
     const needsTeamJoin =
-      [...rows, ...columns].some(k => FIELDS[k]?.join === 'team') ||
-      filters.some(f => FIELDS[f?.field]?.join === 'team');
+      [...rows, ...columns].some(k => fieldOf(dsKey, k)?.join === 'team') ||
+      filters.some(f => fieldOf(dsKey, f?.field)?.join === 'team');
 
-    let fromClause = 'FROM leads';
-    if (needsTeamJoin) {
-      fromClause += ' LEFT JOIN team_members tm ON tm.id = leads.assigned_to';
+    let fromClause = `FROM ${ds.table}`;
+    if (needsTeamJoin && ds.joins?.team) {
+      fromClause += ' ' + ds.joins.team;
     }
 
     // ── WHERE 절 ──────────────────────────────────────────
     const whereParts = [];
     const params = [];
 
-    // 권한 스코프 — manager 는 본인 리드만
+    // 권한 스코프 — manager 는 본인 데이터만 (데이터 소스별 scope 컬럼 사용)
     const scope = await getUserScope(userId);
-    if (scope.isManager) {
-      whereParts.push('leads.assigned_to = (SELECT id FROM team_members WHERE id = ? LIMIT 1)');
+    if (scope.isManager && ds.scope?.manager) {
+      whereParts.push(`${ds.scope.manager} = (SELECT id FROM team_members WHERE id = ? LIMIT 1)`);
       params.push(userId);
     }
 
-    // 사용자 정의 필터
+    // 사용자 정의 필터 — datasource 별 whitelist 검증
     for (const f of filters) {
-      if (!f || !isDimension(f.field) || !FILTER_OPS[f.op]) continue;
-      const sql = FIELDS[f.field].sql;
+      if (!f || !isDimensionOf(dsKey, f.field) || !FILTER_OPS[f.op]) continue;
+      const sql = fieldOf(dsKey, f.field).sql;
       const op = FILTER_OPS[f.op];
       if (f.op === 'in' && Array.isArray(f.value)) {
         if (f.value.length === 0) continue;
@@ -324,17 +448,20 @@ router.post('/query', async (req, res) => {
     // ── 차트 타입 결정 ────────────────────────────────────
     const chartType =
       config.chartType === 'auto' || !config.chartType
-        ? suggestChartType(rows, columns, measures)
+        ? suggestChartType(dsKey, rows, columns, measures)
         : config.chartType;
 
     res.json({
       success: true,
       data: {
         rows: data,
-        config: { datasource, rows, columns, filters, measures, chartType },
+        config: { datasource: dsKey, rows, columns, filters, measures, chartType },
         meta: {
           rowCount: data.length,
-          fields: [...rows, ...columns, ...measures].map(k => ({ key: k, label: FIELDS[k].label })),
+          fields: [...rows, ...columns, ...measures].map(k => ({
+            key: k,
+            label: fieldOf(dsKey, k).label,
+          })),
         },
       },
     });

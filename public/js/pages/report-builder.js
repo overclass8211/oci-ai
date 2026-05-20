@@ -156,12 +156,20 @@ const ReportBuilderPage = {
     const panel = document.getElementById('rb-fields-panel');
     if (!panel || !this._state.fields) return;
 
-    const { dimensions, measures } = this._state.fields;
+    const { dimensions, measures, datasources } = this._state.fields;
+    const currentDs = this._state.config.datasource || 'leads';
+
+    // Phase 2-B-1: 데이터 소스 드롭다운 (선택 가능)
+    const dsOptions = (datasources || [{ key: 'leads', label: '영업 리드' }])
+      .map(d => `<option value="${esc(d.key)}" ${d.key === currentDs ? 'selected' : ''}>${esc(d.label)}</option>`)
+      .join('');
 
     panel.innerHTML = `
       <div class="rb-section">
         <div class="rb-section-title">📁 데이터 소스</div>
-        <div class="rb-datasource">📋 영업 리드</div>
+        <select class="form-input rb-datasource-select" id="rb-datasource-select" style="width:100%;font-size:12px;padding:6px 8px">
+          ${dsOptions}
+        </select>
       </div>
       <div class="rb-section">
         <div class="rb-section-title">📐 차원 (Dimensions)</div>
@@ -183,6 +191,12 @@ const ReportBuilderPage = {
       </div>
     `;
 
+    // Phase 2-B-1: 데이터 소스 변경 핸들러
+    const dsSelect = document.getElementById('rb-datasource-select');
+    if (dsSelect) {
+      dsSelect.onchange = () => this._onDatasourceChange(dsSelect.value);
+    }
+
     // 드래그 시작
     panel.querySelectorAll('.rb-field').forEach(el => {
       el.addEventListener('dragstart', e => {
@@ -195,6 +209,38 @@ const ReportBuilderPage = {
       });
       el.addEventListener('dragend', () => el.classList.remove('dragging'));
     });
+  },
+
+  // ─── Phase 2-B-1: 데이터 소스 변경 ──────────────────────
+  // 다른 데이터 소스는 차원/지표 키가 호환 안 됨 → config 초기화
+  // 편집 중인 저장 리포트도 해제 (다른 datasource 로 저장하려면 새 리포트)
+  async _onDatasourceChange(newDs) {
+    if (!newDs || newDs === this._state.config.datasource) return;
+    try {
+      // 차원/지표 카탈로그 새로 fetch
+      const r = await API.reportBuilder.fields(newDs);
+      this._state.fields = r.data;
+      this._state.config = {
+        datasource: newDs,
+        rows: [],
+        columns: [],
+        filters: [],
+        measures: [],
+        chartType: 'auto',
+      };
+      this._state.currentId = null;  // 다른 datasource — 다른 리포트로 취급
+      const ctype = document.getElementById('rb-chart-type');
+      if (ctype) ctype.value = 'auto';
+      this._renderFieldsPanel();
+      this._renderDropZones();
+      this._clearChart();
+      const tbl = document.getElementById('rb-data-table');
+      if (tbl) tbl.innerHTML = '';
+      this._renderSavedList();  // active 표시 해제
+      Toast.success(`데이터 소스를 "${this._state.fields.datasources.find(d => d.key === newDs)?.label || newDs}" 로 변경`);
+    } catch (err) {
+      Toast.error('데이터 소스 전환 실패: ' + (err.message || ''));
+    }
   },
 
   // ─── 드롭존 렌더 ───────────────────────────────────────
@@ -838,8 +884,14 @@ const ReportBuilderPage = {
       catch (_) { return {}; }
     })();
     const fieldsMap = this._fieldsByKey();
-    const rowsLabel = (cfg.rows || []).map(k => fieldsMap[k]?.label || k).join(', ');
-    const measLabel = (cfg.measures || []).map(k => fieldsMap[k]?.label || k).join(', ');
+    // Phase 2-B-1: 카드의 datasource 와 현재 data source 비교 표시
+    const cardDs = cfg.datasource || 'leads';
+    const cardDsLabel = (this._state.fields?.datasources || []).find(d => d.key === cardDs)?.label
+                        || (cardDs === 'leads' ? '영업 리드' : cardDs);
+    // 필드 라벨: 카드 datasource 와 현재 datasource 가 같으면 fieldsMap, 다르면 fallback (key)
+    const sameDs = cardDs === (this._state.config.datasource || 'leads');
+    const rowsLabel = (cfg.rows || []).map(k => (sameDs ? fieldsMap[k]?.label : null) || k).join(', ');
+    const measLabel = (cfg.measures || []).map(k => (sameDs ? fieldsMap[k]?.label : null) || k).join(', ');
     const meta = [];
     if (rowsLabel) meta.push(`<span>📋 ${esc(rowsLabel)}</span>`);
     if (measLabel) meta.push(`<span>📐 ${esc(measLabel)}</span>`);
@@ -851,6 +903,7 @@ const ReportBuilderPage = {
           ${isActive ? '<span class="rb-saved-card-active-badge">편집중</span>' : ''}
         </div>
         ${r.description ? `<div class="rb-saved-card-desc">${esc(r.description)}</div>` : ''}
+        <div class="rb-saved-card-ds-chip" title="데이터 소스">${cardDs === 'projects' ? '🏗' : '📋'} ${esc(cardDsLabel)}</div>
         ${meta.length ? `<div class="rb-saved-card-meta">${meta.join('')}</div>` : ''}
         <div class="rb-saved-card-time">${esc(this._relativeTime(r.updated_at))}</div>
         <div class="rb-saved-card-actions">
@@ -884,8 +937,17 @@ const ReportBuilderPage = {
       const r = await API.reportBuilder.getSaved(id);
       const tpl = r.data;
       const cfg = typeof tpl.config_json === 'string' ? JSON.parse(tpl.config_json) : tpl.config_json;
+      const targetDs = cfg.datasource || 'leads';
+
+      // Phase 2-B-1: 다른 데이터 소스 리포트면 fields 카탈로그 먼저 재로드
+      if (targetDs !== (this._state.config.datasource || 'leads')) {
+        const fr = await API.reportBuilder.fields(targetDs);
+        this._state.fields = fr.data;
+        this._renderFieldsPanel();  // 좌측 패널 갱신 (드롭다운 + 필드 목록)
+      }
+
       this._state.config = {
-        datasource: cfg.datasource || 'leads',
+        datasource: targetDs,
         rows:       cfg.rows       || [],
         columns:    cfg.columns    || [],
         filters:    cfg.filters    || [],

@@ -277,7 +277,7 @@ const API = {
 
   // ── 리포트 빌더 (crm.report_builder 가드) ───────────────────
   reportBuilder: {
-    fields:     ()              => { API._checkFeature('crm.report_builder'); return API.get('/report-builder/fields'); },
+    fields:     (datasource)    => { API._checkFeature('crm.report_builder'); return API.get('/report-builder/fields' + (datasource ? `?datasource=${encodeURIComponent(datasource)}` : '')); },
     query:      (config)        => { API._checkFeature('crm.report_builder'); return API.post('/report-builder/query', config); },
     listSaved:  ()              => { API._checkFeature('crm.report_builder'); return API.get('/report-builder/saved'); },
     getSaved:   (id)            => { API._checkFeature('crm.report_builder'); return API.get(`/report-builder/saved/${id}`); },
