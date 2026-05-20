@@ -1,12 +1,17 @@
 'use strict';
 // =============================================================
-// /api/report-builder — 사용자 정의 리포트 빌더 (Phase 1 MVP)
+// /api/report-builder — 사용자 정의 리포트 빌더 (Phase 2-B-2)
 //
-// 데이터 소스: leads (영업 리드) 단일
-// 차원 8 / 지표 4 — whitelist 기반 (SQL injection 방어)
+// 데이터 소스:
+//   - leads (영업 리드) — 차원 8 / 지표 4
+//   - projects (프로젝트) — 차원 8 / 지표 5
+//   - customers (고객사) — 차원 5 / 지표 5 (LEFT JOIN leads 활용)
+// 모든 필드 whitelist 기반 (SQL injection 방어)
 //
 // 권한: team_lead(level 2) 이상만 — RBAC 미들웨어에서 처리
-// 데이터 스코프: manager 는 본인 리드만, team_lead+ 는 전체
+// 데이터 스코프:
+//   - leads / projects: manager 는 본인 데이터만 (assigned_to 필터)
+//   - customers: 전체 공개 (team_lead+ 만 접근 가능하므로 추가 제약 불필요)
 //
 // 엔드포인트:
 //   GET    /fields              — 사용 가능한 필드 카탈로그
@@ -248,6 +253,94 @@ const DATASOURCES = {
       },
     },
   },
+
+  // ─── customers (Phase 2-B-2 신규) ──────────────────────────
+  // 권한 스코프 없음 — team_lead+ 만 빌더 접근 가능하므로 customers 전체 공개
+  // leads JOIN 활용 — 고객사 별 리드/매출 분석 가능
+  // count 지표는 COUNT(DISTINCT customers.id) — LEFT JOIN 시 중복 방지
+  customers: {
+    label: '고객사',
+    table: 'customers',
+    scope: { manager: null }, // null = 스코프 없음 (자동 skip)
+    joins: {
+      leads: 'LEFT JOIN leads ON leads.customer_id = customers.id',
+    },
+    fields: {
+      // ─── 차원 ───────────────────────
+      region: {
+        type: 'dimension',
+        sql: 'customers.region',
+        label: '지역(국내/해외)',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      country: {
+        type: 'dimension',
+        sql: 'COALESCE(customers.country, "(미지정)")',
+        label: '국가',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      industry: {
+        type: 'dimension',
+        sql: 'COALESCE(customers.industry, "(미지정)")',
+        label: '산업',
+        dataType: 'text',
+        chartHint: 'pie',
+      },
+      year_created: {
+        type: 'dimension',
+        sql: 'YEAR(customers.created_at)',
+        label: '등록 연도',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      month_created: {
+        type: 'dimension',
+        sql: 'DATE_FORMAT(customers.created_at, "%Y-%m")',
+        label: '등록 월',
+        dataType: 'date',
+        chartHint: 'line',
+      },
+      // ─── 지표 ───────────────────────
+      // COUNT(DISTINCT customers.id) — leads LEFT JOIN 시 중복 방지
+      count: {
+        type: 'measure',
+        sql: 'COUNT(DISTINCT customers.id)',
+        label: '고객사 수',
+        dataType: 'number',
+      },
+      // 아래 지표들은 leads JOIN 필요
+      lead_count: {
+        type: 'measure',
+        sql: 'COUNT(leads.id)',
+        label: '관련 리드 수',
+        dataType: 'number',
+        join: 'leads',
+      },
+      active_lead_count: {
+        type: 'measure',
+        sql: "SUM(CASE WHEN leads.stage NOT IN ('won','lost','dropped') THEN 1 ELSE 0 END)",
+        label: '진행 중 리드 수',
+        dataType: 'number',
+        join: 'leads',
+      },
+      won_lead_count: {
+        type: 'measure',
+        sql: "SUM(CASE WHEN leads.stage = 'won' THEN 1 ELSE 0 END)",
+        label: '수주 리드 수',
+        dataType: 'number',
+        join: 'leads',
+      },
+      sum_expected_amount: {
+        type: 'measure',
+        sql: 'COALESCE(SUM(leads.expected_amount), 0)',
+        label: '예상금액 합계',
+        dataType: 'number',
+        join: 'leads',
+      },
+    },
+  },
 };
 
 // ── 헬퍼 — datasource 기반 ──────────────────────────────────
@@ -391,14 +484,22 @@ router.post('/query', async (req, res) => {
       selectParts.push(`${fieldOf(dsKey, m).sql} AS ${m}`);
     }
 
-    // ── FROM + JOIN ───────────────────────────────────────
-    const needsTeamJoin =
-      [...rows, ...columns].some(k => fieldOf(dsKey, k)?.join === 'team') ||
-      filters.some(f => fieldOf(dsKey, f?.field)?.join === 'team');
+    // ── FROM + JOIN (Phase 2-B-2: 다중 join 키 지원 — team, leads 등) ────
+    // 사용된 join 키를 모아서 한 번에 처리 — DATASOURCES 의 joins 매핑 활용
+    // 중복 추가 방지 위해 Set 사용
+    const usedJoins = new Set();
+    [...rows, ...columns, ...measures].forEach(k => {
+      const jn = fieldOf(dsKey, k)?.join;
+      if (jn) usedJoins.add(jn);
+    });
+    filters.forEach(f => {
+      const jn = fieldOf(dsKey, f?.field)?.join;
+      if (jn) usedJoins.add(jn);
+    });
 
     let fromClause = `FROM ${ds.table}`;
-    if (needsTeamJoin && ds.joins?.team) {
-      fromClause += ' ' + ds.joins.team;
+    for (const jn of usedJoins) {
+      if (ds.joins?.[jn]) fromClause += ' ' + ds.joins[jn];
     }
 
     // ── WHERE 절 ──────────────────────────────────────────

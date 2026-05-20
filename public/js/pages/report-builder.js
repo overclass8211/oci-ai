@@ -903,7 +903,7 @@ const ReportBuilderPage = {
           ${isActive ? '<span class="rb-saved-card-active-badge">편집중</span>' : ''}
         </div>
         ${r.description ? `<div class="rb-saved-card-desc">${esc(r.description)}</div>` : ''}
-        <div class="rb-saved-card-ds-chip" title="데이터 소스">${cardDs === 'projects' ? '🏗' : '📋'} ${esc(cardDsLabel)}</div>
+        <div class="rb-saved-card-ds-chip" title="데이터 소스">${this._dsIcon(cardDs)} ${esc(cardDsLabel)}</div>
         ${meta.length ? `<div class="rb-saved-card-meta">${meta.join('')}</div>` : ''}
         <div class="rb-saved-card-time">${esc(this._relativeTime(r.updated_at))}</div>
         <div class="rb-saved-card-actions">
@@ -929,6 +929,12 @@ const ReportBuilderPage = {
     const days = Math.floor(hr / 24);
     if (days < 7) return `${days}일 전`;
     return d.toLocaleDateString('ko-KR');
+  },
+
+  // Phase 2-B-2: 데이터 소스별 아이콘 매핑 (확장 가능)
+  _dsIcon(dsKey) {
+    const ICONS = { leads: '📋', projects: '🏗', customers: '🏢' };
+    return ICONS[dsKey] || '📊';
   },
 
   // ─── Phase 2-A: 카드 액션 — 불러오기/삭제/이름변경 ─────
