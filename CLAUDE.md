@@ -13,7 +13,10 @@
 1. 코드 수정 완료
 2. Lint 검사  (npx eslint <변경 파일>)
 3. 영향받는 테스트 실행 (변경 영향도별 — 아래 표 참조)
-4. 변경 사항 + Lint 결과 + Test 결과 요약 보고
+   3-1. Lint        — 모든 변경 필수
+   3-2. Vitest      — 백엔드/단위 (정책 표 참조)
+   3-3. Playwright E2E — UI 동작 변경 / 사용자 보고 버그 fix / 회귀 방지 (정책 표 참조)
+4. 변경 사항 + Lint 결과 + Vitest 결과 + E2E 결과 요약 보고
 5. "Commit 진행할까요?" 명시적 질문
 6. 사용자 승인 대기 ("응" / "yes" / "진행해" / "commit 해" 등)
 7. Commit + Push 실행
@@ -24,6 +27,7 @@
 
 - ❌ **자체 판단으로 commit 진행 금지** — 매 commit 마다 사용자 승인 필수
 - ❌ **테스트 실패 시 무시하고 commit 금지** — 원인 보고 + 사용자 결정 대기
+- ❌ **E2E 테스트 작성 회피 금지** — 사용자 보고 UI 버그 fix 시 회귀 방지 e2e 필수
 - ❌ **Lint warning 무시하고 commit 금지** — 모두 해결 후 진행
 - ❌ **이전 승인이 있어도 추가 commit 자동 진행 금지** — 매번 새 승인
 - ❌ **"긴급이니까 일단" 우회 금지** — 긴급 상황이라도 알리고 승인 받기
@@ -38,13 +42,14 @@
 | 변경 종류 | Lint | Vitest (`tests/*.test.mjs`) | Playwright E2E (`e2e/*.spec.js`) |
 |----------|:----:|:--------------------------:|:--------------------------------:|
 | **Hotfix** (단일 라인, 명확한 버그) | ✅ | 관련 파일만 | ❌ |
-| **백엔드 라우트/서비스 추가** | ✅ | ✅ 관련 + auth/RBAC | 선택 (사용자 요청 시) |
-| **프론트엔드 페이지 추가** | ✅ | ❌ (없으면 skip) | 선택 (사용자 요청 시) |
+| **백엔드 라우트/서비스 추가** | ✅ | ✅ 관련 + auth/RBAC | 선택 |
+| **프론트엔드 페이지 추가** | ✅ | ❌ (없으면 skip) | ✅ **권장** (UI 동작 변경 시) |
 | **DB 스키마 변경** | ✅ | ✅ **전체** | 선택 |
-| **인증/권한 변경** | ✅ | ✅ **전체** | ✅ 권장 |
+| **인증/권한 변경** | ✅ | ✅ **전체** | ✅ **필수** |
 | **AI/STT/외부 API 통합** | ✅ | ✅ 관련 + mocking 확인 | 선택 |
+| **🐛 사용자 보고 UI 버그 fix** | ✅ | 관련 | ✅ **필수** (회귀 방지) |
 | **문서/주석만 변경** | ✅ | ❌ | ❌ |
-| **운영 배포 직전 점검** | ✅ | ✅ **전체** | ✅ (사용자 승인 시) |
+| **운영 배포 직전 점검** | ✅ | ✅ **전체** | ✅ **필수** |
 
 ### 테스트 명령어
 
@@ -61,8 +66,20 @@ npm test
 # Coverage
 npm run test:coverage
 
-# E2E (사용자 승인 후만)
+# ── E2E (UI 버그 fix / 회귀 방지 시 필수) ───────────────────────
+# 방식 1: 기존 로컬 서버 활용 (디버깅 좋음, 빠른 반복)
+#   1) 별도 터미널: npm start (포트는 .env PORT 따름, 보통 3001)
+#   2) e2e 실행:
+E2E_BASE_URL=http://localhost:3001 npx playwright test e2e/<시나리오>.spec.js
+
+# 방식 2: Playwright 자동 시작 (clean run)
 npx playwright test e2e/<시나리오>.spec.js
+
+# 단일 테스트 + 자세한 로그
+npx playwright test e2e/<시나리오>.spec.js --reporter=list
+
+# 실패 시 trace 보기 (test-results/.../trace.zip 자동 저장됨)
+npx playwright show-trace test-results/<name>/trace.zip
 ```
 
 ---
@@ -79,12 +96,72 @@ npx playwright test e2e/<시나리오>.spec.js
 ## ✅ Lint
 2개 파일 — 0 errors, 0 warnings
 
-## ✅ Test
+## ✅ Vitest
 - tests/foo.test.mjs: 12 passed
+- (또는) Skip — 영향 없음
+
+## ✅ E2E
+- e2e/foo.spec.js: 3 passed
+- (또는) Skip — 백엔드/문서만 변경 (UI 무관)
 - (또는) Skip — 영향 없음
 
 ## 🚦 Commit 진행할까요?
 ```
+
+---
+
+## 🎭 Playwright E2E 테스트 원칙
+
+### 🧭 작성 트리거 (다음 경우 e2e 필수 작성)
+
+1. **사용자가 동일/유사 버그 2회 이상 보고** — 회귀 방지 (최우선 트리거)
+2. **사용자 보고 UI 동작 버그 fix** — 동일 시나리오 자동화로 재발 방지
+3. **클릭/입력/드래그/포커스** 같은 UI 인터랙션 핵심 동작
+4. **JS 로직만으로 검증 어려운 동작** (CSS `display`, 렌더링 타이밍, focus 트리거 등)
+5. **인증/권한(RBAC) 변경** — 게이트 동작 확인 필수
+
+### 📁 파일 구조
+
+- 경로: `e2e/*.spec.js` (테스트 시나리오)
+- 헬퍼:
+  - `e2e/helpers/auth.js` — `loginAsAdmin(page)` 자동 로그인
+  - `e2e/helpers/seed.js` — 테스트 데이터 시드 (필요시)
+- 설정: `playwright.config.js` (baseURL, workers=1, retries=1, 직렬 실행)
+
+### 🚀 실행 두 가지 방식
+
+**방식 1 — 기존 서버 활용** (디버깅 좋음, 반복 빠름)
+```bash
+# 터미널 1: 서버 미리 띄움 (.env PORT 사용, 보통 3001)
+npm start
+
+# 터미널 2: e2e 실행 (baseURL 명시)
+E2E_BASE_URL=http://localhost:3001 npx playwright test e2e/<시나리오>.spec.js
+```
+
+**방식 2 — Playwright 자동 시작** (clean run, CI 환경)
+```bash
+# playwright.config.js 의 webServer 가 자동으로 npm start + health check
+npx playwright test e2e/<시나리오>.spec.js
+```
+
+### ✅ 통과 기준 / 실패 디버깅
+
+- 통과: `N passed (Xs)` 형식 — flaky(재시도 후 통과)도 검토 권장 (잠재 시그널)
+- 실패 시 자동 저장: `test-results/<name>/` 폴더에
+  - `test-failed-1.png` (스크린샷)
+  - `video.webm` (실행 영상)
+  - `trace.zip` (시간순 실행 추적)
+- trace 보기: `npx playwright show-trace test-results/<name>/trace.zip`
+
+### 🐛 E2E 가 찾아낸 실제 케이스 (예시)
+
+`e2e/report-builder-filter.spec.js` — 필터 드롭다운 fix 시:
+- 사용자가 3회 보고 후 작성
+- 정확한 원인 (Combobox onFocus 의 `items.length > 0` 함정) 즉시 식별
+- 회귀 방지: 동일 버그 재발 시 즉시 감지
+
+→ **사용자 신뢰 회복 + 작업 효율 동시에 확보**
 
 ---
 
