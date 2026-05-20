@@ -8594,7 +8594,13 @@ body,
 .rb-chip-rows    { border-left: 3px solid #1A73E8; }
 .rb-chip-columns { border-left: 3px solid #9C27B0; }
 .rb-chip-measures{ border-left: 3px solid #34A853; }
-.rb-chip-filter  { border-left: 3px solid #FBBC04; gap: 4px; flex-wrap: wrap; }
+.rb-chip-filter  {
+  border-left: 3px solid #FBBC04;
+  gap: 6px;
+  /* flex-wrap 제거 — 한 줄로 깔끔하게 / input 자체가 넓어서 충분 */
+  flex-wrap: nowrap;
+  min-width: 280px;
+}
 .rb-chip-remove {
   background: none;
   border: none;
@@ -8612,11 +8618,19 @@ body,
   background: var(--surface);
 }
 .rb-chip-value {
-  font-size: 11px;
-  padding: 1px 6px;
+  font-size: 12px;
+  padding: 3px 8px;
   border: 1px solid var(--border);
-  border-radius: 3px;
-  width: 90px;
+  border-radius: 4px;
+  width: 180px;
+  min-width: 160px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.rb-chip-value:focus {
+  outline: none;
+  border-color: var(--oci-red);
+  box-shadow: 0 0 0 2px rgba(230, 51, 41, 0.1);
 }
 
 .rb-preview {

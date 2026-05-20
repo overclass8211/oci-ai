@@ -267,21 +267,17 @@ const ReportBuilderPage = {
     document.getElementById('rb-zone-columns').innerHTML = cfg.columns.map(k => this._chipHtml(k, fieldsMap[k], 'columns')).join('');
     document.getElementById('rb-zone-measures').innerHTML = cfg.measures.map(k => this._chipHtml(k, fieldsMap[k], 'measures')).join('');
 
-    // Filter — 차원 필터: 캘린더에서 검증된 Combobox 컴포넌트 활용
-    // datalist 패턴은 브라우저마다 클릭 동작이 달라 사용성 떨어짐 → Combobox 로 일관 UX
+    // Filter — 차원 필터: 단순 값 선택 (연산자 제거, op='eq' 자동 고정)
+    // 사용자 의도: 기호 연산자 (=, ≠, >, < 등) 불필요. 실제 차원 값을 드롭다운으로 선택만.
+    // Combobox 활용 — 클릭 즉시 dropdown 표시 + 자유 입력도 허용
     document.getElementById('rb-zone-filters').innerHTML = cfg.filters.map((f, idx) => {
       const fld = fieldsMap[f.field];
       if (!fld) return '';
       return `
         <div class="rb-chip rb-chip-filter" data-zone="filters" data-idx="${idx}">
-          <span class="rb-chip-label">${esc(fld.label)}</span>
-          <select class="rb-chip-op" data-idx="${idx}">
-            ${['eq','ne','like','gt','lt','gte','lte'].map(op =>
-              `<option value="${op}" ${f.op===op?'selected':''}>${this._opLabel(op)}</option>`
-            ).join('')}
-          </select>
-          <input class="rb-chip-value" data-idx="${idx}" type="text"
-                 value="${esc(f.value || '')}" placeholder="🔽 값 선택 또는 입력" autocomplete="off" />
+          <span class="rb-chip-label">${esc(fld.label)} =</span>
+          <input class="rb-chip-value" data-idx="${idx}" data-field="${esc(f.field)}" type="text"
+                 value="${esc(f.value || '')}" placeholder="🔽 클릭하여 값 선택" autocomplete="off" />
           <button class="rb-chip-remove" data-zone="filters" data-idx="${idx}" title="제거">✕</button>
         </div>
       `;

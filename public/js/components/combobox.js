@@ -262,10 +262,16 @@ const Combobox = {
     }
 
     // ── focus 시 재오픈 ──────────────────────────────────
+    // 🐛 fix: minChars:0 일 때 클릭만으로 dropdown 열리도록 강제 search
+    //   (기존: items.length>0 일 때만 render → 첫 클릭 시 영원히 안 보임)
     function onFocus() {
       const q = inputEl.value.trim();
-      if (q.length >= minChars && items.length > 0) {
+      if (q.length < minChars) return;
+      if (items.length > 0) {
         render();
+      } else if (minChars === 0) {
+        // 첫 focus + 아직 데이터 없음 + minChars 0 → 강제로 search 트리거
+        search('');
       }
     }
 
