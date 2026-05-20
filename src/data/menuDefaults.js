@@ -24,6 +24,7 @@ const DEFAULT_ITEMS = [
   { menu_key: 'projects', section_key: 'sales', display_order: 2, is_system: 0 },
   { menu_key: 'customers', section_key: 'sales', display_order: 3, is_system: 0 },
   { menu_key: 'calendar', section_key: 'sales', display_order: 4, is_system: 0 },
+  { menu_key: 'quotes', section_key: 'sales', display_order: 5, is_system: 0 },
   { menu_key: 'team', section_key: 'analysis', display_order: 1, is_system: 0 },
   { menu_key: 'reports', section_key: 'analysis', display_order: 2, is_system: 0 },
   { menu_key: 'report-builder', section_key: 'analysis', display_order: 3, is_system: 0 },

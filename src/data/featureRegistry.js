@@ -276,6 +276,18 @@ const FEATURE_REGISTRY = [
     default_enabled: true,
   },
   {
+    key: 'crm.quotes',
+    name: '견적서',
+    description: '견적서 작성/편집/리비전 + 자동 채번 + PDF 내보내기',
+    category: 'crm',
+    risk_level: 'medium',
+    required_features: [],
+    affects_routes: '/api/quotes',
+    affects_tables: 'quotes,quote_items',
+    is_experimental: false,
+    default_enabled: true,
+  },
+  {
     key: 'crm.search',
     name: '글로벌 검색 (Cmd+K)',
     description: '리드/고객/프로젝트/회의록/활동 통합 검색',

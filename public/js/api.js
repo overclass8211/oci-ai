@@ -205,6 +205,21 @@ const API = {
       API.get(`/calendar/title-suggestions?q=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
+  // 견적서 (crm.quotes)
+  quotes: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== undefined && v !== '')
+      ).toString();
+      return API.get('/quotes' + (qs ? '?' + qs : ''));
+    },
+    get:       (id)        => API.get(`/quotes/${id}`),
+    create:    (body)      => API.post('/quotes', body),
+    update:    (id, body)  => API.put(`/quotes/${id}`, body),
+    delete:    (id)        => API.del(`/quotes/${id}`),
+    duplicate: (id)        => API.post(`/quotes/${id}/duplicate`, {}),
+  },
+
   // 게시판
   board: {
     announcements: {
