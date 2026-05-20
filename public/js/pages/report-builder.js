@@ -63,6 +63,18 @@ const ReportBuilderPage = {
       if (this._state.savedReports.length > 0) {
         this._toggleSavedPanel(true);
       }
+      // ★ Reports 페이지에서 ?edit=<id> 로 진입 시 해당 리포트 자동 불러오기
+      const editMatch = (location.hash || '').match(/[?&]edit=(\d+)/);
+      if (editMatch) {
+        const editId = parseInt(editMatch[1], 10);
+        if (editId) {
+          await this._loadSavedById(editId);
+          // 자동 펼침
+          if (!this._state.savedPanelOpen) this._toggleSavedPanel(true);
+          return;
+        }
+      }
+
       // 초기 미리보기 — 기본 차원 1개 + count
       this._state.config.rows = ['stage'];
       this._state.config.measures = ['count'];
@@ -970,17 +982,34 @@ const ReportBuilderPage = {
 
           try {
             const data = { name, description, config_json: this._state.config };
+            let savedId;
             if (isUpdate) {
               await API.reportBuilder.update(this._state.currentId, data);
+              savedId = this._state.currentId;
               Toast.success(`"${name}" 수정되었습니다`);
             } else {
               const r = await API.reportBuilder.save(data);
               this._state.currentId = r.data.id;
+              savedId = r.data.id;
               Toast.success(`"${name}" 새 리포트로 저장되었습니다`);
             }
             Modal.close();
             await this._refreshSaved();
             this._renderSavedList();  // 편집중 ⭐ 표시 갱신
+
+            // ★ returnTo=reports 흐름 — 저장 후 자동으로 리포트 페이지에 위젯으로 추가
+            // hash 의 returnTo 파라미터 확인 (예: #report-builder?returnTo=reports)
+            const m = (location.hash || '').match(/[?&]returnTo=([^&]+)/);
+            const returnTo = m ? decodeURIComponent(m[1]) : null;
+            if (returnTo === 'reports' && savedId) {
+              try {
+                await API.reports.widgets.add({ report_id: savedId });
+                Toast.success('리포트 페이지에 위젯으로 추가되었습니다');
+              } catch (_) { /* 이미 위젯에 있으면 silent skip */ }
+              // hash 정리 후 reports 페이지로 이동
+              location.hash = '#reports';
+              if (typeof App !== 'undefined' && App.navigate) App.navigate('reports');
+            }
           } catch (err) {
             Toast.error('저장 실패: ' + (err.message || ''));
           }
@@ -1426,8 +1455,14 @@ const ReportBuilderPage = {
       });
 
       // ── 임시 DOM 생성 (화면 밖에 그려서 html2canvas 캡처) ─
-      // font-family 명시 + 한국어 깨짐 방지 위해 system-ui fallback
+      // 🐛 한국어/영어 혼합 텍스트 겹침 fix:
+      //   - 단일 한국어 폰트 사용 (영어도 자동 처리) → fallback 전환 시 너비 측정 오류 방지
+      //   - letter-spacing 0 + word-spacing 0.08em 명시 → 공백 흡수 방지
+      //   - 공백을 \u00A0 (NBSP) 로 일부 치환 → html2canvas 공백 collapse 회피
+      //   - text-rendering: geometricPrecision → 글자 측정 정확도 ↑
       const _esc = (s) => esc(String(s));
+      // 공백 보존을 위해 일부 텍스트의 공백을 NBSP 로 치환
+      const _preserveSpaces = (s) => _esc(s).replace(/ /g, '\u00A0');
       tempDiv = document.createElement('div');
       tempDiv.style.cssText = `
         position: fixed;
@@ -1437,20 +1472,23 @@ const ReportBuilderPage = {
         padding: 30px 40px;
         background: #ffffff;
         color: #1f2937;
-        font-family: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', system-ui, -apple-system, sans-serif;
+        font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
         font-size: 13px;
-        line-height: 1.5;
+        line-height: 1.6;
+        letter-spacing: 0;
+        word-spacing: 0.08em;
+        text-rendering: geometricPrecision;
         box-sizing: border-box;
       `;
       tempDiv.innerHTML = `
         <div style="border-bottom:2px solid #E63329;padding-bottom:12px;margin-bottom:18px">
-          <h1 style="margin:0 0 4px;color:#E63329;font-size:22px;font-weight:700">
-            OCI CRM 리포트 — ${_esc(reportName)}
+          <h1 style="margin:0 0 6px;color:#E63329;font-size:22px;font-weight:700;letter-spacing:0;word-spacing:0.1em;white-space:nowrap">
+            ${_preserveSpaces('OCI CRM 리포트')}\u00A0—\u00A0${_preserveSpaces(reportName)}
           </h1>
-          <div style="font-size:11px;color:#666">
-            데이터 소스: <strong>${_esc(dsLabel)}</strong>
-            &nbsp;|&nbsp; 생성: ${_esc(generatedAt)}
-            &nbsp;|&nbsp; 데이터 건수: <strong>${data.length}건</strong>
+          <div style="font-size:12px;color:#666;letter-spacing:0;word-spacing:0.06em">
+            ${_preserveSpaces('데이터 소스:')}\u00A0<strong>${_preserveSpaces(dsLabel)}</strong>
+            \u00A0\u00A0|\u00A0\u00A0 ${_preserveSpaces('생성:')}\u00A0${_preserveSpaces(generatedAt)}
+            \u00A0\u00A0|\u00A0\u00A0 ${_preserveSpaces('데이터 건수:')}\u00A0<strong>${data.length}${_preserveSpaces('건')}</strong>
           </div>
         </div>
         <div style="text-align:center;margin-bottom:20px">
@@ -1459,37 +1497,44 @@ const ReportBuilderPage = {
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead>
             <tr style="background:#E63329;color:#ffffff">
-              ${tableHeaders.map(h => `<th style="padding:8px 10px;text-align:center;font-weight:600;border:1px solid #c52a23">${_esc(h)}</th>`).join('')}
+              ${tableHeaders.map(h => `<th style="padding:8px 10px;text-align:center;font-weight:600;border:1px solid #c52a23;letter-spacing:0">${_preserveSpaces(h)}</th>`).join('')}
             </tr>
           </thead>
           <tbody>
             ${tableRows.map((row, i) => `
               <tr style="background:${i % 2 ? '#f9fafb' : '#ffffff'}">
-                ${row.map(cell => `<td style="padding:6px 10px;text-align:center;border:1px solid #e5e7eb">${_esc(cell)}</td>`).join('')}
+                ${row.map(cell => `<td style="padding:6px 10px;text-align:center;border:1px solid #e5e7eb;letter-spacing:0">${_preserveSpaces(cell)}</td>`).join('')}
               </tr>
             `).join('')}
           </tbody>
         </table>
         ${data.length > 30 ? `
-          <div style="font-size:10px;color:#888;margin-top:8px;text-align:right">
-            …총 ${data.length}건 중 30건 표시 (전체 데이터는 Excel 로 내보내기)
+          <div style="font-size:10px;color:#888;margin-top:8px;text-align:right;letter-spacing:0">
+            ${_preserveSpaces(`…총 ${data.length}건 중 30건 표시 (전체 데이터는 Excel 로 내보내기)`)}
           </div>
         ` : ''}
-        <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center">
-          OCI CRM Report Builder · ${_esc(generatedAt)}
+        <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center;letter-spacing:0;word-spacing:0.05em">
+          ${_preserveSpaces('OCI CRM Report Builder')}\u00A0·\u00A0${_preserveSpaces(generatedAt)}
         </div>
       `;
       document.body.appendChild(tempDiv);
 
-      // 이미지 로드 대기 (chartImg base64 라 즉시지만 한 frame 양보)
-      await new Promise(r => setTimeout(r, 50));
+      // 폰트 로드 + 레이아웃 안정화 대기
+      await new Promise(r => setTimeout(r, 100));
+      // 브라우저가 폰트 로드 완료 신호 보낼 때까지 (현대 브라우저 지원)
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
 
-      // ── html2canvas 캡처 ─────────────────────────────────
+      // ── html2canvas 캡처 (글자 정밀 렌더링 옵션) ─────────
       const canvas = await window.html2canvas(tempDiv, {
-        scale: 2, // 고해상도 (Retina)
+        scale: 2,                  // 고해상도 (Retina)
         backgroundColor: '#ffffff',
         logging: false,
         useCORS: true,
+        letterRendering: true,     // 🐛 fix: 글자별 렌더링 → 한국어/영어 혼합 공백 보존
+        allowTaint: false,
+        windowWidth: 1100,         // 명시적 viewport width
       });
       const imgData = canvas.toDataURL('image/png');
 

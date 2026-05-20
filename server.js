@@ -313,6 +313,7 @@ app.use('/api', autoLevel);
 
 // 도메인 라우트
 app.use('/api/dashboard', require('./src/routes/dashboard'));
+app.use('/api/reports', require('./src/routes/reports'));
 app.use('/api/leads', require('./src/routes/leads'));
 app.use('/api/products', require('./src/routes/products'));
 app.use('/api/projects', require('./src/routes/projects'));

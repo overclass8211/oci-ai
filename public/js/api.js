@@ -294,6 +294,19 @@ const API = {
     restore: ()      => API.del('/admin/logo'),
   },
 
+  // ── 리포트 페이지 사용자 정의 위젯 (crm.reports 가드) ──────
+  // report_definitions 의 reference + display_order — 빌더와 분리
+  reports: {
+    widgets: {
+      list:    ()                  => { API._checkFeature('crm.reports'); return API.get('/reports/widgets'); },
+      // 단일 또는 다중 추가: { report_id: 1 } 또는 { report_ids: [1, 2] }
+      add:     (body)              => { API._checkFeature('crm.reports'); return API.post('/reports/widgets', body); },
+      // 드래그 후 새 순서로 재배치: { ids: [w1, w2, w3] }
+      reorder: (ids)               => { API._checkFeature('crm.reports'); return API.put('/reports/widgets/order', { ids }); },
+      delete:  (id)                => { API._checkFeature('crm.reports'); return API.del(`/reports/widgets/${id}`); },
+    },
+  },
+
   // ── 리포트 빌더 (crm.report_builder 가드) ───────────────────
   reportBuilder: {
     fields:     (datasource)    => { API._checkFeature('crm.report_builder'); return API.get('/report-builder/fields' + (datasource ? `?datasource=${encodeURIComponent(datasource)}` : '')); },

@@ -3,6 +3,8 @@
 // ============================================================
 const ReportsPage = {
   charts: {},
+  widgetCharts: {},     // 위젯별 Chart.js 인스턴스 (key: widget id)
+  widgets: [],          // 현재 사용자 위젯 목록 (API 응답 캐시)
   selectedYear: new Date().getFullYear(),
 
   async render() {
@@ -82,6 +84,22 @@ const ReportsPage = {
           </div>
         </div>
       </div>
+
+      <!-- ★ 내 리포트 위젯 영역 (사용자 정의) ────────────────── -->
+      <div class="rp-widgets-section" data-feature="crm.report_builder">
+        <div class="rp-widgets-header">
+          <div class="card-title" style="display:flex;align-items:center;gap:8px">
+            ⭐ 내 리포트 위젯
+            <span id="rp-widget-count" style="font-size:11px;color:var(--text-3);font-weight:400"></span>
+          </div>
+          <button class="btn btn-primary btn-sm" id="rp-add-widget-btn" title="리포트 빌더에서 만든 리포트를 위젯으로 추가">
+            + 위젯 추가
+          </button>
+        </div>
+        <div class="rp-widgets-grid" id="rp-widgets-grid">
+          <div class="loading" style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text-3)">위젯 로딩 중...</div>
+        </div>
+      </div>
     `;
     document.getElementById('content').innerHTML = html;
 
@@ -97,8 +115,12 @@ const ReportsPage = {
     document.getElementById('reports-close-report-btn')?.addEventListener('click', () => {
       document.getElementById('ai-report-card').style.display = 'none';
     });
+    // ★ 위젯 추가 버튼
+    document.getElementById('rp-add-widget-btn')?.addEventListener('click', () => this._openAddWidgetModal());
 
     await this.loadData();
+    // 위젯은 별도 비동기 로드 (기존 대시보드와 독립 — 실패해도 KPI 영향 없음)
+    this._loadWidgets().catch(err => console.warn('[Widgets] 로드 실패:', err.message));
   },
 
   async changeYear(year) {
@@ -355,5 +377,323 @@ const ReportsPage = {
       URL.revokeObjectURL(url);
       Toast.success('CSV 파일이 다운로드되었습니다');
     } catch (err) { console.error(err); }
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // ★ 내 리포트 위젯 (사용자 정의)
+  // ═══════════════════════════════════════════════════════════
+
+  // 위젯 목록 로드 + 렌더 + 각 위젯 차트 비동기 실행
+  async _loadWidgets() {
+    try {
+      const r = await API.reports.widgets.list();
+      this.widgets = r.data || [];
+      this._renderWidgets();
+      // 차트는 비동기 (Promise.allSettled — 한 위젯 실패해도 다른 위젯 계속)
+      const tasks = this.widgets.map(w => this._renderWidgetChart(w));
+      await Promise.allSettled(tasks);
+    } catch (err) {
+      console.warn('[Widgets] list 실패:', err.message);
+      const grid = document.getElementById('rp-widgets-grid');
+      if (grid) grid.innerHTML = `<div class="rp-widgets-empty">위젯 목록을 불러올 수 없습니다 (${err.message})</div>`;
+    }
+  },
+
+  _renderWidgets() {
+    const grid = document.getElementById('rp-widgets-grid');
+    const countEl = document.getElementById('rp-widget-count');
+    if (!grid) return;
+    if (countEl) countEl.textContent = this.widgets.length > 0 ? `(${this.widgets.length}개)` : '';
+
+    // 이전 차트 인스턴스 정리
+    Object.values(this.widgetCharts).forEach(c => { try { c.destroy(); } catch (_) {} });
+    this.widgetCharts = {};
+
+    if (this.widgets.length === 0) {
+      grid.innerHTML = `
+        <div class="rp-widgets-empty">
+          <div style="font-size:32px;margin-bottom:10px;opacity:0.4">📊</div>
+          <div style="font-size:13px;color:var(--text-2);margin-bottom:4px">아직 추가된 위젯이 없습니다</div>
+          <div style="font-size:11px;color:var(--text-3)">
+            리포트 빌더에서 만든 리포트를 위젯으로 추가하거나, 새 리포트를 만들어보세요.
+          </div>
+          <button class="btn btn-primary btn-sm" style="margin-top:14px" id="rp-empty-add-btn">+ 첫 위젯 추가</button>
+        </div>
+      `;
+      document.getElementById('rp-empty-add-btn')?.addEventListener('click', () => this._openAddWidgetModal());
+      return;
+    }
+
+    grid.innerHTML = this.widgets.map(w => this._widgetCardHtml(w)).join('');
+
+    // 카드 액션 이벤트 바인딩
+    grid.querySelectorAll('[data-widget-action]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const widgetId = parseInt(btn.dataset.widgetId, 10);
+        const reportId = parseInt(btn.dataset.reportId, 10);
+        const action = btn.dataset.widgetAction;
+        if (action === 'edit') this._editWidget(reportId);
+        else if (action === 'remove') this._removeWidget(widgetId);
+        else if (action === 'refresh') {
+          const w = this.widgets.find(x => x.id === widgetId);
+          if (w) this._renderWidgetChart(w, true);
+        }
+      });
+    });
+
+    // Sortable.js 드래그 재배치 (이미 index.html 에서 로드됨)
+    if (typeof Sortable !== 'undefined') {
+      new Sortable(grid, {
+        animation: 150,
+        handle: '.rp-widget-drag-handle',
+        ghostClass: 'rp-widget-ghost',
+        onEnd: () => this._onReorder(),
+      });
+    }
+  },
+
+  _widgetCardHtml(w) {
+    return `
+      <div class="rp-widget-card" data-widget-id="${w.id}" data-report-id="${w.report_id}">
+        <div class="rp-widget-header">
+          <div class="rp-widget-drag-handle" title="드래그하여 재배치">⋮⋮</div>
+          <div class="rp-widget-title" title="${esc(w.description || '')}">${esc(w.name)}</div>
+          <div class="rp-widget-actions">
+            <button data-widget-action="refresh" data-widget-id="${w.id}" data-report-id="${w.report_id}" title="새로고침">🔄</button>
+            <button data-widget-action="edit" data-widget-id="${w.id}" data-report-id="${w.report_id}" title="리포트 빌더에서 편집">✏️</button>
+            <button data-widget-action="remove" data-widget-id="${w.id}" data-report-id="${w.report_id}" title="위젯 제거" class="rp-widget-remove">✕</button>
+          </div>
+        </div>
+        <div class="rp-widget-body">
+          <canvas id="rp-widget-canvas-${w.id}"></canvas>
+        </div>
+        <div class="rp-widget-footer" id="rp-widget-meta-${w.id}">로딩 중...</div>
+      </div>
+    `;
+  },
+
+  // 위젯 차트 렌더 — config_json 으로 빌더 query 실행 후 Chart.js
+  async _renderWidgetChart(widget, isRefresh = false) {
+    const canvas = document.getElementById(`rp-widget-canvas-${widget.id}`);
+    const metaEl = document.getElementById(`rp-widget-meta-${widget.id}`);
+    if (!canvas) return;
+    try {
+      // 기존 차트 destroy
+      if (this.widgetCharts[widget.id]) {
+        try { this.widgetCharts[widget.id].destroy(); } catch (_) {}
+        delete this.widgetCharts[widget.id];
+      }
+      if (isRefresh && metaEl) metaEl.textContent = '새로고침 중...';
+
+      const cfg = typeof widget.config_json === 'string'
+        ? JSON.parse(widget.config_json) : (widget.config_json || {});
+      const r = await API.reportBuilder.query(cfg);
+      const result = r.data;
+      this._drawWidgetChart(canvas, cfg, result);
+      if (metaEl) {
+        const ds = cfg.datasource || 'leads';
+        const dsLabel = ({ leads: '영업 리드', projects: '프로젝트', customers: '고객사', activities: '영업 활동' })[ds] || ds;
+        metaEl.textContent = `${dsLabel} · ${result.rows.length}건 · ${new Date().toLocaleTimeString('ko-KR')}`;
+      }
+    } catch (err) {
+      if (metaEl) metaEl.textContent = `오류: ${err.message || '데이터 로드 실패'}`;
+      console.warn('[Widget] 차트 실패:', widget.id, err);
+    }
+  },
+
+  // 위젯 차트 그리기 (빌더의 _renderChart 단순화 버전 — bar/pie/line만)
+  _drawWidgetChart(canvas, cfg, result) {
+    const ctx = canvas.getContext('2d');
+    const rows = result.rows || [];
+    if (rows.length === 0) {
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#999';
+      ctx.textAlign = 'center';
+      ctx.fillText('데이터 없음', canvas.width / 2, canvas.height / 2);
+      return;
+    }
+    const measures = cfg.measures || [];
+    const colKey = cfg.columns?.[0];
+    const labels = rows.map(r => String(r.row_key ?? '(없음)'));
+    const colors = ['#E63329', '#1A73E8', '#34A853', '#FBBC04', '#9C27B0', '#FF6B35'];
+    let chartType = cfg.chartType === 'auto' || !cfg.chartType ? 'bar' : cfg.chartType;
+    if (chartType === 'pie') chartType = 'doughnut';
+
+    let config;
+    if (chartType === 'doughnut') {
+      const data = rows.map(r => Number(r[measures[0]] || 0));
+      config = {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data, backgroundColor: colors }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } } },
+      };
+    } else if (chartType === 'stacked-bar' && colKey) {
+      const rowKeys = [...new Set(rows.map(r => String(r.row_key)))];
+      const colKeys = [...new Set(rows.map(r => String(r.col_key)))];
+      const m = measures[0];
+      const pivot = {};
+      rowKeys.forEach(rk => { pivot[rk] = {}; });
+      rows.forEach(r => { pivot[String(r.row_key)][String(r.col_key)] = Number(r[m] || 0); });
+      config = {
+        type: 'bar',
+        data: {
+          labels: rowKeys,
+          datasets: colKeys.map((ck, i) => ({
+            label: ck,
+            data: rowKeys.map(rk => pivot[rk][ck] || 0),
+            backgroundColor: colors[i % colors.length],
+          })),
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { x: { stacked: true }, y: { stacked: true } },
+          plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } } },
+        },
+      };
+    } else {
+      // bar / line — 단일/다중 measure 모두 지원
+      const datasets = measures.map((m, i) => ({
+        label: m,
+        data: rows.map(r => Number(r[m] || 0)),
+        backgroundColor: colors[i % colors.length],
+        borderColor: colors[i % colors.length],
+        tension: 0.3,
+      }));
+      config = {
+        type: chartType === 'line' ? 'line' : 'bar',
+        data: { labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } } },
+        },
+      };
+    }
+    this.widgetCharts[canvas.id.replace('rp-widget-canvas-', '')] = new Chart(ctx, config);
+  },
+
+  // 빌더로 이동 → 해당 리포트 편집
+  _editWidget(reportId) {
+    // App.navigate 가 hash 사용 — 별도 query string 으로 reportId 전달
+    location.hash = `#report-builder?edit=${reportId}&returnTo=reports`;
+    if (typeof App !== 'undefined' && App.navigate) {
+      App.navigate('report-builder');
+    }
+  },
+
+  async _removeWidget(widgetId) {
+    if (!confirm('이 위젯을 제거하시겠습니까?')) return;
+    try {
+      await API.reports.widgets.delete(widgetId);
+      Toast.success('위젯이 제거되었습니다');
+      // 차트 인스턴스 정리
+      if (this.widgetCharts[widgetId]) {
+        try { this.widgetCharts[widgetId].destroy(); } catch (_) {}
+        delete this.widgetCharts[widgetId];
+      }
+      this.widgets = this.widgets.filter(w => w.id !== widgetId);
+      this._renderWidgets();
+      // 위젯이 제거되어 차트가 다시 그려져야 함
+      await Promise.allSettled(this.widgets.map(w => this._renderWidgetChart(w)));
+    } catch (err) {
+      Toast.error('위젯 제거 실패: ' + (err.message || ''));
+    }
+  },
+
+  async _onReorder() {
+    const grid = document.getElementById('rp-widgets-grid');
+    if (!grid) return;
+    const ids = [...grid.querySelectorAll('[data-widget-id]')].map(el => parseInt(el.dataset.widgetId, 10));
+    try {
+      await API.reports.widgets.reorder(ids);
+      // 메모리 widgets 도 동일 순서로 정렬
+      const orderMap = new Map(ids.map((id, idx) => [id, idx]));
+      this.widgets.sort((a, b) => (orderMap.get(a.id) ?? 99) - (orderMap.get(b.id) ?? 99));
+    } catch (err) {
+      Toast.error('재배치 저장 실패: ' + (err.message || ''));
+    }
+  },
+
+  // 위젯 추가 모달 — 기존 리포트 선택 or 새로 만들기
+  async _openAddWidgetModal() {
+    try {
+      // 사용자의 저장된 리포트 목록 fetch
+      const r = await API.reportBuilder.listSaved();
+      const savedReports = r.data || [];
+      // 이미 위젯으로 추가된 report_id 표시 (체크박스 비활성)
+      const alreadyAdded = new Set(this.widgets.map(w => w.report_id));
+
+      Modal.open({
+        title: '⭐ 위젯 추가',
+        width: 560,
+        body: `
+          <p style="font-size:13px;color:var(--text-2);margin:0 0 14px">
+            리포트 빌더에서 만든 리포트를 위젯으로 추가하거나, 새 리포트를 만들 수 있습니다.
+          </p>
+          ${savedReports.length === 0 ? `
+            <div style="padding:24px;text-align:center;background:var(--surface-2);border-radius:8px;margin-bottom:14px">
+              <div style="font-size:24px;margin-bottom:6px;opacity:0.4">📝</div>
+              <div style="font-size:13px;color:var(--text-2)">아직 저장된 리포트가 없습니다.</div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:4px">먼저 리포트 빌더에서 리포트를 만들어 보세요.</div>
+            </div>
+          ` : `
+            <div style="margin-bottom:8px;font-size:12px;font-weight:600;color:var(--text-2)">📊 기존 리포트에서 추가</div>
+            <div class="rp-add-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:14px">
+              ${savedReports.map(rep => {
+                const disabled = alreadyAdded.has(rep.id);
+                return `
+                  <label class="rp-add-item" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:${disabled ? 'not-allowed' : 'pointer'};border-bottom:1px solid var(--border);opacity:${disabled ? '0.5' : '1'}">
+                    <input type="checkbox" name="rp-add-rep" value="${rep.id}" ${disabled ? 'disabled' : ''} style="cursor:${disabled ? 'not-allowed' : 'pointer'}">
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:13px;font-weight:600;color:var(--text-1)">${esc(rep.name)}${disabled ? ' <span style="font-size:10px;color:var(--text-3);font-weight:400">(이미 추가됨)</span>' : ''}</div>
+                      ${rep.description ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px">${esc(rep.description)}</div>` : ''}
+                    </div>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+          `}
+          <div style="text-align:center;padding-top:10px;border-top:1px dashed var(--border)">
+            <button class="btn btn-ghost" id="rp-add-new-btn" style="padding:8px 18px">
+              ➕ 새 리포트 만들기 (빌더로 이동)
+            </button>
+          </div>
+        `,
+        footer: `
+          <button class="btn btn-ghost" id="rp-add-cancel">취소</button>
+          ${savedReports.length > 0 ? `<button class="btn btn-primary" id="rp-add-ok">선택한 리포트 추가</button>` : ''}
+        `,
+        bind: {
+          '#rp-add-cancel': () => Modal.close(),
+          '#rp-add-new-btn': () => {
+            Modal.close();
+            // 빌더로 이동 — 저장 후 자동으로 reports 로 돌아오도록 returnTo 표시
+            location.hash = '#report-builder?returnTo=reports';
+            if (typeof App !== 'undefined' && App.navigate) App.navigate('report-builder');
+          },
+          '#rp-add-ok': async () => {
+            const checked = [...document.querySelectorAll('input[name="rp-add-rep"]:checked')];
+            if (checked.length === 0) {
+              Toast.warn('하나 이상 선택하세요');
+              return;
+            }
+            const reportIds = checked.map(c => parseInt(c.value, 10));
+            try {
+              const res = await API.reports.widgets.add({ report_ids: reportIds });
+              Toast.success(`${res.data.length}개 위젯이 추가되었습니다`);
+              Modal.close();
+              await this._loadWidgets();
+            } catch (err) {
+              Toast.error('위젯 추가 실패: ' + (err.message || ''));
+            }
+          },
+        },
+      });
+    } catch (err) {
+      Toast.error('리포트 목록 로드 실패: ' + (err.message || ''));
+    }
   }
 };
+
+// 전역 노출 — e2e 테스트 및 다른 페이지에서 ReportsPage._openAddWidgetModal 등 호출 가능
+window.ReportsPage = ReportsPage;
