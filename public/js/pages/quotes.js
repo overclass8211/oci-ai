@@ -183,9 +183,9 @@ const QuotesPage = (() => {
             <th style="width:110px">견적일</th>
             <th style="width:60px;text-align:center">VAT</th>
             <th style="width:140px;text-align:right">총액</th>
-            <th style="width:70px;text-align:center">Rev</th>
-            <th style="width:80px;text-align:center">상태</th>
-            <th style="width:260px;text-align:center">작업</th>
+            <th style="width:80px;text-align:center">Rev</th>
+            <th style="width:160px;text-align:center">상태 / 워크플로우</th>
+            <th style="width:280px;text-align:center">작업</th>
           </tr>
         </thead>
         <tbody>
@@ -199,8 +199,19 @@ const QuotesPage = (() => {
               <td>${_fmtDate(r.quote_date)}</td>
               <td style="text-align:center">${r.vat_included ? '포함' : '별도'}</td>
               <td style="text-align:right;font-weight:500">₩${_fmtKRW(r.total_amount)}</td>
-              <td style="text-align:center">${r.revision_no || 1}</td>
-              <td style="text-align:center"><span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span></td>
+              <td style="text-align:center">
+                ${
+                  r.parent_quote_id || Number(r.revision_no) > 1
+                    ? `<a href="#" class="qt-rev-link" data-id="${r.id}" title="리비전 트리 보기" style="color:var(--oci-red);text-decoration:underline">🌳 Rev ${r.revision_no}</a>`
+                    : `<span style="color:var(--text-3)">v${r.revision_no || 1}</span>`
+                }
+              </td>
+              <td style="text-align:center">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+                  <span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span>
+                  ${_renderStatusActions(r)}
+                </div>
+              </td>
               <td style="text-align:center">
                 <button class="btn btn-ghost btn-sm" data-act="edit" data-id="${r.id}">편집</button>
                 <button class="btn btn-ghost btn-sm" data-act="preview" data-id="${r.id}" title="미리보기">👁</button>
@@ -223,12 +234,48 @@ const QuotesPage = (() => {
     return { draft: '초안', sent: '발송됨', accepted: '수주', rejected: '실패' }[s] || '초안';
   }
 
+  // Phase 5-B: 상태별 다음 액션 버튼 (워크플로우)
+  //   draft     → 📤 발송
+  //   sent      → ✅ 수주 + ❌ 실패
+  //   accepted / rejected → (액션 없음)
+  function _renderStatusActions(r) {
+    const id = r.id;
+    if (r.status === 'draft') {
+      return `<button class="btn btn-ghost btn-sm qt-status-btn" data-status="sent" data-id="${id}" title="발송됨으로 변경" style="font-size:11px;padding:2px 6px">📤 발송</button>`;
+    }
+    if (r.status === 'sent') {
+      return `<div style="display:flex;gap:2px">
+        <button class="btn btn-ghost btn-sm qt-status-btn" data-status="accepted" data-id="${id}" title="수주됨" style="font-size:11px;padding:2px 6px;color:#0F7A3F">✅ 수주</button>
+        <button class="btn btn-ghost btn-sm qt-status-btn" data-status="rejected" data-id="${id}" title="실패" style="font-size:11px;padding:2px 6px;color:#d93025">❌ 실패</button>
+      </div>`;
+    }
+    return ''; // accepted / rejected — 최종 상태
+  }
+
   function _bindListEvents() {
     document.querySelectorAll('.qt-link').forEach((a) => {
       a.addEventListener('click', (e) => {
         e.preventDefault();
         const id = parseInt(a.dataset.id, 10);
         _openModal(id);
+      });
+    });
+    // Phase 5-A: 리비전 링크 클릭 → 리비전 트리 모달
+    document.querySelectorAll('.qt-rev-link').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = parseInt(a.dataset.id, 10);
+        _openRevisionTree(id);
+      });
+    });
+    // Phase 5-B: 상태 워크플로우 액션 버튼
+    document.querySelectorAll('.qt-status-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = parseInt(btn.dataset.id, 10);
+        const status = btn.dataset.status;
+        await _setStatus(id, status);
       });
     });
     document.querySelectorAll('[data-act]').forEach((btn) => {
@@ -243,6 +290,19 @@ const QuotesPage = (() => {
         else if (act === 'delete') _delete(id);
       });
     });
+  }
+
+  // Phase 5-B: 상태 전환 (빠른 액션)
+  async function _setStatus(id, status) {
+    const labels = { sent: '발송됨', accepted: '수주', rejected: '실패' };
+    if (!confirm(`이 견적의 상태를 "${labels[status] || status}" 로 변경하시겠습니까?`)) return;
+    try {
+      await API.quotes.setStatus(id, status);
+      Toast.success(`상태 변경됨 — ${labels[status] || status}`);
+      await _reload();
+    } catch (err) {
+      Toast.error('상태 변경 실패: ' + (err.message || err));
+    }
   }
 
   async function _duplicate(id) {
@@ -382,8 +442,18 @@ const QuotesPage = (() => {
         <div class="form-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
           <div class="form-row">
             <label class="form-label">견적번호</label>
-            <input class="form-input" id="qt-f-quote_no" value="${esc(e.quote_no || '')}"
-              ${e.id ? 'readonly style="background:#f5f5f7;color:#666"' : 'placeholder="(저장 시 자동 생성)"'}>
+            ${
+              e.id
+                ? `<input class="form-input" id="qt-f-quote_no" value="${esc(e.quote_no || '')}" readonly style="background:#f5f5f7;color:#666">`
+                : `<!-- Phase 5-C: 자동/수동 콤보박스 -->
+                <div style="display:flex;gap:4px">
+                  <select class="form-input" id="qt-f-quote_no_mode" style="width:90px;flex-shrink:0">
+                    <option value="auto" selected>자동</option>
+                    <option value="manual">수동</option>
+                  </select>
+                  <input class="form-input" id="qt-f-quote_no" value="" placeholder="자동 채번 미리보기 로딩 중..." readonly style="background:#f5f5f7;color:#666">
+                </div>`
+            }
           </div>
           <div class="form-row">
             <label class="form-label required">견적일</label>
@@ -855,6 +925,44 @@ const QuotesPage = (() => {
         if (chev) chev.textContent = open ? '▲' : '▼';
       });
     }
+
+    // Phase 5-C: 견적번호 자동/수동 콤보박스 (신규 작성 시에만)
+    const modeSel = document.getElementById('qt-f-quote_no_mode');
+    const noInput = document.getElementById('qt-f-quote_no');
+    if (modeSel && noInput) {
+      const applyMode = async () => {
+        if (modeSel.value === 'auto') {
+          noInput.readOnly = true;
+          noInput.style.background = '#f5f5f7';
+          noInput.style.color = '#666';
+          noInput.placeholder = '자동 채번 미리보기 로딩 중...';
+          try {
+            const dateVal = document.getElementById('qt-f-quote_date')?.value;
+            const year = dateVal ? new Date(dateVal).getFullYear() : new Date().getFullYear();
+            const res = await API.quotes.nextQuoteNo(year);
+            noInput.value = res.data?.quote_no || '';
+            noInput.placeholder = '(저장 시 확정)';
+          } catch (_) {
+            noInput.value = '';
+            noInput.placeholder = '(저장 시 자동 생성)';
+          }
+        } else {
+          noInput.readOnly = false;
+          noInput.style.background = '';
+          noInput.style.color = '';
+          noInput.value = '';
+          noInput.placeholder = 'Q-2026-NNNN 직접 입력';
+          noInput.focus();
+        }
+      };
+      modeSel.addEventListener('change', applyMode);
+      // 견적일 변경 시 자동 모드면 미리보기 갱신
+      document.getElementById('qt-f-quote_date')?.addEventListener('change', () => {
+        if (modeSel.value === 'auto') applyMode();
+      });
+      // 초기 1회 미리보기 fetch
+      applyMode();
+    }
   }
 
   // ── 저장 ─────────────────────────────────────────────────
@@ -929,8 +1037,11 @@ const QuotesPage = (() => {
         sales_rep_contact: salesRepContact,
       });
     }
-    // 신규에서 사용자가 채번을 직접 입력한 경우만 quote_no 전송
-    if (!_editing && quoteNo && !quoteNo.startsWith('(')) body.quote_no = quoteNo;
+    // Phase 5-C: 견적번호 모드 — auto 면 서버 채번에 위임, manual 이면 사용자 입력값 전송
+    const noMode = document.getElementById('qt-f-quote_no_mode')?.value || 'auto';
+    if (!_editing && noMode === 'manual' && quoteNo && !quoteNo.startsWith('(')) {
+      body.quote_no = quoteNo;
+    }
 
     try {
       if (_editing) {
@@ -946,6 +1057,82 @@ const QuotesPage = (() => {
     } catch (err) {
       Toast.error('저장 실패: ' + (err.message || err));
     }
+  }
+
+  // ── Phase 5-A: 리비전 트리 모달 ──────────────────────────
+  async function _openRevisionTree(id) {
+    let data;
+    try {
+      const res = await API.quotes.revisions(id);
+      data = res.data;
+    } catch (err) {
+      Toast.error('리비전 정보 불러오기 실패: ' + (err.message || err));
+      return;
+    }
+    const revs = Array.isArray(data?.revisions) ? data.revisions : [];
+    const currentId = data?.current_id || id;
+    const total = revs.length;
+
+    const rowsHtml = revs.length
+      ? revs
+          .map((r, i) => {
+            const isCurrent = String(r.id) === String(currentId);
+            const isRoot = !r.parent_quote_id;
+            const isLatest = i === revs.length - 1;
+            return `
+        <tr style="background:${isCurrent ? '#fff5f5' : i % 2 ? '#f9fafb' : '#fff'}">
+          <td style="padding:8px;border:1px solid #e5e7eb;text-align:center;font-weight:${isCurrent ? '700' : '500'}">
+            ${isRoot ? '🌱' : '🌿'} Rev ${r.revision_no}
+            ${isLatest ? '<span style="color:#0F7A3F;font-size:10px;margin-left:4px">최신</span>' : ''}
+            ${isCurrent ? '<span style="color:#E63329;font-size:10px;margin-left:4px">현재</span>' : ''}
+          </td>
+          <td style="padding:8px;border:1px solid #e5e7eb;font-family:monospace;font-size:11px">${esc(r.quote_no)}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb"><a href="#" class="qt-rev-open" data-id="${r.id}" style="color:var(--oci-red)">${esc(r.name || '')}</a></td>
+          <td style="padding:8px;border:1px solid #e5e7eb">${_fmtDate(r.quote_date)}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;font-weight:500">₩${_fmtKRW(r.total_amount)}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;text-align:center"><span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span></td>
+        </tr>`;
+          })
+          .join('')
+      : `<tr><td colspan="6" style="padding:30px;text-align:center;color:#888">리비전이 없습니다</td></tr>`;
+
+    Modal.open({
+      title: `🌳 리비전 트리 (총 ${total}건)`,
+      width: 980,
+      confirmOnClose: false,
+      body: `
+        <div style="margin-bottom:10px;font-size:12px;color:var(--text-3)">
+          🌱 원본 | 🌿 리비전 — 행 클릭 시 해당 리비전 편집 모달로 이동
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#f5f5f7">
+              <th style="padding:8px;border:1px solid #e5e7eb;width:130px">리비전</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;width:130px">견적번호</th>
+              <th style="padding:8px;border:1px solid #e5e7eb">견적명</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;width:110px">견적일</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;width:130px;text-align:right">총액</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;width:80px">상태</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      `,
+      footer: `<button class="btn btn-ghost" id="qt-revtree-close-btn">닫기</button>`,
+      bind: {
+        '#qt-revtree-close-btn': () => Modal.close(),
+      },
+      onOpen: () => {
+        document.querySelectorAll('.qt-rev-open').forEach((a) => {
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const rid = parseInt(a.dataset.id, 10);
+            Modal.close();
+            setTimeout(() => _openModal(rid), 100);
+          });
+        });
+      },
+    });
   }
 
   // ── Phase 4: 미리보기 + PDF 내보내기 ─────────────────────
@@ -1195,7 +1382,7 @@ const QuotesPage = (() => {
     }
   }
 
-  return { render, _openModal, _openPreview, _exportPdf };
+  return { render, _openModal, _openPreview, _exportPdf, _openRevisionTree };
 })();
 
 // 전역 노출 (app.js pages 매핑에서 참조)

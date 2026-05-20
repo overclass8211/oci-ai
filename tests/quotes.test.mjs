@@ -151,6 +151,107 @@ describe('Quotes API', () => {
     expect(Number(it.proposed_amount)).toBe(900); // 900 × 1
   });
 
+  // Phase 5-C: 다음 자동 채번 미리보기
+  it('GET /api/quotes/next-quote-no — 다음 채번 미리보기 (Q-YYYY-NNNN 패턴)', async () => {
+    const res = await api()
+      .get('/api/quotes/next-quote-no?year=2026')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.quote_no).toMatch(/^Q-2026-\d{4}$/);
+    expect(res.body.data.year).toBe(2026);
+  });
+
+  // Phase 5-B: 상태 전환 (빠른 액션)
+  it('PATCH /api/quotes/:id/status — 상태 전환 draft → sent → accepted', async () => {
+    const create = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__상태전환',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-20',
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+    const stId = create.body.id;
+    createdQuoteIds.push(stId);
+
+    // draft → sent
+    const r1 = await api()
+      .patch(`/api/quotes/${stId}/status`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'sent' });
+    expect(r1.status).toBe(200);
+    expect(r1.body.data.status).toBe('sent');
+
+    // sent → accepted
+    const r2 = await api()
+      .patch(`/api/quotes/${stId}/status`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'accepted' });
+    expect(r2.status).toBe(200);
+    expect(r2.body.data.status).toBe('accepted');
+
+    // 잘못된 상태값 → 400
+    const r3 = await api()
+      .patch(`/api/quotes/${stId}/status`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'INVALID_STATE' });
+    expect(r3.status).toBe(400);
+  });
+
+  // Phase 5-A: 리비전 트리 조회
+  it('GET /api/quotes/:id/revisions — 그룹 전체 리비전 반환 (원본 + 복사본)', async () => {
+    // 원본 생성
+    const orig = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__리비전_원본',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-20',
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+    const origId = orig.body.id;
+    createdQuoteIds.push(origId);
+
+    // 리비전 2번 복사
+    const dup1 = await api()
+      .post(`/api/quotes/${origId}/duplicate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({});
+    const dup1Id = dup1.body.data.id;
+    createdQuoteIds.push(dup1Id);
+
+    const dup2 = await api()
+      .post(`/api/quotes/${origId}/duplicate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({});
+    const dup2Id = dup2.body.data.id;
+    createdQuoteIds.push(dup2Id);
+
+    // 원본 기준 리비전 트리 조회 — 3건 (원본 + 2 리비전)
+    const tree = await api()
+      .get(`/api/quotes/${origId}/revisions`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(tree.status).toBe(200);
+    expect(tree.body.data.group_parent_id).toBe(origId);
+    expect(tree.body.data.current_id).toBe(origId);
+    expect(tree.body.data.revisions.length).toBe(3);
+    // revision_no ASC 정렬
+    const revNos = tree.body.data.revisions.map((r) => Number(r.revision_no));
+    expect(revNos[0]).toBeLessThanOrEqual(revNos[1]);
+    expect(revNos[1]).toBeLessThanOrEqual(revNos[2]);
+
+    // 복사본 기준으로 조회해도 동일한 그룹 반환
+    const tree2 = await api()
+      .get(`/api/quotes/${dup2Id}/revisions`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(tree2.body.data.group_parent_id).toBe(origId);
+    expect(tree2.body.data.current_id).toBe(dup2Id);
+    expect(tree2.body.data.revisions.length).toBe(3);
+  });
+
   // Phase 4 PDF 개선: 공급사/고객사/조건사항 필드 저장/조회
   it('POST + GET /api/quotes — 공급사/고객사/조건사항 7개 필드 저장 + 조회', async () => {
     const payload = {

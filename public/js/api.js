@@ -218,6 +218,10 @@ const API = {
     update:    (id, body)  => API.put(`/quotes/${id}`, body),
     delete:    (id)        => API.del(`/quotes/${id}`),
     duplicate: (id)        => API.post(`/quotes/${id}/duplicate`, {}),
+    // Phase 5
+    nextQuoteNo: (year)    => API.get(`/quotes/next-quote-no${year ? '?year=' + year : ''}`),
+    revisions:   (id)      => API.get(`/quotes/${id}/revisions`),
+    setStatus:   (id, status) => API.patch(`/quotes/${id}/status`, { status }),
   },
 
   // 게시판

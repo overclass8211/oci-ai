@@ -203,6 +203,127 @@ test('🐛 회귀 — 견적서 모달: 취소 버튼으로는 정상 닫힘', a
   await expect(page.locator('#modal-overlay')).not.toHaveClass(/active/);
 });
 
+// ── Phase 5: 리비전 트리 + 상태 워크플로우 + 견적번호 콤보 ──
+test('Phase 5-C — 견적번호 콤보박스: 자동/수동 토글 + 미리보기 표시', async ({ page }) => {
+  // /api/quotes/next-quote-no mock
+  await page.route('**/api/quotes/next-quote-no**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: { quote_no: 'Q-2026-9999', year: 2026 } }),
+    });
+  });
+
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openModal(null));
+  await expect(page.locator('#qt-f-quote_no_mode')).toBeVisible({ timeout: 5000 });
+
+  // 기본 auto 모드 — 미리보기 채워짐
+  await expect(page.locator('#qt-f-quote_no_mode')).toHaveValue('auto');
+  await expect(page.locator('#qt-f-quote_no')).toHaveValue('Q-2026-9999');
+  await expect(page.locator('#qt-f-quote_no')).toHaveAttribute('readonly', '');
+
+  // 수동 모드 전환 — input 입력 가능 + 값 비워짐
+  await page.locator('#qt-f-quote_no_mode').selectOption('manual');
+  await expect(page.locator('#qt-f-quote_no')).not.toHaveAttribute('readonly', '');
+  await page.locator('#qt-f-quote_no').fill('CUSTOM-001');
+  await expect(page.locator('#qt-f-quote_no')).toHaveValue('CUSTOM-001');
+
+  await page.unroute('**/api/quotes/next-quote-no**');
+});
+
+test('Phase 5-A — 리비전 트리 모달: 그룹 전체 리비전 표시', async ({ page }) => {
+  // 1) 페이지 먼저 로딩 (실제 서버 데이터 사용)
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  // 2) 리비전 endpoint 만 mock — 특정 ID 만 매칭
+  await page.route('**/api/quotes/999111/revisions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: {
+          group_parent_id: 999111,
+          current_id: 999111,
+          revisions: [
+            { id: 999111, quote_no: 'Q-2026-0001', name: '원본', customer_name: 'X', quote_date: '2026-05-01', status: 'sent', parent_quote_id: null, revision_no: 1, total_amount: 1000 },
+            { id: 999112, quote_no: 'Q-2026-0002', name: '원본 (Rev 2)', customer_name: 'X', quote_date: '2026-05-05', status: 'draft', parent_quote_id: 999111, revision_no: 2, total_amount: 1200 },
+            { id: 999113, quote_no: 'Q-2026-0003', name: '원본 (Rev 3)', customer_name: 'X', quote_date: '2026-05-10', status: 'draft', parent_quote_id: 999111, revision_no: 3, total_amount: 1500 },
+          ],
+        },
+      }),
+    });
+  });
+
+  // 3) 직접 _openRevisionTree 호출
+  await page.evaluate(() => window.QuotesPage._openRevisionTree(999111));
+
+  // 4) 트리 모달 표시 + 3개 리비전 + 원본/최신 마커 (모달 박스 내부로 스코프 한정)
+  const modal = page.locator('#modal-box');
+  await expect(modal.locator('text=리비전 트리')).toBeVisible({ timeout: 5000 });
+  await expect(modal.locator('text=Q-2026-0001')).toBeVisible();
+  await expect(modal.locator('text=Q-2026-0002')).toBeVisible();
+  await expect(modal.locator('text=Q-2026-0003')).toBeVisible();
+  await expect(modal.locator('text=총 3건')).toBeVisible();
+  // 원본/최신 마커 검증 — 표 안의 셀
+  await expect(modal.locator('text=현재')).toBeVisible();
+  await expect(modal.locator('text=최신')).toBeVisible();
+
+  await page.unroute('**/api/quotes/999111/revisions');
+});
+
+test('Phase 5-B — 상태 워크플로우: draft → 📤 발송 버튼 표시', async ({ page }) => {
+  // /api/quotes 목록 mock — draft 상태
+  await page.route('**/api/quotes**', async (route) => {
+    if (/\/api\/quotes\?/.test(route.request().url())) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [
+            {
+              id: 222,
+              quote_no: 'Q-2026-0222',
+              name: '__E2E_STATUS__견적',
+              customer_name: '__E2E_STATUS__',
+              quote_date: '2026-05-20',
+              vat_included: 0,
+              total_amount: 1000,
+              status: 'draft',
+              parent_quote_id: null,
+              revision_no: 1,
+            },
+          ],
+          meta: { total: 1, page: 1, limit: 100 },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+  await page.evaluate(() => window.QuotesPage._reload ? null : null);
+  // 강제 reload — QuotesPage 모듈이 자체 _reload 를 호출하지만 mock 이 늦게 등록될 수 있음
+  await page.waitForTimeout(500);
+
+  // 목록에 발송 버튼 표시
+  const sendBtn = page.locator('.qt-status-btn[data-status="sent"]').first();
+  await expect(sendBtn).toBeVisible({ timeout: 5000 });
+  await expect(sendBtn).toContainText('발송');
+
+  await page.unroute('**/api/quotes**');
+});
+
 // ── Phase 4 PDF 개선: 공급사/고객사 + 조건사항 + 안내문 ────
 test('PDF 개선 — 미리보기에 공급사/고객사 박스 + 안내문 + 조건사항 표시', async ({ page }) => {
   await page.route('**/api/quotes/**', async (route) => {

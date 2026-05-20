@@ -223,6 +223,23 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── GET /next-quote-no — 다음 자동 채번 미리보기 (Phase 5-C) ──
+// ⚠️ 반드시 /:id 보다 먼저 선언 — Express 라우트 매칭 순서
+router.get('/next-quote-no', async (req, res) => {
+  try {
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const conn = await pool.getConnection();
+    try {
+      const next = await generateQuoteNo(conn, year);
+      res.json({ success: true, data: { quote_no: next, year } });
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── GET /:id — 단건 + 품목 ──────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
@@ -468,6 +485,63 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: '견적서를 찾을 수 없음' });
     }
     res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── GET /:id/revisions — 같은 그룹의 리비전 트리 (Phase 5-A) ──
+// parent_quote_id 가 같거나, id 자체가 parent 인 견적들을 revision_no ASC 로 반환
+router.get('/:id/revisions', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    // 1) 견적 자체 + parent_quote_id 조회
+    const [[base]] = await pool.query(
+      `SELECT id, parent_quote_id, quote_no FROM quotes WHERE id = ?`,
+      [id]
+    );
+    if (!base) return res.status(404).json({ success: false, error: '견적을 찾을 수 없음' });
+    const groupParentId = base.parent_quote_id || base.id;
+    // 2) 그룹 전체 (root + 모든 children) revision_no ASC + created_at ASC
+    const [rows] = await pool.query(
+      `SELECT id, quote_no, name, customer_name, quote_date, status,
+              parent_quote_id, revision_no, total_amount, created_at, updated_at
+         FROM quotes
+        WHERE id = ? OR parent_quote_id = ?
+        ORDER BY revision_no ASC, created_at ASC`,
+      [groupParentId, groupParentId]
+    );
+    res.json({
+      success: true,
+      data: {
+        group_parent_id: groupParentId,
+        revisions: rows,
+        current_id: id,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── PATCH /:id/status — 상태 전환 (Phase 5-B 빠른 액션) ─────
+// 워크플로우: draft → sent / sent → accepted | rejected / 기타 → 자유
+// 강제 안 함 (사용자 자율) — 다만 invalid status 만 400 처리
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const status = String(req.body?.status || '').trim();
+    const allowed = ['draft', 'sent', 'accepted', 'rejected'];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ success: false, error: '유효하지 않은 상태값' });
+    }
+    const [result] = await pool.query(`UPDATE quotes SET status = ? WHERE id = ?`, [status, id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, error: '견적을 찾을 수 없음' });
+    }
+    res.json({ success: true, data: { id, status } });
   } catch (err) {
     handleError(res, err);
   }
