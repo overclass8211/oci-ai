@@ -8633,6 +8633,16 @@ body,
   box-shadow: 0 0 0 2px rgba(230, 51, 41, 0.1);
 }
 
+/* ─── 내보내기 드롭다운 ─────────────────────────────── */
+.rb-export-item:hover {
+  background: var(--surface-2);
+  color: var(--oci-red);
+}
+[data-theme="dark"] .rb-export-menu {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+
 .rb-preview {
   flex: 1;
   display: flex;

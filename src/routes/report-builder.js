@@ -40,6 +40,7 @@ const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
+const { sendExport, normalizeFormat } = require('../utils/exportHelper');
 
 // 라우트 전체에 feature flag 적용 — crm.report_builder OFF 시 모든 엔드포인트 차단
 router.use(requireFeature('crm.report_builder'));
@@ -567,120 +568,121 @@ router.get('/values', async (req, res) => {
   }
 });
 
+// ── 공통 헬퍼: config 검증 + SQL 빌드 + 실행 ─────────────────
+// query/export 모두 동일한 검증/스코프/SQL 로직 사용
+// 반환: { ok: true, dsKey, ds, rows, columns, filters, measures, data } 또는
+//      { ok: false, status, error }
+async function _buildAndRunQuery(config, userId) {
+  const dsKey = config.datasource || 'leads';
+  const ds = getDatasource(dsKey);
+  if (!ds) {
+    return { ok: false, status: 400, error: `지원하지 않는 데이터 소스: ${dsKey}` };
+  }
+
+  // datasource 별 whitelist 필터링 — 다른 소스 키가 섞여도 자동 drop
+  const rows = Array.isArray(config.rows) ? config.rows.filter(k => isDimensionOf(dsKey, k)) : [];
+  const columns = Array.isArray(config.columns)
+    ? config.columns.filter(k => isDimensionOf(dsKey, k))
+    : [];
+  const filters = Array.isArray(config.filters) ? config.filters : [];
+  const measures = Array.isArray(config.measures)
+    ? config.measures.filter(k => isMeasureOf(dsKey, k))
+    : [];
+
+  if (rows.length === 0 && measures.length === 0) {
+    return { ok: false, status: 400, error: '최소 1개의 차원(행) 또는 지표가 필요합니다' };
+  }
+  if (rows.length > 1) {
+    return { ok: false, status: 400, error: '행(Row)은 1개만 지원됩니다 (Phase 1)' };
+  }
+  if (columns.length > 1) {
+    return { ok: false, status: 400, error: '열(Column)은 1개만 지원됩니다 (Phase 1)' };
+  }
+  if (measures.length > 3) {
+    return { ok: false, status: 400, error: '지표는 최대 3개까지 지원됩니다' };
+  }
+
+  // ── SELECT 절 ────────────────────────────────────────
+  const selectParts = [];
+  const groupParts = [];
+  if (rows[0]) {
+    selectParts.push(`${fieldOf(dsKey, rows[0]).sql} AS row_key`);
+    groupParts.push(fieldOf(dsKey, rows[0]).sql);
+  }
+  if (columns[0]) {
+    selectParts.push(`${fieldOf(dsKey, columns[0]).sql} AS col_key`);
+    groupParts.push(fieldOf(dsKey, columns[0]).sql);
+  }
+  for (const m of measures) {
+    selectParts.push(`${fieldOf(dsKey, m).sql} AS ${m}`);
+  }
+
+  // ── FROM + JOIN (다중 join 키 지원) ──────────────────
+  const usedJoins = new Set();
+  [...rows, ...columns, ...measures].forEach(k => {
+    const jn = fieldOf(dsKey, k)?.join;
+    if (jn) usedJoins.add(jn);
+  });
+  filters.forEach(f => {
+    const jn = fieldOf(dsKey, f?.field)?.join;
+    if (jn) usedJoins.add(jn);
+  });
+  let fromClause = `FROM ${ds.table}`;
+  for (const jn of usedJoins) {
+    if (ds.joins?.[jn]) fromClause += ' ' + ds.joins[jn];
+  }
+
+  // ── WHERE 절 (권한 스코프 + 사용자 필터) ──────────────
+  const whereParts = [];
+  const params = [];
+  const scope = await getUserScope(userId);
+  if (scope.isManager && ds.scope?.manager) {
+    whereParts.push(`${ds.scope.manager} = (SELECT id FROM team_members WHERE id = ? LIMIT 1)`);
+    params.push(userId);
+  }
+  for (const f of filters) {
+    if (!f || !isDimensionOf(dsKey, f.field) || !FILTER_OPS[f.op]) continue;
+    const fSql = fieldOf(dsKey, f.field).sql;
+    const op = FILTER_OPS[f.op];
+    if (f.op === 'in' && Array.isArray(f.value)) {
+      if (f.value.length === 0) continue;
+      const placeholders = f.value.map(() => '?').join(',');
+      whereParts.push(`${fSql} IN (${placeholders})`);
+      params.push(...f.value);
+    } else if (f.op === 'like') {
+      whereParts.push(`${fSql} ${op} ?`);
+      params.push(`%${f.value}%`);
+    } else {
+      whereParts.push(`${fSql} ${op} ?`);
+      params.push(f.value);
+    }
+  }
+  const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+  const groupSql = groupParts.length ? `GROUP BY ${groupParts.join(', ')}` : '';
+  const orderSql = groupParts.length ? `ORDER BY ${groupParts[0]}` : '';
+
+  const sql = `
+    SELECT ${selectParts.join(', ')}
+    ${fromClause}
+    ${whereSql}
+    ${groupSql}
+    ${orderSql}
+    LIMIT 500
+  `;
+  const [data] = await pool.query(sql, params);
+  return { ok: true, dsKey, ds, rows, columns, filters, measures, data };
+}
+
 // ── POST /query — 리포트 실행 (datasource 동적 빌드) ─────────
 router.post('/query', async (req, res) => {
   try {
     const userId = getUserId(req);
     const config = req.body || {};
-    const dsKey = config.datasource || 'leads';
-    const ds = getDatasource(dsKey);
-    if (!ds) {
-      return res.status(400).json({ success: false, error: `지원하지 않는 데이터 소스: ${dsKey}` });
+    const result = await _buildAndRunQuery(config, userId);
+    if (!result.ok) {
+      return res.status(result.status).json({ success: false, error: result.error });
     }
-
-    // datasource 별 whitelist 필터링 — 다른 소스 키가 섞여도 자동 drop
-    const rows = Array.isArray(config.rows) ? config.rows.filter(k => isDimensionOf(dsKey, k)) : [];
-    const columns = Array.isArray(config.columns)
-      ? config.columns.filter(k => isDimensionOf(dsKey, k))
-      : [];
-    const filters = Array.isArray(config.filters) ? config.filters : [];
-    const measures = Array.isArray(config.measures)
-      ? config.measures.filter(k => isMeasureOf(dsKey, k))
-      : [];
-
-    if (rows.length === 0 && measures.length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: '최소 1개의 차원(행) 또는 지표가 필요합니다' });
-    }
-    if (rows.length > 1)
-      return res
-        .status(400)
-        .json({ success: false, error: '행(Row)은 1개만 지원됩니다 (Phase 1)' });
-    if (columns.length > 1)
-      return res
-        .status(400)
-        .json({ success: false, error: '열(Column)은 1개만 지원됩니다 (Phase 1)' });
-    if (measures.length > 3)
-      return res.status(400).json({ success: false, error: '지표는 최대 3개까지 지원됩니다' });
-
-    // ── SELECT 절 구성 ────────────────────────────────────
-    const selectParts = [];
-    const groupParts = [];
-
-    if (rows[0]) {
-      selectParts.push(`${fieldOf(dsKey, rows[0]).sql} AS row_key`);
-      groupParts.push(fieldOf(dsKey, rows[0]).sql);
-    }
-    if (columns[0]) {
-      selectParts.push(`${fieldOf(dsKey, columns[0]).sql} AS col_key`);
-      groupParts.push(fieldOf(dsKey, columns[0]).sql);
-    }
-    for (const m of measures) {
-      selectParts.push(`${fieldOf(dsKey, m).sql} AS ${m}`);
-    }
-
-    // ── FROM + JOIN (Phase 2-B-2: 다중 join 키 지원 — team, leads 등) ────
-    // 사용된 join 키를 모아서 한 번에 처리 — DATASOURCES 의 joins 매핑 활용
-    // 중복 추가 방지 위해 Set 사용
-    const usedJoins = new Set();
-    [...rows, ...columns, ...measures].forEach(k => {
-      const jn = fieldOf(dsKey, k)?.join;
-      if (jn) usedJoins.add(jn);
-    });
-    filters.forEach(f => {
-      const jn = fieldOf(dsKey, f?.field)?.join;
-      if (jn) usedJoins.add(jn);
-    });
-
-    let fromClause = `FROM ${ds.table}`;
-    for (const jn of usedJoins) {
-      if (ds.joins?.[jn]) fromClause += ' ' + ds.joins[jn];
-    }
-
-    // ── WHERE 절 ──────────────────────────────────────────
-    const whereParts = [];
-    const params = [];
-
-    // 권한 스코프 — manager 는 본인 데이터만 (데이터 소스별 scope 컬럼 사용)
-    const scope = await getUserScope(userId);
-    if (scope.isManager && ds.scope?.manager) {
-      whereParts.push(`${ds.scope.manager} = (SELECT id FROM team_members WHERE id = ? LIMIT 1)`);
-      params.push(userId);
-    }
-
-    // 사용자 정의 필터 — datasource 별 whitelist 검증
-    for (const f of filters) {
-      if (!f || !isDimensionOf(dsKey, f.field) || !FILTER_OPS[f.op]) continue;
-      const sql = fieldOf(dsKey, f.field).sql;
-      const op = FILTER_OPS[f.op];
-      if (f.op === 'in' && Array.isArray(f.value)) {
-        if (f.value.length === 0) continue;
-        const placeholders = f.value.map(() => '?').join(',');
-        whereParts.push(`${sql} IN (${placeholders})`);
-        params.push(...f.value);
-      } else if (f.op === 'like') {
-        whereParts.push(`${sql} ${op} ?`);
-        params.push(`%${f.value}%`);
-      } else {
-        whereParts.push(`${sql} ${op} ?`);
-        params.push(f.value);
-      }
-    }
-    const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
-    const groupSql = groupParts.length ? `GROUP BY ${groupParts.join(', ')}` : '';
-    const orderSql = groupParts.length ? `ORDER BY ${groupParts[0]}` : '';
-
-    const sql = `
-      SELECT ${selectParts.join(', ')}
-      ${fromClause}
-      ${whereSql}
-      ${groupSql}
-      ${orderSql}
-      LIMIT 500
-    `;
-
-    const [data] = await pool.query(sql, params);
+    const { dsKey, rows, columns, filters, measures, data } = result;
 
     // ── 차트 타입 결정 ────────────────────────────────────
     const chartType =
@@ -700,6 +702,57 @@ router.post('/query', async (req, res) => {
             label: fieldOf(dsKey, k).label,
           })),
         },
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// POST /export — 리포트 내보내기 (Excel / CSV / JSON)
+//
+// Body: config_json (저장된 리포트와 동일 구조)
+// Query: ?format=xlsx|csv|json (기본 xlsx)
+//        ?name=<filename without ext> (기본: report_YYYYMMDD)
+//
+// 권한: team_lead 이상 (autoLevel 미들웨어 자동 적용)
+// 보안: _buildAndRunQuery 헬퍼 재사용 — 동일한 whitelist + scope 검증
+// ─────────────────────────────────────────────────────────────
+router.post('/export', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const config = req.body || {};
+    const format = normalizeFormat(req.query.format);
+    const result = await _buildAndRunQuery(config, userId);
+    if (!result.ok) {
+      return res.status(result.status).json({ success: false, error: result.error });
+    }
+    const { dsKey, rows, columns, measures, data } = result;
+
+    // 컬럼 정의 — exportHelper.sendExport 의 columns 형식: [{ key, label }]
+    const exportColumns = [];
+    if (rows[0]) exportColumns.push({ key: 'row_key', label: fieldOf(dsKey, rows[0]).label });
+    if (columns[0]) exportColumns.push({ key: 'col_key', label: fieldOf(dsKey, columns[0]).label });
+    for (const m of measures) {
+      exportColumns.push({ key: m, label: fieldOf(dsKey, m).label });
+    }
+
+    // 파일명 — 사용자 지정 또는 기본 (report_YYYYMMDD)
+    const yyyymmdd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const rawName = String(req.query.name || '').trim() || `report_${yyyymmdd}`;
+    const filename = rawName;
+    const sheetName = String(req.query.name || '리포트').slice(0, 30); // Excel sheet 이름 30자 제한
+
+    sendExport(res, {
+      columns: exportColumns,
+      rows: data,
+      sheetName,
+      filename,
+      format,
+      meta: {
+        datasource: getDatasource(dsKey)?.label || dsKey,
+        rowCount: data.length,
       },
     });
   } catch (err) {

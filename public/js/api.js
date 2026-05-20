@@ -285,6 +285,40 @@ const API = {
     save:       (data)          => { API._checkFeature('crm.report_builder'); return API.post('/report-builder/saved', data); },
     update:     (id, data)      => { API._checkFeature('crm.report_builder'); return API.put(`/report-builder/saved/${id}`, data); },
     delete:     (id)            => { API._checkFeature('crm.report_builder'); return API.del(`/report-builder/saved/${id}`); },
+    // 내보내기 (Excel/CSV/JSON) — config_json POST + Blob 다운로드
+    // PDF 는 클라이언트에서 jspdf+autotable 로 별도 생성
+    export:     async (config, format = 'xlsx', name = '') => {
+      API._checkFeature('crm.report_builder');
+      const token = localStorage.getItem('oci_token') || '';
+      const qs = new URLSearchParams({ format, name }).toString();
+      const resp = await fetch(`${API.base}/report-builder/export?${qs}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(config),
+      });
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error || `내보내기 실패 (${resp.status})`);
+      }
+      // Content-Disposition 에서 파일명 추출
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const match = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="([^"]+)"/i);
+      const filename = match ? decodeURIComponent(match[1]) : `${name || 'report'}.${format}`;
+      const blob = await resp.blob();
+      // 다운로드 트리거
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return { filename };
+    },
   },
 
   // ── Gmail (G1=gmail.read / G2=gmail.send / G3=gmail.sync) ──

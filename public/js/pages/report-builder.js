@@ -85,6 +85,14 @@ const ReportBuilderPage = {
           </div>
           <div class="rb-toolbar-right">
             <button class="btn btn-ghost btn-sm" id="rb-load-btn" title="저장된 리포트 목록 토글">📂 내 리포트 <span id="rb-saved-count-badge" style="display:none"></span></button>
+            <!-- ⤓ 내보내기 드롭다운 — Excel / PDF -->
+            <div class="rb-export-wrap" style="position:relative;display:inline-block">
+              <button class="btn btn-ghost btn-sm" id="rb-export-btn" title="현재 리포트를 파일로 내보내기">⤓ 내보내기 ▾</button>
+              <div class="rb-export-menu" id="rb-export-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:1100;min-width:160px;overflow:hidden">
+                <button class="rb-export-item" data-export-format="xlsx" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--text-1);text-align:left">📊 Excel (.xlsx)</button>
+                <button class="rb-export-item" data-export-format="pdf" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--text-1);text-align:left;border-top:1px solid var(--border)">📄 PDF (차트 + 표)</button>
+              </div>
+            </div>
             <button class="btn btn-ghost btn-sm" id="rb-reset-btn">🔄 초기화</button>
             <button class="btn btn-primary btn-sm" id="rb-save-btn">💾 저장</button>
           </div>
@@ -417,6 +425,27 @@ const ReportBuilderPage = {
     // Phase 2-A: 모달 → 사이드바 패널 토글로 변경
     document.getElementById('rb-load-btn').onclick = () => this._toggleSavedPanel();
     document.getElementById('rb-reset-btn').onclick = () => this._reset();
+
+    // ⤓ 내보내기 드롭다운 (Excel / PDF)
+    const exportBtn = document.getElementById('rb-export-btn');
+    const exportMenu = document.getElementById('rb-export-menu');
+    if (exportBtn && exportMenu) {
+      exportBtn.onclick = (e) => {
+        e.stopPropagation();
+        exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
+      };
+      exportMenu.querySelectorAll('.rb-export-item').forEach(item => {
+        item.onclick = (e) => {
+          e.stopPropagation();
+          exportMenu.style.display = 'none';
+          const format = item.dataset.exportFormat;
+          if (format === 'pdf') this._exportPdf();
+          else this._exportData(format);
+        };
+      });
+      // 바깥 클릭 시 닫기
+      document.addEventListener('click', () => { exportMenu.style.display = 'none'; });
+    }
 
     // Phase 2-A: 사이드바 닫기 버튼
     document.getElementById('rb-saved-close')?.addEventListener('click', () => this._toggleSavedPanel(false));
@@ -1322,6 +1351,129 @@ const ReportBuilderPage = {
     this._renderDropZones();
     this._clearChart();
     document.getElementById('rb-data-table').innerHTML = '';
+  },
+
+  // ─── 내보내기: Excel ────────────────────────────────────
+  // POST /report-builder/export?format=xlsx → blob 다운로드 (API 클라이언트가 처리)
+  async _exportData(format) {
+    const cfg = this._state.config;
+    if (cfg.rows.length === 0 && cfg.measures.length === 0) {
+      Toast.warn('내보낼 내용이 없습니다 — 행 또는 지표를 추가하세요');
+      return;
+    }
+    try {
+      // 파일명 — 편집 중인 저장 리포트 이름 또는 기본
+      const savedName = this._state.savedReports.find(r => r.id === this._state.currentId)?.name;
+      const name = savedName || `report_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+      Toast.info?.(`${format.toUpperCase()} 다운로드 시작...`);
+      const r = await API.reportBuilder.export(cfg, format, name);
+      Toast.success(`"${r.filename}" 다운로드 완료`);
+    } catch (err) {
+      Toast.error('내보내기 실패: ' + (err.message || ''));
+    }
+  },
+
+  // ─── 내보내기: PDF (jspdf + autotable) ──────────────────
+  // 차트 이미지(Base64) + 데이터 테이블 + 메타 → 1페이지 PDF
+  // 동기 작업 (Chart.js toBase64Image + jsPDF) — async 불필요
+  _exportPdf() {
+    const cfg = this._state.config;
+    if (cfg.rows.length === 0 && cfg.measures.length === 0) {
+      Toast.warn('내보낼 내용이 없습니다 — 행 또는 지표를 추가하세요');
+      return;
+    }
+    if (!this._state.queryResult || !this._state.chart) {
+      Toast.warn('먼저 차트가 표시된 상태여야 합니다');
+      return;
+    }
+    // jsPDF 가 전역에 있는지 확인 (index.html 에서 CDN 로드)
+    const jsPDFCtor = window.jspdf?.jsPDF || window.jsPDF;
+    if (!jsPDFCtor) {
+      Toast.error('PDF 라이브러리가 로드되지 않았습니다. 페이지 새로고침 후 다시 시도하세요.');
+      return;
+    }
+
+    try {
+      Toast.info?.('PDF 생성 중...');
+      const doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();   // 297mm (landscape)
+      const pageHeight = doc.internal.pageSize.getHeight(); // 210mm
+
+      // ── 헤더 (제목 + 메타) ───────────────────────────────
+      const savedName = this._state.savedReports.find(r => r.id === this._state.currentId)?.name;
+      const reportName = savedName || `리포트 ${new Date().toLocaleDateString('ko-KR')}`;
+      const dsLabel = (this._state.fields?.datasources || []).find(d => d.key === cfg.datasource)?.label || cfg.datasource;
+      const generatedAt = new Date().toLocaleString('ko-KR');
+
+      doc.setFontSize(16);
+      doc.setTextColor(230, 51, 41); // OCI Red
+      doc.text(`OCI CRM 리포트 — ${reportName}`, 14, 15);
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`데이터 소스: ${dsLabel}    |    생성: ${generatedAt}`, 14, 22);
+
+      // ── 차트 이미지 ──────────────────────────────────────
+      // Chart.js 의 toBase64Image() — 차트 캔버스를 PNG Base64 로
+      const chartImg = this._state.chart.toBase64Image();
+      const chartW = 180;
+      const chartH = 90;
+      const chartX = (pageWidth - chartW) / 2;
+      doc.addImage(chartImg, 'PNG', chartX, 28, chartW, chartH);
+
+      // ── 데이터 테이블 (jspdf-autotable) ──────────────────
+      const tableY = 28 + chartH + 8;
+      if (typeof doc.autoTable === 'function') {
+        const { rows: data } = this._state.queryResult;
+        const fieldsMap = this._fieldsByKey();
+        // 컬럼 헤더 (한국어 라벨)
+        const head = [[]];
+        if (cfg.rows[0]) head[0].push(fieldsMap[cfg.rows[0]]?.label || cfg.rows[0]);
+        if (cfg.columns[0]) head[0].push(fieldsMap[cfg.columns[0]]?.label || cfg.columns[0]);
+        cfg.measures.forEach(m => head[0].push(fieldsMap[m]?.label || m));
+
+        // 행 데이터 (최대 30행 — PDF 1페이지 공간 고려)
+        const body = data.slice(0, 30).map(r => {
+          const row = [];
+          if (cfg.rows[0]) row.push(String(r.row_key ?? ''));
+          if (cfg.columns[0]) row.push(String(r.col_key ?? ''));
+          cfg.measures.forEach(m => {
+            const v = Number(r[m] || 0);
+            row.push(v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }));
+          });
+          return row;
+        });
+
+        doc.autoTable({
+          startY: tableY,
+          head,
+          body,
+          theme: 'striped',
+          styles: { fontSize: 9, halign: 'center' },
+          headStyles: { fillColor: [230, 51, 41], textColor: 255 },
+          margin: { left: 14, right: 14 },
+        });
+
+        if (data.length > 30) {
+          const finalY = doc.lastAutoTable?.finalY || tableY;
+          doc.setFontSize(9);
+          doc.setTextColor(120);
+          doc.text(`...총 ${data.length}건 중 30건 표시 (전체 데이터는 Excel 로 내보내기)`, 14, finalY + 6);
+        }
+      }
+
+      // ── 푸터 ─────────────────────────────────────────────
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`OCI CRM Report Builder · ${generatedAt}`, 14, pageHeight - 8);
+
+      // 다운로드
+      const filename = `${reportName.replace(/[\\/:*?"<>|]/g, '_')}.pdf`;
+      doc.save(filename);
+      Toast.success(`"${filename}" 다운로드 완료`);
+    } catch (err) {
+      Toast.error('PDF 생성 실패: ' + (err.message || ''));
+      console.error('[PDF Export]', err);
+    }
   },
 };
 
