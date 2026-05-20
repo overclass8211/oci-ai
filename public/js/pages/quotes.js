@@ -24,6 +24,32 @@ const QuotesPage = (() => {
     remark: 'Remark',
   };
 
+  // 컬럼 메타 — 데이터 타입은 고정, 라벨만 사용자 변경 가능
+  const COLUMN_META = {
+    item_name: { type: '텍스트' },
+    spec: { type: '텍스트' },
+    unit_price: { type: '통화 (KRW)' },
+    discount_pct: { type: '백분율 0~100' },
+    supply_price: { type: '통화 (자동 계산)' },
+    quantity: { type: '숫자' },
+    proposed_amount: { type: '통화 (자동 계산)' },
+    remark: { type: '텍스트' },
+  };
+  // 그리드 th 인덱스 → 필드 매핑 ([0]drag, [1]idx, ..., [10]delete)
+  const TH_FIELD_MAP = [
+    '',
+    '',
+    'item_name',
+    'spec',
+    'unit_price',
+    'discount_pct',
+    'supply_price',
+    'quantity',
+    'proposed_amount',
+    'remark',
+    '',
+  ];
+
   // ── 유틸 ─────────────────────────────────────────────────
   function _fmtKRW(n) {
     const v = Number(n) || 0;
@@ -272,6 +298,8 @@ const QuotesPage = (() => {
         <button class="btn btn-ghost" id="qt-cancel-btn">취소</button>
         <button class="btn btn-primary" id="qt-save-btn">💾 저장</button>
       `,
+      // 🛡 외부 클릭으로 닫히지 않음 — 폼 데이터 보호 (× 버튼/취소 버튼만 허용)
+      disableOverlayClose: true,
       bind: {
         '#qt-cancel-btn': () => {
           _cleanupInstances();
@@ -282,6 +310,11 @@ const QuotesPage = (() => {
       onOpen: () => {
         _bindModalEvents();
         _attachLeadCombobox(e.lead_id || null);
+        // Phase 3-B: 편집 모드 진입 시 lead 정보 표시
+        if (e.lead_id) {
+          const linkedLead = _leadsCache.find((l) => String(l.id) === String(e.lead_id));
+          if (linkedLead) _showLeadInfo(linkedLead);
+        }
         _renderItems();
         _recalcTotals();
       },
@@ -340,6 +373,17 @@ const QuotesPage = (() => {
               value="${esc(_leadInitialText(e.lead_id))}"
               placeholder="🔍 고객사 또는 프로젝트명 1글자 이상 입력 → 자동완성 → 선택 시 견적명·고객명 채움">
             <input type="hidden" id="qt-f-lead_id" value="${e.lead_id || ''}">
+            <input type="hidden" id="qt-f-customer_id" value="${e.customer_id || ''}">
+            <!-- 선택된 lead 정보 패널 (편집 시 / 선택 시 표시) -->
+            <div id="qt-lead-info" style="display:none;margin-top:6px;padding:8px 12px;background:#f0f7ff;border:1px solid #d0e3ff;border-radius:4px;font-size:12px;color:var(--text-2)">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <div style="display:flex;gap:16px;flex-wrap:wrap">
+                  <span id="qt-lead-info-stage">📊 단계: <strong>-</strong></span>
+                  <span id="qt-lead-info-amount">💰 예상금액: <strong>₩0</strong></span>
+                </div>
+                <button class="btn btn-ghost btn-sm" id="qt-lead-clear-btn" type="button" style="color:#d93025;flex-shrink:0">연결 해제</button>
+              </div>
+            </div>
           </div>
           <div class="form-row">
             <label class="form-label">단가구분</label>
@@ -361,8 +405,12 @@ const QuotesPage = (() => {
         <!-- 품목 그리드 -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 6px">
           <h4 style="margin:0;font-size:14px;color:var(--text-2)">📦 품목 목록 <span style="color:var(--text-3);font-weight:400;font-size:12px">— 드래그 핸들(⋮⋮)로 순서 변경</span></h4>
-          <button class="btn btn-ghost btn-sm" id="qt-add-item-btn" type="button">+ 행 추가</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" id="qt-col-edit-btn" type="button" title="컬럼 라벨 편집 — 데이터 타입은 고정">✏️ 컬럼 라벨</button>
+            <button class="btn btn-ghost btn-sm" id="qt-add-item-btn" type="button">+ 행 추가</button>
+          </div>
         </div>
+        ${_renderColumnEditPanel()}
         <div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;background:#fff">
           <table class="data-table" id="qt-items-table" style="margin:0">
             <thead>
@@ -477,6 +525,113 @@ const QuotesPage = (() => {
     });
   }
 
+  // ── Phase 3-A: 컬럼 라벨 편집 패널 ───────────────────────
+  // 사용자가 그리드 컬럼 라벨을 견적서마다 자유롭게 변경 가능
+  // (데이터 타입은 고정 — varchar/number 등 비즈니스 안정성)
+  function _renderColumnEditPanel() {
+    const labels = _columnLabels || { ...DEFAULT_COLUMNS };
+    return `
+      <div id="qt-col-edit-panel" style="display:none;border:1px solid #d0e3ff;background:#f0f7ff;border-radius:6px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <strong style="font-size:13px">📐 컬럼 라벨 편집 — 데이터 타입은 고정</strong>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" id="qt-col-reset-btn" type="button">기본값 복원</button>
+            <button class="btn btn-ghost btn-sm" id="qt-col-cancel-btn" type="button">닫기</button>
+            <button class="btn btn-primary btn-sm" id="qt-col-apply-btn" type="button">적용</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          ${Object.entries(COLUMN_META)
+            .map(
+              ([key, meta]) => `
+            <div>
+              <label style="display:block;font-size:11px;color:var(--text-3);margin-bottom:2px">${esc(meta.type)}</label>
+              <input class="form-input qt-col-input" data-col="${key}" value="${esc(labels[key] || DEFAULT_COLUMNS[key])}" style="padding:4px 6px;font-size:12px" maxlength="30">
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function _toggleColumnPanel(forceState) {
+    const panel = document.getElementById('qt-col-edit-panel');
+    if (!panel) return;
+    const next = forceState === undefined ? panel.style.display === 'none' : forceState;
+    panel.style.display = next ? 'block' : 'none';
+  }
+
+  function _resetColumnLabelsInputs() {
+    document.querySelectorAll('.qt-col-input').forEach((inp) => {
+      inp.value = DEFAULT_COLUMNS[inp.dataset.col] || '';
+    });
+  }
+
+  function _applyColumnLabels() {
+    const newLabels = {};
+    document.querySelectorAll('.qt-col-input').forEach((inp) => {
+      const key = inp.dataset.col;
+      newLabels[key] = (inp.value || '').trim() || DEFAULT_COLUMNS[key];
+    });
+    _columnLabels = newLabels;
+    _updateColumnHeaders();
+    _toggleColumnPanel(false);
+    Toast.success('컬럼 라벨이 변경되었습니다 (저장 시 함께 반영)');
+  }
+
+  // 그리드 thead 의 텍스트만 부분 갱신 (전체 re-render 회피)
+  function _updateColumnHeaders() {
+    const cols = _columnLabels || DEFAULT_COLUMNS;
+    const table = document.getElementById('qt-items-table');
+    if (!table) return;
+    const ths = table.querySelectorAll('thead th');
+    TH_FIELD_MAP.forEach((field, idx) => {
+      if (!field) return;
+      const th = ths[idx];
+      if (!th) return;
+      const isAuto = field === 'supply_price' || field === 'proposed_amount';
+      th.innerHTML = isAuto
+        ? `${esc(cols[field])} <span style="font-weight:400;color:var(--text-3);font-size:11px">(자동)</span>`
+        : esc(cols[field]);
+    });
+  }
+
+  // ── Phase 3-B: 영업딜 정보 표시 ──────────────────────────
+  // leads API 필드: expected_amount (원본 통화) / currency / amount_krw (KRW 환산)
+  // 표시: 원본 금액 (Fmt.amount) + 외화면 KRW 환산 보조 표시 — pipeline.js 와 동일 패턴
+  function _showLeadInfo(item) {
+    const info = document.getElementById('qt-lead-info');
+    if (!info || !item) return;
+    const stageEl = document.getElementById('qt-lead-info-stage');
+    const amountEl = document.getElementById('qt-lead-info-amount');
+    if (stageEl) stageEl.innerHTML = `📊 단계: <strong>${esc(item.stage || '-')}</strong>`;
+    if (amountEl) {
+      const cur = item.currency || 'KRW';
+      const primary = Fmt.amount(item.expected_amount, cur);
+      let html = `💰 예상금액: <strong>${esc(primary)}</strong>`;
+      if (cur !== 'KRW' && item.amount_krw) {
+        html += ` <span style="color:var(--text-3)">(≈ ${esc(Fmt.krw(item.amount_krw))})</span>`;
+      }
+      amountEl.innerHTML = html;
+    }
+    info.style.display = 'block';
+  }
+  function _hideLeadInfo() {
+    const info = document.getElementById('qt-lead-info');
+    if (info) info.style.display = 'none';
+  }
+  function _clearLead() {
+    const input = document.getElementById('qt-f-lead-input');
+    const hidden = document.getElementById('qt-f-lead_id');
+    const custHidden = document.getElementById('qt-f-customer_id');
+    if (input) input.value = '';
+    if (hidden) hidden.value = '';
+    if (custHidden) custHidden.value = '';
+    _hideLeadInfo();
+  }
+
   // ── 영업리드 Combobox ────────────────────────────────────
   // 선택 시: hidden lead_id 저장 + 견적명/고객명 자동 채움 (단, 사용자가
   // 이미 입력한 값은 덮어쓰지 않음 — 안전)
@@ -509,7 +664,10 @@ const QuotesPage = (() => {
         }`;
         const meta = [];
         if (item.stage) meta.push(esc(item.stage));
-        if (item.amount) meta.push('₩' + Number(item.amount).toLocaleString());
+        // leads API 필드: expected_amount + currency (원본) / amount_krw (KRW 환산)
+        if (item.expected_amount) {
+          meta.push(esc(Fmt.amount(item.expected_amount, item.currency || 'KRW')));
+        }
         return `
           <div class="combobox-item-content">
             <div class="combobox-item-title">💼 ${title}</div>
@@ -523,6 +681,9 @@ const QuotesPage = (() => {
         }`;
         input.value = display;
         hidden.value = item.id;
+        // Phase 3-B: customer_id 도 함께 저장 (편집/조회 시 신뢰성)
+        const custIdHidden = document.getElementById('qt-f-customer_id');
+        if (custIdHidden) custIdHidden.value = item.customer_id || '';
         // 자동 채움 — 사용자가 이미 입력한 경우는 보존
         const nameEl = document.getElementById('qt-f-name');
         const custEl = document.getElementById('qt-f-customer_name');
@@ -534,6 +695,8 @@ const QuotesPage = (() => {
         if (custEl && !custEl.value.trim() && item.customer_name) {
           custEl.value = item.customer_name;
         }
+        // Phase 3-B: lead 정보 패널 표시 (단계 + 예상금액)
+        _showLeadInfo(item);
       },
       // 🐛 fix: minChars=0 시 focus 만으로 dropdown 열렸다가 닫힘 (반짝 버그)
       //   - 빈 쿼리 시 캐시 미준비/0건 상황에서 즉시 close 됨
@@ -596,6 +759,15 @@ const QuotesPage = (() => {
     });
     // VAT 토글 즉시 반영
     document.getElementById('qt-f-vat_included')?.addEventListener('change', _recalcTotals);
+
+    // Phase 3-A: 컬럼 라벨 편집 패널 이벤트
+    document.getElementById('qt-col-edit-btn')?.addEventListener('click', () => _toggleColumnPanel());
+    document.getElementById('qt-col-cancel-btn')?.addEventListener('click', () => _toggleColumnPanel(false));
+    document.getElementById('qt-col-apply-btn')?.addEventListener('click', _applyColumnLabels);
+    document.getElementById('qt-col-reset-btn')?.addEventListener('click', _resetColumnLabelsInputs);
+
+    // Phase 3-B: lead 연결 해제 버튼
+    document.getElementById('qt-lead-clear-btn')?.addEventListener('click', _clearLead);
   }
 
   // ── 저장 ─────────────────────────────────────────────────
@@ -606,6 +778,7 @@ const QuotesPage = (() => {
     const vatIncluded = document.getElementById('qt-f-vat_included').value === '1';
     const status = document.getElementById('qt-f-status').value;
     const leadId = document.getElementById('qt-f-lead_id').value.trim();
+    const customerId = document.getElementById('qt-f-customer_id').value.trim();
     const quoteNo = document.getElementById('qt-f-quote_no').value.trim();
 
     if (!name) {
@@ -638,6 +811,8 @@ const QuotesPage = (() => {
       vat_included: vatIncluded ? 1 : 0,
       status,
       lead_id: leadId ? parseInt(leadId, 10) : null,
+      customer_id: customerId ? parseInt(customerId, 10) : null, // Phase 3-B
+      column_labels: _columnLabels || null, // Phase 3-A — 견적별 라벨 저장
       items: valid,
     };
     // 신규에서 사용자가 채번을 직접 입력한 경우만 quote_no 전송

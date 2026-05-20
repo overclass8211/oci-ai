@@ -108,6 +108,174 @@ test('Phase 2 — 영업리드 Combobox + 드래그 핸들 표시', async ({ pag
   await expect(page.locator('.qt-drag-handle')).toHaveCount(2);
 });
 
+// ── 🐛 사용자 보고 — 영업리드 예상금액이 ₩0 으로 표시 ──
+//   원인: leads API 필드는 expected_amount + currency + amount_krw 인데
+//         quotes 가 item.amount 만 보고 있어서 항상 falsy → ₩0
+//   fix : Fmt.amount(expected_amount, currency) 로 정확히 표시 +
+//         외화면 KRW 환산 보조 표시 (pipeline 패턴)
+test('🐛 회귀 — 영업리드 선택 시 예상금액이 expected_amount 로 정확히 표시', async ({
+  page,
+}) => {
+  // /api/leads* 응답을 mock — 36.6B (366억) 짜리 lead 1개
+  await page.route('**/api/leads**', async (route) => {
+    const url = route.request().url();
+    // GET /api/leads (목록만 mock — 상세는 통과)
+    if (route.request().method() === 'GET' && /\/api\/leads(\?|$)/.test(url)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [
+            {
+              id: 99001,
+              customer_id: 88001,
+              customer_name: '__E2E_AMT__고객사',
+              project_name: '__E2E_AMT__프로젝트',
+              stage: 'negotiation',
+              expected_amount: 36600000000,
+              currency: 'KRW',
+              amount_krw: 36600000000,
+            },
+          ],
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openModal(null));
+  await expect(page.locator('#qt-f-lead-input')).toBeVisible({ timeout: 5000 });
+
+  // 영업리드 input 에 1글자 입력 → dropdown 표시
+  await page.locator('#qt-f-lead-input').fill('__E2E_AMT__');
+  await page.waitForTimeout(300);
+
+  // dropdown 의 아이템 클릭으로 선택
+  const dropdownItem = page.locator('.combobox-item').first();
+  await expect(dropdownItem).toBeVisible({ timeout: 3000 });
+  await dropdownItem.click();
+
+  // lead 정보 패널 표시 + 예상금액 정확
+  await expect(page.locator('#qt-lead-info')).toBeVisible();
+  // Fmt.amount(36600000000, 'KRW') => '₩366.0억'
+  await expect(page.locator('#qt-lead-info-amount')).toContainText('366.0억');
+  // 단계도 정확히
+  await expect(page.locator('#qt-lead-info-stage')).toContainText('negotiation');
+
+  await page.unroute('**/api/leads**');
+});
+
+// ── 🐛 사용자 보고 — 모달 외부 클릭 시 즉시 닫히는 문제 ──
+//   원인: Modal.open 의 overlay.onclick 가 _tryClose 호출 (dirty 안 추적 시 즉시 닫힘)
+//   fix : Modal 에 disableOverlayClose 옵션 추가 + 견적서 모달에서 사용
+//        외부 클릭 무시 — × 버튼/취소 버튼으로만 닫음 (폼 데이터 보호)
+test('🐛 회귀 — 견적서 모달: 외부 (overlay) 클릭으로 닫히지 않음', async ({ page }) => {
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openModal(null));
+  await expect(page.locator('#qt-f-name')).toBeVisible({ timeout: 5000 });
+
+  // overlay 영역(모달 박스 바깥) 클릭 — 좌상단 (10, 10)
+  await page.locator('#modal-overlay').click({ position: { x: 10, y: 10 }, force: true });
+  // 모달이 여전히 열려있어야 함
+  await expect(page.locator('#modal-overlay')).toHaveClass(/active/);
+  await expect(page.locator('#qt-f-name')).toBeVisible();
+});
+
+test('🐛 회귀 — 견적서 모달: 취소 버튼으로는 정상 닫힘', async ({ page }) => {
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openModal(null));
+  await expect(page.locator('#qt-f-name')).toBeVisible({ timeout: 5000 });
+
+  // 취소 버튼 클릭 → 모달 닫힘
+  await page.locator('#qt-cancel-btn').click();
+  await expect(page.locator('#modal-overlay')).not.toHaveClass(/active/);
+});
+
+// ── Phase 3 ────────────────────────────────────────────────
+test('Phase 3-A — 컬럼 라벨 편집 패널 토글 + 적용 시 헤더 즉시 갱신', async ({ page }) => {
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openModal(null));
+  await expect(page.locator('#qt-f-name')).toBeVisible({ timeout: 5000 });
+
+  // 편집 버튼 + 패널 (초기 hidden)
+  const editBtn = page.locator('#qt-col-edit-btn');
+  await expect(editBtn).toBeVisible();
+  const panel = page.locator('#qt-col-edit-panel');
+  await expect(panel).toBeHidden();
+
+  // 토글 → 표시
+  await editBtn.click();
+  await expect(panel).toBeVisible();
+
+  // item_name 라벨을 "상품명" 으로 변경
+  await page.locator('.qt-col-input[data-col="item_name"]').fill('상품명');
+  await page.locator('#qt-col-apply-btn').click();
+
+  // 패널 닫힘 + 그리드 헤더에 "상품명" 표시
+  await expect(panel).toBeHidden();
+  await expect(page.locator('#qt-items-table thead')).toContainText('상품명');
+});
+
+test('Phase 3-A — 기본값 복원 버튼', async ({ page }) => {
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openModal(null));
+  await expect(page.locator('#qt-f-name')).toBeVisible({ timeout: 5000 });
+
+  await page.locator('#qt-col-edit-btn').click();
+  await expect(page.locator('#qt-col-edit-panel')).toBeVisible();
+
+  // 임의 변경 후 기본값 복원
+  const itemInput = page.locator('.qt-col-input[data-col="item_name"]');
+  await itemInput.fill('XYZ');
+  await page.locator('#qt-col-reset-btn').click();
+  await expect(itemInput).toHaveValue('품목'); // 기본값으로 복원
+});
+
+test('Phase 3-B — 영업리드 패널 + 연결 해제 버튼 (초기 hidden)', async ({ page }) => {
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openModal(null));
+  await expect(page.locator('#qt-f-name')).toBeVisible({ timeout: 5000 });
+
+  // 초기 (lead 선택 전) — info 패널 hidden
+  await expect(page.locator('#qt-lead-info')).toBeHidden();
+
+  // 연결 해제 함수 호출 → input 값 비워짐
+  await page.locator('#qt-f-lead-input').fill('test');
+  await page.evaluate(() => {
+    document.getElementById('qt-f-lead_id').value = '999';
+    document.getElementById('qt-f-customer_id').value = '888';
+  });
+  await page.evaluate(() => {
+    document.getElementById('qt-lead-info').style.display = 'block';
+  });
+
+  // 연결 해제 버튼 클릭 → 모두 비워짐
+  await page.locator('#qt-lead-clear-btn').click();
+  await expect(page.locator('#qt-f-lead-input')).toHaveValue('');
+  await expect(page.locator('#qt-lead-info')).toBeHidden();
+});
+
 // ── 🐛 사용자 보고 버그 회귀 — 공급단가 자동 계산 + 제안금액 재정의 ──
 //   공급단가 = 단가 × (1 - 할인%/100)  (할인 0% 면 단가 동일)
 //   제안금액 = 공급단가 × 수량

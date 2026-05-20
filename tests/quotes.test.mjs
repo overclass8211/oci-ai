@@ -151,6 +151,93 @@ describe('Quotes API', () => {
     expect(Number(it.proposed_amount)).toBe(900); // 900 × 1
   });
 
+  // Phase 3-A: 컬럼 라벨 커스터마이징 저장/조회
+  it('POST /api/quotes — column_labels 저장 + 조회 시 동일 반환', async () => {
+    const customLabels = {
+      item_name: '상품명',
+      spec: 'Spec',
+      unit_price: 'Unit Price',
+      discount_pct: 'Disc %',
+      supply_price: 'Net Price',
+      quantity: 'Qty',
+      proposed_amount: 'Subtotal',
+      remark: '비고',
+    };
+    const res = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__견적_컬럼라벨',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-01',
+        column_labels: customLabels,
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+    expect(res.status).toBe(200);
+    const newId = res.body.id;
+    createdQuoteIds.push(newId);
+
+    const r2 = await api().get(`/api/quotes/${newId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(r2.body.data.column_labels).toEqual(customLabels);
+  });
+
+  // Phase 3-B: customer_id 저장
+  it('POST /api/quotes — customer_id 저장 (lead 선택 시 함께 채워짐)', async () => {
+    const res = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__견적_customer_id',
+        customer_name: '__TEST__고객',
+        quote_date: '2026-05-01',
+        customer_id: 12345, // FK 없으니 임의 값
+        lead_id: 67890,
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+    expect(res.status).toBe(200);
+    const newId = res.body.id;
+    createdQuoteIds.push(newId);
+
+    const r2 = await api().get(`/api/quotes/${newId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(r2.body.data.customer_id).toBe(12345);
+    expect(r2.body.data.lead_id).toBe(67890);
+  });
+
+  // Phase 3-A: PUT 으로 column_labels 갱신
+  it('PUT /api/quotes/:id — column_labels 갱신', async () => {
+    const create = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__라벨갱신',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-01',
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+    const labelId = create.body.id;
+    createdQuoteIds.push(labelId);
+
+    // 신규는 column_labels=null
+    const r1 = await api().get(`/api/quotes/${labelId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(r1.body.data.column_labels).toBeNull();
+
+    // PUT 으로 라벨 추가
+    const newLabels = { item_name: '상품', spec: '규격' };
+    await api()
+      .put(`/api/quotes/${labelId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__라벨갱신',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-01',
+        column_labels: newLabels,
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+
+    const r2 = await api().get(`/api/quotes/${labelId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(r2.body.data.column_labels).toEqual(newLabels);
+  });
+
   it('POST /api/quotes — lead_id 저장 + 조회 시 반환', async () => {
     const res = await api()
       .post('/api/quotes')

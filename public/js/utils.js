@@ -166,17 +166,29 @@ const Modal = {
   /**
    * Modal 열기
    * @param {object} opts
-   *   title           - 제목
-   *   body            - 본문 HTML 문자열
-   *   footer          - 푸터 HTML 문자열 (버튼에 id 부여 후 bind로 연결)
-   *   width           - 최대 너비 (px). 기본값은 시스템 표준(1080)
-   *   compact         - true면 width 인자를 그대로 사용 (확인 다이얼로그·짧은 알림용)
-   *   bind            - { '#btn-id': handler, '[data-x]': handler } CSP-safe 이벤트 바인딩
-   *   onOpen          - (box) => {} 추가 초기화 콜백
-   *   confirmOnClose  - 사용자가 입력 중일 때 바깥 클릭/× 로 닫으면 컨펌 표시 (기본 true)
-   *                     확인 다이얼로그·알림 모달은 false 로 옵트아웃
+   *   title                 - 제목
+   *   body                  - 본문 HTML 문자열
+   *   footer                - 푸터 HTML 문자열 (버튼에 id 부여 후 bind로 연결)
+   *   width                 - 최대 너비 (px). 기본값은 시스템 표준(1080)
+   *   compact               - true면 width 인자를 그대로 사용 (확인 다이얼로그·짧은 알림용)
+   *   bind                  - { '#btn-id': handler, '[data-x]': handler } CSP-safe 이벤트 바인딩
+   *   onOpen                - (box) => {} 추가 초기화 콜백
+   *   confirmOnClose        - 사용자가 입력 중일 때 바깥 클릭/× 로 닫으면 컨펌 표시 (기본 true)
+   *                            확인 다이얼로그·알림 모달은 false 로 옵트아웃
+   *   disableOverlayClose   - true 시 바깥 영역 클릭으로 닫히지 않음 (× 버튼/취소 버튼만 허용)
+   *                            폼 데이터가 많은 모달의 실수 닫힘 방지 (기본 false)
    */
-  open({ title, body, footer, width, compact = false, bind = {}, onOpen, confirmOnClose = true }) {
+  open({
+    title,
+    body,
+    footer,
+    width,
+    compact = false,
+    bind = {},
+    onOpen,
+    confirmOnClose = true,
+    disableOverlayClose = false,
+  }) {
     const overlay = document.getElementById('modal-overlay');
     const box = document.getElementById('modal-box');
     // compact=true 면 인자 width 우선, 아니면 시스템 표준 강제
@@ -205,8 +217,14 @@ const Modal = {
       box.querySelectorAll(sel).forEach(el => el.addEventListener('click', fn));
     }
     overlay.classList.add('active');
-    // 바깥 영역 클릭 — dirty 시 컨펌, 아니면 즉시 닫힘
-    overlay.onclick = (e) => { if (e.target === overlay) Modal._tryClose(); };
+    // 바깥 영역 클릭 — 옵션에 따라 동작
+    //   disableOverlayClose=true  → 무시 (× 버튼/취소 버튼만 허용)
+    //   기본                       → dirty 시 컨펌, 아니면 즉시 닫힘
+    overlay.onclick = (e) => {
+      if (e.target !== overlay) return;
+      if (disableOverlayClose) return;
+      Modal._tryClose();
+    };
     if (onOpen) onOpen(box);
   },
   /**
