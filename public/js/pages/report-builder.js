@@ -28,6 +28,10 @@ const ReportBuilderPage = {
     currentId: null,                    // 현재 편집 중인 저장 리포트 ID
     chart: null,                        // Chart.js 인스턴스
     queryResult: null,                  // 마지막 쿼리 결과
+    // Phase 2-A: 사이드바 패널 상태
+    savedPanelOpen: false,              // 우측 저장 리포트 패널 열림 여부
+    savedSearchQuery: '',               // 검색어 (이름/설명 필터)
+    _searchDebounce: null,              // 검색 디바운스 타이머
   },
 
   // ─── 진입점 ────────────────────────────────────────────
@@ -47,7 +51,12 @@ const ReportBuilderPage = {
       this._state.savedReports = savedRes.data || [];
       this._renderFieldsPanel();
       this._renderSavedList();
+      this._updateSavedCountBadge();
       this._bindEvents();
+      // Phase 2-A: 저장된 리포트 있으면 자동 펼침 (사용자 결정)
+      if (this._state.savedReports.length > 0) {
+        this._toggleSavedPanel(true);
+      }
       // 초기 미리보기 — 기본 차원 1개 + count
       this._state.config.rows = ['stage'];
       this._state.config.measures = ['count'];
@@ -69,14 +78,14 @@ const ReportBuilderPage = {
             <span class="rb-hint">필드를 드래그하여 영역에 놓으세요</span>
           </div>
           <div class="rb-toolbar-right">
-            <button class="btn btn-ghost btn-sm" id="rb-load-btn">📂 내 리포트</button>
+            <button class="btn btn-ghost btn-sm" id="rb-load-btn" title="저장된 리포트 목록 토글">📂 내 리포트 <span id="rb-saved-count-badge" style="display:none"></span></button>
             <button class="btn btn-ghost btn-sm" id="rb-reset-btn">🔄 초기화</button>
             <button class="btn btn-primary btn-sm" id="rb-save-btn">💾 저장</button>
           </div>
         </div>
 
-        <!-- 본문 3 컬럼 -->
-        <div class="rb-body">
+        <!-- 본문 (Phase 2-A: 저장 패널 토글 가능 — rb-body--with-panel 클래스로 4-컬럼 grid) -->
+        <div class="rb-body" id="rb-body">
           <!-- 좌측: 필드 카탈로그 -->
           <aside class="rb-sidebar" id="rb-fields-panel">
             <div class="rb-loading">필드 로딩 중...</div>
@@ -125,6 +134,18 @@ const ReportBuilderPage = {
               <div id="rb-data-table" class="rb-data-table"></div>
             </div>
           </main>
+
+          <!-- Phase 2-A: 저장된 리포트 사이드 패널 (토글 가능) -->
+          <aside class="rb-saved-panel" id="rb-saved-panel" style="display:none">
+            <div class="rb-saved-header">
+              <div class="rb-saved-title">📂 내 리포트 <span class="rb-saved-count" id="rb-saved-count"></span></div>
+              <button class="rb-saved-close" id="rb-saved-close" title="패널 닫기" aria-label="패널 닫기">×</button>
+            </div>
+            <div class="rb-saved-search">
+              <input type="text" id="rb-saved-search-input" placeholder="🔍 이름/설명 검색..." autocomplete="off" />
+            </div>
+            <div class="rb-saved-list" id="rb-saved-list"></div>
+          </aside>
         </div>
       </div>
     `;
@@ -282,8 +303,24 @@ const ReportBuilderPage = {
 
     // 툴바
     document.getElementById('rb-save-btn').onclick = () => this._openSaveModal();
-    document.getElementById('rb-load-btn').onclick = () => this._openLoadModal();
+    // Phase 2-A: 모달 → 사이드바 패널 토글로 변경
+    document.getElementById('rb-load-btn').onclick = () => this._toggleSavedPanel();
     document.getElementById('rb-reset-btn').onclick = () => this._reset();
+
+    // Phase 2-A: 사이드바 닫기 버튼
+    document.getElementById('rb-saved-close')?.addEventListener('click', () => this._toggleSavedPanel(false));
+
+    // Phase 2-A: 검색 디바운스
+    const searchInput = document.getElementById('rb-saved-search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', e => {
+        clearTimeout(this._state._searchDebounce);
+        this._state._searchDebounce = setTimeout(() => {
+          this._state.savedSearchQuery = e.target.value;
+          this._renderSavedList();
+        }, 200);
+      });
+    }
   },
 
   // ─── 드롭 처리 ─────────────────────────────────────────
@@ -516,18 +553,43 @@ const ReportBuilderPage = {
   },
 
   // ─── 저장 모달 ────────────────────────────────────────
+  // 🛡 안전 우선 설계: 편집 중인 리포트가 있어도 기본값은 "새 리포트로 저장"
+  //    사용자가 명시적으로 라디오 변경 시만 update (덮어쓰기)
+  //    → 무심코 [저장] 클릭해서 기존 리포트 덮어쓰는 사고 방지
   _openSaveModal() {
     const cfg = this._state.config;
     if (cfg.rows.length === 0 && cfg.measures.length === 0) {
       Toast.warn('저장할 내용이 없습니다 — 행 또는 지표를 추가하세요');
       return;
     }
-    const isUpdate = !!this._state.currentId;
+    const hasCurrent = !!this._state.currentId;
+    const currentName = hasCurrent
+      ? (this._state.savedReports.find(r => r.id === this._state.currentId)?.name || '현재 리포트')
+      : '';
+
+    // 모드 선택 라디오 (편집 중인 리포트 있을 때만 표시)
+    const modeSelector = hasCurrent ? `
+      <div class="rb-save-mode" style="grid-column:1 / -1;padding:10px 12px;background:var(--surface-2);border-radius:6px;font-size:12px">
+        <div style="margin-bottom:6px;color:var(--text-2)">
+          ⓘ 현재 편집 중: <strong>"${esc(currentName)}"</strong>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0">
+          <input type="radio" name="rb-save-mode" value="new" checked />
+          <span>새 리포트로 저장 <span style="color:var(--text-3)">(기본, 안전)</span></span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0">
+          <input type="radio" name="rb-save-mode" value="update" />
+          <span>"${esc(currentName)}" 수정 <span style="color:var(--oci-red)">(덮어쓰기)</span></span>
+        </label>
+      </div>
+    ` : '';
+
     Modal.open({
-      title: isUpdate ? '💾 리포트 수정' : '💾 리포트 저장',
+      title: '💾 리포트 저장',
       width: 480,
       body: `
         <div class="form-grid" style="grid-template-columns:90px 1fr;gap:10px 12px;align-items:center">
+          ${modeSelector}
           <label class="form-label">이름 *</label>
           <input type="text" class="form-input" id="rb-save-name" maxlength="150" placeholder="예: 단계별 수주액 추이" />
           <label class="form-label">설명</label>
@@ -536,7 +598,7 @@ const ReportBuilderPage = {
       `,
       footer: `
         <button class="btn btn-ghost" id="rb-save-cancel">취소</button>
-        <button class="btn btn-primary" id="rb-save-ok">${isUpdate ? '수정' : '저장'}</button>
+        <button class="btn btn-primary" id="rb-save-ok">저장</button>
       `,
       bind: {
         '#rb-save-cancel': () => Modal.close(),
@@ -544,22 +606,42 @@ const ReportBuilderPage = {
           const name = document.getElementById('rb-save-name').value.trim();
           const description = document.getElementById('rb-save-desc').value.trim();
           if (!name) { Toast.warn('이름을 입력하세요'); return; }
+
+          // 라디오에서 'update' 선택 시만 덮어쓰기 (없으면 기본 'new')
+          const modeEl = document.querySelector('input[name="rb-save-mode"]:checked');
+          const isUpdate = hasCurrent && modeEl && modeEl.value === 'update';
+
           try {
             const data = { name, description, config_json: this._state.config };
             if (isUpdate) {
               await API.reportBuilder.update(this._state.currentId, data);
-              Toast.success('리포트가 수정되었습니다');
+              Toast.success(`"${name}" 수정되었습니다`);
             } else {
               const r = await API.reportBuilder.save(data);
               this._state.currentId = r.data.id;
-              Toast.success('리포트가 저장되었습니다');
+              Toast.success(`"${name}" 새 리포트로 저장되었습니다`);
             }
             Modal.close();
             await this._refreshSaved();
+            this._renderSavedList();  // 편집중 ⭐ 표시 갱신
           } catch (err) {
             Toast.error('저장 실패: ' + (err.message || ''));
           }
         },
+      },
+      onOpen: () => {
+        // 모드 변경 시 저장 버튼 라벨 업데이트 (시각적 피드백)
+        if (!hasCurrent) return;
+        const updateLabel = () => {
+          const modeEl = document.querySelector('input[name="rb-save-mode"]:checked');
+          const okBtn = document.getElementById('rb-save-ok');
+          if (!okBtn || !modeEl) return;
+          okBtn.textContent = modeEl.value === 'update' ? '수정 (덮어쓰기)' : '새 리포트로 저장';
+        };
+        document.querySelectorAll('input[name="rb-save-mode"]').forEach(r => {
+          r.addEventListener('change', updateLabel);
+        });
+        updateLabel();
       },
     });
   },
@@ -659,10 +741,220 @@ const ReportBuilderPage = {
       const r = await API.reportBuilder.listSaved();
       this._state.savedReports = r.data || [];
       this._renderSavedList();
+      this._updateSavedCountBadge();
     } catch (_) { /* ignore */ }
   },
 
-  _renderSavedList() { /* sidebar listing - 향후 확장 */ },
+  // ─── Phase 2-A: 사이드바 패널 토글 ────────────────────
+  _toggleSavedPanel(forceState) {
+    const panel = document.getElementById('rb-saved-panel');
+    const body = document.getElementById('rb-body');
+    if (!panel || !body) return;
+    const next = typeof forceState === 'boolean' ? forceState : !this._state.savedPanelOpen;
+    this._state.savedPanelOpen = next;
+    if (next) {
+      panel.style.display = 'flex';
+      body.classList.add('rb-body--with-panel');
+    } else {
+      panel.style.display = 'none';
+      body.classList.remove('rb-body--with-panel');
+    }
+  },
+
+  _updateSavedCountBadge() {
+    const badge = document.getElementById('rb-saved-count-badge');
+    const headerCount = document.getElementById('rb-saved-count');
+    const n = this._state.savedReports.length;
+    if (badge) {
+      if (n > 0) {
+        badge.style.display = '';
+        badge.textContent = `(${n})`;
+        badge.style.cssText = 'display:inline;background:var(--surface-2);padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px;color:var(--text-2)';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+    if (headerCount) headerCount.textContent = n > 0 ? `(${n})` : '';
+  },
+
+  // ─── Phase 2-A: 사이드바 카드 렌더링 ───────────────────
+  _renderSavedList() {
+    const list = document.getElementById('rb-saved-list');
+    if (!list) return;
+    const q = (this._state.savedSearchQuery || '').toLowerCase().trim();
+    const reports = q
+      ? this._state.savedReports.filter(r =>
+          (r.name || '').toLowerCase().includes(q) ||
+          (r.description || '').toLowerCase().includes(q))
+      : this._state.savedReports;
+
+    if (this._state.savedReports.length === 0) {
+      list.innerHTML = `
+        <div class="rb-saved-empty">
+          <div class="rb-saved-empty-icon">📭</div>
+          <div>아직 저장된 리포트가 없습니다.</div>
+          <div style="font-size:11px;margin-top:6px">상단의 <strong>💾 저장</strong> 버튼으로<br>현재 구성을 저장해보세요.</div>
+        </div>
+      `;
+      return;
+    }
+    if (reports.length === 0) {
+      list.innerHTML = `
+        <div class="rb-saved-empty">
+          <div class="rb-saved-empty-icon">🔍</div>
+          <div>"${esc(q)}" 검색 결과 없음</div>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = reports.map(r => this._savedCardHtml(r)).join('');
+
+    // 카드 이벤트 바인딩
+    list.querySelectorAll('[data-rb-saved-card]').forEach(card => {
+      const id = parseInt(card.dataset.rbSavedCard, 10);
+      // 카드 본체 클릭 = 불러오기
+      card.addEventListener('click', e => {
+        if (e.target.closest('[data-rb-card-action]')) return; // 액션 버튼은 별도 처리
+        this._loadSavedById(id);
+      });
+    });
+    list.querySelectorAll('[data-rb-card-action]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = parseInt(btn.dataset.id, 10);
+        const action = btn.dataset.rbCardAction;
+        if (action === 'load') this._loadSavedById(id);
+        else if (action === 'rename') this._openRenameModal(id);
+        else if (action === 'delete') this._deleteSavedById(id);
+      });
+    });
+  },
+
+  _savedCardHtml(r) {
+    const isActive = this._state.currentId === r.id;
+    const cfg = (() => {
+      try { return typeof r.config_json === 'string' ? JSON.parse(r.config_json) : (r.config_json || {}); }
+      catch (_) { return {}; }
+    })();
+    const fieldsMap = this._fieldsByKey();
+    const rowsLabel = (cfg.rows || []).map(k => fieldsMap[k]?.label || k).join(', ');
+    const measLabel = (cfg.measures || []).map(k => fieldsMap[k]?.label || k).join(', ');
+    const meta = [];
+    if (rowsLabel) meta.push(`<span>📋 ${esc(rowsLabel)}</span>`);
+    if (measLabel) meta.push(`<span>📐 ${esc(measLabel)}</span>`);
+
+    return `
+      <div class="rb-saved-card ${isActive ? 'rb-saved-card--active' : ''}" data-rb-saved-card="${r.id}" role="button" tabindex="0" title="클릭하여 불러오기">
+        <div class="rb-saved-card-title">
+          ${esc(r.name)}
+          ${isActive ? '<span class="rb-saved-card-active-badge">편집중</span>' : ''}
+        </div>
+        ${r.description ? `<div class="rb-saved-card-desc">${esc(r.description)}</div>` : ''}
+        ${meta.length ? `<div class="rb-saved-card-meta">${meta.join('')}</div>` : ''}
+        <div class="rb-saved-card-time">${esc(this._relativeTime(r.updated_at))}</div>
+        <div class="rb-saved-card-actions">
+          <button data-rb-card-action="load" data-id="${r.id}" title="불러오기">📂 열기</button>
+          <button data-rb-card-action="rename" data-id="${r.id}" title="이름/설명 변경">✏️</button>
+          <button class="rb-del-btn" data-rb-card-action="delete" data-id="${r.id}" title="삭제">🗑</button>
+        </div>
+      </div>
+    `;
+  },
+
+  _relativeTime(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d)) return '';
+    const diff = Date.now() - d.getTime();
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return '방금 전';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}분 전`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}시간 전`;
+    const days = Math.floor(hr / 24);
+    if (days < 7) return `${days}일 전`;
+    return d.toLocaleDateString('ko-KR');
+  },
+
+  // ─── Phase 2-A: 카드 액션 — 불러오기/삭제/이름변경 ─────
+  async _loadSavedById(id) {
+    try {
+      const r = await API.reportBuilder.getSaved(id);
+      const tpl = r.data;
+      const cfg = typeof tpl.config_json === 'string' ? JSON.parse(tpl.config_json) : tpl.config_json;
+      this._state.config = {
+        datasource: cfg.datasource || 'leads',
+        rows:       cfg.rows       || [],
+        columns:    cfg.columns    || [],
+        filters:    cfg.filters    || [],
+        measures:   cfg.measures   || [],
+        chartType:  cfg.chartType  || 'auto',
+      };
+      this._state.currentId = tpl.id;
+      const ctype = document.getElementById('rb-chart-type');
+      if (ctype) ctype.value = this._state.config.chartType;
+      this._renderDropZones();
+      await this._runQuery();
+      this._renderSavedList();  // active 표시 갱신
+      Toast.success(`"${tpl.name}" 불러오기 완료`);
+    } catch (err) {
+      Toast.error('불러오기 실패: ' + (err.message || ''));
+    }
+  },
+
+  async _deleteSavedById(id) {
+    const r = this._state.savedReports.find(x => x.id === id);
+    if (!confirm(`"${r?.name || '리포트'}" 을(를) 삭제하시겠습니까?`)) return;
+    try {
+      await API.reportBuilder.delete(id);
+      if (this._state.currentId === id) this._state.currentId = null;
+      Toast.success('삭제되었습니다');
+      await this._refreshSaved();
+    } catch (err) {
+      Toast.error('삭제 실패: ' + (err.message || ''));
+    }
+  },
+
+  _openRenameModal(id) {
+    const r = this._state.savedReports.find(x => x.id === id);
+    if (!r) return;
+    Modal.open({
+      title: '✏️ 리포트 이름 변경',
+      width: 440,
+      body: `
+        <div class="form-grid" style="grid-template-columns:90px 1fr;gap:10px 12px;align-items:center">
+          <label class="form-label">이름 *</label>
+          <input type="text" class="form-input" id="rb-rename-name" maxlength="150" value="${esc(r.name || '')}" />
+          <label class="form-label">설명</label>
+          <textarea class="form-input" id="rb-rename-desc" maxlength="500" rows="2">${esc(r.description || '')}</textarea>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="rb-rename-cancel">취소</button>
+        <button class="btn btn-primary" id="rb-rename-ok">저장</button>
+      `,
+      bind: {
+        '#rb-rename-cancel': () => Modal.close(),
+        '#rb-rename-ok': async () => {
+          const name = document.getElementById('rb-rename-name').value.trim();
+          const description = document.getElementById('rb-rename-desc').value.trim();
+          if (!name) { Toast.warn('이름을 입력하세요'); return; }
+          try {
+            // config_json 그대로 보내야 백엔드가 보존 — listSaved 응답에 config_json 포함
+            const cfgJson = typeof r.config_json === 'string' ? JSON.parse(r.config_json) : (r.config_json || {});
+            await API.reportBuilder.update(id, { name, description, config_json: cfgJson });
+            Toast.success('이름이 변경되었습니다');
+            Modal.close();
+            await this._refreshSaved();
+          } catch (err) {
+            Toast.error('저장 실패: ' + (err.message || ''));
+          }
+        },
+      },
+    });
+  },
 
   // ─── 초기화 ───────────────────────────────────────────
   _reset() {

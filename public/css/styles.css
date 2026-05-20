@@ -8656,9 +8656,168 @@ body,
 }
 .rb-table-details summary:hover { color: var(--text-1); }
 
+/* ─── Phase 2-A: 저장된 리포트 사이드바 패널 ──────────────── */
+/* 패널 열림 시 grid 컬럼이 1개 더 추가됨 */
+.rb-body--with-panel {
+  grid-template-columns: 240px 1fr 280px;
+}
+.rb-saved-panel {
+  background: var(--surface-2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: rbSavedPanelIn 0.18s ease;
+}
+@keyframes rbSavedPanelIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.rb-saved-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+}
+.rb-saved-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rb-saved-count {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+.rb-saved-close {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.rb-saved-close:hover { background: var(--surface-2); color: var(--text-1); }
+.rb-saved-search {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rb-saved-search input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 12px;
+}
+.rb-saved-search input:focus {
+  outline: none;
+  border-color: var(--oci-red);
+}
+.rb-saved-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rb-saved-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+}
+.rb-saved-card:hover {
+  border-color: var(--oci-red);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateX(-2px);
+}
+.rb-saved-card--active {
+  border-left: 3px solid var(--oci-red);
+  background: var(--surface-2);
+}
+.rb-saved-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rb-saved-card-active-badge {
+  font-size: 9px;
+  background: var(--oci-red);
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.rb-saved-card-desc {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rb-saved-card-meta {
+  font-size: 10px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.rb-saved-card-meta span { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+.rb-saved-card-time { font-size: 10px; color: var(--text-3); margin-bottom: 6px; }
+.rb-saved-card-actions {
+  display: flex;
+  gap: 4px;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+.rb-saved-card-actions button {
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.rb-saved-card-actions button:hover { background: var(--surface); color: var(--text-1); }
+.rb-saved-card-actions .rb-del-btn:hover { color: var(--oci-red); border-color: var(--oci-red); }
+.rb-saved-empty {
+  text-align: center;
+  padding: 30px 14px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.rb-saved-empty-icon { font-size: 28px; margin-bottom: 6px; opacity: 0.5; }
+
+[data-theme="dark"] .rb-saved-card-actions button { background: var(--surface); }
+
 /* 모바일 대응 */
 @media (max-width: 900px) {
   .rb-body { grid-template-columns: 1fr; }
+  .rb-body--with-panel { grid-template-columns: 1fr; }
   .rb-sidebar { border-right: none; border-bottom: 1px solid var(--border); max-height: 200px; }
+  .rb-saved-panel { border-left: none; border-top: 1px solid var(--border); max-height: 260px; }
   .rb-dropzones { grid-template-columns: 1fr; }
 }
