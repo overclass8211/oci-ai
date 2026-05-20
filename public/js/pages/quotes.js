@@ -166,7 +166,7 @@ const QuotesPage = (() => {
             <th style="width:140px;text-align:right">총액</th>
             <th style="width:70px;text-align:center">Rev</th>
             <th style="width:80px;text-align:center">상태</th>
-            <th style="width:200px;text-align:center">작업</th>
+            <th style="width:260px;text-align:center">작업</th>
           </tr>
         </thead>
         <tbody>
@@ -184,6 +184,8 @@ const QuotesPage = (() => {
               <td style="text-align:center"><span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span></td>
               <td style="text-align:center">
                 <button class="btn btn-ghost btn-sm" data-act="edit" data-id="${r.id}">편집</button>
+                <button class="btn btn-ghost btn-sm" data-act="preview" data-id="${r.id}" title="미리보기">👁</button>
+                <button class="btn btn-ghost btn-sm" data-act="pdf" data-id="${r.id}" title="PDF 내보내기">📄</button>
                 <button class="btn btn-ghost btn-sm" data-act="duplicate" data-id="${r.id}" title="리비전 복사">📋</button>
                 <button class="btn btn-ghost btn-sm" data-act="delete" data-id="${r.id}" style="color:#d93025">삭제</button>
               </td>
@@ -216,6 +218,8 @@ const QuotesPage = (() => {
         const id = parseInt(btn.dataset.id, 10);
         const act = btn.dataset.act;
         if (act === 'edit') _openModal(id);
+        else if (act === 'preview') _openPreview(id);
+        else if (act === 'pdf') _exportPdf(id);
         else if (act === 'duplicate') _duplicate(id);
         else if (act === 'delete') _delete(id);
       });
@@ -834,7 +838,225 @@ const QuotesPage = (() => {
     }
   }
 
-  return { render, _openModal };
+  // ── Phase 4: 미리보기 + PDF 내보내기 ─────────────────────
+  // 양식 HTML 빌드 — 모달 미리보기와 PDF 캡처용 임시 DOM 공통 사용
+  // 공백 보존을 위해 NBSP (\u00A0) 치환 + 단일 폰트로 한국어/영어 혼합 안정
+  function _buildPreviewHtml(q, opts = {}) {
+    const cols = (q.column_labels && typeof q.column_labels === 'object'
+      ? q.column_labels
+      : DEFAULT_COLUMNS);
+    const items = Array.isArray(q.items) ? q.items : [];
+    const vatIncluded = !!q.vat_included;
+    const generatedAt = new Date().toLocaleString('ko-KR');
+    const _ps = (s) =>
+      esc(String(s === null || s === undefined ? '' : s)).replace(/ /g, '\u00A0');
+    const krw = (n) => '₩' + _fmtKRW(n);
+
+    const subtotal = items.reduce((s, it) => s + (Number(it.proposed_amount) || 0), 0);
+    const vatAmount = Number(q.vat_amount) || (vatIncluded ? Math.round(subtotal * 0.1 * 100) / 100 : 0);
+    const totalAmount = Number(q.total_amount) || subtotal + vatAmount;
+
+    // PDF 캡처 모드 시 외곽 패딩/배경 추가, 미리보기 모드 시 간소화
+    const outerStyle = opts.forPdf
+      ? `width:1100px;padding:30px 40px;background:#fff;color:#1f2937;font-family:'Malgun Gothic','맑은 고딕',sans-serif;font-size:13px;line-height:1.6;letter-spacing:0;word-spacing:0.08em;text-rendering:geometricPrecision;box-sizing:border-box;`
+      : `padding:8px;font-family:'Malgun Gothic','맑은 고딕',sans-serif;font-size:13px;color:#1f2937`;
+
+    return `
+      <div style="${outerStyle}">
+        <!-- 헤더 -->
+        <div style="border-bottom:2px solid #E63329;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end">
+          <div>
+            <h1 style="margin:0 0 4px;color:#E63329;font-size:26px;font-weight:700;letter-spacing:0;word-spacing:0.1em">${_ps('견   적   서')}</h1>
+            <div style="font-size:11px;color:#666">${_ps('Quotation')}</div>
+          </div>
+          <div style="text-align:right;font-size:12px;color:#666">
+            <div>${_ps('견적번호:')}\u00A0<strong style="color:#1f2937;font-family:monospace">${_ps(q.quote_no || '-')}</strong></div>
+            <div>${_ps('견적일:')}\u00A0<strong style="color:#1f2937">${_ps(_fmtDate(q.quote_date))}</strong></div>
+            ${q.revision_no && Number(q.revision_no) > 1 ? `<div>${_ps('리비전:')}\u00A0<strong>Rev\u00A0${q.revision_no}</strong></div>` : ''}
+          </div>
+        </div>
+
+        <!-- 헤더 정보 -->
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">
+          <tr>
+            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;width:90px">${_ps('견적명')}</td>
+            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(q.name || '')}</td>
+            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;width:90px">${_ps('고객명')}</td>
+            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(q.customer_name || '')}</td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600">${_ps('단가구분')}</td>
+            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(vatIncluded ? '부가세 포함 (10% 자동 가산)' : '부가세 미포함 (가산 안 함)')}</td>
+            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600">${_ps('상태')}</td>
+            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(_statusLabel(q.status))}</td>
+          </tr>
+        </table>
+
+        <!-- 품목 테이블 -->
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="background:#E63329;color:#fff">
+              <th style="padding:8px 6px;border:1px solid #c52a23;width:30px">#</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:left">${_ps(cols.item_name)}</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:left;width:90px">${_ps(cols.spec)}</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:right;width:90px">${_ps(cols.unit_price)}</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:right;width:60px">${_ps(cols.discount_pct)}</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:right;width:100px">${_ps(cols.supply_price)}</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:right;width:60px">${_ps(cols.quantity)}</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:right;width:120px">${_ps(cols.proposed_amount)}</th>
+              <th style="padding:8px 6px;border:1px solid #c52a23;text-align:left">${_ps(cols.remark)}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              items.length === 0
+                ? `<tr><td colspan="9" style="padding:20px;text-align:center;color:#888;border:1px solid #e5e7eb">${_ps('등록된 품목이 없습니다')}</td></tr>`
+                : items
+                    .map(
+                      (it, i) => `
+              <tr style="background:${i % 2 ? '#f9fafb' : '#fff'}">
+                <td style="padding:6px;border:1px solid #e5e7eb;text-align:center">${i + 1}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb">${_ps(it.item_name || '')}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb">${_ps(it.spec || '')}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right">${_ps(krw(it.unit_price))}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right">${_ps((Number(it.discount_pct) || 0) + '%')}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right">${_ps(krw(it.supply_price))}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right">${_ps(_fmtKRW(it.quantity))}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;font-weight:600">${_ps(krw(it.proposed_amount))}</td>
+                <td style="padding:6px 10px;border:1px solid #e5e7eb">${_ps(it.remark || '')}</td>
+              </tr>`
+                    )
+                    .join('')
+            }
+          </tbody>
+        </table>
+
+        <!-- 합계 -->
+        <div style="display:flex;justify-content:flex-end;margin-top:14px">
+          <table style="border-collapse:collapse;font-size:12px;min-width:280px">
+            <tr>
+              <td style="padding:6px 14px;color:#666;text-align:right">${_ps('소계:')}</td>
+              <td style="padding:6px 14px;text-align:right;font-weight:500;background:#f9fafb">${_ps(krw(subtotal))}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 14px;color:#666;text-align:right">${_ps(vatIncluded ? '부가세 (10% 가산):' : '부가세 (미포함):')}</td>
+              <td style="padding:6px 14px;text-align:right;font-weight:500;background:#f9fafb">${_ps(krw(vatAmount))}</td>
+            </tr>
+            <tr style="border-top:2px solid #E63329">
+              <td style="padding:10px 14px;font-weight:700;text-align:right">${_ps('총합계:')}</td>
+              <td style="padding:10px 14px;text-align:right;font-weight:700;color:#E63329;font-size:15px;background:#fff5f5">${_ps(krw(totalAmount))}</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- 푸터 -->
+        <div style="margin-top:24px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center">
+          ${_ps('OCI CRM Quotation')}\u00A0·\u00A0${_ps('생성:')}\u00A0${_ps(generatedAt)}
+          ${q.created_by_name ? `\u00A0·\u00A0${_ps('작성자:')}\u00A0${_ps(q.created_by_name)}` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── 미리보기 모달 ────────────────────────────────────────
+  async function _openPreview(id) {
+    let quote;
+    try {
+      const res = await API.quotes.get(id);
+      quote = res.data;
+    } catch (err) {
+      Toast.error('견적 정보 불러오기 실패: ' + (err.message || err));
+      return;
+    }
+    Modal.open({
+      title: `👁 미리보기 — ${esc(quote.quote_no || '')}`,
+      width: 1180,
+      body: `<div id="qt-preview-area">${_buildPreviewHtml(quote)}</div>`,
+      footer: `
+        <button class="btn btn-ghost" id="qt-prev-close-btn">닫기</button>
+        <button class="btn btn-primary" id="qt-prev-pdf-btn">📄 PDF 내보내기</button>
+      `,
+      confirmOnClose: false, // 미리보기는 dirty 안 됨
+      bind: {
+        '#qt-prev-close-btn': () => Modal.close(),
+        '#qt-prev-pdf-btn': () => _exportPdfFromQuote(quote),
+      },
+    });
+  }
+
+  // ── PDF 내보내기 — html2canvas + jsPDF ───────────────────
+  // 리포트빌더 패턴 재사용: 임시 DOM 생성 → 이미지 캡처 → PDF 삽입 → 다운로드
+  async function _exportPdf(id) {
+    try {
+      const res = await API.quotes.get(id);
+      await _exportPdfFromQuote(res.data);
+    } catch (err) {
+      Toast.error('견적 정보 불러오기 실패: ' + (err.message || err));
+    }
+  }
+
+  async function _exportPdfFromQuote(quote) {
+    const jsPDFCtor = window.jspdf?.jsPDF || window.jsPDF;
+    if (!jsPDFCtor || typeof window.html2canvas !== 'function') {
+      Toast.error('PDF 라이브러리가 로드되지 않았습니다. 페이지 새로고침 후 다시 시도하세요.');
+      return;
+    }
+    let tempDiv = null;
+    try {
+      Toast.info?.('PDF 생성 중...');
+      tempDiv = document.createElement('div');
+      tempDiv.style.cssText = 'position:fixed;left:-10000px;top:0;';
+      tempDiv.innerHTML = _buildPreviewHtml(quote, { forPdf: true });
+      document.body.appendChild(tempDiv);
+
+      // 폰트 로드 + 레이아웃 안정화 대기
+      await new Promise((r) => setTimeout(r, 100));
+      if (document.fonts?.ready) await document.fonts.ready;
+
+      // html2canvas 캡처 (한국어/영어 혼합 안정)
+      const canvas = await window.html2canvas(tempDiv.firstElementChild, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true,
+        letterRendering: true,
+        allowTaint: false,
+        windowWidth: 1100,
+      });
+      const imgData = canvas.toDataURL('image/png');
+
+      // PDF 생성 (A4 세로)
+      const doc = new jsPDFCtor({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth(); // 210
+      const pageHeight = doc.internal.pageSize.getHeight(); // 297
+      const margin = 10;
+      const maxImgWidth = pageWidth - margin * 2;
+      const maxImgHeight = pageHeight - margin * 2;
+      const imgRatio = canvas.width / canvas.height;
+      let imgW = maxImgWidth;
+      let imgH = imgW / imgRatio;
+      if (imgH > maxImgHeight) {
+        imgH = maxImgHeight;
+        imgW = imgH * imgRatio;
+      }
+      const x = (pageWidth - imgW) / 2;
+      const y = margin;
+      doc.addImage(imgData, 'PNG', x, y, imgW, imgH);
+
+      // 파일명: 견적번호_고객명_견적일.pdf
+      const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]/g, '_');
+      const filename = `${safeName(quote.quote_no)}_${safeName(quote.customer_name)}_${safeName(_fmtDate(quote.quote_date))}.pdf`;
+      doc.save(filename);
+      Toast.success(`"${filename}" 다운로드 완료`);
+    } catch (err) {
+      Toast.error('PDF 생성 실패: ' + (err.message || ''));
+      console.error('[Quote PDF]', err);
+    } finally {
+      if (tempDiv && tempDiv.parentNode) tempDiv.parentNode.removeChild(tempDiv);
+    }
+  }
+
+  return { render, _openModal, _openPreview, _exportPdf };
 })();
 
 // 전역 노출 (app.js pages 매핑에서 참조)

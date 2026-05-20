@@ -203,6 +203,155 @@ test('🐛 회귀 — 견적서 모달: 취소 버튼으로는 정상 닫힘', a
   await expect(page.locator('#modal-overlay')).not.toHaveClass(/active/);
 });
 
+// ── Phase 4: 미리보기 + PDF 내보내기 ────────────────────────
+test('Phase 4 — 미리보기 모달: 견적 양식 표시 + PDF 버튼', async ({ page }) => {
+  // /api/quotes (list) + /api/quotes/:id 응답 mock
+  await page.route('**/api/quotes**', async (route) => {
+    const url = route.request().url();
+    if (route.request().method() === 'GET' && /\/api\/quotes\?/.test(url)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [
+            {
+              id: 12345,
+              quote_no: 'Q-2026-9999',
+              name: '__E2E_PDF__견적',
+              customer_name: '__E2E_PDF__고객사',
+              quote_date: '2026-05-20',
+              vat_included: 1,
+              total_amount: 110000,
+              status: 'draft',
+              revision_no: 1,
+            },
+          ],
+          meta: { total: 1, page: 1, limit: 100 },
+        }),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && /\/api\/quotes\/12345$/.test(url)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            id: 12345,
+            quote_no: 'Q-2026-9999',
+            name: '__E2E_PDF__견적',
+            customer_name: '__E2E_PDF__고객사',
+            quote_date: '2026-05-20',
+            vat_included: 1,
+            subtotal: 100000,
+            vat_amount: 10000,
+            total_amount: 110000,
+            status: 'draft',
+            revision_no: 1,
+            column_labels: null,
+            items: [
+              {
+                item_name: '서버 A',
+                spec: '64GB',
+                unit_price: 100000,
+                discount_pct: 0,
+                supply_price: 100000,
+                quantity: 1,
+                proposed_amount: 100000,
+                remark: '테스트',
+              },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  // 미리보기 모달 직접 호출 (목록 row 의 👁 버튼 효과)
+  await page.evaluate(() => window.QuotesPage._openPreview(12345));
+
+  // 미리보기 영역 + PDF 버튼 표시
+  await expect(page.locator('#qt-preview-area')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('#qt-prev-pdf-btn')).toBeVisible();
+  await expect(page.locator('#qt-prev-pdf-btn')).toContainText('PDF');
+
+  // 양식 내용 검증 — 견적번호 / 고객명 / 품목 / 합계
+  const preview = page.locator('#qt-preview-area');
+  await expect(preview).toContainText('Q-2026-9999');
+  await expect(preview).toContainText('__E2E_PDF__고객사');
+  await expect(preview).toContainText('서버 A');
+  await expect(preview).toContainText('110,000'); // 총합계
+  await expect(preview).toContainText('10% 가산'); // VAT 라벨
+
+  // 닫기 버튼 동작
+  await page.locator('#qt-prev-close-btn').click();
+  await expect(page.locator('#modal-overlay')).not.toHaveClass(/active/);
+
+  await page.unroute('**/api/quotes**');
+});
+
+test('Phase 4 — PDF 다운로드 트리거 (download 이벤트 발생)', async ({ page }) => {
+  await page.route('**/api/quotes/**', async (route) => {
+    const url = route.request().url();
+    if (/\/api\/quotes\/77777(\?|$)/.test(url)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            id: 77777,
+            quote_no: 'Q-2026-7777',
+            name: '__E2E_PDF__다운로드',
+            customer_name: '__E2E_PDF__고객',
+            quote_date: '2026-05-20',
+            vat_included: 0,
+            subtotal: 1000,
+            vat_amount: 0,
+            total_amount: 1000,
+            status: 'draft',
+            revision_no: 1,
+            column_labels: null,
+            items: [
+              {
+                item_name: 'A',
+                unit_price: 1000,
+                quantity: 1,
+                supply_price: 1000,
+                proposed_amount: 1000,
+              },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  // PDF 다운로드 이벤트 대기 (jsPDF.save 가 anchor.click 으로 트리거)
+  const downloadPromise = page.waitForEvent('download', { timeout: 20000 });
+  await page.evaluate(() => window.QuotesPage._exportPdf(77777));
+  const download = await downloadPromise;
+
+  // 파일명: Q-2026-7777_고객_날짜.pdf
+  expect(download.suggestedFilename()).toMatch(/Q-2026-7777.*\.pdf$/);
+
+  await page.unroute('**/api/quotes/**');
+});
+
 // ── Phase 3 ────────────────────────────────────────────────
 test('Phase 3-A — 컬럼 라벨 편집 패널 토글 + 적용 시 헤더 즉시 갱신', async ({ page }) => {
   await page.goto('/#quotes');
