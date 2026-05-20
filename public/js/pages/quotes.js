@@ -82,6 +82,25 @@ const QuotesPage = (() => {
     return Math.round(supply * qty * 100) / 100;
   }
 
+  // ── Phase 4 보강: 공급사 정보 localStorage 캐시 ──────────
+  // 매번 입력 부담을 줄이기 위해 마지막 입력값을 브라우저에 저장
+  const SUPPLIER_LS_KEY = 'oci_quote_supplier_info';
+  function _loadSupplierInfo() {
+    try {
+      const raw = localStorage.getItem(SUPPLIER_LS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  function _saveSupplierInfo(info) {
+    try {
+      localStorage.setItem(SUPPLIER_LS_KEY, JSON.stringify(info));
+    } catch (_) {
+      /* quota 등 무시 */
+    }
+  }
+
   // 인스턴스 정리 (모달 닫힘 시)
   function _cleanupInstances() {
     _comboboxes.forEach((c) => {
@@ -283,15 +302,24 @@ const QuotesPage = (() => {
     }
     await leadsPromise;
 
+    // Phase 4 보강: 신규 작성 시 localStorage 의 공급사 정보 자동 채움 (편의)
+    const supplierCache = _editing ? {} : _loadSupplierInfo();
     const e = _editing || {
       quote_no: '(저장 시 자동 생성)',
       name: '',
       customer_name: '',
+      customer_contact: '',
       quote_date: new Date().toISOString().slice(0, 10),
       vat_included: 0,
       status: 'draft',
       revision_no: 1,
       lead_id: null,
+      supplier_company_name: supplierCache.supplier_company_name || '',
+      supplier_address: supplierCache.supplier_address || '',
+      supplier_ceo: supplierCache.supplier_ceo || '',
+      sales_rep_name: supplierCache.sales_rep_name || '',
+      sales_rep_contact: supplierCache.sales_rep_contact || '',
+      terms_conditions: '',
     };
 
     Modal.open({
@@ -401,8 +429,44 @@ const QuotesPage = (() => {
             <input class="form-input" id="qt-f-name" value="${esc(e.name || '')}" placeholder="견적서 제목 입력">
           </div>
           <div class="form-row">
-            <label class="form-label required">고객명</label>
-            <input class="form-input" id="qt-f-customer_name" value="${esc(e.customer_name || '')}" placeholder="고객사 / 담당자 명">
+            <label class="form-label required">고객사명</label>
+            <input class="form-input" id="qt-f-customer_name" value="${esc(e.customer_name || '')}" placeholder="고객사 명">
+          </div>
+          <div class="form-row">
+            <label class="form-label">고객사 담당자명</label>
+            <input class="form-input" id="qt-f-customer_contact" value="${esc(e.customer_contact || '')}" placeholder="고객사 담당자 이름">
+          </div>
+        </div>
+
+        <!-- 📑 공급사 정보 (collapsible) — localStorage 자동 채움 -->
+        <div style="border:1px solid var(--border);border-radius:6px;background:#fafafa;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer" id="qt-supplier-toggle">
+            <strong style="font-size:13px;color:var(--text-2)">📑 공급사 정보 — PDF 우측 상단 출력 영역 <span style="color:var(--text-3);font-weight:400">(localStorage 자동 저장)</span></strong>
+            <span id="qt-supplier-chevron" style="color:var(--text-3)">▼</span>
+          </div>
+          <div id="qt-supplier-body" style="padding:12px 14px;border-top:1px solid var(--border);display:none">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+              <div class="form-row">
+                <label class="form-label">회사명</label>
+                <input class="form-input" id="qt-f-supplier_company_name" value="${esc(e.supplier_company_name || '')}" placeholder="공급사 회사명">
+              </div>
+              <div class="form-row" style="grid-column:2 / span 2">
+                <label class="form-label">회사 주소</label>
+                <input class="form-input" id="qt-f-supplier_address" value="${esc(e.supplier_address || '')}" placeholder="공급사 주소">
+              </div>
+              <div class="form-row">
+                <label class="form-label">대표자</label>
+                <input class="form-input" id="qt-f-supplier_ceo" value="${esc(e.supplier_ceo || '')}" placeholder="대표자명">
+              </div>
+              <div class="form-row">
+                <label class="form-label">영업담당</label>
+                <input class="form-input" id="qt-f-sales_rep_name" value="${esc(e.sales_rep_name || '')}" placeholder="영업담당자명">
+              </div>
+              <div class="form-row">
+                <label class="form-label">영업담당 연락처 / 이메일</label>
+                <input class="form-input" id="qt-f-sales_rep_contact" value="${esc(e.sales_rep_contact || '')}" placeholder="010-0000-0000 / sales@company.co.kr">
+              </div>
+            </div>
           </div>
         </div>
 
@@ -452,6 +516,12 @@ const QuotesPage = (() => {
               <td style="padding:8px 12px;text-align:right;font-weight:700;color:var(--oci-red);font-size:16px" id="qt-total">₩0</td>
             </tr>
           </table>
+        </div>
+
+        <!-- 📝 조건사항 (Remark) — PDF 품목 하단 출력 -->
+        <div style="margin-top:16px">
+          <label class="form-label" style="display:block;margin-bottom:4px">📝 조건사항 / Remark <span style="color:var(--text-3);font-weight:400;font-size:11px">— PDF 품목 하단에 출력됨</span></label>
+          <textarea class="form-input" id="qt-f-terms_conditions" rows="4" placeholder="예) 1. 본 견적의 유효기간은 발행일로부터 30일 입니다.&#10;2. 부가세 별도&#10;3. 납기: 발주 후 4주" style="resize:vertical;font-family:inherit;line-height:1.5">${esc(e.terms_conditions || '')}</textarea>
         </div>
       </div>
     `;
@@ -772,6 +842,19 @@ const QuotesPage = (() => {
 
     // Phase 3-B: lead 연결 해제 버튼
     document.getElementById('qt-lead-clear-btn')?.addEventListener('click', _clearLead);
+
+    // Phase 4 보강: 공급사 정보 collapsible 토글
+    const supToggle = document.getElementById('qt-supplier-toggle');
+    if (supToggle) {
+      supToggle.addEventListener('click', () => {
+        const body = document.getElementById('qt-supplier-body');
+        const chev = document.getElementById('qt-supplier-chevron');
+        if (!body) return;
+        const open = body.style.display === 'none';
+        body.style.display = open ? 'block' : 'none';
+        if (chev) chev.textContent = open ? '▲' : '▼';
+      });
+    }
   }
 
   // ── 저장 ─────────────────────────────────────────────────
@@ -784,6 +867,15 @@ const QuotesPage = (() => {
     const leadId = document.getElementById('qt-f-lead_id').value.trim();
     const customerId = document.getElementById('qt-f-customer_id').value.trim();
     const quoteNo = document.getElementById('qt-f-quote_no').value.trim();
+    // Phase 4 보강: 공급사/고객사/조건사항
+    const supplierCompanyName =
+      document.getElementById('qt-f-supplier_company_name')?.value.trim() || '';
+    const supplierAddress = document.getElementById('qt-f-supplier_address')?.value.trim() || '';
+    const supplierCeo = document.getElementById('qt-f-supplier_ceo')?.value.trim() || '';
+    const salesRepName = document.getElementById('qt-f-sales_rep_name')?.value.trim() || '';
+    const salesRepContact = document.getElementById('qt-f-sales_rep_contact')?.value.trim() || '';
+    const customerContact = document.getElementById('qt-f-customer_contact')?.value.trim() || '';
+    const termsConditions = document.getElementById('qt-f-terms_conditions')?.value || '';
 
     if (!name) {
       Toast.error('견적명을 입력하세요');
@@ -817,8 +909,26 @@ const QuotesPage = (() => {
       lead_id: leadId ? parseInt(leadId, 10) : null,
       customer_id: customerId ? parseInt(customerId, 10) : null, // Phase 3-B
       column_labels: _columnLabels || null, // Phase 3-A — 견적별 라벨 저장
+      // Phase 4 보강 — PDF 출력용 공급사/고객사/조건사항
+      supplier_company_name: supplierCompanyName || null,
+      supplier_address: supplierAddress || null,
+      supplier_ceo: supplierCeo || null,
+      sales_rep_name: salesRepName || null,
+      sales_rep_contact: salesRepContact || null,
+      customer_contact: customerContact || null,
+      terms_conditions: termsConditions || null,
       items: valid,
     };
+    // 공급사 정보 localStorage 저장 (다음 견적서 작성 시 자동 채움)
+    if (supplierCompanyName || supplierAddress || supplierCeo || salesRepName || salesRepContact) {
+      _saveSupplierInfo({
+        supplier_company_name: supplierCompanyName,
+        supplier_address: supplierAddress,
+        supplier_ceo: supplierCeo,
+        sales_rep_name: salesRepName,
+        sales_rep_contact: salesRepContact,
+      });
+    }
     // 신규에서 사용자가 채번을 직접 입력한 경우만 quote_no 전송
     if (!_editing && quoteNo && !quoteNo.startsWith('(')) body.quote_no = quoteNo;
 
@@ -876,21 +986,40 @@ const QuotesPage = (() => {
           </div>
         </div>
 
-        <!-- 헤더 정보 -->
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">
+        <!-- 좌측 고객사 / 우측 공급사 (Phase 4 보강) -->
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
           <tr>
-            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;width:90px">${_ps('견적명')}</td>
-            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(q.name || '')}</td>
-            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;width:90px">${_ps('고객명')}</td>
-            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(q.customer_name || '')}</td>
-          </tr>
-          <tr>
-            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600">${_ps('단가구분')}</td>
-            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(vatIncluded ? '부가세 포함 (10% 자동 가산)' : '부가세 미포함 (가산 안 함)')}</td>
-            <td style="background:#f9fafb;padding:8px 12px;border:1px solid #e5e7eb;font-weight:600">${_ps('상태')}</td>
-            <td style="padding:8px 12px;border:1px solid #e5e7eb">${_ps(_statusLabel(q.status))}</td>
+            <!-- 좌측: 고객사 -->
+            <td style="width:50%;vertical-align:top;padding:0 6px 0 0">
+              <div style="border:1px solid #e5e7eb;border-top:3px solid #1664E5;padding:10px 14px;background:#fff;height:100%;box-sizing:border-box">
+                <div style="font-size:11px;color:#1664E5;font-weight:700;margin-bottom:6px;letter-spacing:0.04em">${_ps('고객사 (Customer)')}</div>
+                <div style="margin-bottom:4px"><strong style="font-size:14px">${_ps(q.customer_name || '-')}</strong></div>
+                ${q.customer_contact ? `<div style="font-size:11px;color:#555">${_ps('담당자:')} ${_ps(q.customer_contact)}</div>` : ''}
+              </div>
+            </td>
+            <!-- 우측: 공급사 -->
+            <td style="width:50%;vertical-align:top;padding:0 0 0 6px">
+              <div style="border:1px solid #e5e7eb;border-top:3px solid #E63329;padding:10px 14px;background:#fff;height:100%;box-sizing:border-box">
+                <div style="font-size:11px;color:#E63329;font-weight:700;margin-bottom:6px;letter-spacing:0.04em">${_ps('공급사 (Supplier)')}</div>
+                <div style="margin-bottom:4px"><strong style="font-size:14px">${_ps(q.supplier_company_name || '-')}</strong></div>
+                ${q.supplier_address ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps(q.supplier_address)}</div>` : ''}
+                ${q.supplier_ceo ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps('대표자:')} ${_ps(q.supplier_ceo)}</div>` : ''}
+                ${q.sales_rep_name ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps('영업담당:')} ${_ps(q.sales_rep_name)}</div>` : ''}
+                ${q.sales_rep_contact ? `<div style="font-size:11px;color:#555">${_ps(q.sales_rep_contact)}</div>` : ''}
+              </div>
+            </td>
           </tr>
         </table>
+
+        <!-- 안내문 + 견적명 -->
+        <div style="text-align:center;padding:10px 0;margin:8px 0;font-size:13px;font-weight:600;color:#1f2937;border:1px solid #e5e7eb;background:#fffbeb">
+          ${_ps('아래와 같이 견적 합니다.')}
+        </div>
+        <div style="margin:10px 0 8px;font-size:12px;color:#555">
+          <strong>${_ps('견적명:')}</strong> ${_ps(q.name || '')}
+            |
+          <strong>${_ps('단가구분:')}</strong> ${_ps(vatIncluded ? '부가세 포함 (10% 자동 가산)' : '부가세 미포함 (가산 안 함)')}
+        </div>
 
         <!-- 품목 테이블 -->
         <table style="width:100%;border-collapse:collapse;font-size:11px">
@@ -948,6 +1077,16 @@ const QuotesPage = (() => {
             </tr>
           </table>
         </div>
+
+        <!-- 조건사항 (Remark) — 사용자 입력 (Phase 4 보강) -->
+        ${
+          q.terms_conditions && q.terms_conditions.trim()
+            ? `<div style="margin-top:18px;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;background:#fafafa">
+                <div style="font-size:11px;color:#666;font-weight:700;margin-bottom:6px">${_ps('📝 조건사항 (Remark)')}</div>
+                <div style="font-size:12px;color:#1f2937;white-space:pre-wrap;line-height:1.6">${_ps(q.terms_conditions)}</div>
+              </div>`
+            : ''
+        }
 
         <!-- 푸터 -->
         <div style="margin-top:24px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center">

@@ -100,6 +100,29 @@ async function ensureSchema() {
       /* 이미 존재 */
     }
   }
+
+  // ── PDF 개선용 컬럼 추가 (Phase 4 보강) — ALTER 멱등 처리 ──
+  // ER_DUP_FIELDNAME 무시하고 진행. MariaDB 10.0+ 는 ADD COLUMN IF NOT EXISTS 지원
+  // 호환성 위해 try/catch 로 처리 (이전 버전 안전)
+  const extraColumns = [
+    { name: 'supplier_company_name', def: 'VARCHAR(200) NULL' },
+    { name: 'supplier_address', def: 'VARCHAR(500) NULL' },
+    { name: 'supplier_ceo', def: 'VARCHAR(100) NULL' },
+    { name: 'sales_rep_name', def: 'VARCHAR(100) NULL' },
+    { name: 'sales_rep_contact', def: 'VARCHAR(200) NULL' },
+    { name: 'customer_contact', def: 'VARCHAR(100) NULL' },
+    { name: 'terms_conditions', def: 'TEXT NULL' },
+  ];
+  for (const col of extraColumns) {
+    try {
+      await pool.query(`ALTER TABLE quotes ADD COLUMN ${col.name} ${col.def}`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') {
+        // 이미 존재 외 다른 에러는 로그만 — 부팅 막지 않음
+        console.warn(`[quotes:migration] ALTER ADD ${col.name}:`, e.code || e.message);
+      }
+    }
+  }
 }
 const _migrationPromise = ensureSchema();
 
@@ -273,8 +296,10 @@ router.post('/', async (req, res) => {
       `INSERT INTO quotes
         (quote_no, name, lead_id, customer_id, customer_name, quote_date,
          vat_included, column_labels, subtotal, vat_amount, total_amount,
-         created_by, parent_quote_id, revision_no, status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         created_by, parent_quote_id, revision_no, status,
+         supplier_company_name, supplier_address, supplier_ceo,
+         sales_rep_name, sales_rep_contact, customer_contact, terms_conditions)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         quoteNo,
         String(body.name).slice(0, 200),
@@ -291,6 +316,13 @@ router.post('/', async (req, res) => {
         body.parent_quote_id || null,
         Number(body.revision_no) || 1,
         body.status || 'draft',
+        body.supplier_company_name ? String(body.supplier_company_name).slice(0, 200) : null,
+        body.supplier_address ? String(body.supplier_address).slice(0, 500) : null,
+        body.supplier_ceo ? String(body.supplier_ceo).slice(0, 100) : null,
+        body.sales_rep_name ? String(body.sales_rep_name).slice(0, 100) : null,
+        body.sales_rep_contact ? String(body.sales_rep_contact).slice(0, 200) : null,
+        body.customer_contact ? String(body.customer_contact).slice(0, 100) : null,
+        body.terms_conditions ? String(body.terms_conditions) : null,
       ]
     );
     const quoteId = result.insertId;
@@ -359,6 +391,14 @@ router.put('/:id', async (req, res) => {
       'vat_included',
       'column_labels',
       'status',
+      // Phase 4 PDF 개선 — 공급사/고객사/조건사항
+      'supplier_company_name',
+      'supplier_address',
+      'supplier_ceo',
+      'sales_rep_name',
+      'sales_rep_contact',
+      'customer_contact',
+      'terms_conditions',
     ];
     for (const f of allowed) {
       if (body[f] === undefined) continue;

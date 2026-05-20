@@ -151,6 +151,68 @@ describe('Quotes API', () => {
     expect(Number(it.proposed_amount)).toBe(900); // 900 × 1
   });
 
+  // Phase 4 PDF 개선: 공급사/고객사/조건사항 필드 저장/조회
+  it('POST + GET /api/quotes — 공급사/고객사/조건사항 7개 필드 저장 + 조회', async () => {
+    const payload = {
+      name: '__TEST__PDF필드',
+      customer_name: '__TEST__고객사_ABC',
+      customer_contact: '__TEST__홍길동',
+      quote_date: '2026-05-20',
+      supplier_company_name: '__TEST__공급사_XYZ',
+      supplier_address: '서울특별시 강남구',
+      supplier_ceo: '__TEST__대표자',
+      sales_rep_name: '__TEST__영업담당',
+      sales_rep_contact: '010-0000-0000 / sales@test.co.kr',
+      terms_conditions: '1. 유효기간 30일\n2. 부가세 별도',
+      items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+    };
+    const res = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send(payload);
+    expect(res.status).toBe(200);
+    const newId = res.body.id;
+    createdQuoteIds.push(newId);
+
+    const r2 = await api().get(`/api/quotes/${newId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(r2.body.data.customer_contact).toBe(payload.customer_contact);
+    expect(r2.body.data.supplier_company_name).toBe(payload.supplier_company_name);
+    expect(r2.body.data.supplier_address).toBe(payload.supplier_address);
+    expect(r2.body.data.supplier_ceo).toBe(payload.supplier_ceo);
+    expect(r2.body.data.sales_rep_name).toBe(payload.sales_rep_name);
+    expect(r2.body.data.sales_rep_contact).toBe(payload.sales_rep_contact);
+    expect(r2.body.data.terms_conditions).toBe(payload.terms_conditions);
+  });
+
+  it('PUT /api/quotes/:id — 공급사/조건사항 갱신', async () => {
+    const create = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__PDF필드_갱신',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-20',
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+    const updId = create.body.id;
+    createdQuoteIds.push(updId);
+
+    await api()
+      .put(`/api/quotes/${updId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__PDF필드_갱신',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-20',
+        supplier_company_name: 'NEW 공급사',
+        terms_conditions: 'NEW 조건사항',
+        items: [{ item_name: 'A', unit_price: 100, quantity: 1 }],
+      });
+    const r2 = await api().get(`/api/quotes/${updId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(r2.body.data.supplier_company_name).toBe('NEW 공급사');
+    expect(r2.body.data.terms_conditions).toBe('NEW 조건사항');
+  });
+
   // Phase 3-A: 컬럼 라벨 커스터마이징 저장/조회
   it('POST /api/quotes — column_labels 저장 + 조회 시 동일 반환', async () => {
     const customLabels = {

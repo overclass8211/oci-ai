@@ -203,6 +203,75 @@ test('🐛 회귀 — 견적서 모달: 취소 버튼으로는 정상 닫힘', a
   await expect(page.locator('#modal-overlay')).not.toHaveClass(/active/);
 });
 
+// ── Phase 4 PDF 개선: 공급사/고객사 + 조건사항 + 안내문 ────
+test('PDF 개선 — 미리보기에 공급사/고객사 박스 + 안내문 + 조건사항 표시', async ({ page }) => {
+  await page.route('**/api/quotes/**', async (route) => {
+    if (/\/api\/quotes\/55555$/.test(route.request().url())) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            id: 55555,
+            quote_no: 'Q-2026-5555',
+            name: '__E2E_PDF_NEW__견적',
+            customer_name: '__E2E_PDF_NEW__고객사',
+            customer_contact: '__E2E_PDF_NEW__홍길동',
+            quote_date: '2026-05-20',
+            vat_included: 0,
+            subtotal: 100,
+            vat_amount: 0,
+            total_amount: 100,
+            status: 'draft',
+            revision_no: 1,
+            supplier_company_name: '__E2E_PDF_NEW__공급사',
+            supplier_address: '서울특별시 강남구 테헤란로',
+            supplier_ceo: '__E2E_PDF_NEW__대표자',
+            sales_rep_name: '__E2E_PDF_NEW__영업담당',
+            sales_rep_contact: '010-1234-5678 / sales@test.co.kr',
+            terms_conditions: '1. 유효기간 30일\n2. 부가세 별도\n3. 납기: 발주 후 4주',
+            column_labels: null,
+            items: [
+              { item_name: 'A', unit_price: 100, quantity: 1, supply_price: 100, proposed_amount: 100 },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/#quotes');
+  await page.waitForSelector('#qt-new-btn', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  await page.evaluate(() => window.QuotesPage._openPreview(55555));
+  await expect(page.locator('#qt-preview-area')).toBeVisible({ timeout: 5000 });
+
+  const preview = page.locator('#qt-preview-area');
+  // 좌측 고객사 박스
+  await expect(preview).toContainText('고객사');
+  await expect(preview).toContainText('__E2E_PDF_NEW__고객사');
+  await expect(preview).toContainText('__E2E_PDF_NEW__홍길동'); // 담당자
+  // 우측 공급사 박스
+  await expect(preview).toContainText('공급사');
+  await expect(preview).toContainText('__E2E_PDF_NEW__공급사');
+  await expect(preview).toContainText('테헤란로'); // 주소
+  await expect(preview).toContainText('__E2E_PDF_NEW__대표자');
+  await expect(preview).toContainText('__E2E_PDF_NEW__영업담당');
+  await expect(preview).toContainText('sales@test.co.kr');
+  // 안내문
+  await expect(preview).toContainText('아래와 같이 견적 합니다');
+  // 조건사항
+  await expect(preview).toContainText('조건사항');
+  await expect(preview).toContainText('유효기간 30일');
+  await expect(preview).toContainText('부가세 별도');
+
+  await page.unroute('**/api/quotes/**');
+});
+
 // ── Phase 4: 미리보기 + PDF 내보내기 ────────────────────────
 test('Phase 4 — 미리보기 모달: 견적 양식 표시 + PDF 버튼', async ({ page }) => {
   // /api/quotes (list) + /api/quotes/:id 응답 mock
