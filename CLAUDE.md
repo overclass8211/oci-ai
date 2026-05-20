@@ -19,8 +19,10 @@
 4. 변경 사항 + Lint 결과 + Vitest 결과 + E2E 결과 요약 보고
 5. "Commit 진행할까요?" 명시적 질문
 6. 사용자 승인 대기 ("응" / "yes" / "진행해" / "commit 해" 등)
-7. Commit + Push 실행
-8. 결과 보고 (commit hash + 운영 적용 명령)
+7. **Commit + Push 실행 (한 세트로 항상 함께)** ⚠️
+   - `git commit ...` 직후 `git push origin <branch>` 까지 일괄 처리
+   - push 누락 시 GCP 운영 환경 동기화 실패 → 실수 방지
+8. 결과 보고 (commit hash + push 결과 + 운영 적용 명령)
 ```
 
 ### 🚫 절대 금지 사항
@@ -34,6 +36,8 @@
 - ❌ **DB 스키마 변경 사전 제안 없이 진행 금지** — 사전 설명 + 승인 필수
 - ❌ **환경변수/시크릿 하드코딩 금지** — 문서에도 placeholder 사용
 - ❌ **husky/lint-staged 우회 금지** — `--no-verify` 같은 플래그 사용 금지
+- ❌ **Commit 후 push 누락 금지** — commit 승인은 push 까지 포함. 별도 push 승인 불필요. 단 force-push (`--force`, `--force-with-lease`) 와 main/master 외 브랜치로의 push 는 별도 승인 필수
+- ❌ **다른 브랜치로 임의 전환 금지** — 작업 브랜치(`master`)에서 벗어나려면 사용자 명시 요청 필수
 
 ---
 
