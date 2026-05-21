@@ -9061,6 +9061,26 @@ body,
   opacity: 0.6;
 }
 
+/* Phase 6-A: 4-탭 통합 — 섹션 구분선 */
+.pr-tab-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 28px 0 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--oci-red);
+}
+.pr-tab-divider::before {
+  content: '';
+  flex: 0 0 4px;
+  height: 18px;
+  background: var(--oci-red);
+  border-radius: 2px;
+}
+
 /* Phase 5-D: 이메일/공유 탭 */
 .pr-email-section,
 .pr-share-section {

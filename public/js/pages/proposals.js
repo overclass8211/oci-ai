@@ -35,15 +35,13 @@ const ProposalsPage = (() => {
     rejected: 'red',
     expired: 'gray',
   };
-  // 탭 정의 (id / 라벨 / 신규 모드 비활성 여부)
+  // Phase 6-A: 4-탭 구조 (기본+RFP / AI / 자료+견적 / 발송+이력)
+  // 기존 7-탭 구조를 통합 — 백엔드/API 변경 없이 UI 만 재구성
   const TABS = [
-    { id: 'basic', label: '📋 기본정보', alwaysOn: true },
-    { id: 'rfp', label: '📑 RFP', editOnly: true },
+    { id: 'basic', label: '📋 기본 & RFP', alwaysOn: true },
     { id: 'ai', label: '🤖 AI 제안전략', editOnly: true },
-    { id: 'files', label: '📦 제안자료', editOnly: true },
-    { id: 'quote', label: '💰 견적', editOnly: true },
-    { id: 'email', label: '📧 이메일/공유', editOnly: true },
-    { id: 'history', label: '🕒 리비전/이력', editOnly: true },
+    { id: 'content', label: '📦 자료 & 견적', editOnly: true },
+    { id: 'send', label: '📤 발송 & 이력', editOnly: true },
   ];
 
   // ── 유틸 ─────────────────────────────────────────────────
@@ -363,32 +361,38 @@ const ProposalsPage = (() => {
     const wrap = document.getElementById('pr-tab-content');
     if (!wrap) return;
     switch (_activeTab) {
+      // ── 탭 1: 기본 & RFP ──────────────────────────────────
+      // 기존 _renderBasicTab + _renderRfpTab 조합 + 섹션 구분선
       case 'basic':
-        wrap.innerHTML = _renderBasicTab(e);
+        wrap.innerHTML =
+          _renderBasicTab(e) +
+          (e && e.id ? `<div class="pr-tab-divider">📑 RFP 정보</div>` + _renderRfpTab(e) : '');
         _attachLeadCombobox();
         _attachQuoteCombobox(e.quote_id);
+        if (e && e.id) _bindFileEvents(e, 'rfp');
         break;
-      case 'rfp':
-        wrap.innerHTML = _renderRfpTab(e);
-        _bindFileEvents(e, 'rfp');
-        break;
+      // ── 탭 2: AI 제안전략 (기존 그대로) ───────────────────
       case 'ai':
         wrap.innerHTML = _renderAiTab(e);
         _bindAiTabEvents(e);
         break;
-      case 'files':
-        wrap.innerHTML = _renderFilesTab(e);
+      // ── 탭 3: 자료 & 견적 ────────────────────────────────
+      // 자료 섹션 + 견적 정보 조회 섹션
+      case 'content':
+        wrap.innerHTML =
+          _renderFilesTab(e) +
+          `<div class="pr-tab-divider">💰 연결 견적</div>` +
+          _renderQuoteTab(e);
         _bindFileEvents(e, 'files');
         break;
-      case 'quote':
-        wrap.innerHTML = _renderQuoteTab(e);
-        break;
-      case 'email':
-        wrap.innerHTML = _renderEmailTab(e);
+      // ── 탭 4: 발송 & 이력 ────────────────────────────────
+      // 이메일/공유 + 리비전/히스토리 통합
+      case 'send':
+        wrap.innerHTML =
+          _renderEmailTab(e) +
+          `<div class="pr-tab-divider">🕒 리비전 & 이력</div>` +
+          _renderHistoryTab(e);
         _bindEmailTabEvents(e);
-        break;
-      case 'history':
-        wrap.innerHTML = _renderHistoryTab(e);
         _bindHistoryEvents(e);
         break;
       default:
@@ -612,7 +616,7 @@ const ProposalsPage = (() => {
             ? `<br>분석 가능한 RFP 파일 ${analyzableFiles.length}건 — 첫 번째 파일을 사용합니다.`
             : hasRfpButUnanalyzable
               ? '<br>⚠️ 등록된 RFP 파일이 분석 불가 형식입니다. <strong>PDF / 이미지(PNG·JPG·WEBP) / 텍스트</strong> 만 지원하며, PPT/DOC/HWP 는 PDF 로 변환 후 업로드하세요.'
-              : '<br>⚠️ RFP 탭에서 파일을 먼저 업로드하세요. (PDF / 이미지 / 텍스트)'
+              : '<br>⚠️ 기본 탭의 RFP 영역에서 파일을 먼저 업로드하세요. (PDF / 이미지 / 텍스트)'
         }
       </div>
       <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
@@ -635,7 +639,7 @@ const ProposalsPage = (() => {
           : `<div style="padding:60px 20px;text-align:center;color:var(--text-3);background:#fafafa;border:1px dashed var(--border);border-radius:6px">
               <div style="font-size:48px;margin-bottom:12px">🤖</div>
               <div style="font-size:14px;margin-bottom:6px">아직 AI 분석 결과가 없습니다</div>
-              <div style="font-size:12px">${canAnalyze ? '위 [분석하기] 버튼을 눌러 RFP 파일을 분석하세요' : 'RFP 탭에서 파일을 먼저 업로드하세요'}</div>
+              <div style="font-size:12px">${canAnalyze ? '위 [분석하기] 버튼을 눌러 RFP 파일을 분석하세요' : '기본 탭의 RFP 영역에서 파일을 먼저 업로드하세요'}</div>
             </div>`
       }
     `;
