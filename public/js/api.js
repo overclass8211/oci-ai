@@ -222,6 +222,23 @@ const API = {
       API.get(`/calendar/title-suggestions?q=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
+  // 제안 (crm.proposals)
+  proposals: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== undefined && v !== '')
+      ).toString();
+      return API.get('/proposals' + (qs ? '?' + qs : ''));
+    },
+    get: id => API.get(`/proposals/${id}`),
+    create: body => API.post('/proposals', body),
+    update: (id, body) => API.put(`/proposals/${id}`, body),
+    delete: id => API.del(`/proposals/${id}`),
+    setStatus: (id, status) => API.patch(`/proposals/${id}/status`, { status }),
+    nextProposalNo: year =>
+      API.get(`/proposals/next-proposal-no${year ? '?year=' + year : ''}`),
+  },
+
   // 견적서 (crm.quotes)
   quotes: {
     list: (params = {}) => {

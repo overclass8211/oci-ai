@@ -276,6 +276,19 @@ const FEATURE_REGISTRY = [
     default_enabled: true,
   },
   {
+    key: 'crm.proposals',
+    name: '제안 (제안관리 아카이브)',
+    description: '제안 건 관리 + RFP 등록 + AI 제안전략 + 파일 아카이브 + 이메일 발송 + 리비전',
+    category: 'crm',
+    risk_level: 'medium',
+    required_features: [],
+    affects_routes: '/api/proposals',
+    affects_tables:
+      'proposals,proposal_files,proposal_revisions,proposal_history,proposal_email_logs',
+    is_experimental: false,
+    default_enabled: true,
+  },
+  {
     key: 'crm.quotes',
     name: '견적서',
     description: '견적서 작성/편집/리비전 + 자동 채번 + PDF 내보내기',
