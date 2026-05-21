@@ -59,6 +59,34 @@ function sanitizeFilename(name) {
     .slice(0, 200); // 길이 제한
 }
 
+// multer 는 multipart 의 filename 을 latin1 로 디코딩해서 originalname 에 저장한다.
+// 브라우저가 UTF-8 로 보낸 한글 파일명을 살리려면 latin1 → utf8 재디코딩이 필요하다.
+function decodeOriginalName(originalname) {
+  if (!originalname) return 'file';
+  try {
+    // latin1 1 byte = 0x00~0xFF 그대로 → UTF-8 멀티바이트 시퀀스로 재해석
+    return Buffer.from(originalname, 'latin1').toString('utf8');
+  } catch (_) {
+    return originalname;
+  }
+}
+
+// proposal_date / due_date / rfp_received_date / rfp_due_date 등 DATE 컬럼 정규화.
+// 클라이언트가 ISO 8601 ('2026-05-21T15:00:00.000Z') 을 보내도 'YYYY-MM-DD' 로 변환.
+// 빈 문자열/null/undefined → null 반환.
+function toYMD(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  // 이미 'YYYY-MM-DD' 형식이면 그대로 통과
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // ISO 8601 또는 다른 Date-parsable 문자열 → 로컬 타임존 기준 'YYYY-MM-DD'
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 const proposalUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -73,7 +101,9 @@ const proposalUpload = multer({
       }
     },
     filename: (req, file, cb) => {
-      const safe = sanitizeFilename(file.originalname);
+      // 한글 파일명 복원 후 sanitize (디스크에 저장될 파일명)
+      const decoded = decodeOriginalName(file.originalname);
+      const safe = sanitizeFilename(decoded);
       cb(null, `${Date.now()}_${safe}`);
     },
   }),
@@ -531,8 +561,18 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, error: '고객명이 필요합니다' });
     }
 
+    // 날짜 정규화 (ISO 8601 → 'YYYY-MM-DD')
+    const proposalDate = toYMD(body.proposal_date);
+    const dueDate = toYMD(body.due_date);
+    const rfpReceivedDate = toYMD(body.rfp_received_date);
+    const rfpDueDate = toYMD(body.rfp_due_date);
+    if (!proposalDate) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '제안일 형식이 유효하지 않습니다' });
+    }
+
     // 자동 채번 (수동 입력 가능)
-    const year = new Date(body.proposal_date).getFullYear() || new Date().getFullYear();
+    const year = new Date(proposalDate).getFullYear() || new Date().getFullYear();
     let proposalNo = body.proposal_no && String(body.proposal_no).trim();
     if (!proposalNo) proposalNo = await generateProposalNo(conn, year);
 
@@ -568,16 +608,16 @@ router.post('/', async (req, res) => {
         String(customerName).slice(0, 200),
         body.quote_id || null,
         quoteNo,
-        body.proposal_date,
-        body.due_date || null,
+        proposalDate,
+        dueDate,
         body.status && ALLOWED_STATUS.includes(body.status) ? body.status : 'draft',
         body.owner_id || null,
         ownerName,
         expectedAmount,
         currency,
         body.rfp_title || null,
-        body.rfp_received_date || null,
-        body.rfp_due_date || null,
+        rfpReceivedDate,
+        rfpDueDate,
         body.rfp_summary || null,
         Number(body.version_no) || 1,
         body.parent_proposal_id || null,
@@ -679,14 +719,24 @@ router.put('/:id', async (req, res) => {
       'rfp_summary',
       'remark',
     ];
+    // DATE 컬럼은 ISO 8601 / 빈문자/Date-string 모두 'YYYY-MM-DD' 로 정규화
+    const DATE_FIELDS = new Set(['proposal_date', 'due_date', 'rfp_received_date', 'rfp_due_date']);
     for (const f of allowed) {
       if (body[f] === undefined) continue;
       if (f === 'status' && !ALLOWED_STATUS.includes(body[f])) {
         await conn.rollback();
         return res.status(400).json({ success: false, error: '유효하지 않은 상태값' });
       }
+      let v = body[f];
+      if (DATE_FIELDS.has(f)) {
+        v = toYMD(v);
+        if (f === 'proposal_date' && !v) {
+          await conn.rollback();
+          return res.status(400).json({ success: false, error: '제안일 형식이 유효하지 않습니다' });
+        }
+      }
       fields.push(`${f} = ?`);
-      values.push(body[f]);
+      values.push(v);
     }
     // quote_id 변경 시 quote_no 도 반영
     if (body.quote_id !== undefined && newQuoteNo !== undefined) {
@@ -832,6 +882,8 @@ router.post('/:id/rfp', proposalUpload.single('file'), async (req, res) => {
     }
     const userId = getUserId(req);
     const body = req.body || {};
+    // 한글 파일명 복원 (latin1 → utf8)
+    const originalName = decodeOriginalName(req.file.originalname);
 
     // proposal_files 에 RFP 로 저장
     const relPath = `/uploads/proposals/${id}/${req.file.filename}`;
@@ -843,7 +895,7 @@ router.post('/:id/rfp', proposalUpload.single('file'), async (req, res) => {
       [
         id,
         'rfp',
-        req.file.originalname,
+        originalName,
         req.file.filename,
         relPath,
         req.file.size,
@@ -861,13 +913,15 @@ router.post('/:id/rfp', proposalUpload.single('file'), async (req, res) => {
       fields.push('rfp_title = ?');
       values.push(String(body.rfp_title).slice(0, 300));
     }
-    if (body.rfp_received_date) {
+    const rcv = toYMD(body.rfp_received_date);
+    if (rcv) {
       fields.push('rfp_received_date = ?');
-      values.push(body.rfp_received_date);
+      values.push(rcv);
     }
-    if (body.rfp_due_date) {
+    const due = toYMD(body.rfp_due_date);
+    if (due) {
       fields.push('rfp_due_date = ?');
-      values.push(body.rfp_due_date);
+      values.push(due);
     }
     if (fields.length > 0) {
       values.push(id);
@@ -875,14 +929,14 @@ router.post('/:id/rfp', proposalUpload.single('file'), async (req, res) => {
     }
 
     await logHistory(conn, id, userId, 'rfp_upload', {
-      description: `RFP 파일 업로드: ${req.file.originalname}`,
-      newValue: req.file.originalname,
+      description: `RFP 파일 업로드: ${originalName}`,
+      newValue: originalName,
     });
 
     await conn.commit();
     res.json({
       success: true,
-      data: { id: ins.insertId, file_path: relPath, original_filename: req.file.originalname },
+      data: { id: ins.insertId, file_path: relPath, original_filename: originalName },
     });
   } catch (err) {
     await conn.rollback();
@@ -914,6 +968,8 @@ router.post('/:id/files', proposalUpload.single('file'), async (req, res) => {
     }
     const userId = getUserId(req);
     const body = req.body || {};
+    // 한글 파일명 복원 (latin1 → utf8)
+    const originalName = decodeOriginalName(req.file.originalname);
 
     // file_type 검증
     let fileType = body.file_type || 'etc';
@@ -928,7 +984,7 @@ router.post('/:id/files', proposalUpload.single('file'), async (req, res) => {
       [
         id,
         fileType,
-        req.file.originalname,
+        originalName,
         req.file.filename,
         relPath,
         req.file.size,
@@ -945,14 +1001,14 @@ router.post('/:id/files', proposalUpload.single('file'), async (req, res) => {
       ]
     );
     await logHistory(conn, id, userId, 'file_upload', {
-      description: `파일 업로드 (${fileType}): ${req.file.originalname}`,
-      newValue: req.file.originalname,
+      description: `파일 업로드 (${fileType}): ${originalName}`,
+      newValue: originalName,
     });
 
     await conn.commit();
     res.json({
       success: true,
-      data: { id: ins.insertId, file_path: relPath, original_filename: req.file.originalname },
+      data: { id: ins.insertId, file_path: relPath, original_filename: originalName },
     });
   } catch (err) {
     await conn.rollback();

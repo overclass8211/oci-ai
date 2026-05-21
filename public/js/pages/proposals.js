@@ -965,7 +965,8 @@ const ProposalsPage = (() => {
 
     const title = (get('pr-f-proposal_title', e.proposal_title || '') || '').trim();
     const customer = (get('pr-f-customer_name', e.customer_name || '') || '').trim();
-    const date = get('pr-f-proposal_date', e.proposal_date || new Date().toISOString().slice(0, 10));
+    // proposal_date — DOM 이 없으면 _editing 의 ISO/DateTime 을 'YYYY-MM-DD' 로 정규화
+    const date = get('pr-f-proposal_date', '') || _toInputDate(e.proposal_date);
 
     if (!title) {
       Toast.error('제안명을 입력하세요 (기본정보 탭)');
@@ -989,7 +990,8 @@ const ProposalsPage = (() => {
     const leadId = get('pr-f-lead_id', e.lead_id || '');
     const customerId = get('pr-f-customer_id', e.customer_id || '');
     const quoteId = get('pr-f-quote_id', e.quote_id || '');
-    const dueDate = get('pr-f-due_date', e.due_date || '');
+    // due_date — DOM 없을 때 _editing 의 ISO/DateTime 을 'YYYY-MM-DD' 로 정규화 (빈값 유지)
+    const dueDate = get('pr-f-due_date', '') || (e.due_date ? _toInputDate(e.due_date) : '');
     const ownerId = get('pr-f-owner_id', e.owner_id || '');
     const expected = get('pr-f-expected_amount', e.expected_amount || '');
     const currency = get('pr-f-currency', e.currency || 'KRW');
@@ -1013,8 +1015,12 @@ const ProposalsPage = (() => {
 
     // RFP 메타정보 (탭에서 입력됐으면 함께 저장)
     const rfpTitle = get('pr-f-rfp_title', e.rfp_title || '');
-    const rfpReceived = get('pr-f-rfp_received_date', e.rfp_received_date || '');
-    const rfpDue = get('pr-f-rfp_due_date', e.rfp_due_date || '');
+    // RFP 날짜 — DOM 없을 때 _editing 의 ISO/DateTime 을 'YYYY-MM-DD' 로 정규화 (빈값 유지)
+    const rfpReceived =
+      get('pr-f-rfp_received_date', '') ||
+      (e.rfp_received_date ? _toInputDate(e.rfp_received_date) : '');
+    const rfpDue =
+      get('pr-f-rfp_due_date', '') || (e.rfp_due_date ? _toInputDate(e.rfp_due_date) : '');
     const rfpSummary = get('pr-f-rfp_summary', e.rfp_summary || '');
     // 편집 모드만 RFP 필드 전송 (신규는 기본정보만)
     if (_editing) {

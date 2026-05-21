@@ -412,6 +412,74 @@ describe('Proposals API — Phase 1', () => {
     expect(detail.body.data.history.filter(h => h.action_type === 'revision_create').length).toBe(2);
   });
 
+  // ── 회귀 방지 (Bug fix 2026-05-21) ─────────────────────────
+  it('🐛 회귀: PUT /:id — proposal_date 가 ISO 8601 ("...T15:00:00.000Z") 이어도 저장 성공', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__ISO_date',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    // 프론트 _editing fallback 시 ISO 8601 그대로 전송되는 케이스 재현
+    const upd = await api()
+      .put(`/api/proposals/${propId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_date: '2026-05-21T15:00:00.000Z',
+        due_date: '2026-06-20T00:00:00.000Z',
+        rfp_received_date: '2026-05-15T15:00:00.000Z',
+        rfp_due_date: '2026-06-15T15:00:00.000Z',
+        rfp_title: 'ISO date 정규화 확인',
+      });
+    expect(upd.status).toBe(200);
+    expect(upd.body.success).toBe(true);
+  });
+
+  it('🐛 회귀: POST /:id/rfp — 한글 파일명 (latin1 → utf8 디코딩) 정상 복원', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__한글파일명',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const koreanName = 'OCI 창조관광혁신상품 충청_260508.pdf';
+    const tmpFile = path.join(os.tmpdir(), `__test_korean_${propId}.pdf`);
+    fs.writeFileSync(tmpFile, Buffer.from('%PDF korean'));
+
+    // supertest .attach(field, file, options) 의 3번째 인자로 filename 명시 가능
+    // multer 는 multipart 의 filename 을 latin1 로 디코딩 → 백엔드에서 utf8 재디코딩
+    const upload = await api()
+      .post(`/api/proposals/${propId}/rfp`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .attach('file', tmpFile, { filename: koreanName });
+    expect(upload.status).toBe(200);
+    expect(upload.body.data.original_filename).toBe(koreanName);
+
+    const detail = await api()
+      .get(`/api/proposals/${propId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    const rfpFile = detail.body.data.files.find(f => f.file_type === 'rfp');
+    expect(rfpFile).toBeTruthy();
+    expect(rfpFile.original_filename).toBe(koreanName);
+
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch (_) {}
+  });
+
   it('DELETE /:id — 삭제 (CASCADE 로 children)', async () => {
     const create = await api()
       .post('/api/proposals')
