@@ -76,6 +76,12 @@ self.addEventListener('fetch', event => {
     return;  // 브라우저 기본 fetch (캐시 무관)
   }
 
+  // Phase 5-E: 외부 공유 페이지 — SW 캐시 우회 (항상 최신 데이터)
+  if (url.pathname === '/proposal-share.html' ||
+      url.pathname.startsWith('/js/pages/proposal-share')) {
+    return;
+  }
+
   // HTML 요청 (navigation) — network-first
   const isNavigation = req.mode === 'navigate' ||
     (req.headers.get('accept') || '').includes('text/html');

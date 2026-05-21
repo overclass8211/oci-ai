@@ -370,6 +370,89 @@ test('Phase 5-D — 이메일/공유 탭: 발송 폼 + 첨부 체크박스 + 공
   await page.unroute('**/api/proposals/77004');
 });
 
+// ── Phase 5-E: 외부 공유 페이지 ──────────────────────────────
+test('Phase 5-E — proposal-share.html: 잘못된 토큰 → "유효하지 않은 링크" 안내', async ({ page }) => {
+  // 백엔드 404 응답 (실제 서버 호출 — 토큰 미존재)
+  await page.goto('/proposal-share.html?t=INVALID_TOKEN_TEST_1234567890ABC');
+  await expect(page.locator('.ps-error h1')).toContainText('유효하지 않은 링크', { timeout: 10000 });
+  await expect(page.locator('.ps-error')).toContainText('무효화');
+});
+
+test('Phase 5-E — proposal-share.html: 토큰 누락 → "잘못된 링크"', async ({ page }) => {
+  await page.goto('/proposal-share.html');
+  await expect(page.locator('.ps-error h1')).toContainText('잘못된 링크', { timeout: 10000 });
+  await expect(page.locator('.ps-error')).toContainText('?t=');
+});
+
+test('Phase 5-E — proposal-share.html: mock 200 응답 → 정상 렌더 (메타 + 요약 + 파일)', async ({ page }) => {
+  // 백엔드 응답을 mock (별도 토큰 발급 없이 UI 렌더 검증)
+  await page.route('**/api/proposals/share/MOCK_E2E_TOKEN_FOR_RENDER_TEST', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: {
+          proposal_no: 'P-2026-7777',
+          proposal_title: '__E2E_SHARE__ 공유 페이지 테스트',
+          customer_name: '__E2E_SHARE__고객',
+          proposal_date: '2026-05-21',
+          rfp_title: '__E2E_SHARE__ RFP 제목',
+          rfp_summary: '__E2E_SHARE__ RFP 핵심 요약 — 외부 공개 정보',
+          shared_until: '2026-12-31T23:59:59',
+          files: [
+            {
+              id: 1,
+              original_filename: 'proposal_v1.pdf',
+              file_size: 512000,
+              mime_type: 'application/pdf',
+              revision_no: 1,
+              file_type: 'proposal',
+              download_url: '/api/proposals/share/MOCK_E2E_TOKEN_FOR_RENDER_TEST/files/1/download',
+            },
+          ],
+        },
+      }),
+    });
+  });
+
+  await page.goto('/proposal-share.html?t=MOCK_E2E_TOKEN_FOR_RENDER_TEST');
+  // 제안번호 / 제목 / 고객 / 작성일
+  await expect(page.locator('.ps-no')).toContainText('P-2026-7777');
+  await expect(page.locator('.ps-title')).toContainText('__E2E_SHARE__ 공유 페이지 테스트');
+  await expect(page.locator('.ps-meta')).toContainText('__E2E_SHARE__고객');
+  await expect(page.locator('.ps-meta')).toContainText('__E2E_SHARE__ RFP 제목');
+  // RFP 요약
+  await expect(page.locator('.ps-summary')).toContainText('외부 공개 정보');
+  // 파일 1건 + 다운로드 링크
+  await expect(page.locator('.ps-file')).toHaveCount(1);
+  await expect(page.locator('.ps-file-name')).toContainText('proposal_v1.pdf');
+  await expect(page.locator('.ps-file-download')).toHaveAttribute(
+    'href',
+    '/api/proposals/share/MOCK_E2E_TOKEN_FOR_RENDER_TEST/files/1/download'
+  );
+  // 만료일 안내
+  await expect(page.locator('.ps-footer-expires')).toContainText('2026.12.31');
+
+  await page.unroute('**/api/proposals/share/MOCK_E2E_TOKEN_FOR_RENDER_TEST');
+});
+
+test('Phase 5-E — proposal-share.html: mock 410 응답 → "만료된 링크"', async ({ page }) => {
+  await page.route('**/api/proposals/share/MOCK_EXPIRED_TOKEN_XXXXXXXXXX', async route => {
+    await route.fulfill({
+      status: 410,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, error: '공유 링크가 만료되었습니다' }),
+    });
+  });
+
+  await page.goto('/proposal-share.html?t=MOCK_EXPIRED_TOKEN_XXXXXXXXXX');
+  await expect(page.locator('.ps-error h1')).toContainText('만료된 링크', { timeout: 10000 });
+  await expect(page.locator('.ps-error')).toContainText('재발급');
+
+  await page.unroute('**/api/proposals/share/MOCK_EXPIRED_TOKEN_XXXXXXXXXX');
+});
+
 test('Phase 5-D — 이메일/공유 탭: 공유 링크 발급된 상태 + URL 표시', async ({ page }) => {
   // mock — 공유 링크 발급된 상태
   await page.route('**/api/proposals/77005', async route => {
