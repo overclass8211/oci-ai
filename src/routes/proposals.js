@@ -23,6 +23,9 @@
 // =============================================================
 
 const router = require('express').Router();
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
@@ -30,6 +33,56 @@ const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 
 router.use(requireFeature('crm.proposals'));
+
+// ── Phase 3: 파일 업로드 인프라 ──────────────────────────────
+// 저장 경로: public/uploads/proposals/{proposal_id}/{timestamp}_{sanitized}.ext
+// 허용 확장자: pdf, ppt, pptx, doc, docx, xls, xlsx, png, jpg, jpeg, hwp, hwpx
+// 제한: 100MB (PPT/HWP 대용량 대응)
+const PROPOSAL_UPLOAD_DIR = path.join(__dirname, '..', '..', 'public', 'uploads', 'proposals');
+if (!fs.existsSync(PROPOSAL_UPLOAD_DIR)) fs.mkdirSync(PROPOSAL_UPLOAD_DIR, { recursive: true });
+const ALLOWED_EXT = /\.(pdf|ppt|pptx|doc|docx|xls|xlsx|png|jpe?g|hwp|hwpx)$/i;
+const ALLOWED_FILE_TYPES = [
+  'rfp',
+  'proposal',
+  'quote',
+  'company_profile',
+  'reference',
+  'response_form',
+  'etc',
+];
+
+// 파일명 sanitize — 경로 traversal/특수문자 제거, 한글/영문/숫자/일부 기호만 허용
+function sanitizeFilename(name) {
+  return String(name || 'file')
+    .replace(/[\\/:*?"<>|-]/g, '_') // 위험 문자
+    .replace(/\.{2,}/g, '.') // 연속 점 (path traversal 방어)
+    .slice(0, 200); // 길이 제한
+}
+
+const proposalUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const propId = parseInt(req.params.id, 10);
+      if (!propId) return cb(new Error('proposal_id 누락'));
+      const dir = path.join(PROPOSAL_UPLOAD_DIR, String(propId));
+      try {
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      } catch (e) {
+        cb(e);
+      }
+    },
+    filename: (req, file, cb) => {
+      const safe = sanitizeFilename(file.originalname);
+      cb(null, `${Date.now()}_${safe}`);
+    },
+  }),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (req, file, cb) => {
+    const ok = ALLOWED_EXT.test(file.originalname);
+    cb(null, ok);
+  },
+});
 
 // ── 자가 마이그레이션 (idempotent) ────────────────────────────
 async function ensureSchema() {
@@ -759,6 +812,292 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// =============================================================
+// Phase 3: 파일 업로드/다운로드/삭제 + 리비전 생성
+// =============================================================
+
+// ── POST /:id/rfp — RFP 파일 업로드 + 메타 업데이트 ──────────
+router.post('/:id/rfp', proposalUpload.single('file'), async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    if (!req.file) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '파일이 없습니다 (허용 확장자만)' });
+    }
+    const userId = getUserId(req);
+    const body = req.body || {};
+
+    // proposal_files 에 RFP 로 저장
+    const relPath = `/uploads/proposals/${id}/${req.file.filename}`;
+    const [ins] = await conn.query(
+      `INSERT INTO proposal_files
+        (proposal_id, file_type, original_filename, stored_filename, file_path,
+         file_size, mime_type, revision_no, description, uploaded_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        'rfp',
+        req.file.originalname,
+        req.file.filename,
+        relPath,
+        req.file.size,
+        req.file.mimetype || null,
+        1,
+        body.description || null,
+        userId || null,
+      ]
+    );
+
+    // proposals 의 rfp_* 메타 업데이트 (전달된 경우만)
+    const fields = [];
+    const values = [];
+    if (body.rfp_title) {
+      fields.push('rfp_title = ?');
+      values.push(String(body.rfp_title).slice(0, 300));
+    }
+    if (body.rfp_received_date) {
+      fields.push('rfp_received_date = ?');
+      values.push(body.rfp_received_date);
+    }
+    if (body.rfp_due_date) {
+      fields.push('rfp_due_date = ?');
+      values.push(body.rfp_due_date);
+    }
+    if (fields.length > 0) {
+      values.push(id);
+      await conn.query(`UPDATE proposals SET ${fields.join(', ')} WHERE id = ?`, values);
+    }
+
+    await logHistory(conn, id, userId, 'rfp_upload', {
+      description: `RFP 파일 업로드: ${req.file.originalname}`,
+      newValue: req.file.originalname,
+    });
+
+    await conn.commit();
+    res.json({
+      success: true,
+      data: { id: ins.insertId, file_path: relPath, original_filename: req.file.originalname },
+    });
+  } catch (err) {
+    await conn.rollback();
+    // 업로드된 파일 cleanup (실패 시)
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (_) {}
+    }
+    handleError(res, err);
+  } finally {
+    conn.release();
+  }
+});
+
+// ── POST /:id/files — 일반 제안 파일 업로드 ──────────────────
+router.post('/:id/files', proposalUpload.single('file'), async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    if (!req.file) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '파일이 없습니다 (허용 확장자만)' });
+    }
+    const userId = getUserId(req);
+    const body = req.body || {};
+
+    // file_type 검증
+    let fileType = body.file_type || 'etc';
+    if (!ALLOWED_FILE_TYPES.includes(fileType)) fileType = 'etc';
+
+    const relPath = `/uploads/proposals/${id}/${req.file.filename}`;
+    const [ins] = await conn.query(
+      `INSERT INTO proposal_files
+        (proposal_id, file_type, original_filename, stored_filename, file_path,
+         file_size, mime_type, revision_no, is_final, include_in_email, description, uploaded_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        fileType,
+        req.file.originalname,
+        req.file.filename,
+        relPath,
+        req.file.size,
+        req.file.mimetype || null,
+        Number(body.revision_no) || 1,
+        body.is_final === '1' || body.is_final === 'true' || body.is_final === 1 ? 1 : 0,
+        body.include_in_email === '1' ||
+        body.include_in_email === 'true' ||
+        body.include_in_email === 1
+          ? 1
+          : 0,
+        body.description || null,
+        userId || null,
+      ]
+    );
+    await logHistory(conn, id, userId, 'file_upload', {
+      description: `파일 업로드 (${fileType}): ${req.file.originalname}`,
+      newValue: req.file.originalname,
+    });
+
+    await conn.commit();
+    res.json({
+      success: true,
+      data: { id: ins.insertId, file_path: relPath, original_filename: req.file.originalname },
+    });
+  } catch (err) {
+    await conn.rollback();
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (_) {}
+    }
+    handleError(res, err);
+  } finally {
+    conn.release();
+  }
+});
+
+// ── GET /:id/files/:fileId/download — 파일 다운로드 ──────────
+router.get('/:id/files/:fileId/download', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const fileId = parseInt(req.params.fileId, 10);
+    if (!id || !fileId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+
+    const [[file]] = await pool.query(
+      `SELECT * FROM proposal_files WHERE id = ? AND proposal_id = ?`,
+      [fileId, id]
+    );
+    if (!file) return res.status(404).json({ success: false, error: '파일을 찾을 수 없음' });
+
+    const absPath = path.join(__dirname, '..', '..', 'public', file.file_path);
+    if (!fs.existsSync(absPath)) {
+      return res.status(404).json({ success: false, error: '파일이 디스크에 없습니다 (삭제됨)' });
+    }
+
+    // history 기록 (best-effort)
+    logHistory(null, id, getUserId(req), 'file_download', {
+      description: `파일 다운로드: ${file.original_filename}`,
+    });
+
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(file.original_filename)}`
+    );
+    res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+    res.sendFile(absPath);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── DELETE /:id/files/:fileId — 파일 삭제 (DB + 디스크) ──────
+router.delete('/:id/files/:fileId', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const id = parseInt(req.params.id, 10);
+    const fileId = parseInt(req.params.fileId, 10);
+    if (!id || !fileId) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    const userId = getUserId(req);
+
+    const [[file]] = await conn.query(
+      `SELECT * FROM proposal_files WHERE id = ? AND proposal_id = ?`,
+      [fileId, id]
+    );
+    if (!file) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: '파일을 찾을 수 없음' });
+    }
+
+    await conn.query(`DELETE FROM proposal_files WHERE id = ?`, [fileId]);
+    await logHistory(conn, id, userId, 'file_delete', {
+      description: `파일 삭제: ${file.original_filename}`,
+      oldValue: file.original_filename,
+    });
+    await conn.commit();
+
+    // 디스크 파일 삭제 (best-effort)
+    try {
+      const absPath = path.join(__dirname, '..', '..', 'public', file.file_path);
+      if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+    } catch (e) {
+      console.warn('[proposals:file_delete] disk unlink failed:', e.message);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    handleError(res, err);
+  } finally {
+    conn.release();
+  }
+});
+
+// ── POST /:id/revisions — 리비전 생성 ────────────────────────
+router.post('/:id/revisions', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    const userId = getUserId(req);
+    const body = req.body || {};
+
+    const [[prev]] = await conn.query(`SELECT id, version_no FROM proposals WHERE id = ?`, [id]);
+    if (!prev) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: '제안을 찾을 수 없음' });
+    }
+
+    const newRev = (prev.version_no || 1) + 1;
+    const [ins] = await conn.query(
+      `INSERT INTO proposal_revisions (proposal_id, revision_no, title, description, created_by)
+       VALUES (?,?,?,?,?)`,
+      [
+        id,
+        newRev,
+        body.title ? String(body.title).slice(0, 300) : `v${newRev}`,
+        body.description || null,
+        userId || null,
+      ]
+    );
+    await conn.query(`UPDATE proposals SET version_no = ? WHERE id = ?`, [newRev, id]);
+    await logHistory(conn, id, userId, 'revision_create', {
+      description: `리비전 생성: v${newRev}`,
+      newValue: `v${newRev}`,
+    });
+
+    await conn.commit();
+    res.json({
+      success: true,
+      data: { id: ins.insertId, revision_no: newRev },
+    });
+  } catch (err) {
+    await conn.rollback();
+    handleError(res, err);
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
 module.exports._migrationPromise = _migrationPromise;
 module.exports.ALLOWED_STATUS = ALLOWED_STATUS;
+module.exports.ALLOWED_FILE_TYPES = ALLOWED_FILE_TYPES;

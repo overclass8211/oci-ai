@@ -236,6 +236,182 @@ describe('Proposals API — Phase 1', () => {
     expect(Math.abs(due - new Date('2026-06-15').getTime())).toBeLessThanOrEqual(24 * 3600 * 1000);
   });
 
+  // Phase 3: 파일 업로드 (multipart simulation via supertest .attach)
+  it('POST /:id/files — 일반 파일 업로드 + history 기록 + 목록 노출', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__파일_제안',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    // 임시 파일 만들기 — 작은 PDF 파일 (헤더만)
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpFile = path.join(os.tmpdir(), `__test_proposal_${propId}.pdf`);
+    fs.writeFileSync(tmpFile, Buffer.from('%PDF-1.4 dummy proposal file content'));
+
+    const upload = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .field('description', '테스트 제안서')
+      .field('is_final', '1')
+      .field('include_in_email', '1')
+      .attach('file', tmpFile);
+    expect(upload.status).toBe(200);
+    expect(upload.body.success).toBe(true);
+    expect(upload.body.data.original_filename).toContain('__test_proposal');
+
+    // 상세 조회 — 파일 목록 + history 기록 확인
+    const detail = await api().get(`/api/proposals/${propId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.files.length).toBe(1);
+    expect(detail.body.data.files[0].file_type).toBe('proposal');
+    expect(detail.body.data.files[0].is_final).toBe(1);
+    expect(detail.body.data.history.some(h => h.action_type === 'file_upload')).toBe(true);
+
+    // 정리 — 디스크 파일
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+  });
+
+  it('POST /:id/rfp — RFP 파일 업로드 + 메타정보 동시 갱신', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__RFP파일',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpFile = path.join(os.tmpdir(), `__test_rfp_${propId}.pdf`);
+    fs.writeFileSync(tmpFile, Buffer.from('%PDF-1.4 dummy RFP'));
+
+    const upload = await api()
+      .post(`/api/proposals/${propId}/rfp`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('rfp_title', '클라우드 인프라 RFP')
+      .field('rfp_received_date', '2026-05-15')
+      .field('rfp_due_date', '2026-06-15')
+      .attach('file', tmpFile);
+    expect(upload.status).toBe(200);
+
+    const detail = await api().get(`/api/proposals/${propId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.rfp_title).toBe('클라우드 인프라 RFP');
+    expect(detail.body.data.files.length).toBe(1);
+    expect(detail.body.data.files[0].file_type).toBe('rfp');
+    expect(detail.body.data.history.some(h => h.action_type === 'rfp_upload')).toBe(true);
+
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+  });
+
+  it('POST /:id/files — 허용 외 확장자 (.exe) 거부', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__bad_ext',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpFile = path.join(os.tmpdir(), `__test_bad_${propId}.exe`);
+    fs.writeFileSync(tmpFile, Buffer.from('malicious'));
+
+    const upload = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .attach('file', tmpFile);
+    // multer fileFilter cb(null, false) → req.file 미생성 → 400
+    expect(upload.status).toBe(400);
+
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+  });
+
+  it('DELETE /:id/files/:fileId — 파일 삭제 + history', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__파일_삭제',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpFile = path.join(os.tmpdir(), `__test_del_${propId}.pdf`);
+    fs.writeFileSync(tmpFile, Buffer.from('%PDF dummy'));
+    const up = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'etc')
+      .attach('file', tmpFile);
+    const fileId = up.body.data.id;
+
+    const del = await api()
+      .delete(`/api/proposals/${propId}/files/${fileId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(del.status).toBe(200);
+
+    const detail = await api().get(`/api/proposals/${propId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.files.length).toBe(0);
+    expect(detail.body.data.history.some(h => h.action_type === 'file_delete')).toBe(true);
+
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+  });
+
+  it('POST /:id/revisions — 리비전 생성 + version_no 증가 + history', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__리비전',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    // 첫 리비전 생성 — version_no 1 → 2
+    const r1 = await api()
+      .post(`/api/proposals/${propId}/revisions`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ title: '1차 수정안', description: '가격 5% 인하' });
+    expect(r1.status).toBe(200);
+    expect(r1.body.data.revision_no).toBe(2);
+
+    // 두 번째 리비전 — version_no 2 → 3
+    const r2 = await api()
+      .post(`/api/proposals/${propId}/revisions`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ title: '최종안' });
+    expect(r2.body.data.revision_no).toBe(3);
+
+    const detail = await api().get(`/api/proposals/${propId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.version_no).toBe(3);
+    expect(detail.body.data.revisions.length).toBe(2);
+    expect(detail.body.data.history.filter(h => h.action_type === 'revision_create').length).toBe(2);
+  });
+
   it('DELETE /:id — 삭제 (CASCADE 로 children)', async () => {
     const create = await api()
       .post('/api/proposals')

@@ -370,12 +370,14 @@ const ProposalsPage = (() => {
         break;
       case 'rfp':
         wrap.innerHTML = _renderRfpTab(e);
+        _bindFileEvents(e, 'rfp');
         break;
       case 'ai':
         wrap.innerHTML = _renderAiTab(e);
         break;
       case 'files':
         wrap.innerHTML = _renderFilesTab(e);
+        _bindFileEvents(e, 'files');
         break;
       case 'quote':
         wrap.innerHTML = _renderQuoteTab(e);
@@ -385,6 +387,7 @@ const ProposalsPage = (() => {
         break;
       case 'history':
         wrap.innerHTML = _renderHistoryTab(e);
+        _bindHistoryEvents(e);
         break;
       default:
         wrap.innerHTML = '';
@@ -474,12 +477,12 @@ const ProposalsPage = (() => {
     `;
   }
 
-  // ── 탭 2: RFP (메타정보 + 파일은 Phase 3) ────────────────
+  // ── 탭 2: RFP (메타정보 + Phase 3 파일 업로드 활성) ──────
   function _renderRfpTab(e) {
+    const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
     return `
       <div style="margin-bottom:16px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">
-        📑 <strong>RFP 메타정보</strong> — 고객사가 보낸 RFP 문서의 핵심 정보를 입력하세요.
-        파일 업로드 / drag&drop 은 <strong>Phase 3</strong> 에서 활성화됩니다.
+        📑 <strong>RFP 메타정보 + 파일</strong> — 고객사가 보낸 RFP 문서의 핵심 정보 입력 + 파일 업로드.
       </div>
       <div class="form-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">
         <div class="form-row" style="grid-column:1 / span 2">
@@ -495,17 +498,18 @@ const ProposalsPage = (() => {
           <input class="form-input" id="pr-f-rfp_due_date" type="date" value="${e.rfp_due_date ? _toInputDate(e.rfp_due_date) : ''}">
         </div>
       </div>
-      <div class="form-row">
+      <div class="form-row" style="margin-bottom:18px">
         <label class="form-label">📝 RFP 요약 (AI 제안전략 분석의 입력 자료)</label>
-        <textarea class="form-input" id="pr-f-rfp_summary" rows="10" placeholder="RFP 핵심 요구사항·평가기준·예산·납기 등을 요약 입력 (AI 분석 시 활용됨)" style="resize:vertical;font-family:inherit;line-height:1.6">${esc(e.rfp_summary || '')}</textarea>
+        <textarea class="form-input" id="pr-f-rfp_summary" rows="8" placeholder="RFP 핵심 요구사항·평가기준·예산·납기 등을 요약 입력 (AI 분석 시 활용됨)" style="resize:vertical;font-family:inherit;line-height:1.6">${esc(e.rfp_summary || '')}</textarea>
       </div>
 
-      <!-- RFP 파일 영역 placeholder (Phase 3) -->
-      <div style="margin-top:18px;padding:24px;border:2px dashed var(--border);border-radius:8px;text-align:center;color:var(--text-3);background:#fafafa">
-        <div style="font-size:32px;margin-bottom:8px">📎</div>
-        <div style="font-size:13px">RFP 파일 업로드 (drag & drop)</div>
-        <div style="font-size:11px;margin-top:4px">Phase 3 에서 활성화됩니다</div>
+      <!-- RFP 파일 업로드 영역 (Phase 3 활성) -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="font-size:13px">📎 RFP 파일 (${rfpFiles.length}건)</strong>
+        <label class="btn btn-primary btn-sm" for="pr-rfp-upload-input" style="cursor:pointer">⬆️ RFP 파일 업로드</label>
+        <input type="file" id="pr-rfp-upload-input" style="display:none" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
       </div>
+      ${_renderFileList(rfpFiles, e.id, 'rfp')}
     `;
   }
 
@@ -538,52 +542,96 @@ const ProposalsPage = (() => {
     `;
   }
 
-  // ── 탭 4: 제안자료 (Phase 3) ─────────────────────────────
+  // ── 탭 4: 제안자료 (Phase 3 활성) ────────────────────────
   function _renderFilesTab(e) {
-    const files = Array.isArray(e.files) ? e.files : [];
+    const files = (e.files || []).filter(f => f.file_type !== 'rfp');
     return `
       <div style="margin-bottom:16px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:12px;color:#1e40af">
         📦 <strong>제안 자료 아카이브</strong> — 제안서 / 회사소개서 / 레퍼런스 / 견적 / 응답서 등 PPT/Word/PDF/HWP 파일을 관리합니다.
-        업로드 / 다운로드 / 삭제 기능은 <strong>Phase 3</strong> 에서 활성화됩니다.
-      </div>
-      <div style="padding:24px;border:2px dashed var(--border);border-radius:8px;text-align:center;color:var(--text-3);background:#fafafa;margin-bottom:14px">
-        <div style="font-size:32px;margin-bottom:8px">⬆️</div>
-        <div style="font-size:13px">제안 파일 업로드 (drag & drop) — 허용: pdf, ppt, pptx, doc, docx, xls, xlsx, hwp, hwpx, png, jpg</div>
-        <div style="font-size:11px;margin-top:4px">Phase 3 에서 활성화됩니다</div>
       </div>
 
-      <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">현재 등록된 파일 (${files.length}건)</div>
-      ${
-        files.length === 0
-          ? `<div style="padding:30px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:6px">등록된 파일 없음</div>`
-          : `<table class="data-table" style="font-size:12px">
-              <thead><tr>
-                <th style="width:90px">유형</th>
-                <th>파일명</th>
-                <th style="width:60px">Rev</th>
-                <th style="width:80px;text-align:center">최종본</th>
-                <th style="width:80px;text-align:center">📧 첨부</th>
-                <th style="width:110px">크기</th>
-                <th style="width:130px">등록일</th>
-              </tr></thead>
-              <tbody>
-                ${files
-                  .map(
-                    f => `<tr>
-                  <td><span class="badge badge-gray">${esc(f.file_type)}</span></td>
-                  <td>${esc(f.original_filename)}</td>
-                  <td>v${f.revision_no || 1}</td>
-                  <td style="text-align:center">${f.is_final ? '✅' : '-'}</td>
-                  <td style="text-align:center">${f.include_in_email ? '📧' : '-'}</td>
-                  <td>${f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-'}</td>
-                  <td>${_fmtDateTime(f.created_at)}</td>
-                </tr>`
-                  )
-                  .join('')}
-              </tbody>
-            </table>`
-      }
+      <!-- 업로드 폼 -->
+      <div style="background:#fafafa;border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:10px">
+          <div class="form-row">
+            <label class="form-label" style="font-size:11px">파일 유형</label>
+            <select class="form-input" id="pr-file-type" style="font-size:12px">
+              <option value="proposal">제안서</option>
+              <option value="company_profile">회사소개서</option>
+              <option value="reference">레퍼런스</option>
+              <option value="quote">견적</option>
+              <option value="response_form">응답서</option>
+              <option value="etc">기타</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label" style="font-size:11px">리비전 번호</label>
+            <input class="form-input" id="pr-file-rev" type="number" min="1" value="${e.version_no || 1}" style="font-size:12px">
+          </div>
+          <div class="form-row">
+            <label class="form-label" style="font-size:11px">&nbsp;</label>
+            <label style="display:flex;align-items:center;gap:4px;padding:6px;font-size:12px">
+              <input type="checkbox" id="pr-file-final"> ✅ 최종본
+            </label>
+          </div>
+          <div class="form-row">
+            <label class="form-label" style="font-size:11px">&nbsp;</label>
+            <label style="display:flex;align-items:center;gap:4px;padding:6px;font-size:12px">
+              <input type="checkbox" id="pr-file-email"> 📧 이메일 첨부
+            </label>
+          </div>
+          <div class="form-row" style="display:flex;align-items:flex-end">
+            <label class="btn btn-primary btn-sm" for="pr-file-upload-input" style="cursor:pointer;width:100%;text-align:center">⬆️ 파일 선택</label>
+            <input type="file" id="pr-file-upload-input" style="display:none" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
+          </div>
+        </div>
+        <input class="form-input" id="pr-file-desc" placeholder="설명 (선택)" style="font-size:12px">
+        <div style="font-size:11px;color:var(--text-3);margin-top:6px">
+          허용: pdf, ppt, pptx, doc, docx, xls, xlsx, hwp, hwpx, png, jpg, jpeg — 최대 100MB
+        </div>
+      </div>
+
+      <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">📂 등록된 파일 (${files.length}건)</div>
+      ${_renderFileList(files, e.id, 'files')}
     `;
+  }
+
+  // 파일 목록 + 다운로드/삭제 버튼 (공통)
+  function _renderFileList(files, proposalId, source) {
+    if (!files.length) {
+      return `<div style="padding:30px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:6px;border:1px dashed var(--border)">등록된 파일 없음</div>`;
+    }
+    return `<table class="data-table" style="font-size:12px">
+      <thead><tr>
+        <th style="width:90px">유형</th>
+        <th>파일명</th>
+        <th style="width:60px">Rev</th>
+        <th style="width:80px;text-align:center">최종본</th>
+        <th style="width:80px;text-align:center">📧 첨부</th>
+        <th style="width:110px">크기</th>
+        <th style="width:130px">등록일</th>
+        <th style="width:140px;text-align:center">작업</th>
+      </tr></thead>
+      <tbody>
+        ${files
+          .map(
+            f => `<tr>
+          <td><span class="badge badge-gray">${esc(f.file_type)}</span></td>
+          <td>${esc(f.original_filename)}${f.description ? `<div style="font-size:10px;color:var(--text-3)">${esc(f.description)}</div>` : ''}</td>
+          <td>v${f.revision_no || 1}</td>
+          <td style="text-align:center">${f.is_final ? '✅' : '-'}</td>
+          <td style="text-align:center">${f.include_in_email ? '📧' : '-'}</td>
+          <td>${f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-'}</td>
+          <td>${_fmtDateTime(f.created_at)}</td>
+          <td style="text-align:center">
+            <a class="btn btn-ghost btn-sm" href="${API.proposals.downloadFileUrl(proposalId, f.id)}" data-pr-file-download="${f.id}" title="다운로드">⬇️</a>
+            <button class="btn btn-ghost btn-sm pr-file-del" data-id="${f.id}" data-source="${source}" type="button" style="color:#d93025" title="삭제">🗑️</button>
+          </td>
+        </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>`;
   }
 
   // ── 탭 5: 견적 (백엔드 데이터 표시 — Phase 2 활성) ─────────
@@ -708,7 +756,7 @@ const ProposalsPage = (() => {
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <strong style="font-size:13px">🌿 리비전 목록 (${revs.length}건)</strong>
-            <button class="btn btn-ghost btn-sm" disabled style="opacity:0.5;cursor:not-allowed" title="Phase 3 에서 활성화">+ 새 리비전</button>
+            <button class="btn btn-ghost btn-sm" id="pr-rev-new-btn" type="button">+ 새 리비전</button>
           </div>
           ${
             revs.length === 0
@@ -990,6 +1038,135 @@ const ProposalsPage = (() => {
     } catch (err) {
       Toast.error('저장 실패: ' + (err.message || err));
     }
+  }
+
+  // ── Phase 3: 파일 업로드/삭제 + 리비전 ───────────────────
+  function _bindFileEvents(e, source) {
+    if (!e || !e.id) return; // 신규 모드는 파일 기능 없음
+    const inputId = source === 'rfp' ? 'pr-rfp-upload-input' : 'pr-file-upload-input';
+    const fileInput = document.getElementById(inputId);
+    if (fileInput) {
+      fileInput.addEventListener('change', async ev => {
+        const file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        await _doUploadFile(e.id, file, source);
+        ev.target.value = ''; // reset for re-upload
+      });
+    }
+    // 파일 삭제 버튼
+    document.querySelectorAll('.pr-file-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fileId = parseInt(btn.dataset.id, 10);
+        if (!confirm('이 파일을 삭제하시겠습니까? 디스크에서도 함께 제거됩니다.')) return;
+        try {
+          await API.proposals.deleteFile(e.id, fileId);
+          Toast.success('파일 삭제됨');
+          await _refreshDetail(e.id);
+        } catch (err) {
+          Toast.error('삭제 실패: ' + (err.message || err));
+        }
+      });
+    });
+    // 다운로드는 href 직접 — history 기록은 백엔드 자동
+  }
+
+  async function _doUploadFile(propId, file, source) {
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      if (source === 'rfp') {
+        // RFP 메타도 함께 (현재 탭 입력값)
+        const title = document.getElementById('pr-f-rfp_title')?.value || '';
+        const recv = document.getElementById('pr-f-rfp_received_date')?.value || '';
+        const due = document.getElementById('pr-f-rfp_due_date')?.value || '';
+        if (title) fd.append('rfp_title', title);
+        if (recv) fd.append('rfp_received_date', recv);
+        if (due) fd.append('rfp_due_date', due);
+        Toast.info?.(`RFP 업로드 중... (${file.name})`);
+        await API.proposals.uploadRfp(propId, fd);
+        Toast.success('RFP 파일 업로드됨');
+      } else {
+        // 일반 파일 — 메타 함께
+        const type = document.getElementById('pr-file-type')?.value || 'etc';
+        const rev = document.getElementById('pr-file-rev')?.value || '1';
+        const isFinal = document.getElementById('pr-file-final')?.checked ? '1' : '0';
+        const inEmail = document.getElementById('pr-file-email')?.checked ? '1' : '0';
+        const desc = document.getElementById('pr-file-desc')?.value || '';
+        fd.append('file_type', type);
+        fd.append('revision_no', rev);
+        fd.append('is_final', isFinal);
+        fd.append('include_in_email', inEmail);
+        if (desc) fd.append('description', desc);
+        Toast.info?.(`파일 업로드 중... (${file.name})`);
+        await API.proposals.uploadFile(propId, fd);
+        Toast.success('파일 업로드됨');
+      }
+      await _refreshDetail(propId);
+    } catch (err) {
+      Toast.error('업로드 실패: ' + (err.message || err));
+    }
+  }
+
+  async function _refreshDetail(propId) {
+    try {
+      const r = await API.proposals.get(propId);
+      _editing = r.data;
+      _renderActiveTab(_editing);
+    } catch (_) {
+      /* 무시 */
+    }
+  }
+
+  function _bindHistoryEvents(e) {
+    const btn = document.getElementById('pr-rev-new-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => _openRevisionModal(e));
+  }
+
+  // ── 리비전 생성 모달 (작은 nested-ish — Modal.open 사용) ─────
+  function _openRevisionModal(e) {
+    const nextRev = (e.version_no || 1) + 1;
+    Modal.open({
+      title: `🌿 새 리비전 생성 — v${nextRev}`,
+      width: 560,
+      compact: true,
+      confirmOnClose: false,
+      body: `
+        <div class="form-row" style="margin-bottom:10px">
+          <label class="form-label">리비전 제목 (선택)</label>
+          <input class="form-input" id="pr-rev-title" placeholder="예: 1차 수정안 / 가격 협상안" value="v${nextRev}">
+        </div>
+        <div class="form-row">
+          <label class="form-label">변경 내용 / 설명 (선택)</label>
+          <textarea class="form-input" id="pr-rev-desc" rows="4" placeholder="이 리비전에서 변경된 주요 내용 (예: 가격 5% 인하, 일정 2주 단축)" style="resize:vertical;font-family:inherit"></textarea>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:6px">
+          ⚠️ 새 리비전 생성 후 제안의 version_no 가 v${nextRev} 로 갱신됩니다.
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="pr-rev-cancel-btn">취소</button>
+        <button class="btn btn-primary" id="pr-rev-save-btn">💾 리비전 생성</button>
+      `,
+      bind: {
+        '#pr-rev-cancel-btn': () => Modal.close(),
+        '#pr-rev-save-btn': async () => {
+          const title = document.getElementById('pr-rev-title').value.trim();
+          const desc = document.getElementById('pr-rev-desc').value.trim();
+          try {
+            await API.proposals.createRevision(e.id, { title, description: desc });
+            Toast.success(`리비전 v${nextRev} 생성됨`);
+            Modal.close();
+            // 부모 모달이 닫혔으니 목록만 reload + 상세 다시 열기는 사용자가 선택
+            await _reload();
+            // 상세 모달 다시 열기 (사용자 흐름 보존)
+            setTimeout(() => _openModal(e.id), 200);
+          } catch (err) {
+            Toast.error('리비전 생성 실패: ' + (err.message || err));
+          }
+        },
+      },
+    });
   }
 
   return { render, _openModal };

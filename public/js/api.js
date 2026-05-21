@@ -112,6 +112,34 @@ const API = {
     window.location.href = '/login';
   },
 
+  // multipart 업로드 — Content-Type 헤더 미설정 (브라우저가 boundary 자동 추가)
+  async _upload(path, formData) {
+    const headers = {};
+    const uid = localStorage.getItem('current_user_id');
+    const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
+    if (uid) headers['X-User-Id'] = uid;
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(this.base + path, {
+        method: 'POST',
+        headers,
+        body: formData,
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        const err = new Error(data.message || data.error || '업로드 실패');
+        Object.assign(err, data, { status: res.status });
+        throw err;
+      }
+      return data;
+    } catch (err) {
+      if (!err.status) console.error(`API UPLOAD ${path}:`, err);
+      if (!err.duplicate) Toast.error(err.message);
+      throw err;
+    }
+  },
+
   get(path) {
     return this.request('GET', path);
   },
@@ -237,6 +265,15 @@ const API = {
     setStatus: (id, status) => API.patch(`/proposals/${id}/status`, { status }),
     nextProposalNo: year =>
       API.get(`/proposals/next-proposal-no${year ? '?year=' + year : ''}`),
+    // Phase 3 — 파일 / 리비전
+    uploadRfp: (id, formData) =>
+      API._upload(`/proposals/${id}/rfp`, formData),
+    uploadFile: (id, formData) =>
+      API._upload(`/proposals/${id}/files`, formData),
+    deleteFile: (id, fileId) => API.del(`/proposals/${id}/files/${fileId}`),
+    downloadFileUrl: (id, fileId) =>
+      `/api/proposals/${id}/files/${fileId}/download`,
+    createRevision: (id, body) => API.post(`/proposals/${id}/revisions`, body),
   },
 
   // 견적서 (crm.quotes)
