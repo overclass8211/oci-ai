@@ -9061,6 +9061,87 @@ body,
   opacity: 0.6;
 }
 
+/* Phase 5-D: 이메일/공유 탭 */
+.pr-email-section,
+.pr-share-section {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.pr-email-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.pr-email-attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+.pr-email-attach-item {
+  display: grid;
+  grid-template-columns: 24px 80px 1fr 80px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s ease;
+}
+.pr-email-attach-item:hover {
+  background: var(--surface-3);
+}
+.pr-email-attach-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pr-email-attach-size {
+  text-align: right;
+  font-family: monospace;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.pr-email-status {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  min-height: 22px;
+}
+.pr-email-status code {
+  background: var(--surface-3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+.pr-share-active {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+.pr-share-empty {
+  text-align: center;
+  padding: 18px 12px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
 /* Phase 4-D: AI 제안전략 마크다운 렌더링 */
 .pr-ai-md {
   padding: 20px 24px;

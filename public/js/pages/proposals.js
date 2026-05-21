@@ -385,6 +385,7 @@ const ProposalsPage = (() => {
         break;
       case 'email':
         wrap.innerHTML = _renderEmailTab(e);
+        _bindEmailTabEvents(e);
         break;
       case 'history':
         wrap.innerHTML = _renderHistoryTab(e);
@@ -791,24 +792,145 @@ const ProposalsPage = (() => {
     `;
   }
 
-  // ── 탭 6: 이메일/공유 (Phase 5) ─────────────────────────
+  // 기본 이메일 본문 템플릿 생성 (제안 정보 기반)
+  function _defaultEmailBody(e) {
+    const customer = e.customer_name || '담당자';
+    const title = e.proposal_title || '제안서';
+    const no = e.proposal_no || '';
+    return [
+      `${customer} 담당자님,`,
+      ``,
+      `안녕하세요. 요청하신 제안 자료를 송부드립니다.`,
+      ``,
+      `■ 제안명: ${title}`,
+      no ? `■ 제안번호: ${no}` : null,
+      ``,
+      `첨부 파일을 확인해 주시고, 추가 문의사항이 있으시면 회신 부탁드립니다.`,
+      ``,
+      `감사합니다.`,
+    ]
+      .filter(x => x !== null)
+      .join('\n');
+  }
+
+  // 공유 링크 URL 생성 (현재 origin 기반)
+  function _buildShareUrl(token) {
+    if (!token) return '';
+    const origin = window.location.origin;
+    return `${origin}/proposal-share.html?t=${encodeURIComponent(token)}`;
+  }
+
+  // ── 탭 6: 이메일/공유 (Phase 5-D 활성) ────────────────────
   function _renderEmailTab(e) {
     const logs = Array.isArray(e.email_logs) ? e.email_logs : [];
+    const files = Array.isArray(e.files) ? e.files : [];
+    // 기본 첨부 — include_in_email = 1 인 파일들
+    // (없으면 사용자가 직접 체크)
+    const defaultAttach = new Set(files.filter(f => f.is_final || f.include_in_email).map(f => f.id));
+
+    const hasShare = !!e.share_token;
+    const shareUrl = hasShare ? _buildShareUrl(e.share_token) : '';
+
     return `
       <div style="margin-bottom:16px;padding:10px 14px;background:#dcfce7;border:1px solid #86efac;border-radius:6px;font-size:12px;color:#166534">
-        📧 <strong>이메일 발송 / 공유 링크</strong> — 제안 파일 첨부 이메일 발송 + 내부 관련자 공유 링크 생성.
-        Gmail 통합 발송 기능은 <strong>Phase 5</strong> 에서 활성화됩니다.
-      </div>
-      <div style="padding:24px;border:2px dashed var(--border);border-radius:8px;text-align:center;color:var(--text-3);background:#fafafa;margin-bottom:18px">
-        <div style="font-size:32px;margin-bottom:8px">✉️</div>
-        <div style="font-size:13px">이메일 발송 폼 (수신자/참조/제목/본문/첨부)</div>
-        <div style="font-size:11px;margin-top:4px">Phase 5 에서 활성화됩니다</div>
+        📧 <strong>이메일 발송 / 공유 링크</strong> — 제안 파일을 Gmail 로 발송하거나, 외부 접근 가능한 공유 링크를 생성합니다.
       </div>
 
-      <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">📬 발송 이력 (${logs.length}건)</div>
+      <!-- ━━━━━━━━━━ 이메일 발송 폼 ━━━━━━━━━━ -->
+      <div class="pr-email-section">
+        <div class="pr-email-title">📨 이메일 발송</div>
+        <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="form-row">
+            <label class="form-label">받는사람 *</label>
+            <input class="form-input" id="pr-email-to" type="email" multiple placeholder="client@company.com (콤마로 여러 명)">
+          </div>
+          <div class="form-row">
+            <label class="form-label">참조 (CC)</label>
+            <input class="form-input" id="pr-email-cc" type="text" placeholder="manager@company.com">
+          </div>
+        </div>
+        <div class="form-row" style="margin-bottom:10px">
+          <label class="form-label">제목 *</label>
+          <input class="form-input" id="pr-email-subject" type="text" value="${esc(`[제안서 송부] ${e.proposal_title || ''}`)}" placeholder="제안서 송부 안내">
+        </div>
+        <div class="form-row" style="margin-bottom:10px">
+          <label class="form-label">본문</label>
+          <textarea class="form-input" id="pr-email-body" rows="7" style="resize:vertical;font-family:inherit;line-height:1.6">${esc(_defaultEmailBody(e))}</textarea>
+        </div>
+
+        <!-- 첨부 파일 선택 -->
+        <div class="form-row" style="margin-bottom:10px">
+          <label class="form-label">📎 첨부 파일 (${files.length}건 중 선택)</label>
+          ${
+            files.length === 0
+              ? `<div style="padding:12px;text-align:center;color:var(--text-3);font-size:12px;background:#fafafa;border:1px dashed var(--border);border-radius:6px">첨부 가능한 파일 없음 — 자료 탭에서 먼저 업로드하세요</div>`
+              : `<div class="pr-email-attach-list">
+                  ${files
+                    .map(
+                      f => `<label class="pr-email-attach-item">
+                    <input type="checkbox" class="pr-email-file" value="${f.id}" ${defaultAttach.has(f.id) ? 'checked' : ''}>
+                    <span class="badge badge-gray" style="font-size:10px">${esc(f.file_type)}</span>
+                    <span class="pr-email-attach-name">${esc(f.original_filename)}</span>
+                    <span class="pr-email-attach-size">${f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-'}</span>
+                  </label>`
+                    )
+                    .join('')}
+                </div>`
+          }
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn btn-primary" id="pr-email-send-btn" type="button">📨 이메일 발송</button>
+        </div>
+        <div id="pr-email-status" class="pr-email-status"></div>
+      </div>
+
+      <!-- ━━━━━━━━━━ 공유 링크 ━━━━━━━━━━ -->
+      <div class="pr-share-section">
+        <div class="pr-email-title">🔗 외부 공유 링크</div>
+        ${
+          hasShare
+            ? `<div class="pr-share-active">
+                <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
+                  ${
+                    e.shared_until
+                      ? `⏳ 만료: <strong>${_fmtDateTime(e.shared_until)}</strong>`
+                      : '♾️ 만료 없음'
+                  }
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+                  <input class="form-input" id="pr-share-url" type="text" readonly value="${esc(shareUrl)}" style="font-family:monospace;font-size:11px;background:#f9fafb">
+                  <button class="btn btn-ghost btn-sm" id="pr-share-copy-btn" type="button" title="링크 복사">📋</button>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:11px;color:var(--text-3)">⚠️ 외부 노출: 제목/요약/include_in_email 파일만</span>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost btn-sm" id="pr-share-renew-btn" type="button">🔁 재발급</button>
+                    <button class="btn btn-ghost btn-sm" id="pr-share-revoke-btn" type="button" style="color:#d93025">🗑️ 무효화</button>
+                  </div>
+                </div>
+              </div>`
+            : `<div class="pr-share-empty">
+                <div style="font-size:13px;color:var(--text-2);margin-bottom:8px">아직 공유 링크가 발급되지 않았습니다</div>
+                <div style="display:flex;gap:8px;align-items:center;justify-content:center">
+                  <label style="font-size:12px;color:var(--text-3)">만료일</label>
+                  <select class="form-input" id="pr-share-expires" style="width:120px;font-size:12px">
+                    <option value="7" selected>7일</option>
+                    <option value="14">14일</option>
+                    <option value="30">30일</option>
+                    <option value="0">무제한</option>
+                  </select>
+                  <button class="btn btn-primary btn-sm" id="pr-share-create-btn" type="button">🔗 링크 생성</button>
+                </div>
+              </div>`
+        }
+      </div>
+
+      <!-- ━━━━━━━━━━ 발송 이력 ━━━━━━━━━━ -->
+      <div style="font-size:12px;color:var(--text-3);margin:14px 0 8px">📬 발송 이력 (${logs.length}건)</div>
       ${
         logs.length === 0
-          ? `<div style="padding:30px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:6px">아직 발송 이력 없음</div>`
+          ? `<div style="padding:18px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:6px;font-size:12px">아직 발송 이력 없음</div>`
           : `<table class="data-table" style="font-size:12px">
               <thead><tr>
                 <th style="width:140px">발송 시각</th>
@@ -824,7 +946,7 @@ const ProposalsPage = (() => {
                   <td>${_fmtDateTime(l.sent_at)}</td>
                   <td style="font-family:monospace;font-size:11px">${esc(l.to_emails || '')}</td>
                   <td>${esc(l.subject || '')}</td>
-                  <td style="text-align:center"><span class="badge badge-${l.send_status === 'sent' ? 'green' : 'red'}">${esc(l.send_status || 'sent')}</span></td>
+                  <td style="text-align:center"><span class="badge badge-${l.send_status === 'sent' ? 'green' : l.send_status === 'failed' ? 'red' : 'gray'}">${esc(l.send_status || 'sent')}</span></td>
                   <td>${esc(l.sent_by_name || '-')}</td>
                 </tr>`
                   )
@@ -1405,6 +1527,167 @@ const ProposalsPage = (() => {
           try {
             document.execCommand('copy');
             Toast.success('마크다운 클립보드에 복사됨');
+          } catch (_) {
+            Toast.error('복사 실패 — 수동 선택 후 복사하세요');
+          }
+          document.body.removeChild(ta);
+        }
+      });
+    }
+  }
+
+  // ── Phase 5-D: 이메일/공유 탭 이벤트 ───────────────────────
+  function _bindEmailTabEvents(e) {
+    if (!e || !e.id) return;
+
+    // (1) 이메일 발송 버튼
+    const sendBtn = document.getElementById('pr-email-send-btn');
+    if (sendBtn) {
+      sendBtn.addEventListener('click', async () => {
+        const to = (document.getElementById('pr-email-to')?.value || '').trim();
+        const cc = (document.getElementById('pr-email-cc')?.value || '').trim();
+        const subject = (document.getElementById('pr-email-subject')?.value || '').trim();
+        const body = (document.getElementById('pr-email-body')?.value || '').trim();
+        const fileIds = Array.from(document.querySelectorAll('.pr-email-file:checked')).map(el =>
+          parseInt(el.value, 10)
+        );
+
+        if (!to || !/@/.test(to)) {
+          Toast.error('받는사람 이메일 주소를 입력하세요');
+          return;
+        }
+        if (!subject) {
+          Toast.error('제목을 입력하세요');
+          return;
+        }
+
+        // 첨부 합계 크기 사전 표시 (백엔드도 검증)
+        const files = (e.files || []).filter(f => fileIds.includes(f.id));
+        const totalBytes = files.reduce((sum, f) => sum + (f.file_size || 0), 0);
+        if (totalBytes > 25 * 1024 * 1024) {
+          Toast.error(
+            `첨부 합계 ${(totalBytes / 1024 / 1024).toFixed(1)}MB — 25MB 한도 초과. 일부 파일 제외 후 재시도`
+          );
+          return;
+        }
+
+        const origText = sendBtn.innerHTML;
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '⏳ 발송 중...';
+        const statusEl = document.getElementById('pr-email-status');
+        if (statusEl) statusEl.innerHTML = '⏳ Gmail 발송 중...';
+        try {
+          const res = await API.proposals.sendEmail(e.id, {
+            to,
+            cc,
+            subject,
+            body,
+            file_ids: fileIds,
+          });
+          const d = res?.data || {};
+          Toast.success(
+            `발송 완료 — 첨부 ${d.attachment_count}개 (${((d.total_bytes || 0) / 1024).toFixed(1)}KB)`
+          );
+          if (statusEl) {
+            statusEl.innerHTML = `✅ 발송 완료 — message_id: <code>${esc(d.message_id || '-')}</code>`;
+          }
+          // 발송 이력 갱신
+          await _refreshDetail(e.id);
+        } catch (err) {
+          console.error('[proposals:email send] failed:', err);
+          const detail =
+            err?.error || err?.message || (err?.status ? `HTTP ${err.status}` : null) || String(err);
+          Toast.error('이메일 발송 실패: ' + detail, { duration: 8000 });
+          if (statusEl) statusEl.innerHTML = `❌ 실패: ${esc(detail)}`;
+          // Gmail 미연결 안내
+          if (err?.notConnected || /Google 인증|gmail/i.test(detail)) {
+            Toast.error('Google 계정을 먼저 연결하세요 (설정 → Google 연동)', { duration: 8000 });
+          }
+        } finally {
+          sendBtn.disabled = false;
+          sendBtn.innerHTML = origText;
+        }
+      });
+    }
+
+    // (2) 공유 링크 생성
+    const createBtn = document.getElementById('pr-share-create-btn');
+    if (createBtn) {
+      createBtn.addEventListener('click', async () => {
+        const days = parseInt(document.getElementById('pr-share-expires')?.value, 10);
+        const origText = createBtn.innerHTML;
+        createBtn.disabled = true;
+        createBtn.innerHTML = '⏳';
+        try {
+          await API.proposals.createShare(e.id, Number.isFinite(days) ? days : 7);
+          Toast.success('공유 링크 발급 완료');
+          await _refreshDetail(e.id);
+        } catch (err) {
+          console.error('[proposals:share create] failed:', err);
+          Toast.error('공유 링크 발급 실패: ' + (err?.error || err?.message || err));
+          createBtn.disabled = false;
+          createBtn.innerHTML = origText;
+        }
+      });
+    }
+
+    // (3) 공유 링크 재발급 — 기존 토큰 무효화 + 새 발급
+    const renewBtn = document.getElementById('pr-share-renew-btn');
+    if (renewBtn) {
+      renewBtn.addEventListener('click', async () => {
+        const ok = confirm(
+          '공유 링크를 재발급하시겠습니까?\n현재 링크는 즉시 무효화되고, 새 링크가 생성됩니다.'
+        );
+        if (!ok) return;
+        try {
+          await API.proposals.createShare(e.id, 7);
+          Toast.success('공유 링크 재발급 완료');
+          await _refreshDetail(e.id);
+        } catch (err) {
+          Toast.error('재발급 실패: ' + (err?.error || err?.message || err));
+        }
+      });
+    }
+
+    // (4) 공유 링크 무효화
+    const revokeBtn = document.getElementById('pr-share-revoke-btn');
+    if (revokeBtn) {
+      revokeBtn.addEventListener('click', async () => {
+        const ok = confirm('공유 링크를 무효화하시겠습니까?\n외부 접근이 즉시 차단됩니다.');
+        if (!ok) return;
+        try {
+          await API.proposals.revokeShare(e.id);
+          Toast.success('공유 링크 무효화됨');
+          await _refreshDetail(e.id);
+        } catch (err) {
+          Toast.error('무효화 실패: ' + (err?.error || err?.message || err));
+        }
+      });
+    }
+
+    // (5) 공유 URL 클립보드 복사
+    const copyBtn = document.getElementById('pr-share-copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', async () => {
+        const url = document.getElementById('pr-share-url')?.value || '';
+        if (!url) {
+          Toast.error('복사할 URL 이 없습니다');
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(url);
+          Toast.success('공유 링크가 클립보드에 복사됨');
+        } catch (_) {
+          // fallback
+          const ta = document.createElement('textarea');
+          ta.value = url;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand('copy');
+            Toast.success('공유 링크가 클립보드에 복사됨');
           } catch (_) {
             Toast.error('복사 실패 — 수동 선택 후 복사하세요');
           }

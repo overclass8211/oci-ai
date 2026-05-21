@@ -277,6 +277,12 @@ const API = {
     // Phase 4-A — AI RFP 분석 (사용자가 선택한 RFP 파일 1건 분석)
     analyzeRfp: (id, fileId) =>
       API.post(`/proposals/${id}/rfp/analyze`, { file_id: fileId }),
+    // Phase 5-B — 이메일 발송 (Gmail 첨부)
+    sendEmail: (id, body) => API.post(`/proposals/${id}/email/send`, body),
+    // Phase 5-C — 공유 링크 발급 / 무효화
+    createShare: (id, expiresDays = 7) =>
+      API.post(`/proposals/${id}/share`, { expires_days: expiresDays }),
+    revokeShare: id => API.del(`/proposals/${id}/share`),
   },
 
   // 견적서 (crm.quotes)
