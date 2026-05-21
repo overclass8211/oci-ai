@@ -243,6 +243,164 @@ async function sendMessage(userId, opts) {
   };
 }
 
+// ── Phase 5-A: 첨부파일 지원 multipart/mixed 메시지 빌더 ────
+// Gmail API send 는 RFC 822 raw + base64url 인코딩을 요구한다.
+// 첨부 시 multipart/mixed boundary 로 본문 + N개 첨부를 묶는다.
+// 기존 _buildRawMessage 는 그대로 두고 (text/plain only), 첨부 케이스만 분리.
+//
+// 입력:
+//   attachments: [{ filename, mimeType, data: Buffer }] — data 는 Buffer 권장
+// 반환: Gmail API users.messages.send 의 raw 필드 (base64url)
+function _buildRawMessageWithAttachments({ from, to, subject, body, cc, bcc, attachments = [] }) {
+  const enc2047 = s => '=?UTF-8?B?' + Buffer.from(String(s), 'utf8').toString('base64') + '?=';
+  // RFC 2046 — 본문에 포함될 수 없도록 충분히 unique 한 boundary
+  const boundary = `=_OCI_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  // (1) 헤더
+  const headers = [`From: ${from}`, `To: ${to}`];
+  if (cc) headers.push(`Cc: ${cc}`);
+  if (bcc) headers.push(`Bcc: ${bcc}`);
+  headers.push(`Subject: ${enc2047(subject || '')}`);
+  headers.push('MIME-Version: 1.0');
+  headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+  // (2) 본문 파트 — text/plain + base64
+  const bodyPart = [
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    Buffer.from(String(body || ''), 'utf8').toString('base64'),
+  ];
+
+  // (3) 첨부 파트들 — 각 파일을 base64 로 76자 단위 줄바꿈 (RFC 2045 권장)
+  const wrapBase64 = b64 => {
+    const lines = [];
+    for (let i = 0; i < b64.length; i += 76) lines.push(b64.slice(i, i + 76));
+    return lines.join('\r\n');
+  };
+  const attachParts = (attachments || [])
+    .filter(a => a && a.data && a.filename)
+    .map(a => {
+      const mime = a.mimeType || 'application/octet-stream';
+      const fnameEnc = enc2047(a.filename);
+      const dataB64 = Buffer.isBuffer(a.data)
+        ? a.data.toString('base64')
+        : Buffer.from(a.data).toString('base64');
+      return [
+        `--${boundary}`,
+        `Content-Type: ${mime}; name="${fnameEnc}"`,
+        `Content-Disposition: attachment; filename="${fnameEnc}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        wrapBase64(dataB64),
+      ].join('\r\n');
+    });
+
+  // (4) 조립 — boundary 종료 마커 (--BOUNDARY--)
+  const parts = [
+    headers.join('\r\n'),
+    '',
+    bodyPart.join('\r\n'),
+    ...attachParts,
+    `--${boundary}--`,
+  ];
+  const raw = parts.join('\r\n');
+
+  // base64url 변환
+  return Buffer.from(raw, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+/**
+ * Gmail 로 첨부파일과 함께 발송 (Phase 5-A)
+ * 기존 sendMessage 와 분리 — multipart/mixed 인코딩만 다름.
+ *
+ * @param {number} userId
+ * @param {object} opts
+ *   - to {string}        — 수신자 (콤마 구분 가능)
+ *   - subject {string}
+ *   - body {string}      — text/plain 본문
+ *   - cc {string?}
+ *   - bcc {string?}
+ *   - attachments {Array<{filename, mimeType, data: Buffer}>}
+ * @returns {Promise<{ message_id, thread_id, from }>}
+ *
+ * 제약:
+ * - Gmail API raw 한도: base64 인코딩 후 최대 35MB (실제 원본 ~26MB)
+ *   → 호출자가 사전에 합산 크기 검증 권장
+ */
+async function sendMessageWithAttachments(userId, opts) {
+  if (!opts || !opts.to || !/@/.test(opts.to)) {
+    throw Object.assign(new Error('유효한 수신자(to) 가 필요합니다'), { status: 400 });
+  }
+  if (!opts.subject || !String(opts.subject).trim()) {
+    throw Object.assign(new Error('제목이 필요합니다'), { status: 400 });
+  }
+
+  // 첨부 사전 검증 — 합계 25MB 초과 시 거부 (Gmail base64 한도 35MB → 안전마진)
+  const attachments = (opts.attachments || []).filter(a => a && a.data && a.filename);
+  let totalSize = 0;
+  for (const a of attachments) {
+    const sz = Buffer.isBuffer(a.data) ? a.data.length : Buffer.byteLength(a.data);
+    totalSize += sz;
+  }
+  if (totalSize > 25 * 1024 * 1024) {
+    throw Object.assign(
+      new Error(
+        `첨부파일 합계 ${(totalSize / 1024 / 1024).toFixed(1)}MB 가 25MB 한도 초과 — 일부 파일 제외 후 재시도`
+      ),
+      { status: 400 }
+    );
+  }
+
+  // 테스트 환경 — Gmail API 호출 없이 mock 반환 (raw 빌드는 그대로 검증 가능)
+  if (process.env.NODE_ENV === 'test') {
+    const raw = _buildRawMessageWithAttachments({
+      from: 'test@example.com',
+      to: opts.to,
+      subject: opts.subject,
+      body: opts.body || '',
+      cc: opts.cc || '',
+      bcc: opts.bcc || '',
+      attachments,
+    });
+    return {
+      message_id: '__MOCK_MID__',
+      thread_id: '__MOCK_TID__',
+      from: 'test@example.com',
+      _raw_length: raw.length,
+      _attachment_count: attachments.length,
+      _total_attachment_bytes: totalSize,
+      _mock: true,
+    };
+  }
+
+  const { gmail } = await getGmailClient(userId);
+  const myEmail = await getOwnEmail(userId);
+  const raw = _buildRawMessageWithAttachments({
+    from: myEmail,
+    to: opts.to,
+    subject: opts.subject,
+    body: opts.body || '',
+    cc: opts.cc || '',
+    bcc: opts.bcc || '',
+    attachments,
+  });
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw },
+  });
+  return {
+    message_id: res.data.id,
+    thread_id: res.data.threadId,
+    from: myEmail,
+  };
+}
+
 /**
  * 특정 시각 이후의 메시지 N건 (백그라운드 동기화용)
  * Gmail 쿼리 `after:` 는 초 단위 epoch.
@@ -327,4 +485,7 @@ module.exports = {
   getGmailClient,
   classifyError,
   sendMessage,
+  sendMessageWithAttachments,
+  // Phase 5-A: 단위 테스트용 (raw 메시지 구조 검증)
+  _buildRawMessageWithAttachments,
 };
