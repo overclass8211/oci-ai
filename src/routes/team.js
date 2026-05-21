@@ -23,7 +23,7 @@ router.get('/export', async (req, res) => {
          FROM team_members
         ORDER BY name`
     );
-    sendExport(res, {
+    await sendExport(res, {
       columns: TEAM_COLS,
       rows,
       sheetName: '팀원',

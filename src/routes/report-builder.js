@@ -744,7 +744,7 @@ router.post('/export', async (req, res) => {
     const filename = rawName;
     const sheetName = String(req.query.name || '리포트').slice(0, 30); // Excel sheet 이름 30자 제한
 
-    sendExport(res, {
+    await sendExport(res, {
       columns: exportColumns,
       rows: data,
       sheetName,

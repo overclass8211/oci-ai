@@ -686,7 +686,7 @@ router.get('/export', async (req, res) => {
       params.push(industry);
     }
     const [rows] = await pool.query(`SELECT * FROM customers ${where} ORDER BY name`, params);
-    sendExport(res, {
+    await sendExport(res, {
       columns: CUST_COLS,
       rows,
       sheetName: '고객사',
@@ -702,7 +702,7 @@ router.get('/export', async (req, res) => {
 router.post('/import', upload.memory.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: '파일이 없습니다.' });
-    const rows = fromExcelBuffer(req.file.buffer);
+    const rows = await fromExcelBuffer(req.file.buffer);
     if (!rows.length)
       return res.status(400).json({ success: false, message: '데이터가 없습니다.' });
 

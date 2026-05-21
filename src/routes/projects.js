@@ -228,7 +228,7 @@ router.get('/export', async (req, res) => {
        ${where} ORDER BY p.created_at DESC`,
       params
     );
-    sendExport(res, {
+    await sendExport(res, {
       columns: PROJ_COLS,
       rows,
       sheetName: '프로젝트',
@@ -244,7 +244,7 @@ router.get('/export', async (req, res) => {
 router.post('/import', upload.memory.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: '파일이 없습니다.' });
-    const rows = fromExcelBuffer(req.file.buffer);
+    const rows = await fromExcelBuffer(req.file.buffer);
     if (!rows.length)
       return res.status(400).json({ success: false, message: '데이터가 없습니다.' });
 

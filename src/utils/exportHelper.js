@@ -70,7 +70,8 @@ function toJsonBuffer(columns, rows, meta = {}) {
 }
 
 // 통합 진입점 — format 에 따라 적절한 buffer + 헤더 설정
-function sendExport(
+// async — toExcelBuffer (exceljs) 가 Promise 반환 (C1 보안 fix 2026-05-21)
+async function sendExport(
   res,
   { columns, rows, sheetName = 'Sheet1', filename = 'export', format = 'xlsx', meta }
 ) {
@@ -86,7 +87,7 @@ function sendExport(
     contentType = 'application/json; charset=utf-8';
     ext = 'json';
   } else {
-    buffer = toExcelBuffer(columns, rows, sheetName);
+    buffer = await toExcelBuffer(columns, rows, sheetName);
     contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     ext = 'xlsx';
   }

@@ -465,7 +465,7 @@ router.get('/export', async (req, res) => {
         LIMIT 5000`,
       params
     );
-    sendExport(res, {
+    await sendExport(res, {
       columns: ACT_COLS,
       rows,
       sheetName: '활동이력',

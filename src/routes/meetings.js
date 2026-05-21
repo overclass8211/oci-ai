@@ -235,7 +235,7 @@ router.get('/export', async (req, res) => {
         LIMIT 2000`,
       params
     );
-    sendExport(res, {
+    await sendExport(res, {
       columns: MEETING_COLS,
       rows,
       sheetName: '회의록',
