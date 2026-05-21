@@ -1167,6 +1167,7 @@ router.delete('/:id/files/:fileId', async (req, res) => {
 // 출력: 분석 결과만 반환 (DB 자동 저장 X — 사용자가 검토 후 [저장] 누르면 PUT /:id 로 별도 반영)
 // 부가: proposal_history 에 'ai_analyze' 기록 (사용 로그 추적)
 router.post('/:id/rfp/analyze', async (req, res) => {
+  const startedAt = Date.now();
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
@@ -1192,6 +1193,10 @@ router.post('/:id/rfp/analyze', async (req, res) => {
       return res.status(404).json({ success: false, error: '파일이 디스크에 없습니다 (삭제됨)' });
     }
 
+    console.log(
+      `[proposals:analyze] start proposal=${id} file=${fileId} (${file.original_filename})`
+    );
+
     // Gemini Multimodal 호출
     const analysis = await analyzeProposalRFP({
       filePath: absPath,
@@ -1200,15 +1205,24 @@ router.post('/:id/rfp/analyze', async (req, res) => {
       endpoint: 'proposal_rfp_analyze',
     });
 
+    const elapsed = Date.now() - startedAt;
+    console.log(`[proposals:analyze] done proposal=${id} elapsed=${elapsed}ms`);
+
     // history 기록 (best-effort, 트랜잭션 없이)
     logHistory(null, id, userId, 'ai_analyze', {
-      description: `AI 분석: ${file.original_filename}`,
+      description: `AI 분석: ${file.original_filename} (${elapsed}ms)`,
       newValue: file.original_filename,
     });
 
     res.json({ success: true, data: analysis });
   } catch (err) {
-    handleError(res, err);
+    const elapsed = Date.now() - startedAt;
+    console.error(`[proposals:analyze] failed after ${elapsed}ms:`, err?.message || err);
+    // 사용자에게 친절한 메시지 전달 (handleError 가 stack 만 보낼 수 있어 직접 처리)
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'AI 분석 실패',
+    });
   }
 });
 

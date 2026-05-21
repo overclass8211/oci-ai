@@ -588,18 +588,30 @@ const ProposalsPage = (() => {
     return out.join('\n');
   }
 
+  // Gemini Multimodal 직접 지원 파일 (PDF / 이미지 / 텍스트)
+  // PPT/DOC/HWP 등 Office 문서는 PDF 로 변환 필요
+  const AI_ANALYZABLE_RE = /\.(pdf|png|jpe?g|webp|txt)$/i;
+  function _isAnalyzable(filename) {
+    return AI_ANALYZABLE_RE.test(String(filename || ''));
+  }
+
   // ── 탭 3: AI 제안전략 (Phase 4-D 활성) ───────────────────
   function _renderAiTab(e) {
     const hasResult = e.ai_strategy_md && e.ai_strategy_md.trim();
     const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
-    const canAnalyze = rfpFiles.length > 0;
+    // 분석 가능한 RFP 파일만 (PDF/이미지/텍스트)
+    const analyzableFiles = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
+    const canAnalyze = analyzableFiles.length > 0;
+    const hasRfpButUnanalyzable = rfpFiles.length > 0 && analyzableFiles.length === 0;
     return `
       <div style="margin-bottom:16px;padding:10px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#6b21a8">
         🤖 <strong>AI 제안 전략 분석</strong> — RFP 파일을 Gemini 2.5 Pro 로 분석해 한국어 B2B 제안 전략을 markdown 으로 생성합니다.
         ${
           canAnalyze
-            ? `<br>현재 RFP 파일 ${rfpFiles.length}건 등록됨 — 첫 번째 파일을 사용합니다.`
-            : '<br>⚠️ RFP 탭에서 파일을 먼저 업로드하세요.'
+            ? `<br>분석 가능한 RFP 파일 ${analyzableFiles.length}건 — 첫 번째 파일을 사용합니다.`
+            : hasRfpButUnanalyzable
+              ? '<br>⚠️ 등록된 RFP 파일이 분석 불가 형식입니다. <strong>PDF / 이미지(PNG·JPG·WEBP) / 텍스트</strong> 만 지원하며, PPT/DOC/HWP 는 PDF 로 변환 후 업로드하세요.'
+              : '<br>⚠️ RFP 탭에서 파일을 먼저 업로드하세요. (PDF / 이미지 / 텍스트)'
         }
       </div>
       <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
@@ -713,7 +725,9 @@ const ProposalsPage = (() => {
           <td style="text-align:center;white-space:nowrap">
             ${
               source === 'rfp'
-                ? `<button class="btn btn-ghost btn-sm pr-file-ai" data-id="${f.id}" type="button" title="이 파일로 AI 분석" style="color:#7c3aed">🤖</button>`
+                ? _isAnalyzable(f.original_filename)
+                  ? `<button class="btn btn-ghost btn-sm pr-file-ai" data-id="${f.id}" type="button" title="이 파일로 AI 분석 (Gemini)" style="color:#7c3aed">🤖</button>`
+                  : `<span title="PDF / 이미지 / 텍스트만 분석 가능" style="font-size:11px;color:var(--text-3);padding:0 4px">—</span>`
                 : ''
             }
             <a class="btn btn-ghost btn-sm" href="${API.proposals.downloadFileUrl(proposalId, f.id)}" data-pr-file-download="${f.id}" title="다운로드">⬇️</a>
@@ -1276,6 +1290,7 @@ const ProposalsPage = (() => {
   }
 
   // Phase 4-C — AI RFP 분석 + 폼 미리채움 (DB 자동 저장 X)
+  // 4-D 보강: 상세 에러 표시 + console.error + 타임아웃 안내
   async function _doAnalyzeRfp(propId, fileId, btn) {
     const origText = btn ? btn.innerHTML : '';
     if (btn) {
@@ -1283,13 +1298,18 @@ const ProposalsPage = (() => {
       btn.innerHTML = '⏳';
     }
     try {
-      Toast.info?.('AI 분석 중... (최대 30초 소요)');
+      Toast.info?.('AI 분석 중... (최대 60초 소요)');
       const res = await API.proposals.analyzeRfp(propId, fileId);
       const d = res?.data || {};
       _applyAnalysisToForm(d);
       Toast.success('AI 분석 완료 — 폼에 결과가 채워졌습니다. 검토 후 [저장] 누르세요');
     } catch (err) {
-      Toast.error('AI 분석 실패: ' + (err.message || err));
+      // 디버깅용 콘솔 (개발자도구 확인 가능)
+      console.error('[proposals:analyze] failed:', err);
+      // 상세 메시지 추출 — err.error / err.message / err.status
+      const detail =
+        err?.error || err?.message || (err?.status ? `HTTP ${err.status}` : null) || String(err);
+      Toast.error('AI 분석 실패: ' + detail, { duration: 8000 });
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -1332,13 +1352,20 @@ const ProposalsPage = (() => {
   function _bindAiTabEvents(e) {
     if (!e || !e.id) return;
     const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
+    const analyzableFiles = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
 
     // (1) 분석 / 재생성 버튼 — 둘 다 같은 endpoint, hasResult 면 덮어쓰기 확인
     const analyzeBtn = document.getElementById('pr-ai-analyze-btn');
     if (analyzeBtn) {
       analyzeBtn.addEventListener('click', async () => {
-        if (rfpFiles.length === 0) {
-          Toast.error('RFP 파일이 없습니다. RFP 탭에서 먼저 업로드하세요.');
+        if (analyzableFiles.length === 0) {
+          if (rfpFiles.length > 0) {
+            Toast.error(
+              '분석 가능한 형식이 아닙니다 — PDF / 이미지 / 텍스트만 지원 (PPT/DOC/HWP 는 PDF 로 변환)'
+            );
+          } else {
+            Toast.error('RFP 파일이 없습니다. RFP 탭에서 먼저 업로드하세요.');
+          }
           return;
         }
         const hasResult = e.ai_strategy_md && e.ai_strategy_md.trim();
@@ -1348,8 +1375,8 @@ const ProposalsPage = (() => {
           );
           if (!ok) return;
         }
-        // RFP 첫 번째 파일로 분석 (Phase 4-C 의 _doAnalyzeRfp 재사용)
-        await _doAnalyzeRfp(e.id, rfpFiles[0].id, analyzeBtn);
+        // 분석 가능한 첫 번째 RFP 파일로 분석
+        await _doAnalyzeRfp(e.id, analyzableFiles[0].id, analyzeBtn);
         // 결과를 화면에 재렌더 (탭 다시 그리기)
         _renderActiveTab(_editing || e);
       });
