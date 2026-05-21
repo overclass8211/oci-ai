@@ -266,7 +266,10 @@ describe('Proposals API — Phase 1', () => {
       .attach('file', tmpFile);
     expect(upload.status).toBe(200);
     expect(upload.body.success).toBe(true);
-    expect(upload.body.data.original_filename).toContain('__test_proposal');
+    // Phase 4-B: 응답 형식 {uploaded, failed}
+    expect(upload.body.data.uploaded.length).toBe(1);
+    expect(upload.body.data.failed.length).toBe(0);
+    expect(upload.body.data.uploaded[0].original_filename).toContain('__test_proposal');
 
     // 상세 조회 — 파일 목록 + history 기록 확인
     const detail = await api().get(`/api/proposals/${propId}`).set('X-User-Id', String(TEST_USER_ID));
@@ -365,7 +368,7 @@ describe('Proposals API — Phase 1', () => {
       .set('X-User-Id', String(TEST_USER_ID))
       .field('file_type', 'etc')
       .attach('file', tmpFile);
-    const fileId = up.body.data.id;
+    const fileId = up.body.data.uploaded[0].id;
 
     const del = await api()
       .delete(`/api/proposals/${propId}/files/${fileId}`)
@@ -435,7 +438,7 @@ describe('Proposals API — Phase 1', () => {
       .post(`/api/proposals/${propId}/rfp`)
       .set('X-User-Id', String(TEST_USER_ID))
       .attach('file', tmpFile);
-    const fileId = up.body.data.id;
+    const fileId = up.body.data.uploaded[0].id;
 
     // AI 분석 호출 (NODE_ENV=test → mock 응답)
     const ana = await api()
@@ -511,6 +514,95 @@ describe('Proposals API — Phase 1', () => {
     expect(r.status).toBe(404);
   });
 
+  // ── Phase 4-B: 다중 파일 업로드 ─────────────────────────────
+  it('POST /:id/rfp — 다중 파일 (files 필드) 동시 업로드 성공', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__다중RFP',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const f1 = path.join(os.tmpdir(), `__multi_rfp_a_${propId}.pdf`);
+    const f2 = path.join(os.tmpdir(), `__multi_rfp_b_${propId}.pdf`);
+    const f3 = path.join(os.tmpdir(), `__multi_rfp_c_${propId}.pdf`);
+    fs.writeFileSync(f1, Buffer.from('%PDF a'));
+    fs.writeFileSync(f2, Buffer.from('%PDF b'));
+    fs.writeFileSync(f3, Buffer.from('%PDF c'));
+
+    const upload = await api()
+      .post(`/api/proposals/${propId}/rfp`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('rfp_title', '다중 RFP 묶음')
+      .attach('files', f1)
+      .attach('files', f2)
+      .attach('files', f3);
+    expect(upload.status).toBe(200);
+    expect(upload.body.data.uploaded.length).toBe(3);
+    expect(upload.body.data.failed.length).toBe(0);
+
+    const detail = await api()
+      .get(`/api/proposals/${propId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.files.length).toBe(3);
+    expect(detail.body.data.rfp_title).toBe('다중 RFP 묶음');
+    // 다중 history 기록
+    expect(
+      detail.body.data.history.filter(h => h.action_type === 'rfp_upload').length
+    ).toBeGreaterThanOrEqual(3);
+
+    [f1, f2, f3].forEach(f => {
+      try {
+        fs.unlinkSync(f);
+      } catch (_) {}
+    });
+  });
+
+  it('POST /:id/files — file (단일) + files (다중) 혼합 입력 동시 처리', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__혼합업로드',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const single = path.join(os.tmpdir(), `__mix_single_${propId}.pdf`);
+    const multi1 = path.join(os.tmpdir(), `__mix_multi1_${propId}.pdf`);
+    const multi2 = path.join(os.tmpdir(), `__mix_multi2_${propId}.pdf`);
+    [single, multi1, multi2].forEach(f => fs.writeFileSync(f, Buffer.from('%PDF mix')));
+
+    const upload = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'reference')
+      .attach('file', single)
+      .attach('files', multi1)
+      .attach('files', multi2);
+    expect(upload.status).toBe(200);
+    expect(upload.body.data.uploaded.length).toBe(3);
+    expect(upload.body.data.uploaded.every(u => u.file_type === 'reference')).toBe(true);
+
+    [single, multi1, multi2].forEach(f => {
+      try {
+        fs.unlinkSync(f);
+      } catch (_) {}
+    });
+  });
+
   // ── 회귀 방지 (Bug fix 2026-05-21) ─────────────────────────
   it('🐛 회귀: PUT /:id — proposal_date 가 ISO 8601 ("...T15:00:00.000Z") 이어도 저장 성공', async () => {
     const create = await api()
@@ -565,7 +657,7 @@ describe('Proposals API — Phase 1', () => {
       .set('X-User-Id', String(TEST_USER_ID))
       .attach('file', tmpFile, { filename: koreanName });
     expect(upload.status).toBe(200);
-    expect(upload.body.data.original_filename).toBe(koreanName);
+    expect(upload.body.data.uploaded[0].original_filename).toBe(koreanName);
 
     const detail = await api()
       .get(`/api/proposals/${propId}`)

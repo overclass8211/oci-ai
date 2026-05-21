@@ -105,7 +105,9 @@ const proposalUpload = multer({
       // 한글 파일명 복원 후 sanitize (디스크에 저장될 파일명)
       const decoded = decodeOriginalName(file.originalname);
       const safe = sanitizeFilename(decoded);
-      cb(null, `${Date.now()}_${safe}`);
+      // 동시 업로드 충돌 방지를 위해 ms + random suffix
+      const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      cb(null, `${ts}_${safe}`);
     },
   }),
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
@@ -114,6 +116,22 @@ const proposalUpload = multer({
     cb(null, ok);
   },
 });
+
+// Phase 4-B: 단일 'file' + 다중 'files' 양쪽 수용 (호환성 유지)
+// - 기존 클라이언트 (.attach('file', ...)) 는 그대로 동작
+// - 신규 다중 업로드 (.attach('files', ...) × N) 도 동작
+const uploadMixed = proposalUpload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'files', maxCount: 10 },
+]);
+
+// fields 패턴 응답 (req.files = { file: [], files: [] }) 또는
+// array 패턴 응답 (req.files = []) 양쪽에서 평탄화된 파일 배열을 추출
+function collectFiles(req) {
+  if (!req.files) return [];
+  if (Array.isArray(req.files)) return req.files;
+  return [...(req.files.file || []), ...(req.files.files || [])];
+}
 
 // ── 자가 마이그레이션 (idempotent) ────────────────────────────
 async function ensureSchema() {
@@ -867,160 +885,194 @@ router.delete('/:id', async (req, res) => {
 // Phase 3: 파일 업로드/다운로드/삭제 + 리비전 생성
 // =============================================================
 
-// ── POST /:id/rfp — RFP 파일 업로드 + 메타 업데이트 ──────────
-router.post('/:id/rfp', proposalUpload.single('file'), async (req, res) => {
-  const conn = await pool.getConnection();
+// ── POST /:id/rfp — RFP 파일 업로드 (단일 + 다중) + 메타 업데이트
+// 입력 필드: 'file' (단일, 기존 호환) 또는 'files' (다중, Phase 4-B)
+// 응답: { success, data: { uploaded: [...], failed: [...] } }
+// 파일별 독립 처리 — 일부 실패해도 나머지 계속, 부분 성공 허용
+router.post('/:id/rfp', uploadMixed, async (req, res) => {
   try {
-    await conn.beginTransaction();
     const id = parseInt(req.params.id, 10);
-    if (!id) {
-      await conn.rollback();
-      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    }
-    if (!req.file) {
-      await conn.rollback();
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const files = collectFiles(req);
+    if (files.length === 0) {
       return res.status(400).json({ success: false, error: '파일이 없습니다 (허용 확장자만)' });
     }
+
     const userId = getUserId(req);
     const body = req.body || {};
-    // 한글 파일명 복원 (latin1 → utf8)
-    const originalName = decodeOriginalName(req.file.originalname);
 
-    // proposal_files 에 RFP 로 저장
-    const relPath = `/uploads/proposals/${id}/${req.file.filename}`;
-    const [ins] = await conn.query(
-      `INSERT INTO proposal_files
-        (proposal_id, file_type, original_filename, stored_filename, file_path,
-         file_size, mime_type, revision_no, description, uploaded_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [
-        id,
-        'rfp',
-        originalName,
-        req.file.filename,
-        relPath,
-        req.file.size,
-        req.file.mimetype || null,
-        1,
-        body.description || null,
-        userId || null,
-      ]
-    );
-
-    // proposals 의 rfp_* 메타 업데이트 (전달된 경우만)
-    const fields = [];
-    const values = [];
+    // proposals 의 rfp_* 메타 업데이트 (전달된 경우만, 다중 업로드 시 1회만 반영)
+    const metaFields = [];
+    const metaValues = [];
     if (body.rfp_title) {
-      fields.push('rfp_title = ?');
-      values.push(String(body.rfp_title).slice(0, 300));
+      metaFields.push('rfp_title = ?');
+      metaValues.push(String(body.rfp_title).slice(0, 300));
     }
     const rcv = toYMD(body.rfp_received_date);
     if (rcv) {
-      fields.push('rfp_received_date = ?');
-      values.push(rcv);
+      metaFields.push('rfp_received_date = ?');
+      metaValues.push(rcv);
     }
     const due = toYMD(body.rfp_due_date);
     if (due) {
-      fields.push('rfp_due_date = ?');
-      values.push(due);
+      metaFields.push('rfp_due_date = ?');
+      metaValues.push(due);
     }
-    if (fields.length > 0) {
-      values.push(id);
-      await conn.query(`UPDATE proposals SET ${fields.join(', ')} WHERE id = ?`, values);
-    }
-
-    await logHistory(conn, id, userId, 'rfp_upload', {
-      description: `RFP 파일 업로드: ${originalName}`,
-      newValue: originalName,
-    });
-
-    await conn.commit();
-    res.json({
-      success: true,
-      data: { id: ins.insertId, file_path: relPath, original_filename: originalName },
-    });
-  } catch (err) {
-    await conn.rollback();
-    // 업로드된 파일 cleanup (실패 시)
-    if (req.file && fs.existsSync(req.file.path)) {
+    if (metaFields.length > 0) {
+      metaValues.push(id);
       try {
-        fs.unlinkSync(req.file.path);
+        await pool.query(`UPDATE proposals SET ${metaFields.join(', ')} WHERE id = ?`, metaValues);
+      } catch (e) {
+        console.warn('[proposals:rfp meta] update failed:', e.message);
+      }
+    }
+
+    // 파일별 독립 INSERT (한 파일 실패해도 나머지 계속)
+    const uploaded = [];
+    const failed = [];
+    for (const file of files) {
+      const originalName = decodeOriginalName(file.originalname);
+      try {
+        const relPath = `/uploads/proposals/${id}/${file.filename}`;
+        const [ins] = await pool.query(
+          `INSERT INTO proposal_files
+            (proposal_id, file_type, original_filename, stored_filename, file_path,
+             file_size, mime_type, revision_no, description, uploaded_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [
+            id,
+            'rfp',
+            originalName,
+            file.filename,
+            relPath,
+            file.size,
+            file.mimetype || null,
+            1,
+            body.description || null,
+            userId || null,
+          ]
+        );
+        await logHistory(null, id, userId, 'rfp_upload', {
+          description: `RFP 파일 업로드: ${originalName}`,
+          newValue: originalName,
+        });
+        uploaded.push({
+          id: ins.insertId,
+          original_filename: originalName,
+          file_path: relPath,
+          file_size: file.size,
+          mime_type: file.mimetype || null,
+        });
+      } catch (e) {
+        // 실패 시 디스크 cleanup
+        try {
+          if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        } catch (_) {}
+        failed.push({
+          original_filename: originalName,
+          error: e.message || String(e),
+        });
+      }
+    }
+
+    res.json({ success: true, data: { uploaded, failed } });
+  } catch (err) {
+    // 전체 실패 시 모든 디스크 파일 cleanup
+    for (const file of collectFiles(req)) {
+      try {
+        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
       } catch (_) {}
     }
     handleError(res, err);
-  } finally {
-    conn.release();
   }
 });
 
-// ── POST /:id/files — 일반 제안 파일 업로드 ──────────────────
-router.post('/:id/files', proposalUpload.single('file'), async (req, res) => {
-  const conn = await pool.getConnection();
+// ── POST /:id/files — 일반 제안 파일 업로드 (단일 + 다중) ────
+// 입력 필드: 'file' (단일, 기존 호환) 또는 'files' (다중, Phase 4-B)
+// 응답: { success, data: { uploaded: [...], failed: [...] } }
+router.post('/:id/files', uploadMixed, async (req, res) => {
   try {
-    await conn.beginTransaction();
     const id = parseInt(req.params.id, 10);
-    if (!id) {
-      await conn.rollback();
-      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    }
-    if (!req.file) {
-      await conn.rollback();
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const files = collectFiles(req);
+    if (files.length === 0) {
       return res.status(400).json({ success: false, error: '파일이 없습니다 (허용 확장자만)' });
     }
+
     const userId = getUserId(req);
     const body = req.body || {};
-    // 한글 파일명 복원 (latin1 → utf8)
-    const originalName = decodeOriginalName(req.file.originalname);
 
-    // file_type 검증
+    // file_type 검증 (요청 단위, 모든 파일에 공통 적용)
     let fileType = body.file_type || 'etc';
     if (!ALLOWED_FILE_TYPES.includes(fileType)) fileType = 'etc';
 
-    const relPath = `/uploads/proposals/${id}/${req.file.filename}`;
-    const [ins] = await conn.query(
-      `INSERT INTO proposal_files
-        (proposal_id, file_type, original_filename, stored_filename, file_path,
-         file_size, mime_type, revision_no, is_final, include_in_email, description, uploaded_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        id,
-        fileType,
-        originalName,
-        req.file.filename,
-        relPath,
-        req.file.size,
-        req.file.mimetype || null,
-        Number(body.revision_no) || 1,
-        body.is_final === '1' || body.is_final === 'true' || body.is_final === 1 ? 1 : 0,
-        body.include_in_email === '1' ||
-        body.include_in_email === 'true' ||
-        body.include_in_email === 1
-          ? 1
-          : 0,
-        body.description || null,
-        userId || null,
-      ]
-    );
-    await logHistory(conn, id, userId, 'file_upload', {
-      description: `파일 업로드 (${fileType}): ${originalName}`,
-      newValue: originalName,
-    });
+    const isFinal =
+      body.is_final === '1' || body.is_final === 'true' || body.is_final === 1 ? 1 : 0;
+    const inEmail =
+      body.include_in_email === '1' ||
+      body.include_in_email === 'true' ||
+      body.include_in_email === 1
+        ? 1
+        : 0;
+    const revNo = Number(body.revision_no) || 1;
 
-    await conn.commit();
-    res.json({
-      success: true,
-      data: { id: ins.insertId, file_path: relPath, original_filename: originalName },
-    });
-  } catch (err) {
-    await conn.rollback();
-    if (req.file && fs.existsSync(req.file.path)) {
+    const uploaded = [];
+    const failed = [];
+    for (const file of files) {
+      const originalName = decodeOriginalName(file.originalname);
       try {
-        fs.unlinkSync(req.file.path);
+        const relPath = `/uploads/proposals/${id}/${file.filename}`;
+        const [ins] = await pool.query(
+          `INSERT INTO proposal_files
+            (proposal_id, file_type, original_filename, stored_filename, file_path,
+             file_size, mime_type, revision_no, is_final, include_in_email, description, uploaded_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [
+            id,
+            fileType,
+            originalName,
+            file.filename,
+            relPath,
+            file.size,
+            file.mimetype || null,
+            revNo,
+            isFinal,
+            inEmail,
+            body.description || null,
+            userId || null,
+          ]
+        );
+        await logHistory(null, id, userId, 'file_upload', {
+          description: `파일 업로드 (${fileType}): ${originalName}`,
+          newValue: originalName,
+        });
+        uploaded.push({
+          id: ins.insertId,
+          original_filename: originalName,
+          file_path: relPath,
+          file_size: file.size,
+          mime_type: file.mimetype || null,
+          file_type: fileType,
+        });
+      } catch (e) {
+        try {
+          if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        } catch (_) {}
+        failed.push({
+          original_filename: originalName,
+          error: e.message || String(e),
+        });
+      }
+    }
+
+    res.json({ success: true, data: { uploaded, failed } });
+  } catch (err) {
+    for (const file of collectFiles(req)) {
+      try {
+        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
       } catch (_) {}
     }
     handleError(res, err);
-  } finally {
-    conn.release();
   }
 });
 
