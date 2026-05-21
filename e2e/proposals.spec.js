@@ -94,6 +94,16 @@ test('Phase 2 — 편집 모달: 모든 탭 활성 + 탭 전환 동작', async (
               file_size: 1024000,
               created_at: '2026-05-20T10:00:00',
             },
+            {
+              id: 2,
+              file_type: 'rfp',
+              original_filename: 'rfp_doc.pdf',
+              revision_no: 1,
+              is_final: 0,
+              include_in_email: 0,
+              file_size: 204800,
+              created_at: '2026-05-19T10:00:00',
+            },
           ],
           revisions: [
             { id: 1, revision_no: 1, title: '초안', description: '첫 작성', created_at: '2026-05-20T10:00:00' },
@@ -128,10 +138,17 @@ test('Phase 2 — 편집 모달: 모든 탭 활성 + 탭 전환 동작', async (
   await expect(page.locator('#pr-tab-content')).toContainText('Q-2026-9999');
   await expect(page.locator('#pr-tab-content')).toContainText('__E2E__견적명');
 
-  // AI 탭 클릭 → ai_strategy_md 표시
+  // AI 탭 클릭 → ai_strategy_md 마크다운 렌더링 (Phase 4-D)
   await page.locator('.pr-tab[data-tab="ai"]').click();
-  await expect(page.locator('#pr-tab-content')).toContainText('RFP 핵심 요약');
-  await expect(page.locator('#pr-tab-content')).toContainText('테스트 결과');
+  await expect(page.locator('#pr-ai-md-render')).toBeVisible();
+  // ## 1. RFP 핵심 요약 → <h2> 로 렌더
+  await expect(page.locator('#pr-ai-md-render .md-h2')).toContainText('RFP 핵심 요약');
+  // - 테스트 결과 → <li> 로 렌더
+  await expect(page.locator('#pr-ai-md-render .md-ul li')).toContainText('테스트 결과');
+  // 분석 버튼 — RFP 파일 1건 있으므로 활성
+  await expect(page.locator('#pr-ai-analyze-btn')).toBeEnabled();
+  // [📋 복사] 버튼 — 결과 있으면 노출
+  await expect(page.locator('#pr-ai-copy-btn')).toBeVisible();
 
   // 자료 탭 클릭 → 파일 1건 표시
   await page.locator('.pr-tab[data-tab="files"]').click();
@@ -219,4 +236,50 @@ test('Phase 4-C — RFP/자료 탭 드롭존 + AI 분석 버튼 표시', async (
   await expect(page.locator('.pr-file-ai[data-id="12"]')).toHaveCount(0);
 
   await page.unroute('**/api/proposals/77002');
+});
+
+test('Phase 4-D — AI 탭: RFP 파일 없으면 분석 버튼 비활성 + 빈 상태 안내', async ({ page }) => {
+  // mock — RFP 파일 없음 + ai_strategy_md 도 없음
+  await page.route('**/api/proposals/77003', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: {
+          id: 77003,
+          proposal_no: 'P-2026-7003',
+          proposal_title: '__E2E_AI__빈',
+          customer_name: '__E2E_AI__고객',
+          proposal_date: '2026-05-21',
+          status: 'draft',
+          version_no: 1,
+          currency: 'KRW',
+          lead: null,
+          quote: null,
+          files: [],
+          revisions: [],
+          email_logs: [],
+          history: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto('/#proposals');
+  await page.waitForSelector('#pr-new-btn', { timeout: 30000 });
+  await page.waitForLoadState('networkidle');
+  await page.evaluate(() => window.ProposalsPage._openModal(77003));
+
+  await page.locator('.pr-tab[data-tab="ai"]').click();
+  // RFP 파일 없음 안내
+  await expect(page.locator('#pr-tab-content')).toContainText('RFP 탭에서 파일을 먼저 업로드');
+  // 분석 버튼 비활성
+  await expect(page.locator('#pr-ai-analyze-btn')).toBeDisabled();
+  // 결과 없음 → 복사 버튼 미노출
+  await expect(page.locator('#pr-ai-copy-btn')).toHaveCount(0);
+  // 빈 상태 placeholder
+  await expect(page.locator('#pr-tab-content')).toContainText('아직 AI 분석 결과가 없습니다');
+
+  await page.unroute('**/api/proposals/77003');
 });

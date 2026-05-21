@@ -9060,3 +9060,54 @@ body,
   cursor: wait;
   opacity: 0.6;
 }
+
+/* Phase 4-D: AI 제안전략 마크다운 렌더링 */
+.pr-ai-md {
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: 'Malgun Gothic', sans-serif;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-1);
+  max-height: 480px;
+  overflow-y: auto;
+}
+.pr-ai-md .md-h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--oci-red);
+  margin: 18px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.pr-ai-md .md-h2:first-child {
+  margin-top: 0;
+}
+.pr-ai-md .md-h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 14px 0 6px;
+}
+.pr-ai-md .md-p {
+  margin: 6px 0;
+}
+.pr-ai-md .md-ul,
+.pr-ai-md .md-ol {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+.pr-ai-md .md-ul li,
+.pr-ai-md .md-ol li {
+  margin: 3px 0;
+}
+.pr-ai-md strong {
+  color: var(--text-1);
+  font-weight: 700;
+}
+.pr-ai-md em {
+  color: var(--text-2);
+  font-style: italic;
+}

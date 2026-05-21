@@ -374,6 +374,7 @@ const ProposalsPage = (() => {
         break;
       case 'ai':
         wrap.innerHTML = _renderAiTab(e);
+        _bindAiTabEvents(e);
         break;
       case 'files':
         wrap.innerHTML = _renderFilesTab(e);
@@ -520,30 +521,108 @@ const ProposalsPage = (() => {
     `;
   }
 
-  // ── 탭 3: AI 제안전략 (Phase 4) ──────────────────────────
+  // ── Phase 4-D: 간단 Markdown → HTML 렌더링 ────────────────
+  // 외부 라이브러리 없이 ## h2, ### h3, **bold**, *italic*, - 리스트, 1. 번호리스트 지원.
+  // 보안: esc() 로 먼저 escape 후 mark-up 만 복원. (XSS 안전)
+  function _renderMarkdown(md) {
+    if (!md) return '';
+    // 1) HTML escape
+    let html = esc(md);
+    // 2) Headings (## , ### )
+    html = html.replace(/^###\s+(.+)$/gm, '<h3 class="md-h3">$1</h3>');
+    html = html.replace(/^##\s+(.+)$/gm, '<h2 class="md-h2">$1</h2>');
+    html = html.replace(/^#\s+(.+)$/gm, '<h2 class="md-h2">$1</h2>');
+    // 3) bold / italic
+    html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    // 4) 줄 단위 처리 — 리스트 그루핑
+    const lines = html.split(/\n/);
+    const out = [];
+    let inUl = false;
+    let inOl = false;
+    const closeLists = () => {
+      if (inUl) {
+        out.push('</ul>');
+        inUl = false;
+      }
+      if (inOl) {
+        out.push('</ol>');
+        inOl = false;
+      }
+    };
+    for (const line of lines) {
+      const ulMatch = line.match(/^[-*]\s+(.+)$/);
+      const olMatch = line.match(/^\d+\.\s+(.+)$/);
+      if (ulMatch) {
+        if (inOl) {
+          out.push('</ol>');
+          inOl = false;
+        }
+        if (!inUl) {
+          out.push('<ul class="md-ul">');
+          inUl = true;
+        }
+        out.push(`<li>${ulMatch[1]}</li>`);
+      } else if (olMatch) {
+        if (inUl) {
+          out.push('</ul>');
+          inUl = false;
+        }
+        if (!inOl) {
+          out.push('<ol class="md-ol">');
+          inOl = true;
+        }
+        out.push(`<li>${olMatch[1]}</li>`);
+      } else if (/^\s*$/.test(line)) {
+        closeLists();
+        out.push('');
+      } else if (/^<h[123]/.test(line)) {
+        closeLists();
+        out.push(line);
+      } else {
+        closeLists();
+        out.push(`<p class="md-p">${line}</p>`);
+      }
+    }
+    closeLists();
+    return out.join('\n');
+  }
+
+  // ── 탭 3: AI 제안전략 (Phase 4-D 활성) ───────────────────
   function _renderAiTab(e) {
     const hasResult = e.ai_strategy_md && e.ai_strategy_md.trim();
+    const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
+    const canAnalyze = rfpFiles.length > 0;
     return `
       <div style="margin-bottom:16px;padding:10px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#6b21a8">
-        🤖 <strong>AI 제안 전략 분석</strong> — RFP 요약 + 고객/리드/견적 정보를 바탕으로 한국어 B2B 제안 전략을 markdown 으로 생성합니다.
-        <br>실행 버튼은 <strong>Phase 4</strong> 에서 활성화됩니다.
+        🤖 <strong>AI 제안 전략 분석</strong> — RFP 파일을 Gemini 2.5 Pro 로 분석해 한국어 B2B 제안 전략을 markdown 으로 생성합니다.
+        ${
+          canAnalyze
+            ? `<br>현재 RFP 파일 ${rfpFiles.length}건 등록됨 — 첫 번째 파일을 사용합니다.`
+            : '<br>⚠️ RFP 탭에서 파일을 먼저 업로드하세요.'
+        }
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:14px">
-        <button class="btn btn-primary" disabled style="opacity:0.5;cursor:not-allowed">🤖 AI 제안 전략 분석하기</button>
-        <button class="btn btn-ghost" disabled style="opacity:0.5;cursor:not-allowed">🔁 다시 생성</button>
-        <button class="btn btn-ghost" disabled style="opacity:0.5;cursor:not-allowed">📋 복사</button>
-        <div style="margin-left:auto;font-size:11px;color:var(--text-3);padding-top:8px">
+      <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+        <button class="btn btn-primary" id="pr-ai-analyze-btn" type="button" ${canAnalyze ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"'}>
+          ${hasResult ? '🔁 다시 생성' : '🤖 AI 제안 전략 분석하기'}
+        </button>
+        ${
+          hasResult
+            ? '<button class="btn btn-ghost" id="pr-ai-copy-btn" type="button">📋 복사</button>'
+            : ''
+        }
+        <div style="margin-left:auto;font-size:11px;color:var(--text-3)">
           ${e.ai_strategy_generated_at ? '최근 분석: ' + _fmtDateTime(e.ai_strategy_generated_at) : '아직 분석 결과 없음'}
         </div>
       </div>
 
       ${
         hasResult
-          ? `<div style="padding:18px;background:#fafafa;border:1px solid var(--border);border-radius:6px;white-space:pre-wrap;font-family:'Malgun Gothic',sans-serif;font-size:13px;line-height:1.7;color:var(--text-1)">${esc(e.ai_strategy_md)}</div>`
+          ? `<div id="pr-ai-md-render" class="pr-ai-md">${_renderMarkdown(e.ai_strategy_md)}</div>`
           : `<div style="padding:60px 20px;text-align:center;color:var(--text-3);background:#fafafa;border:1px dashed var(--border);border-radius:6px">
               <div style="font-size:48px;margin-bottom:12px">🤖</div>
               <div style="font-size:14px;margin-bottom:6px">아직 AI 분석 결과가 없습니다</div>
-              <div style="font-size:12px">RFP 요약을 먼저 입력하고, Phase 4 에서 분석을 실행하세요</div>
+              <div style="font-size:12px">${canAnalyze ? '위 [분석하기] 버튼을 눌러 RFP 파일을 분석하세요' : 'RFP 탭에서 파일을 먼저 업로드하세요'}</div>
             </div>`
       }
     `;
@@ -1246,6 +1325,65 @@ const ProposalsPage = (() => {
       _renderActiveTab(_editing);
     } catch (_) {
       /* 무시 */
+    }
+  }
+
+  // ── Phase 4-D: AI 탭 이벤트 (분석 / 재생성 / 복사) ─────────
+  function _bindAiTabEvents(e) {
+    if (!e || !e.id) return;
+    const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
+
+    // (1) 분석 / 재생성 버튼 — 둘 다 같은 endpoint, hasResult 면 덮어쓰기 확인
+    const analyzeBtn = document.getElementById('pr-ai-analyze-btn');
+    if (analyzeBtn) {
+      analyzeBtn.addEventListener('click', async () => {
+        if (rfpFiles.length === 0) {
+          Toast.error('RFP 파일이 없습니다. RFP 탭에서 먼저 업로드하세요.');
+          return;
+        }
+        const hasResult = e.ai_strategy_md && e.ai_strategy_md.trim();
+        if (hasResult) {
+          const ok = confirm(
+            '기존 AI 분석 결과를 덮어쓰시겠습니까?\n(저장 전이면 [닫기]로 취소 가능합니다)'
+          );
+          if (!ok) return;
+        }
+        // RFP 첫 번째 파일로 분석 (Phase 4-C 의 _doAnalyzeRfp 재사용)
+        await _doAnalyzeRfp(e.id, rfpFiles[0].id, analyzeBtn);
+        // 결과를 화면에 재렌더 (탭 다시 그리기)
+        _renderActiveTab(_editing || e);
+      });
+    }
+
+    // (2) 복사 버튼 — clipboard.writeText
+    const copyBtn = document.getElementById('pr-ai-copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', async () => {
+        const md = (_editing || e).ai_strategy_md || '';
+        if (!md) {
+          Toast.error('복사할 내용이 없습니다');
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(md);
+          Toast.success('마크다운 클립보드에 복사됨');
+        } catch (_) {
+          // fallback — textarea 임시 사용
+          const ta = document.createElement('textarea');
+          ta.value = md;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand('copy');
+            Toast.success('마크다운 클립보드에 복사됨');
+          } catch (_) {
+            Toast.error('복사 실패 — 수동 선택 후 복사하세요');
+          }
+          document.body.removeChild(ta);
+        }
+      });
     }
   }
 
