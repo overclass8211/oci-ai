@@ -495,6 +495,35 @@ describe('Proposals API — Phase 1', () => {
     expect(r.body.error).toMatch(/file_id/);
   });
 
+  it('PUT /:id — ai_strategy_md 저장 시 ai_strategy_generated_at 자동 갱신 (Phase 4-C)', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__AI_저장',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const upd = await api()
+      .put(`/api/proposals/${propId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        ai_strategy_md: '## 1. RFP 핵심 요약\n- 사용자 검토 후 저장된 전략',
+        rfp_summary: 'AI 분석 결과 검토 완료',
+      });
+    expect(upd.status).toBe(200);
+
+    const [[row]] = await pool.query(
+      'SELECT ai_strategy_md, ai_strategy_generated_at FROM proposals WHERE id = ?',
+      [propId]
+    );
+    expect(row.ai_strategy_md).toMatch(/RFP 핵심 요약/);
+    expect(row.ai_strategy_generated_at).not.toBeNull();
+  });
+
   it('POST /:id/rfp/analyze — 존재하지 않는 file_id 시 404', async () => {
     const create = await api()
       .post('/api/proposals')

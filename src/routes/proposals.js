@@ -736,6 +736,7 @@ router.put('/:id', async (req, res) => {
       'rfp_received_date',
       'rfp_due_date',
       'rfp_summary',
+      'ai_strategy_md',
       'remark',
     ];
     // DATE 컬럼은 ISO 8601 / 빈문자/Date-string 모두 'YYYY-MM-DD' 로 정규화
@@ -756,6 +757,10 @@ router.put('/:id', async (req, res) => {
       }
       fields.push(`${f} = ?`);
       values.push(v);
+    }
+    // ai_strategy_md 변경 시 ai_strategy_generated_at 자동 갱신 (NOW())
+    if (body.ai_strategy_md !== undefined && body.ai_strategy_md !== prev.ai_strategy_md) {
+      fields.push('ai_strategy_generated_at = NOW()');
     }
     // quote_id 변경 시 quote_no 도 반영
     if (body.quote_id !== undefined && newQuoteNo !== undefined) {

@@ -274,6 +274,9 @@ const API = {
     downloadFileUrl: (id, fileId) =>
       `/api/proposals/${id}/files/${fileId}/download`,
     createRevision: (id, body) => API.post(`/proposals/${id}/revisions`, body),
+    // Phase 4-A — AI RFP 분석 (사용자가 선택한 RFP 파일 1건 분석)
+    analyzeRfp: (id, fileId) =>
+      API.post(`/proposals/${id}/rfp/analyze`, { file_id: fileId }),
   },
 
   // 견적서 (crm.quotes)

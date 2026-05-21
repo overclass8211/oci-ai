@@ -503,13 +503,20 @@ const ProposalsPage = (() => {
         <textarea class="form-input" id="pr-f-rfp_summary" rows="8" placeholder="RFP 핵심 요구사항·평가기준·예산·납기 등을 요약 입력 (AI 분석 시 활용됨)" style="resize:vertical;font-family:inherit;line-height:1.6">${esc(e.rfp_summary || '')}</textarea>
       </div>
 
-      <!-- RFP 파일 업로드 영역 (Phase 3 활성) -->
+      <!-- RFP 파일 업로드 — Phase 4-C 드롭존 (다중 + drag/drop) -->
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <strong style="font-size:13px">📎 RFP 파일 (${rfpFiles.length}건)</strong>
-        <label class="btn btn-primary btn-sm" for="pr-rfp-upload-input" style="cursor:pointer">⬆️ RFP 파일 업로드</label>
-        <input type="file" id="pr-rfp-upload-input" style="display:none" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
+        <span style="font-size:11px;color:var(--text-3)">여러 파일 동시 등록 가능 · drag &amp; drop 지원</span>
       </div>
-      ${_renderFileList(rfpFiles, e.id, 'rfp')}
+      <div id="pr-rfp-dropzone" class="pr-dropzone" data-source="rfp" tabindex="0" role="button" aria-label="RFP 파일 추가">
+        <div class="pr-dropzone-icon">📥</div>
+        <div class="pr-dropzone-title">파일 추가</div>
+        <div class="pr-dropzone-hint">이 영역을 클릭하거나 파일을 끌어다 놓으세요<br>(pdf · ppt · doc · xls · hwp · 이미지 — 최대 100MB / 파일)</div>
+        <input type="file" id="pr-rfp-upload-input" multiple style="display:none" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
+      </div>
+      <div style="margin-top:14px">
+        ${_renderFileList(rfpFiles, e.id, 'rfp')}
+      </div>
     `;
   }
 
@@ -550,9 +557,9 @@ const ProposalsPage = (() => {
         📦 <strong>제안 자료 아카이브</strong> — 제안서 / 회사소개서 / 레퍼런스 / 견적 / 응답서 등 PPT/Word/PDF/HWP 파일을 관리합니다.
       </div>
 
-      <!-- 업로드 폼 -->
+      <!-- 메타 입력 (모든 파일에 공통 적용) -->
       <div style="background:#fafafa;border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:10px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
           <div class="form-row">
             <label class="form-label" style="font-size:11px">파일 유형</label>
             <select class="form-input" id="pr-file-type" style="font-size:12px">
@@ -580,18 +587,19 @@ const ProposalsPage = (() => {
               <input type="checkbox" id="pr-file-email"> 📧 이메일 첨부
             </label>
           </div>
-          <div class="form-row" style="display:flex;align-items:flex-end">
-            <label class="btn btn-primary btn-sm" for="pr-file-upload-input" style="cursor:pointer;width:100%;text-align:center">⬆️ 파일 선택</label>
-            <input type="file" id="pr-file-upload-input" style="display:none" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
-          </div>
         </div>
         <input class="form-input" id="pr-file-desc" placeholder="설명 (선택)" style="font-size:12px">
-        <div style="font-size:11px;color:var(--text-3);margin-top:6px">
-          허용: pdf, ppt, pptx, doc, docx, xls, xlsx, hwp, hwpx, png, jpg, jpeg — 최대 100MB
-        </div>
       </div>
 
-      <div style="font-size:12px;color:var(--text-3);margin-bottom:8px">📂 등록된 파일 (${files.length}건)</div>
+      <!-- Phase 4-C 드롭존 (다중 + drag/drop) -->
+      <div id="pr-files-dropzone" class="pr-dropzone" data-source="files" tabindex="0" role="button" aria-label="제안 자료 추가">
+        <div class="pr-dropzone-icon">📥</div>
+        <div class="pr-dropzone-title">파일 추가</div>
+        <div class="pr-dropzone-hint">이 영역을 클릭하거나 파일을 끌어다 놓으세요<br>(pdf · ppt · doc · xls · hwp · 이미지 — 최대 100MB / 파일)</div>
+        <input type="file" id="pr-file-upload-input" multiple style="display:none" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
+      </div>
+
+      <div style="font-size:12px;color:var(--text-3);margin:14px 0 8px">📂 등록된 파일 (${files.length}건)</div>
       ${_renderFileList(files, e.id, 'files')}
     `;
   }
@@ -599,7 +607,7 @@ const ProposalsPage = (() => {
   // 파일 목록 + 다운로드/삭제 버튼 (공통)
   function _renderFileList(files, proposalId, source) {
     if (!files.length) {
-      return `<div style="padding:30px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:6px;border:1px dashed var(--border)">등록된 파일 없음</div>`;
+      return `<div style="padding:18px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:6px;border:1px dashed var(--border);font-size:12px">등록된 파일 없음 — 위 영역에서 파일을 추가하세요</div>`;
     }
     return `<table class="data-table" style="font-size:12px">
       <thead><tr>
@@ -610,7 +618,7 @@ const ProposalsPage = (() => {
         <th style="width:80px;text-align:center">📧 첨부</th>
         <th style="width:110px">크기</th>
         <th style="width:130px">등록일</th>
-        <th style="width:140px;text-align:center">작업</th>
+        <th style="width:${source === 'rfp' ? '180' : '140'}px;text-align:center">작업</th>
       </tr></thead>
       <tbody>
         ${files
@@ -623,7 +631,12 @@ const ProposalsPage = (() => {
           <td style="text-align:center">${f.include_in_email ? '📧' : '-'}</td>
           <td>${f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-'}</td>
           <td>${_fmtDateTime(f.created_at)}</td>
-          <td style="text-align:center">
+          <td style="text-align:center;white-space:nowrap">
+            ${
+              source === 'rfp'
+                ? `<button class="btn btn-ghost btn-sm pr-file-ai" data-id="${f.id}" type="button" title="이 파일로 AI 분석" style="color:#7c3aed">🤖</button>`
+                : ''
+            }
             <a class="btn btn-ghost btn-sm" href="${API.proposals.downloadFileUrl(proposalId, f.id)}" data-pr-file-download="${f.id}" title="다운로드">⬇️</a>
             <button class="btn btn-ghost btn-sm pr-file-del" data-id="${f.id}" data-source="${source}" type="button" style="color:#d93025" title="삭제">🗑️</button>
           </td>
@@ -1028,6 +1041,10 @@ const ProposalsPage = (() => {
       body.rfp_received_date = rfpReceived || null;
       body.rfp_due_date = rfpDue || null;
       body.rfp_summary = rfpSummary || null;
+      // Phase 4-C: AI 분석 결과 (탭에서 미리채워진 후 [저장] 누르면 함께 반영)
+      if (e.ai_strategy_md !== undefined) {
+        body.ai_strategy_md = e.ai_strategy_md || null;
+      }
     }
 
     try {
@@ -1046,20 +1063,58 @@ const ProposalsPage = (() => {
     }
   }
 
-  // ── Phase 3: 파일 업로드/삭제 + 리비전 ───────────────────
+  // ── Phase 3+4-C: 파일 업로드/삭제 + AI 분석 ─────────────────
   function _bindFileEvents(e, source) {
     if (!e || !e.id) return; // 신규 모드는 파일 기능 없음
+    const dropzoneId = source === 'rfp' ? 'pr-rfp-dropzone' : 'pr-files-dropzone';
     const inputId = source === 'rfp' ? 'pr-rfp-upload-input' : 'pr-file-upload-input';
+    const dropzone = document.getElementById(dropzoneId);
     const fileInput = document.getElementById(inputId);
-    if (fileInput) {
+
+    // (1) 클릭 → 파일 다이얼로그
+    if (dropzone && fileInput) {
+      dropzone.addEventListener('click', ev => {
+        if (ev.target.tagName === 'INPUT') return;
+        fileInput.click();
+      });
+      dropzone.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          fileInput.click();
+        }
+      });
+
+      // (2) Drag & Drop
+      ['dragenter', 'dragover'].forEach(evt =>
+        dropzone.addEventListener(evt, ev => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          dropzone.classList.add('is-dragover');
+        })
+      );
+      ['dragleave', 'drop'].forEach(evt =>
+        dropzone.addEventListener(evt, ev => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          dropzone.classList.remove('is-dragover');
+        })
+      );
+      dropzone.addEventListener('drop', async ev => {
+        const files = Array.from(ev.dataTransfer?.files || []);
+        if (files.length === 0) return;
+        await _doUploadFiles(e.id, files, source);
+      });
+
+      // (3) input change (다중)
       fileInput.addEventListener('change', async ev => {
-        const file = ev.target.files && ev.target.files[0];
-        if (!file) return;
-        await _doUploadFile(e.id, file, source);
+        const files = Array.from(ev.target.files || []);
+        if (files.length === 0) return;
+        await _doUploadFiles(e.id, files, source);
         ev.target.value = ''; // reset for re-upload
       });
     }
-    // 파일 삭제 버튼
+
+    // (4) 파일 삭제 버튼
     document.querySelectorAll('.pr-file-del').forEach(btn => {
       btn.addEventListener('click', async () => {
         const fileId = parseInt(btn.dataset.id, 10);
@@ -1073,12 +1128,24 @@ const ProposalsPage = (() => {
         }
       });
     });
+
+    // (5) Phase 4-C — AI 분석 버튼 (RFP 파일 행에서만 렌더링됨)
+    document.querySelectorAll('.pr-file-ai').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fileId = parseInt(btn.dataset.id, 10);
+        await _doAnalyzeRfp(e.id, fileId, btn);
+      });
+    });
+
     // 다운로드는 href 직접 — history 기록은 백엔드 자동
   }
 
-  async function _doUploadFile(propId, file, source) {
+  // Phase 4-C — 다중 파일 업로드 (드롭존 / multi input 공통)
+  async function _doUploadFiles(propId, files, source) {
+    if (!files || !files.length) return;
     const fd = new FormData();
-    fd.append('file', file);
+    files.forEach(file => fd.append('files', file));
+
     try {
       if (source === 'rfp') {
         // RFP 메타도 함께 (현재 탭 입력값)
@@ -1088,11 +1155,10 @@ const ProposalsPage = (() => {
         if (title) fd.append('rfp_title', title);
         if (recv) fd.append('rfp_received_date', recv);
         if (due) fd.append('rfp_due_date', due);
-        Toast.info?.(`RFP 업로드 중... (${file.name})`);
-        await API.proposals.uploadRfp(propId, fd);
-        Toast.success('RFP 파일 업로드됨');
+        Toast.info?.(`RFP ${files.length}개 파일 업로드 중...`);
+        const res = await API.proposals.uploadRfp(propId, fd);
+        _reportUploadResult(res, 'RFP');
       } else {
-        // 일반 파일 — 메타 함께
         const type = document.getElementById('pr-file-type')?.value || 'etc';
         const rev = document.getElementById('pr-file-rev')?.value || '1';
         const isFinal = document.getElementById('pr-file-final')?.checked ? '1' : '0';
@@ -1103,13 +1169,73 @@ const ProposalsPage = (() => {
         fd.append('is_final', isFinal);
         fd.append('include_in_email', inEmail);
         if (desc) fd.append('description', desc);
-        Toast.info?.(`파일 업로드 중... (${file.name})`);
-        await API.proposals.uploadFile(propId, fd);
-        Toast.success('파일 업로드됨');
+        Toast.info?.(`${files.length}개 파일 업로드 중...`);
+        const res = await API.proposals.uploadFile(propId, fd);
+        _reportUploadResult(res, '파일');
       }
       await _refreshDetail(propId);
     } catch (err) {
       Toast.error('업로드 실패: ' + (err.message || err));
+    }
+  }
+
+  // 다중 업로드 결과 보고 (uploaded / failed 집계 Toast)
+  function _reportUploadResult(res, label) {
+    const data = res?.data || {};
+    const uploaded = (data.uploaded || []).length;
+    const failed = (data.failed || []).length;
+    if (uploaded > 0 && failed === 0) {
+      Toast.success(`${label} ${uploaded}개 업로드 완료`);
+    } else if (uploaded > 0 && failed > 0) {
+      Toast.error(`${label} ${uploaded}개 성공 / ${failed}개 실패`);
+      // 실패 파일명 첫 1건 추가 알림
+      const first = data.failed[0];
+      if (first) Toast.error(`실패: ${first.original_filename} — ${first.error}`);
+    } else if (uploaded === 0 && failed > 0) {
+      Toast.error(`${label} 업로드 모두 실패 (${failed}건)`);
+    }
+  }
+
+  // Phase 4-C — AI RFP 분석 + 폼 미리채움 (DB 자동 저장 X)
+  async function _doAnalyzeRfp(propId, fileId, btn) {
+    const origText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '⏳';
+    }
+    try {
+      Toast.info?.('AI 분석 중... (최대 30초 소요)');
+      const res = await API.proposals.analyzeRfp(propId, fileId);
+      const d = res?.data || {};
+      _applyAnalysisToForm(d);
+      Toast.success('AI 분석 완료 — 폼에 결과가 채워졌습니다. 검토 후 [저장] 누르세요');
+    } catch (err) {
+      Toast.error('AI 분석 실패: ' + (err.message || err));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+      }
+    }
+  }
+
+  // 분석 결과를 RFP 탭 폼에 미리채움 + _editing 캐시 동기화 (DB 미반영)
+  function _applyAnalysisToForm(d) {
+    const set = (id, v) => {
+      const el = document.getElementById(id);
+      if (el && v !== null && v !== undefined && v !== '') el.value = v;
+    };
+    if (d.rfp_title) set('pr-f-rfp_title', d.rfp_title);
+    if (d.rfp_received_date) set('pr-f-rfp_received_date', d.rfp_received_date);
+    if (d.rfp_due_date) set('pr-f-rfp_due_date', d.rfp_due_date);
+    if (d.rfp_summary) set('pr-f-rfp_summary', d.rfp_summary);
+    // _editing 캐시도 동기화 — 탭 전환해도 결과 유지
+    if (_editing) {
+      if (d.rfp_title) _editing.rfp_title = d.rfp_title;
+      if (d.rfp_received_date) _editing.rfp_received_date = d.rfp_received_date;
+      if (d.rfp_due_date) _editing.rfp_due_date = d.rfp_due_date;
+      if (d.rfp_summary) _editing.rfp_summary = d.rfp_summary;
+      if (d.ai_strategy_md) _editing.ai_strategy_md = d.ai_strategy_md;
     }
   }
 

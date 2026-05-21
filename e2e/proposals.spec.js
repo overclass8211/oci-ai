@@ -145,3 +145,78 @@ test('Phase 2 — 편집 모달: 모든 탭 활성 + 탭 전환 동작', async (
 
   await page.unroute('**/api/proposals/77001');
 });
+
+test('Phase 4-C — RFP/자료 탭 드롭존 + AI 분석 버튼 표시', async ({ page }) => {
+  // mock — RFP 파일 1건 + 일반 파일 1건
+  await page.route('**/api/proposals/77002', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: {
+          id: 77002,
+          proposal_no: 'P-2026-7002',
+          proposal_title: '__E2E_DZ__제안',
+          customer_name: '__E2E_DZ__고객',
+          proposal_date: '2026-05-21',
+          status: 'draft',
+          version_no: 1,
+          currency: 'KRW',
+          lead: null,
+          quote: null,
+          files: [
+            {
+              id: 11,
+              file_type: 'rfp',
+              original_filename: 'rfp_korean_한글.pdf',
+              revision_no: 1,
+              is_final: 0,
+              include_in_email: 0,
+              file_size: 102400,
+              created_at: '2026-05-20T10:00:00',
+            },
+            {
+              id: 12,
+              file_type: 'proposal',
+              original_filename: 'proposal_v1.pdf',
+              revision_no: 1,
+              is_final: 0,
+              include_in_email: 0,
+              file_size: 51200,
+              created_at: '2026-05-20T11:00:00',
+            },
+          ],
+          revisions: [],
+          email_logs: [],
+          history: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto('/#proposals');
+  await page.waitForSelector('#pr-new-btn', { timeout: 30000 });
+  await page.waitForLoadState('networkidle');
+  await page.evaluate(() => window.ProposalsPage._openModal(77002));
+
+  // RFP 탭 → 드롭존 + AI 버튼 (RFP 파일 행에만)
+  await page.locator('.pr-tab[data-tab="rfp"]').click();
+  await expect(page.locator('#pr-rfp-dropzone')).toBeVisible();
+  await expect(page.locator('#pr-rfp-dropzone')).toContainText('파일 추가');
+  await expect(page.locator('#pr-rfp-dropzone')).toContainText('끌어다 놓으세요');
+  // RFP 파일은 AI 분석 버튼 노출
+  await expect(page.locator('.pr-file-ai[data-id="11"]')).toBeVisible();
+  // 한글 파일명 그대로 표시 (latin1 → utf8 디코딩 회귀 방지)
+  await expect(page.locator('#pr-tab-content')).toContainText('rfp_korean_한글.pdf');
+
+  // 자료 탭 → 드롭존 + 일반 파일 (AI 버튼 없음)
+  await page.locator('.pr-tab[data-tab="files"]').click();
+  await expect(page.locator('#pr-files-dropzone')).toBeVisible();
+  await expect(page.locator('#pr-files-dropzone')).toContainText('파일 추가');
+  await expect(page.locator('#pr-tab-content')).toContainText('proposal_v1.pdf');
+  // 일반 파일은 AI 분석 버튼 없음
+  await expect(page.locator('.pr-file-ai[data-id="12"]')).toHaveCount(0);
+
+  await page.unroute('**/api/proposals/77002');
+});

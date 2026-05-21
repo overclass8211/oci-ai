@@ -8995,3 +8995,68 @@ body,
   .rb-saved-panel { border-left: none; border-top: 1px solid var(--border); max-height: 260px; }
   .rb-dropzones { grid-template-columns: 1fr; }
 }
+
+/* =====================================================
+   제안관리 — Phase 4-C: 파일 업로드 드롭존
+   (RFP 탭 + 자료 탭 공통, OCI Red 톤)
+   ===================================================== */
+.pr-dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 26px 16px;
+  background: var(--surface-2);
+  border: 2px dashed var(--border-2);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  outline: none;
+}
+.pr-dropzone:hover,
+.pr-dropzone:focus-visible {
+  background: var(--oci-red-light);
+  border-color: var(--oci-red);
+}
+.pr-dropzone.is-dragover {
+  background: var(--oci-red-light);
+  border-color: var(--oci-red);
+  border-style: solid;
+  transform: scale(1.01);
+  box-shadow: 0 2px 12px rgba(230, 51, 41, 0.12);
+}
+.pr-dropzone-icon {
+  font-size: 32px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.pr-dropzone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.pr-dropzone-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  line-height: 1.5;
+}
+.pr-dropzone.is-dragover .pr-dropzone-title,
+.pr-dropzone:hover .pr-dropzone-title {
+  color: var(--oci-red);
+}
+
+/* AI 분석 버튼 (파일 행) — RFP 파일에만 표시 */
+.pr-file-ai {
+  font-size: 14px;
+  padding: 4px 8px;
+}
+.pr-file-ai:hover {
+  background: #f3e8ff;
+}
+.pr-file-ai[disabled] {
+  cursor: wait;
+  opacity: 0.6;
+}
