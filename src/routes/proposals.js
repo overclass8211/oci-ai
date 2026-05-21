@@ -32,6 +32,10 @@ const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { analyzeProposalRFP } = require('../services/gemini');
+const {
+  sendMessageWithAttachments,
+  classifyError: gmailClassifyError,
+} = require('../services/gmail');
 
 router.use(requireFeature('crm.proposals'));
 
@@ -1223,6 +1227,190 @@ router.post('/:id/rfp/analyze', async (req, res) => {
       success: false,
       error: err?.message || 'AI 분석 실패',
     });
+  }
+});
+
+// ── POST /:id/email/send — 제안 이메일 발송 (Phase 5-B) ──────
+// 입력 body:
+//   {
+//     to: 'a@b.com, c@d.com'    // 콤마 구분 가능
+//     cc?: string
+//     subject: string
+//     body: string              // text/plain
+//     file_ids?: number[]       // proposal_files 첨부 (소유 검증)
+//   }
+// 응답: { success, data: { log_id, message_id, attachment_count, total_bytes } }
+// 동작:
+//   - 첨부 대상 파일 소유 검증 (proposal_id 일치 + 디스크 존재)
+//   - sendMessageWithAttachments(userId, opts) 호출 (Gmail multipart/mixed)
+//   - proposal_email_logs 기록 (성공/실패 모두)
+//   - proposal_history 'email_send' 기록
+router.post('/:id/email/send', async (req, res) => {
+  const startedAt = Date.now();
+  let logId = null;
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+    if (!userId) {
+      return res
+        .status(401)
+        .json({ success: false, error: '인증된 사용자만 이메일을 발송할 수 있습니다' });
+    }
+
+    const body = req.body || {};
+    const to = String(body.to || '').trim();
+    const cc = body.cc ? String(body.cc).trim() : '';
+    const subject = String(body.subject || '').trim();
+    const bodyText = String(body.body || '').trim();
+    const fileIds = Array.isArray(body.file_ids)
+      ? body.file_ids.map(x => parseInt(x, 10)).filter(x => Number.isFinite(x) && x > 0)
+      : [];
+
+    // 사전 검증
+    if (!to || !/@/.test(to)) {
+      return res.status(400).json({ success: false, error: '유효한 수신자(to) 가 필요합니다' });
+    }
+    if (!subject) {
+      return res.status(400).json({ success: false, error: '제목이 필요합니다' });
+    }
+
+    // 제안 존재 확인
+    const [[prop]] = await pool.query(
+      `SELECT id, proposal_no, proposal_title FROM proposals WHERE id = ?`,
+      [id]
+    );
+    if (!prop) {
+      return res.status(404).json({ success: false, error: '제안을 찾을 수 없음' });
+    }
+
+    // 첨부 파일 조회 + 소유 검증 (id 배열로 IN 조회)
+    let attachmentRows = [];
+    if (fileIds.length > 0) {
+      const placeholders = fileIds.map(() => '?').join(',');
+      const [rows] = await pool.query(
+        `SELECT id, original_filename, stored_filename, file_path, file_size, mime_type
+           FROM proposal_files
+          WHERE proposal_id = ? AND id IN (${placeholders})`,
+        [id, ...fileIds]
+      );
+      attachmentRows = rows || [];
+      if (attachmentRows.length !== fileIds.length) {
+        return res.status(400).json({
+          success: false,
+          error: `요청한 ${fileIds.length}개 파일 중 ${attachmentRows.length}개만 소유 — 잘못된 file_id`,
+        });
+      }
+    }
+
+    // 디스크에서 파일 buffer 읽기 + 크기 합산
+    const attachments = [];
+    let totalBytes = 0;
+    for (const row of attachmentRows) {
+      const absPath = path.join(__dirname, '..', '..', 'public', row.file_path);
+      if (!fs.existsSync(absPath)) {
+        return res.status(400).json({
+          success: false,
+          error: `파일이 디스크에 없습니다: ${row.original_filename}`,
+        });
+      }
+      const data = fs.readFileSync(absPath);
+      totalBytes += data.length;
+      attachments.push({
+        filename: row.original_filename,
+        mimeType: row.mime_type || 'application/octet-stream',
+        data,
+      });
+    }
+    // 25MB 한도 사전 검증 (Gmail 35MB 한도 + 안전마진) — gmail.js 도 내부 검증하지만 명확한 메시지
+    if (totalBytes > 25 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        error: `첨부 합계 ${(totalBytes / 1024 / 1024).toFixed(1)}MB 가 25MB 초과 — 일부 파일 제외 후 재시도`,
+      });
+    }
+
+    console.log(
+      `[proposals:email] start proposal=${id} to=${to} attachments=${attachments.length} (${(totalBytes / 1024).toFixed(1)}KB)`
+    );
+
+    // proposal_email_logs 사전 INSERT (status='sending') — 실패 시에도 추적 가능
+    const fileIdsJson = JSON.stringify(fileIds);
+    const [logInsert] = await pool.query(
+      `INSERT INTO proposal_email_logs
+        (proposal_id, to_emails, cc_emails, subject, body, attachment_file_ids,
+         sent_by, send_status)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [id, to, cc || null, subject.slice(0, 300), bodyText || null, fileIdsJson, userId, 'sending']
+    );
+    logId = logInsert.insertId;
+
+    // Gmail 발송
+    let result;
+    try {
+      result = await sendMessageWithAttachments(userId, {
+        to,
+        cc,
+        subject,
+        body: bodyText,
+        attachments,
+      });
+    } catch (sendErr) {
+      // Gmail 미연결 / 권한 / 토큰 만료 등 — log 업데이트 후 분류된 응답
+      await pool.query(
+        `UPDATE proposal_email_logs
+           SET send_status = 'failed', error_message = ?
+         WHERE id = ?`,
+        [String(sendErr?.message || sendErr).slice(0, 500), logId]
+      );
+      const classified = gmailClassifyError(sendErr);
+      console.error(
+        `[proposals:email] gmail send failed (log_id=${logId}):`,
+        sendErr?.message || sendErr
+      );
+      return res.status(classified.status || 500).json(classified.body);
+    }
+
+    // 성공 — log 업데이트 + history 기록
+    await pool.query(
+      `UPDATE proposal_email_logs
+         SET send_status = 'sent', gmail_message_id = ?
+       WHERE id = ?`,
+      [result.message_id || null, logId]
+    );
+
+    const elapsed = Date.now() - startedAt;
+    console.log(
+      `[proposals:email] done proposal=${id} log_id=${logId} msg_id=${result.message_id} elapsed=${elapsed}ms`
+    );
+
+    logHistory(null, id, userId, 'email_send', {
+      description: `이메일 발송: ${to} (첨부 ${attachments.length}개, ${(totalBytes / 1024).toFixed(1)}KB)`,
+      newValue: to,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        log_id: logId,
+        message_id: result.message_id,
+        attachment_count: attachments.length,
+        total_bytes: totalBytes,
+        from: result.from,
+      },
+    });
+  } catch (err) {
+    console.error('[proposals:email] failed:', err?.message || err);
+    // log 가 만들어졌으면 failed 로 마킹
+    if (logId) {
+      try {
+        await pool.query(
+          `UPDATE proposal_email_logs SET send_status = 'failed', error_message = ? WHERE id = ?`,
+          [String(err?.message || err).slice(0, 500), logId]
+        );
+      } catch (_) {}
+    }
+    res.status(500).json({ success: false, error: err?.message || '이메일 발송 실패' });
   }
 });
 

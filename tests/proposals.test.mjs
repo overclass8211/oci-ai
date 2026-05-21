@@ -632,6 +632,172 @@ describe('Proposals API — Phase 1', () => {
     });
   });
 
+  // ── Phase 5-B: 이메일 발송 ──────────────────────────────────
+  it('POST /:id/email/send — mock Gmail 발송 + email_logs + history 기록', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__이메일발송',
+        customer_name: '__TEST__고객',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    // 파일 업로드 1건
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpFile = path.join(os.tmpdir(), `__test_email_${propId}.pdf`);
+    fs.writeFileSync(tmpFile, Buffer.from('%PDF-1.4 email attach'));
+    const up = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .attach('file', tmpFile);
+    const fileId = up.body.data.uploaded[0].id;
+
+    // 이메일 발송 (NODE_ENV=test → gmail.js mock 응답)
+    const send = await api()
+      .post(`/api/proposals/${propId}/email/send`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        to: 'client@example.com',
+        cc: 'manager@example.com',
+        subject: '제안서 발송 안내',
+        body: '안녕하세요. 제안서를 첨부합니다.',
+        file_ids: [fileId],
+      });
+    expect(send.status).toBe(200);
+    expect(send.body.success).toBe(true);
+    expect(send.body.data.log_id).toBeGreaterThan(0);
+    expect(send.body.data.attachment_count).toBe(1);
+    expect(send.body.data.message_id).toBe('__MOCK_MID__');
+
+    // email_logs sent 상태
+    const [[log]] = await pool.query(
+      `SELECT to_emails, cc_emails, subject, send_status, gmail_message_id, attachment_file_ids
+         FROM proposal_email_logs WHERE id = ?`,
+      [send.body.data.log_id]
+    );
+    expect(log.to_emails).toBe('client@example.com');
+    expect(log.cc_emails).toBe('manager@example.com');
+    expect(log.subject).toBe('제안서 발송 안내');
+    expect(log.send_status).toBe('sent');
+    expect(log.gmail_message_id).toBe('__MOCK_MID__');
+    expect(JSON.parse(log.attachment_file_ids)).toEqual([fileId]);
+
+    // history 에 email_send 기록 (best-effort, 비동기 대기)
+    await new Promise(r => setTimeout(r, 200));
+    const [hist] = await pool.query(
+      `SELECT action_type, description FROM proposal_history
+        WHERE proposal_id = ? AND action_type = 'email_send'`,
+      [propId]
+    );
+    expect(hist.length).toBeGreaterThanOrEqual(1);
+    expect(hist[0].description).toMatch(/client@example\.com/);
+
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch (_) {}
+  });
+
+  it('POST /:id/email/send — to 누락 시 400', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__이메일_400_to',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/email/send`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ subject: 'no to', body: 'x' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/수신자/);
+  });
+
+  it('POST /:id/email/send — subject 누락 시 400', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__이메일_400_subj',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/email/send`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ to: 'x@y.com', body: 'no subj' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/제목/);
+  });
+
+  it('POST /:id/email/send — 다른 제안의 file_id 로 발송 시도 시 400 (소유 검증)', async () => {
+    // 제안 A
+    const cA = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__제안A',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propA = cA.body.id;
+    createdIds.push(propA);
+
+    // 제안 B + 파일
+    const cB = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__제안B',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propB = cB.body.id;
+    createdIds.push(propB);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpFile = path.join(os.tmpdir(), `__test_owner_${propB}.pdf`);
+    fs.writeFileSync(tmpFile, Buffer.from('%PDF B'));
+    const up = await api()
+      .post(`/api/proposals/${propB}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .attach('file', tmpFile);
+    const fileIdOfB = up.body.data.uploaded[0].id;
+
+    // 제안 A 에서 제안 B 의 파일로 발송 시도
+    const r = await api()
+      .post(`/api/proposals/${propA}/email/send`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        to: 'x@y.com',
+        subject: '잘못된 첨부',
+        body: 'test',
+        file_ids: [fileIdOfB],
+      });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/소유|file_id/);
+
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch (_) {}
+  });
+
   // ── 회귀 방지 (Bug fix 2026-05-21) ─────────────────────────
   it('🐛 회귀: PUT /:id — proposal_date 가 ISO 8601 ("...T15:00:00.000Z") 이어도 저장 성공', async () => {
     const create = await api()
