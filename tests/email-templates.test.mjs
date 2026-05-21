@@ -21,7 +21,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of createdIds) {
-    try { await pool.query('DELETE FROM email_templates WHERE id = ?', [id]); } catch (_) { /* ignore */ }
+    try {
+      await pool.query('DELETE FROM email_templates WHERE id = ?', [id]);
+    } catch (_) {
+      /* ignore */
+    }
   }
   await pool.query(`DELETE FROM email_templates WHERE name LIKE ?`, [`${PREFIX}%`]);
 });
@@ -51,12 +55,14 @@ describe('Email Templates API — 시드', () => {
 
 describe('Email Templates API — CRUD', () => {
   it('POST — 신규 템플릿 추가', async () => {
-    const res = await api().post('/api/email-templates').send({
-      name:     `${PREFIX}테스트템플릿`,
-      category: 'lead',
-      subject:  '[테스트] {{customer_name}} 안내',
-      body:     '본문 {{my_name}}',
-    });
+    const res = await api()
+      .post('/api/email-templates')
+      .send({
+        name: `${PREFIX}테스트템플릿`,
+        category: 'lead',
+        subject: '[테스트] {{customer_name}} 안내',
+        body: '본문 {{my_name}}',
+      });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.id).toBeGreaterThan(0);
@@ -65,18 +71,22 @@ describe('Email Templates API — CRUD', () => {
 
   it('POST — name 누락 시 400', async () => {
     const res = await api().post('/api/email-templates').send({
-      subject: '제목', body: '본문',
+      subject: '제목',
+      body: '본문',
     });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('VALIDATION_ERROR');
   });
 
   it('POST — 잘못된 category → 400', async () => {
-    const res = await api().post('/api/email-templates').send({
-      name: `${PREFIX}잘못된카테고리`,
-      category: 'invalid_category',
-      subject: '제목', body: '본문',
-    });
+    const res = await api()
+      .post('/api/email-templates')
+      .send({
+        name: `${PREFIX}잘못된카테고리`,
+        category: 'invalid_category',
+        subject: '제목',
+        body: '본문',
+      });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('VALIDATION_ERROR');
   });
@@ -107,7 +117,7 @@ describe('Email Templates API — CRUD', () => {
   });
 
   it('DELETE — 사용자 템플릿 삭제', async () => {
-    const id = createdIds.pop();  // 마지막 id 사용 → 정리에서 제외
+    const id = createdIds.pop(); // 마지막 id 사용 → 정리에서 제외
     const res = await api().delete(`/api/email-templates/${id}`);
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -169,7 +179,9 @@ describe('Email Templates API — 복제 (clone)', () => {
 
   it('POST /:id/clone — name 수동 지정', async () => {
     const customName = `${PREFIX}내가지은이름`;
-    const res = await api().post(`/api/email-templates/${sysTplId}/clone`).send({ name: customName });
+    const res = await api()
+      .post(`/api/email-templates/${sysTplId}/clone`)
+      .send({ name: customName });
     expect(res.status).toBe(200);
     expect(res.body.id).toBeGreaterThan(0);
     createdIds.push(res.body.id);

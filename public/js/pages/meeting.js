@@ -4,19 +4,21 @@
 
 // ── 녹음 전역 상태 (페이지 이동 시에도 유지) ──────────────
 const MeetingRecorder = {
-  mediaRecorder:     null,
-  recordedChunks:    [],
-  recordedBlob:      null,
+  mediaRecorder: null,
+  recordedChunks: [],
+  recordedBlob: null,
   recordingStartTime: 0,
-  timerId:           null,   // 경과 시간 타이머
-  mimeType:          'audio/webm',
-  isRecording()     { return this.mediaRecorder?.state === 'recording'; },
+  timerId: null, // 경과 시간 타이머
+  mimeType: 'audio/webm',
+  isRecording() {
+    return this.mediaRecorder?.state === 'recording';
+  },
 
   /** 상단 인디케이터 + 페이지 내 UI를 함께 갱신 */
   _tick() {
     const sec = Math.floor((Date.now() - this.recordingStartTime) / 1000);
-    const m   = String(Math.floor(sec / 60)).padStart(2, '0');
-    const s   = String(sec % 60).padStart(2, '0');
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
     const txt = `${m}:${s}`;
 
     // 상단 바 인디케이터 (항상 존재)
@@ -48,7 +50,7 @@ const MeetingRecorder = {
     if (el) el.style.display = 'none';
     const gTime = document.getElementById('rec-global-time');
     if (gTime) gTime.textContent = '00:00';
-  }
+  },
 };
 
 const MeetingPage = (() => {
@@ -61,12 +63,16 @@ const MeetingPage = (() => {
     summary: '',
     savedId: null,
     customerName: '',
-    leadId: null
+    leadId: null,
   };
 
   async function fetchLeads() {
-    try { const r = await API.leads.list(); leads = r.data || []; }
-    catch (_) { leads = []; }
+    try {
+      const r = await API.leads.list();
+      leads = r.data || [];
+    } catch (_) {
+      leads = [];
+    }
   }
 
   // ── 1) 페이지 렌더 ─────────────────────────────────────
@@ -173,7 +179,7 @@ const MeetingPage = (() => {
               </div>
               <div class="form-row">
                 <label class="form-label">미팅 일자</label>
-                <input type="date" class="form-input" id="meeting-date" value="${new Date().toISOString().slice(0,10)}">
+                <input type="date" class="form-input" id="meeting-date" value="${new Date().toISOString().slice(0, 10)}">
               </div>
               <div class="form-row">
                 <label class="form-label">고객사 (선택)</label>
@@ -191,34 +197,45 @@ const MeetingPage = (() => {
     `;
 
     // bind render() buttons
-    document.getElementById('meet-goto-list-btn')?.addEventListener('click', () => App.navigate('meeting-list'));
+    document
+      .getElementById('meet-goto-list-btn')
+      ?.addEventListener('click', () => App.navigate('meeting-list'));
     document.getElementById('rec-start-btn')?.addEventListener('click', () => startRecording());
     document.getElementById('rec-stop-btn')?.addEventListener('click', () => stopRecording());
-    document.getElementById('meeting-regen-btn')?.addEventListener('click', () => regenerateSummary());
+    document
+      .getElementById('meeting-regen-btn')
+      ?.addEventListener('click', () => regenerateSummary());
     document.getElementById('meeting-reset-btn')?.addEventListener('click', () => reset());
     document.getElementById('meeting-save-btn')?.addEventListener('click', () => save());
 
     // audio dropzone
     const dropzone = document.getElementById('audio-dropzone');
     if (dropzone) {
-      dropzone.addEventListener('click', () => document.getElementById('audio-file-input')?.click());
-      dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+      dropzone.addEventListener('click', () =>
+        document.getElementById('audio-file-input')?.click()
+      );
+      dropzone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropzone.classList.add('drag-over');
+      });
       dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-      dropzone.addEventListener('drop', (e) => _handleDrop(e));
+      dropzone.addEventListener('drop', e => _handleDrop(e));
     }
-    document.getElementById('audio-file-input')?.addEventListener('change', (e) => _handleFile(e.target.files[0]));
+    document
+      .getElementById('audio-file-input')
+      ?.addEventListener('change', e => _handleFile(e.target.files[0]));
 
     // 병렬 로드
-    await Promise.all([
-      fetchLeads(),
-      _loadGmeetSection()
-    ]);
+    await Promise.all([fetchLeads(), _loadGmeetSection()]);
 
     const dl = document.getElementById('meeting-leads-list');
     if (dl) {
-      dl.innerHTML = leads.map(l =>
-        `<option value="${esc(l.customer_name || '')}">${esc(l.customer_name || '')}${l.project_name ? ' - ' + esc(l.project_name) : ''}</option>`
-      ).join('');
+      dl.innerHTML = leads
+        .map(
+          l =>
+            `<option value="${esc(l.customer_name || '')}">${esc(l.customer_name || '')}${l.project_name ? ' - ' + esc(l.project_name) : ''}</option>`
+        )
+        .join('');
     }
 
     // 녹음이 이미 진행 중이면 UI 복원
@@ -241,20 +258,22 @@ const MeetingPage = (() => {
       _renderGmeetSection();
     } catch (_) {
       const body = document.getElementById('gmeet-body');
-      if (body) body.innerHTML = '<div style="color:var(--text-3);font-size:12px;padding:8px">Google 연동 상태를 확인할 수 없습니다.</div>';
+      if (body)
+        body.innerHTML =
+          '<div style="color:var(--text-3);font-size:12px;padding:8px">Google 연동 상태를 확인할 수 없습니다.</div>';
     }
   }
 
   function _renderGmeetSection() {
     const badge = document.getElementById('gmeet-status-badge');
-    const body  = document.getElementById('gmeet-body');
+    const body = document.getElementById('gmeet-body');
     if (!body) return;
 
     const { connected, configured, email } = _googleStatus;
 
     if (badge) {
       badge.innerHTML = connected
-        ? `<span class="badge badge-google-connected" style="border:none;font-size:11px">● 연결됨 · ${esc(email||'')}</span>`
+        ? `<span class="badge badge-google-connected" style="border:none;font-size:11px">● 연결됨 · ${esc(email || '')}</span>`
         : `<span class="badge" style="background:var(--surface-2);color:var(--text-3);border:none;font-size:11px">미연결</span>`;
     }
 
@@ -271,7 +290,9 @@ const MeetingPage = (() => {
             📖 설정 가이드 보기
           </button>
         </div>`;
-      document.getElementById('gmeet-setup-guide-btn')?.addEventListener('click', () => _showGoogleSetupGuide());
+      document
+        .getElementById('gmeet-setup-guide-btn')
+        ?.addEventListener('click', () => _showGoogleSetupGuide());
       return;
     }
 
@@ -296,14 +317,16 @@ const MeetingPage = (() => {
             </button>
           </div>
         </div>`;
-      document.getElementById('gmeet-connect-btn')?.addEventListener('click', () => connectGoogle());
+      document
+        .getElementById('gmeet-connect-btn')
+        ?.addEventListener('click', () => connectGoogle());
       return;
     }
 
     // 연결된 상태 — 미팅 생성 폼 + 최근 세션
-    const now    = new Date();
-    const defDt  = new Date(now.getTime() + 30 * 60_000);
-    const defStr = `${defDt.getFullYear()}-${String(defDt.getMonth()+1).padStart(2,'0')}-${String(defDt.getDate()).padStart(2,'0')}T${String(defDt.getHours()).padStart(2,'0')}:${String(defDt.getMinutes()).padStart(2,'0')}`;
+    const now = new Date();
+    const defDt = new Date(now.getTime() + 30 * 60_000);
+    const defStr = `${defDt.getFullYear()}-${String(defDt.getMonth() + 1).padStart(2, '0')}-${String(defDt.getDate()).padStart(2, '0')}T${String(defDt.getHours()).padStart(2, '0')}:${String(defDt.getMinutes()).padStart(2, '0')}`;
 
     body.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start">
@@ -366,7 +389,9 @@ const MeetingPage = (() => {
     `;
 
     document.getElementById('gmeet-create-btn')?.addEventListener('click', () => createMeet());
-    document.getElementById('gmeet-disconnect-btn')?.addEventListener('click', () => disconnectGoogle());
+    document
+      .getElementById('gmeet-disconnect-btn')
+      ?.addEventListener('click', () => disconnectGoogle());
 
     _loadRecentMeetSessions();
     _loadGmailSyncSettings();
@@ -384,13 +409,15 @@ const MeetingPage = (() => {
       const d = r.data || {};
       toggle.checked = !!d.enabled;
       if (status) {
-        const isInvalidGrant = (d.error || '').includes('인증이 만료') || /invalid_grant/i.test(d.error || '');
+        const isInvalidGrant =
+          (d.error || '').includes('인증이 만료') || /invalid_grant/i.test(d.error || '');
         if (d.enabled) {
           const last = d.last_polled_at
             ? new Date(d.last_polled_at).toLocaleString('ko-KR')
             : '아직 없음';
           status.textContent = `· 마지막 폴링: ${last}`;
-          if (d.error) status.innerHTML += ` · <span style="color:var(--oci-red)">⚠️ ${esc(d.error)}</span>`;
+          if (d.error)
+            status.innerHTML += ` · <span style="color:var(--oci-red)">⚠️ ${esc(d.error)}</span>`;
         } else if (isInvalidGrant) {
           // 자동 비활성화된 상태 — 재연결 안내
           status.innerHTML = `· <span style="color:var(--oci-red);font-weight:600">⚠️ 재연결 필요</span> · <span style="font-size:11px">${esc(d.error)}</span>`;
@@ -403,7 +430,9 @@ const MeetingPage = (() => {
     toggle.onchange = async () => {
       try {
         await API.gmail.setSync(toggle.checked);
-        Toast.success(toggle.checked ? '📧 Gmail 자동 동기화 활성화' : 'Gmail 자동 동기화 비활성화');
+        Toast.success(
+          toggle.checked ? '📧 Gmail 자동 동기화 활성화' : 'Gmail 자동 동기화 비활성화'
+        );
         _loadGmailSyncSettings();
       } catch (err) {
         toggle.checked = !toggle.checked; // 롤백
@@ -444,21 +473,26 @@ const MeetingPage = (() => {
     try {
       const res = await API.google.meet.list();
       const rows = res.data || [];
-      if (!rows.length) { el.innerHTML = ''; return; }
+      if (!rows.length) {
+        el.innerHTML = '';
+        return;
+      }
 
       el.innerHTML = `
         <div style="font-size:11px;font-weight:600;color:var(--text-3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">
           최근 생성된 미팅
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${rows.map(r => `
+          ${rows
+            .map(
+              r => `
             <div class="gmeet-session-row">
               <div style="flex:1;min-width:0">
                 <div style="font-size:12px;font-weight:600;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                  ${esc(r.title||'미팅')}
+                  ${esc(r.title || '미팅')}
                 </div>
                 <div style="font-size:11px;color:var(--text-3)">
-                  ${r.scheduled_at ? new Date(r.scheduled_at).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '즉시'}
+                  ${r.scheduled_at ? new Date(r.scheduled_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '즉시'}
                   · ${r.duration_min}분
                   ${r.minutes_title ? `· <span style="color:#1a73e8">📝 ${esc(r.minutes_title)}</span>` : ''}
                 </div>
@@ -467,13 +501,17 @@ const MeetingPage = (() => {
                 <button class="btn btn-ghost btn-xs" data-action="copy-meet-link" data-link="${esc(r.meet_link)}">복사</button>
                 <a class="btn btn-primary btn-xs" href="${esc(r.meet_link)}" target="_blank" rel="noopener">참여</a>
               </div>
-            </div>`).join('')}
+            </div>`
+            )
+            .join('')}
         </div>`;
-      el.addEventListener('click', (e) => {
+      el.addEventListener('click', e => {
         const btn = e.target.closest('[data-action="copy-meet-link"]');
         if (btn) _copyLink(btn.dataset.link);
       });
-    } catch (_) { if (el) el.innerHTML = ''; }
+    } catch (_) {
+      if (el) el.innerHTML = '';
+    }
   }
 
   function _onGoogleMessage(e) {
@@ -489,14 +527,14 @@ const MeetingPage = (() => {
 
   /** 화면으로 돌아왔을 때 녹음 중 UI 복원 */
   function _restoreRecordingUI() {
-    const startBtn  = document.getElementById('rec-start-btn');
-    const stopBtn   = document.getElementById('rec-stop-btn');
-    const visual    = document.getElementById('rec-visual');
-    const status    = document.getElementById('rec-status');
+    const startBtn = document.getElementById('rec-start-btn');
+    const stopBtn = document.getElementById('rec-stop-btn');
+    const visual = document.getElementById('rec-visual');
+    const status = document.getElementById('rec-status');
     if (startBtn) startBtn.style.display = 'none';
-    if (stopBtn)  stopBtn.style.display  = '';
-    if (visual)   visual.classList.add('recording');
-    if (status)   status.textContent = '🔴 녹음 중...';
+    if (stopBtn) stopBtn.style.display = '';
+    if (visual) visual.classList.add('recording');
+    if (status) status.textContent = '🔴 녹음 중...';
     // 즉시 한 번 갱신 (경과 시간 표시)
     MeetingRecorder._tick();
   }
@@ -508,26 +546,35 @@ const MeetingPage = (() => {
     try {
       const res = await API.google.authUrl();
       const popup = window.open(
-        res.url, 'google_oauth',
-        'width=520,height=640,left=' + Math.round((screen.width-520)/2) + ',top=' + Math.round((screen.height-640)/2)
+        res.url,
+        'google_oauth',
+        'width=520,height=640,left=' +
+          Math.round((screen.width - 520) / 2) +
+          ',top=' +
+          Math.round((screen.height - 640) / 2)
       );
       if (!popup) Toast.error('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
-    } catch (err) { Toast.error(err.message); }
+    } catch (err) {
+      Toast.error(err.message);
+    }
   }
 
   /** Google Meet 링크 생성 */
   async function createMeet() {
-    const btn   = document.getElementById('gmeet-create-btn');
+    const btn = document.getElementById('gmeet-create-btn');
     const title = document.getElementById('gmeet-title')?.value.trim() || '영업 미팅';
-    const dt    = document.getElementById('gmeet-datetime')?.value;
-    const dur   = parseInt(document.getElementById('gmeet-duration')?.value || '60');
+    const dt = document.getElementById('gmeet-datetime')?.value;
+    const dur = parseInt(document.getElementById('gmeet-duration')?.value || '60');
 
-    if (btn) { btn.disabled = true; btn.textContent = '생성 중...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '생성 중...';
+    }
     try {
       const res = await API.google.meet.create({
         title,
         scheduled_at: dt ? new Date(dt).toISOString() : null,
-        duration_min: dur
+        duration_min: dur,
       });
       _showMeetLink(res.data);
       _loadRecentMeetSessions();
@@ -539,7 +586,10 @@ const MeetingPage = (() => {
       }
       Toast.error(err.message);
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '📹 Meet 링크 생성'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '📹 Meet 링크 생성';
+      }
     }
   }
 
@@ -567,18 +617,24 @@ const MeetingPage = (() => {
           🔴 녹음 동시 시작
         </button>
         <div style="font-size:11px;color:var(--text-3);margin-top:6px;text-align:center">
-          ${data.scheduled_at ? new Date(data.scheduled_at).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '즉시 사용 가능'} · ${data.duration_min}분
+          ${data.scheduled_at ? new Date(data.scheduled_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '즉시 사용 가능'} · ${data.duration_min}분
         </div>
       </div>`;
-    document.getElementById('gmeet-copy-link-btn')?.addEventListener('click', () => _copyLink(data.meet_link));
-    document.getElementById('gmeet-start-recording-btn')?.addEventListener('click', () => startRecordingFromMeet());
+    document
+      .getElementById('gmeet-copy-link-btn')
+      ?.addEventListener('click', () => _copyLink(data.meet_link));
+    document
+      .getElementById('gmeet-start-recording-btn')
+      ?.addEventListener('click', () => startRecordingFromMeet());
   }
 
   /** 링크 복사 */
   function _copyLink(url) {
     navigator.clipboard.writeText(url).then(
-      ()  => Toast.success('링크가 클립보드에 복사되었습니다'),
-      ()  => { prompt('링크를 복사하세요:', url); }
+      () => Toast.success('링크가 클립보드에 복사되었습니다'),
+      () => {
+        prompt('링크를 복사하세요:', url);
+      }
     );
   }
 
@@ -596,7 +652,9 @@ const MeetingPage = (() => {
       _googleStatus = { connected: false, configured: true, email: null };
       _renderGmeetSection();
       Toast.success('Google 계정 연결이 해제되었습니다');
-    } catch (err) { Toast.error(err.message); }
+    } catch (err) {
+      Toast.error(err.message);
+    }
   }
 
   /** Google OAuth 설정 가이드 */
@@ -630,7 +688,7 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
           </div>
         </div>`,
       footer: `<button class="btn btn-primary" id="google-guide-ok-btn">확인</button>`,
-      bind: { '#google-guide-ok-btn': () => Modal.close() }
+      bind: { '#google-guide-ok-btn': () => Modal.close() },
     });
   }
 
@@ -641,12 +699,13 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus' : 'audio/webm';
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
 
-      MeetingRecorder.mimeType      = mime;
+      MeetingRecorder.mimeType = mime;
       MeetingRecorder.recordedChunks = [];
-      MeetingRecorder.recordedBlob   = null;
-      MeetingRecorder.mediaRecorder  = new MediaRecorder(stream, { mimeType: mime });
+      MeetingRecorder.recordedBlob = null;
+      MeetingRecorder.mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
 
       MeetingRecorder.mediaRecorder.ondataavailable = e => {
         if (e.data.size > 0) MeetingRecorder.recordedChunks.push(e.data);
@@ -656,21 +715,22 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         // 마이크 스트림 종료
         stream.getTracks().forEach(t => t.stop());
 
-        MeetingRecorder.recordedBlob = new Blob(
-          MeetingRecorder.recordedChunks, { type: MeetingRecorder.mimeType }
-        );
+        MeetingRecorder.recordedBlob = new Blob(MeetingRecorder.recordedChunks, {
+          type: MeetingRecorder.mimeType,
+        });
         MeetingRecorder.stopTimer();
         MeetingRecorder.hideIndicator();
 
         // 녹음 완료 UI 업데이트 (페이지가 열려 있을 때만)
-        const status   = document.getElementById('rec-status');
-        const visual   = document.getElementById('rec-visual');
+        const status = document.getElementById('rec-status');
+        const visual = document.getElementById('rec-visual');
         const startBtn = document.getElementById('rec-start-btn');
-        const stopBtn  = document.getElementById('rec-stop-btn');
-        if (status)   status.textContent = `✅ 녹음 완료 (${(MeetingRecorder.recordedBlob.size / 1024).toFixed(0)} KB)`;
-        if (visual)   visual.classList.remove('recording');
+        const stopBtn = document.getElementById('rec-stop-btn');
+        if (status)
+          status.textContent = `✅ 녹음 완료 (${(MeetingRecorder.recordedBlob.size / 1024).toFixed(0)} KB)`;
+        if (visual) visual.classList.remove('recording');
         if (startBtn) startBtn.style.display = '';
-        if (stopBtn)  stopBtn.style.display  = 'none';
+        if (stopBtn) stopBtn.style.display = 'none';
 
         const filename = `recording-${Date.now()}.webm`;
         const onMeetingPage = !!document.getElementById('rec-visual');
@@ -678,17 +738,24 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         // ── 오프라인 분기 — IndexedDB 큐에 저장 후 종료 (온라인 복귀 시 자동 처리) ──
         if (!navigator.onLine && typeof OfflineQueue !== 'undefined') {
           const customer = document.getElementById('meeting-customer')?.value || '';
-          const date     = document.getElementById('meeting-date')?.value || '';
-          const title    = document.getElementById('meeting-title')?.value || '';
-          const sizeKB   = (MeetingRecorder.recordedBlob.size / 1024).toFixed(0);
+          const date = document.getElementById('meeting-date')?.value || '';
+          const title = document.getElementById('meeting-title')?.value || '';
+          const sizeKB = (MeetingRecorder.recordedBlob.size / 1024).toFixed(0);
           OfflineQueue.add(MeetingRecorder.recordedBlob, {
-            filename, customer_name: customer, meeting_date: date, meeting_title: title,
-          }).then(() => {
-            Toast.info(`📡 오프라인 — 녹음 ${sizeKB}KB 저장됨. 온라인 복귀 시 자동 처리됩니다.`);
-            if (onMeetingPage) _renderOfflineQueue();
-          }).catch(err => {
-            Toast.error('오프라인 저장 실패: ' + err.message + ' — 브라우저 저장 공간을 확인해 주세요.');
-          });
+            filename,
+            customer_name: customer,
+            meeting_date: date,
+            meeting_title: title,
+          })
+            .then(() => {
+              Toast.info(`📡 오프라인 — 녹음 ${sizeKB}KB 저장됨. 온라인 복귀 시 자동 처리됩니다.`);
+              if (onMeetingPage) _renderOfflineQueue();
+            })
+            .catch(err => {
+              Toast.error(
+                '오프라인 저장 실패: ' + err.message + ' — 브라우저 저장 공간을 확인해 주세요.'
+              );
+            });
           return;
         }
 
@@ -709,15 +776,14 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       MeetingRecorder.showIndicator();
 
       // 페이지 내 UI 업데이트
-      const status   = document.getElementById('rec-status');
-      const visual   = document.getElementById('rec-visual');
+      const status = document.getElementById('rec-status');
+      const visual = document.getElementById('rec-visual');
       const startBtn = document.getElementById('rec-start-btn');
-      const stopBtn  = document.getElementById('rec-stop-btn');
-      if (status)   status.textContent = '🔴 녹음 중...';
-      if (visual)   visual.classList.add('recording');
+      const stopBtn = document.getElementById('rec-stop-btn');
+      if (status) status.textContent = '🔴 녹음 중...';
+      if (visual) visual.classList.add('recording');
       if (startBtn) startBtn.style.display = 'none';
-      if (stopBtn)  stopBtn.style.display  = '';
-
+      if (stopBtn) stopBtn.style.display = '';
     } catch (err) {
       Toast.error('마이크 접근 권한이 필요합니다: ' + err.message);
     }
@@ -738,7 +804,10 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
   }
   function _handleFile(file) {
     if (!file) return;
-    if (!file.type.startsWith('audio/') && !/\.(mp3|wav|m4a|webm|ogg|opus|flac)$/i.test(file.name)) {
+    if (
+      !file.type.startsWith('audio/') &&
+      !/\.(mp3|wav|m4a|webm|ogg|opus|flac)$/i.test(file.name)
+    ) {
       Toast.error('오디오 파일만 업로드 가능합니다');
       return;
     }
@@ -760,7 +829,8 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
     const summaryEl = document.getElementById('meeting-summary');
     const statsEl = document.getElementById('meeting-stats');
 
-    speakersEl.innerHTML = '<div class="loading" style="padding:20px;text-align:center">📤 업로드 중...</div>';
+    speakersEl.innerHTML =
+      '<div class="loading" style="padding:20px;text-align:center">📤 업로드 중...</div>';
     summaryEl.innerHTML = '<span class="ai-cursor">▋ 음성 인식 완료 후 요약 시작</span>';
     statsEl.textContent = '';
 
@@ -768,10 +838,10 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       const fd = new FormData();
       fd.append('audio', blob, filename);
       const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
-      const uid   = localStorage.getItem('current_user_id');
+      const uid = localStorage.getItem('current_user_id');
       const headers = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      if (uid)   headers['X-User-Id']     = uid;
+      if (uid) headers['X-User-Id'] = uid;
 
       // 1) 업로드 — 비동기 패턴 (긴 녹음 120분+ 대응).
       //    업로드 자체는 짧음 (~수십 초). nginx/proxy timeout 무관.
@@ -782,13 +852,17 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       let uploadRes;
       try {
         uploadRes = await fetch('/api/meeting/transcribe-async', {
-          method: 'POST', body: fd, headers, signal: uploadAborter.signal,
+          method: 'POST',
+          body: fd,
+          headers,
+          signal: uploadAborter.signal,
         });
       } catch (netErr) {
         clearTimeout(uploadTimer);
-        const msg = netErr.name === 'AbortError'
-          ? '업로드 시간이 초과되었습니다 (5분). 네트워크를 확인해 주세요.'
-          : `업로드 오류: ${netErr.message}`;
+        const msg =
+          netErr.name === 'AbortError'
+            ? '업로드 시간이 초과되었습니다 (5분). 네트워크를 확인해 주세요.'
+            : `업로드 오류: ${netErr.message}`;
         speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(msg)}</div>`;
         summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
         return;
@@ -800,9 +874,10 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         uploadJson = await uploadRes.json();
       } catch (_) {
         const status = uploadRes.status;
-        const hint = status === 413
-          ? '파일이 너무 큽니다 (최대 100MB). 녹음을 분할해 주세요.'
-          : `업로드 응답을 해석할 수 없습니다 (HTTP ${status}).`;
+        const hint =
+          status === 413
+            ? '파일이 너무 큽니다 (최대 100MB). 녹음을 분할해 주세요.'
+            : `업로드 응답을 해석할 수 없습니다 (HTTP ${status}).`;
         speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(hint)}</div>`;
         summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
         return;
@@ -825,19 +900,23 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       while (true) {
         if (Date.now() - pollStartedAt > MAX_POLL_MS) {
           speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ 음성 인식이 30분을 초과했습니다. 녹음을 분할해 주세요.</div>`;
-          summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+          summaryEl.innerHTML =
+            '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
           return;
         }
         await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
         let statRes;
         try {
-          statRes = await fetch(`/api/meeting/transcribe-status/${encodeURIComponent(jobId)}`, { headers });
+          statRes = await fetch(`/api/meeting/transcribe-status/${encodeURIComponent(jobId)}`, {
+            headers,
+          });
         } catch (_) {
           // 일시적 네트워크 끊김 — 다음 폴링 시도 (3회 연속 실패 시 중단)
           if (++consecErrors >= 3) {
             speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ 서버 상태 폴링 실패 (네트워크 확인). 작업 ID: ${esc(jobId)}</div>`;
-            summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+            summaryEl.innerHTML =
+              '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
             return;
           }
           continue;
@@ -849,7 +928,8 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         } catch (_) {
           if (++consecErrors >= 3) {
             speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ 서버 응답 해석 실패 (HTTP ${statRes.status})</div>`;
-            summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+            summaryEl.innerHTML =
+              '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
             return;
           }
           continue;
@@ -863,7 +943,8 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         }
         if (stat.status === 'error' || stat.status === 'cancelled' || stat.success === false) {
           speakersEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(stat.error || '음성 인식 실패')}</div>`;
-          summaryEl.innerHTML = '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
+          summaryEl.innerHTML =
+            '<span style="color:var(--text-3)">음성 인식 실패로 요약 불가</span>';
           return;
         }
         // 진행 표시 — 분/초 카운터
@@ -886,7 +967,7 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         transcript: _state.transcript,
         speakers: _state.speakers,
         customer_name: customer,
-        meeting_date: date
+        meeting_date: date,
       });
 
       if (sumRes.success) {
@@ -916,9 +997,10 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       return;
     }
     const colors = ['#1664E5', '#00A86B', '#F59C00', '#7C4DFF', '#E63329', '#0EA5E9'];
-    el.innerHTML = _state.speakers.map(s => {
-      const c = colors[(s.speaker - 1) % colors.length];
-      return `
+    el.innerHTML = _state.speakers
+      .map(s => {
+        const c = colors[(s.speaker - 1) % colors.length];
+        return `
         <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
           <div style="flex-shrink:0;width:32px;height:32px;border-radius:50%;background:${c};color:#fff;
                       display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px">
@@ -929,7 +1011,8 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
             ${esc(s.text)}
           </div>
         </div>`;
-    }).join('');
+      })
+      .join('');
   }
 
   // ── 5) 요약 재생성 ──────────────────────────────────────
@@ -942,20 +1025,23 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         transcript: _state.transcript,
         speakers: _state.speakers,
         customer_name: document.getElementById('meeting-customer')?.value || '',
-        meeting_date: document.getElementById('meeting-date')?.value || ''
+        meeting_date: document.getElementById('meeting-date')?.value || '',
       });
       if (sumRes.success) {
         _state.summary = sumRes.data.summary_md;
         summaryEl.innerHTML = AI.renderMarkdown(_state.summary);
         if (typeof UserPrefs !== 'undefined') UserPrefs.refreshTokens();
       }
-    } catch (err) { Toast.error(err.message); }
+    } catch (err) {
+      Toast.error(err.message);
+    }
   }
 
   // ── 6) 저장 + 캘린더 등록 플로우 ────────────────────────
   async function save() {
-    const title = document.getElementById('meeting-title').value.trim()
-                || `회의록 ${new Date().toISOString().slice(0,10)}`;
+    const title =
+      document.getElementById('meeting-title').value.trim() ||
+      `회의록 ${new Date().toISOString().slice(0, 10)}`;
     const date = document.getElementById('meeting-date').value;
     const customer = document.getElementById('meeting-customer').value.trim();
 
@@ -966,7 +1052,7 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         raw_transcript: _state.transcript,
         speakers_json: _state.speakers,
         summary_md: _state.summary,
-        customer_name: customer
+        customer_name: customer,
       });
       if (r.success) {
         _state.savedId = r.id;
@@ -974,7 +1060,9 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         Toast.success('회의록이 저장되었습니다');
         _askCalendarRegister();
       }
-    } catch (err) { Toast.error('저장 실패: ' + err.message); }
+    } catch (err) {
+      Toast.error('저장 실패: ' + err.message);
+    }
   }
 
   function _askCalendarRegister() {
@@ -996,9 +1084,9 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         <button class="btn btn-ghost" id="cal-no-btn">아니오</button>
         <button class="btn btn-primary" id="cal-yes-btn">예, 등록하기</button>`,
       bind: {
-        '#cal-no-btn':  () => _calendarNo(),
-        '#cal-yes-btn': () => _calendarYes()
-      }
+        '#cal-no-btn': () => _calendarNo(),
+        '#cal-yes-btn': () => _calendarYes(),
+      },
     });
   }
 
@@ -1017,14 +1105,16 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
     // Unique customer names from App.customers (CRM) + leads
     const crmNames = (App.customers || []).map(c => c.name || c.company_name || '').filter(Boolean);
     const leadNames = leads.map(l => l.customer_name || '').filter(Boolean);
-    const allCustomers = [...new Set([...crmNames, ...leadNames])].sort((a, b) => a.localeCompare(b));
+    const allCustomers = [...new Set([...crmNames, ...leadNames])].sort((a, b) =>
+      a.localeCompare(b)
+    );
 
     const pre = _state.customerName || '';
     const preInList = allCustomers.includes(pre);
 
-    const customerOpts = allCustomers.map(c =>
-      `<option value="${esc(c)}" ${c === pre ? 'selected' : ''}>${esc(c)}</option>`
-    ).join('');
+    const customerOpts = allCustomers
+      .map(c => `<option value="${esc(c)}" ${c === pre ? 'selected' : ''}>${esc(c)}</option>`)
+      .join('');
 
     // Pre-filter deals
     const initMatched = pre
@@ -1060,15 +1150,19 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         <button class="btn btn-ghost" id="cal-reg-cancel-btn">취소</button>
         <button class="btn btn-primary" id="cal-reg-confirm-btn">캘린더에 등록</button>`,
       bind: {
-        '#cal-reg-cancel-btn':  () => Modal.close(),
-        '#cal-reg-confirm-btn': () => _registerCalendar()
-      }
+        '#cal-reg-cancel-btn': () => Modal.close(),
+        '#cal-reg-confirm-btn': () => _registerCalendar(),
+      },
     });
 
     // bind modal body inputs (after modal renders)
     setTimeout(() => {
-      document.getElementById('reg-customer-select')?.addEventListener('change', (e) => _onCustomerChange(e.target.value));
-      document.getElementById('reg-customer-direct')?.addEventListener('input', (e) => _onCustomerDirectInput(e.target.value));
+      document
+        .getElementById('reg-customer-select')
+        ?.addEventListener('change', e => _onCustomerChange(e.target.value));
+      document
+        .getElementById('reg-customer-direct')
+        ?.addEventListener('input', e => _onCustomerDirectInput(e.target.value));
     }, 0);
 
     // Apply auto-match hint for pre-selected customer
@@ -1076,10 +1170,15 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
   }
 
   function _buildDealOptions(matchedLeads) {
-    return `<option value="">-- 없음 --</option>` +
-      matchedLeads.map(l =>
-        `<option value="${l.id}">${esc(l.customer_name || '')}${l.project_name ? ' · ' + esc(l.project_name) : ''}${l.stage ? ' [' + esc(l.stage) + ']' : ''}</option>`
-      ).join('');
+    return (
+      `<option value="">-- 없음 --</option>` +
+      matchedLeads
+        .map(
+          l =>
+            `<option value="${l.id}">${esc(l.customer_name || '')}${l.project_name ? ' · ' + esc(l.project_name) : ''}${l.stage ? ' [' + esc(l.stage) + ']' : ''}</option>`
+        )
+        .join('')
+    );
   }
 
   function _applyDealHint(matched) {
@@ -1098,12 +1197,15 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
 
   function _onCustomerChange(value) {
     const directEl = document.getElementById('reg-customer-direct');
-    const dealEl   = document.getElementById('reg-lead');
-    const hintEl   = document.getElementById('reg-deal-hint');
+    const dealEl = document.getElementById('reg-lead');
+    const hintEl = document.getElementById('reg-deal-hint');
     if (!dealEl) return;
 
     if (value === '__direct__') {
-      if (directEl) { directEl.style.display = ''; directEl.focus(); }
+      if (directEl) {
+        directEl.style.display = '';
+        directEl.focus();
+      }
       dealEl.innerHTML = _buildDealOptions(leads);
       if (hintEl) hintEl.textContent = '고객사명을 입력하면 딜이 자동 필터링됩니다';
       return;
@@ -1116,7 +1218,9 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
       return;
     }
 
-    const matched = leads.filter(l => (l.customer_name || '').toLowerCase() === value.toLowerCase());
+    const matched = leads.filter(
+      l => (l.customer_name || '').toLowerCase() === value.toLowerCase()
+    );
     dealEl.innerHTML = _buildDealOptions(matched);
     _applyDealHint(matched);
   }
@@ -1141,7 +1245,7 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
   async function _registerCalendar() {
     const selectEl = document.getElementById('reg-customer-select');
     const directEl = document.getElementById('reg-customer-direct');
-    const dealEl   = document.getElementById('reg-lead');
+    const dealEl = document.getElementById('reg-lead');
 
     let customer = '';
     if (selectEl && selectEl.value === '__direct__') {
@@ -1158,12 +1262,15 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
 
     const leadId = dealEl?.value || null;
     const btn = document.querySelector('#modal-box .btn-primary');
-    if (btn) { btn.disabled = true; btn.textContent = '등록 중...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '등록 중...';
+    }
 
     try {
       const r = await API.meetings.registerCalendar(_state.savedId, {
         customer_name: customer,
-        lead_id: leadId
+        lead_id: leadId,
       });
       if (r.success) {
         Modal.close();
@@ -1171,26 +1278,40 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
         setTimeout(() => App.navigate('meeting-list'), 800);
       } else {
         Toast.error(r.error || '등록 실패');
-        if (btn) { btn.disabled = false; btn.textContent = '캘린더에 등록'; }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '캘린더에 등록';
+        }
       }
     } catch (err) {
       Toast.error('등록 실패: ' + err.message);
-      if (btn) { btn.disabled = false; btn.textContent = '캘린더에 등록'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '캘린더에 등록';
+      }
     }
   }
 
   function reset() {
-    _state = { transcript:'', speakers:[], summary:'', savedId:null, customerName:'', leadId:null };
+    _state = {
+      transcript: '',
+      speakers: [],
+      summary: '',
+      savedId: null,
+      customerName: '',
+      leadId: null,
+    };
     MeetingRecorder.recordedBlob = null;
-    const result  = document.getElementById('meeting-result');
+    const result = document.getElementById('meeting-result');
     const fileInfo = document.getElementById('audio-file-info');
     const recTime = document.getElementById('rec-time');
-    const status  = document.getElementById('rec-status');
-    if (result)   result.style.display = 'none';
-    if (fileInfo) fileInfo.innerHTML   = '';
-    if (recTime)  recTime.textContent  = '00:00';
-    if (status)   status.textContent   = '대기 중';
-    const f = document.getElementById('audio-file-input'); if (f) f.value = '';
+    const status = document.getElementById('rec-status');
+    if (result) result.style.display = 'none';
+    if (fileInfo) fileInfo.innerHTML = '';
+    if (recTime) recTime.textContent = '00:00';
+    if (status) status.textContent = '대기 중';
+    const f = document.getElementById('audio-file-input');
+    if (f) f.value = '';
   }
 
   // ── 오프라인 큐 UI ───────────────────────────────────────
@@ -1200,37 +1321,47 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
     const card = document.getElementById('offline-queue-card');
     if (!card || typeof OfflineQueue === 'undefined') return;
     const items = await OfflineQueue.list();
-    if (!items.length) { card.style.display = 'none'; return; }
+    if (!items.length) {
+      card.style.display = 'none';
+      return;
+    }
 
     card.style.display = '';
     const countEl = document.getElementById('offline-queue-count');
     if (countEl) countEl.textContent = `(${items.length}건)`;
     const retryBtn = document.getElementById('offline-queue-retry-btn');
     const hasRetryable = items.some(i => i.status === 'pending' || i.status === 'error');
-    if (retryBtn) retryBtn.style.display = (hasRetryable && navigator.onLine) ? '' : 'none';
+    if (retryBtn) retryBtn.style.display = hasRetryable && navigator.onLine ? '' : 'none';
 
     const STATUS_BADGE = {
-      pending:      { label: '⏳ 대기 중',     bg: '#fff8f0', color: '#c2410c' },
-      uploading:    { label: '📤 업로드 중',   bg: '#eef2ff', color: '#3730a3' },
+      pending: { label: '⏳ 대기 중', bg: '#fff8f0', color: '#c2410c' },
+      uploading: { label: '📤 업로드 중', bg: '#eef2ff', color: '#3730a3' },
       transcribing: { label: '🎙 음성 인식 중', bg: '#eef2ff', color: '#3730a3' },
-      done:         { label: '✅ 완료',         bg: '#f0fdf4', color: '#166534' },
-      error:        { label: '⚠️ 실패',         bg: '#fef2f2', color: '#991b1b' },
+      done: { label: '✅ 완료', bg: '#f0fdf4', color: '#166534' },
+      error: { label: '⚠️ 실패', bg: '#fef2f2', color: '#991b1b' },
     };
 
     const listEl = document.getElementById('offline-queue-list');
-    listEl.innerHTML = items.map(it => {
-      const badge = STATUS_BADGE[it.status] || STATUS_BADGE.pending;
-      const sizeKB = it.blob ? (it.blob.size / 1024).toFixed(0) : '?';
-      const ts = new Date(it.created_at).toLocaleString('ko-KR');
-      const meta = [
-        it.meeting_title || '(제목 없음)',
-        it.customer_name ? `고객사: ${esc(it.customer_name)}` : '',
-        it.meeting_date  ? `일자: ${esc(it.meeting_date)}` : '',
-      ].filter(Boolean).join(' · ');
-      const msg = it.progress_msg ? `<div style="font-size:11px;color:var(--text-2);margin-top:4px">${esc(it.progress_msg)}</div>` : '';
-      const errMsg = it.error ? `<div style="font-size:11px;color:#991b1b;margin-top:4px">${esc(it.error)}</div>` : '';
+    listEl.innerHTML = items
+      .map(it => {
+        const badge = STATUS_BADGE[it.status] || STATUS_BADGE.pending;
+        const sizeKB = it.blob ? (it.blob.size / 1024).toFixed(0) : '?';
+        const ts = new Date(it.created_at).toLocaleString('ko-KR');
+        const meta = [
+          it.meeting_title || '(제목 없음)',
+          it.customer_name ? `고객사: ${esc(it.customer_name)}` : '',
+          it.meeting_date ? `일자: ${esc(it.meeting_date)}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        const msg = it.progress_msg
+          ? `<div style="font-size:11px;color:var(--text-2);margin-top:4px">${esc(it.progress_msg)}</div>`
+          : '';
+        const errMsg = it.error
+          ? `<div style="font-size:11px;color:#991b1b;margin-top:4px">${esc(it.error)}</div>`
+          : '';
 
-      return `
+        return `
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${badge.bg};color:${badge.color};white-space:nowrap">${badge.label}</span>
           <div style="flex:1;min-width:160px">
@@ -1240,43 +1371,52 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
             ${it.status === 'done' ? `<button class="btn btn-primary btn-sm" data-oq-view="${it.id}">결과 보기</button>` : ''}
-            ${(it.status === 'pending' || it.status === 'error') && navigator.onLine
-              ? `<button class="btn btn-ghost btn-sm" data-oq-retry="${it.id}">재시도</button>` : ''}
+            ${
+              (it.status === 'pending' || it.status === 'error') && navigator.onLine
+                ? `<button class="btn btn-ghost btn-sm" data-oq-retry="${it.id}">재시도</button>`
+                : ''
+            }
             <button class="btn btn-ghost btn-sm text-danger" data-oq-del="${it.id}" title="삭제">🗑</button>
           </div>
         </div>
       `;
-    }).join('');
+      })
+      .join('');
 
     // 이벤트 위임
-    listEl.onclick = async (e) => {
-      const view  = e.target.closest('[data-oq-view]');
+    listEl.onclick = async e => {
+      const view = e.target.closest('[data-oq-view]');
       const retry = e.target.closest('[data-oq-retry]');
-      const del   = e.target.closest('[data-oq-del]');
+      const del = e.target.closest('[data-oq-del]');
       if (view) {
         const id = parseInt(view.dataset.oqView);
         const item = await OfflineQueue.get(id);
         if (!item || !item.result) return Toast.error('결과 데이터 없음');
         // 결과를 현재 페이지의 일반 STT 플로우 결과 영역에 표시 → 요약 자동 생성
         _state.transcript = item.result.transcript;
-        _state.speakers   = item.result.speakers || [];
+        _state.speakers = item.result.speakers || [];
         // 메타 입력 자동 복원
         const tEl = document.getElementById('meeting-title');
         const cEl = document.getElementById('meeting-customer');
         const dEl = document.getElementById('meeting-date');
-        if (tEl && item.meeting_title)  tEl.value = item.meeting_title;
-        if (cEl && item.customer_name)  cEl.value = item.customer_name;
-        if (dEl && item.meeting_date)   dEl.value = item.meeting_date;
+        if (tEl && item.meeting_title) tEl.value = item.meeting_title;
+        if (cEl && item.customer_name) cEl.value = item.customer_name;
+        if (dEl && item.meeting_date) dEl.value = item.meeting_date;
         document.getElementById('meeting-result').style.display = '';
         _renderSpeakers();
         const statsEl = document.getElementById('meeting-stats');
-        if (statsEl) statsEl.textContent = `${_state.speakers.length}개 화자 구간 · ${_state.transcript.length}자`;
+        if (statsEl)
+          statsEl.textContent = `${_state.speakers.length}개 화자 구간 · ${_state.transcript.length}자`;
         // AI 요약 생성 (기존 함수 재사용)
         regenerateSummary();
       }
       if (retry) {
         const id = parseInt(retry.dataset.oqRetry);
-        await OfflineQueue.update(id, { status: 'pending', error: null, progress_msg: '재시도 대기 중...' });
+        await OfflineQueue.update(id, {
+          status: 'pending',
+          error: null,
+          progress_msg: '재시도 대기 중...',
+        });
         OfflineQueue.process();
       }
       if (del) {
@@ -1301,13 +1441,26 @@ GOOGLE_REDIRECT_URI=http://localhost:3001/api/google/callback</pre>
   }
 
   return {
-    render, startRecording, stopRecording,
-    _handleDrop, _handleFile, regenerateSummary, save,
-    _calendarNo, _calendarYes, _registerCalendar,
-    _onCustomerChange, _onCustomerDirectInput, reset,
+    render,
+    startRecording,
+    stopRecording,
+    _handleDrop,
+    _handleFile,
+    regenerateSummary,
+    save,
+    _calendarNo,
+    _calendarYes,
+    _registerCalendar,
+    _onCustomerChange,
+    _onCustomerDirectInput,
+    reset,
     // Google Meet
-    connectGoogle, createMeet, disconnectGoogle, startRecordingFromMeet,
-    _copyLink, _showGoogleSetupGuide,
+    connectGoogle,
+    createMeet,
+    disconnectGoogle,
+    startRecordingFromMeet,
+    _copyLink,
+    _showGoogleSetupGuide,
     // 오프라인 큐
     _renderOfflineQueue,
   };

@@ -9,24 +9,24 @@
 
 const SearchModal = {
   // ─── 상태 ──────────────────────────────────────────────
-  open:           false,
-  query:          '',
-  results:        null,   // { query, total, results: {leads, customers, ...} }
-  flatList:       [],     // 키보드 네비게이션용 평면 목록
-  focusIndex:     -1,
-  loading:        false,
-  searchTimer:    null,
-  abortCtrl:      null,
-  recentKey:      'oci_search_recent',
-  recentMax:      5,
+  open: false,
+  query: '',
+  results: null, // { query, total, results: {leads, customers, ...} }
+  flatList: [], // 키보드 네비게이션용 평면 목록
+  focusIndex: -1,
+  loading: false,
+  searchTimer: null,
+  abortCtrl: null,
+  recentKey: 'oci_search_recent',
+  recentMax: 5,
 
   // ─── 카테고리 메타 ─────────────────────────────────────
   CAT_META: {
-    leads:      { icon: '📋', label: '영업 리드',  order: 1 },
-    customers:  { icon: '🏢', label: '고객사',     order: 2 },
-    projects:   { icon: '🏗️', label: '프로젝트',  order: 3 },
-    meetings:   { icon: '🎙️', label: '회의록',    order: 4 },
-    activities: { icon: '⚡', label: '활동',       order: 5 },
+    leads: { icon: '📋', label: '영업 리드', order: 1 },
+    customers: { icon: '🏢', label: '고객사', order: 2 },
+    projects: { icon: '🏗️', label: '프로젝트', order: 3 },
+    meetings: { icon: '🎙️', label: '회의록', order: 4 },
+    activities: { icon: '⚡', label: '활동', order: 5 },
   },
 
   // ─── 초기화 (단축키 + DOM 등록) ─────────────────────────
@@ -103,7 +103,9 @@ const SearchModal = {
   },
 
   // ─── Public API ────────────────────────────────────────
-  toggle() { this.open ? this.close() : this.show(); },
+  toggle() {
+    this.open ? this.close() : this.show();
+  },
 
   show(initialQuery = '') {
     this.init();
@@ -206,7 +208,7 @@ const SearchModal = {
     // App.openDetail 이 사용 가능하면 우선 사용 — 페이지 이동 + 상세 모달 자동 처리
     if (typeof App !== 'undefined' && typeof App.openDetail === 'function') {
       App.openDetail(item.type, item.id, {
-        leadId:    item.meta?.leadId,
+        leadId: item.meta?.leadId,
         projectId: item.meta?.projectId,
       });
       return;
@@ -273,12 +275,16 @@ const SearchModal = {
       <div class="gsearch-section">
         <div class="gsearch-section-header">최근 검색</div>
         <div class="gsearch-section-body">
-          ${recent.map(q => `
+          ${recent
+            .map(
+              q => `
             <div class="gsearch-recent" data-recent="${this._esc(q)}">
               <span class="gsearch-recent-icon">🕒</span>
               <span class="gsearch-recent-text">${this._esc(q)}</span>
             </div>
-          `).join('')}
+          `
+            )
+            .join('')}
         </div>
       </div>
     `;
@@ -347,11 +353,13 @@ const SearchModal = {
             <span class="gsearch-section-count">${items.length}</span>
           </div>
           <div class="gsearch-section-body">
-            ${items.map(item => {
-              const idx = flat.length;
-              flat.push(item);
-              return this._renderItem(item, idx, query);
-            }).join('')}
+            ${items
+              .map(item => {
+                const idx = flat.length;
+                flat.push(item);
+                return this._renderItem(item, idx, query);
+              })
+              .join('')}
           </div>
         </div>
       `);
@@ -379,9 +387,9 @@ const SearchModal = {
   },
 
   _renderItem(item, idx, query) {
-    const title    = this._highlight(item.title || '(제목 없음)', query);
+    const title = this._highlight(item.title || '(제목 없음)', query);
     const subtitle = item.subtitle ? this._highlight(item.subtitle, query) : '';
-    const snippet  = item.snippet ? this._highlight(item.snippet, query) : '';
+    const snippet = item.snippet ? this._highlight(item.snippet, query) : '';
     const meta = this._renderMeta(item);
     return `
       <div class="gsearch-item" data-index="${idx}" data-type="${this._esc(item.type)}">
@@ -400,17 +408,19 @@ const SearchModal = {
     const m = item.meta;
     const chips = [];
     if (item.type === 'leads') {
-      if (m.stage)    chips.push(`<span class="gsearch-chip stage-${m.stage}">${this._esc(m.stage)}</span>`);
+      if (m.stage)
+        chips.push(`<span class="gsearch-chip stage-${m.stage}">${this._esc(m.stage)}</span>`);
       if (m.business) chips.push(`<span class="gsearch-chip">${this._esc(m.business)}</span>`);
     } else if (item.type === 'customers') {
-      if (m.region)   chips.push(`<span class="gsearch-chip">${this._esc(m.region)}</span>`);
-      if (m.country)  chips.push(`<span class="gsearch-chip">${this._esc(m.country)}</span>`);
+      if (m.region) chips.push(`<span class="gsearch-chip">${this._esc(m.region)}</span>`);
+      if (m.country) chips.push(`<span class="gsearch-chip">${this._esc(m.country)}</span>`);
     } else if (item.type === 'projects') {
-      if (m.status)   chips.push(`<span class="gsearch-chip status-${m.status}">${this._esc(m.status)}</span>`);
+      if (m.status)
+        chips.push(`<span class="gsearch-chip status-${m.status}">${this._esc(m.status)}</span>`);
     } else if (item.type === 'meetings') {
-      if (m.date)     chips.push(`<span class="gsearch-chip">${this._esc(m.date)}</span>`);
+      if (m.date) chips.push(`<span class="gsearch-chip">${this._esc(m.date)}</span>`);
     } else if (item.type === 'activities') {
-      if (m.type)     chips.push(`<span class="gsearch-chip">${this._esc(m.type)}</span>`);
+      if (m.type) chips.push(`<span class="gsearch-chip">${this._esc(m.type)}</span>`);
     }
     return chips.join('');
   },
@@ -449,7 +459,9 @@ const SearchModal = {
       const raw = localStorage.getItem(this.recentKey);
       const arr = raw ? JSON.parse(raw) : [];
       return Array.isArray(arr) ? arr.slice(0, this.recentMax) : [];
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   },
   _addRecent(q) {
     if (!q) return;
@@ -457,7 +469,9 @@ const SearchModal = {
       const list = this._getRecent().filter(x => x !== q);
       list.unshift(q);
       localStorage.setItem(this.recentKey, JSON.stringify(list.slice(0, this.recentMax)));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   },
 };
 

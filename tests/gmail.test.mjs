@@ -39,7 +39,9 @@ describe('Gmail API — 인증/검증', () => {
   // Phase G2 — 발송
   it('POST /api/gmail/send — 토큰 없으면 401', async () => {
     const res = await api().post('/api/gmail/send').send({
-      to: 'x@example.com', subject: 't', body: 'b',
+      to: 'x@example.com',
+      subject: 't',
+      body: 'b',
     });
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
@@ -77,7 +79,9 @@ describe('Gmail Sync — 자가 마이그레이션', () => {
           AND COLUMN_NAME IN ('gmail_sync_enabled','gmail_last_polled_at','gmail_sync_error')`
     );
     const names = rows.map(r => r.COLUMN_NAME);
-    expect(names).toEqual(expect.arrayContaining(['gmail_sync_enabled','gmail_last_polled_at','gmail_sync_error']));
+    expect(names).toEqual(
+      expect.arrayContaining(['gmail_sync_enabled', 'gmail_last_polled_at', 'gmail_sync_error'])
+    );
   });
 
   it('activities.gmail_message_id 컬럼 + UNIQUE 인덱스 존재', async () => {

@@ -44,7 +44,9 @@ async function loginAsAdmin(page, credentials = {}) {
       localStorage.setItem('oci_token', b.token);
       localStorage.setItem('oci_user', JSON.stringify(b.user));
       if (b.user && b.user.id) localStorage.setItem('current_user_id', String(b.user.id));
-    } catch (_) { /* 일부 컨텍스트에서 localStorage 접근 제한 — 무시 */ }
+    } catch (_) {
+      /* 일부 컨텍스트에서 localStorage 접근 제한 — 무시 */
+    }
   }, body);
 
   // 인증된 상태로 페이지 로드 — 단 1회 navigation

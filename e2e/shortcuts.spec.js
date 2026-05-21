@@ -27,9 +27,14 @@ test('시나리오 1 — ? 키 → 도움말 모달', async ({ page }) => {
   await page.locator('body').click();
   await page.keyboard.press('?');
 
-  await expect(page.locator('.modal-overlay, .modal-content').filter({
-    hasText: '키보드 단축키'
-  }).first()).toBeVisible({ timeout: 3000 });
+  await expect(
+    page
+      .locator('.modal-overlay, .modal-content')
+      .filter({
+        hasText: '키보드 단축키',
+      })
+      .first()
+  ).toBeVisible({ timeout: 3000 });
 });
 
 // ─── Create — 새 리드 ──────────────────────────────────────
@@ -80,7 +85,9 @@ test('시나리오 5 — G 후 C → 고객사 페이지 이동', async ({ page 
 // ─── 입력 보호 — input 포커스 시 N 키 무시 ────────────────
 test('시나리오 6 — input 포커스 시 N 키 무시', async ({ page }) => {
   await page.goto('/#leads');
-  await page.waitForSelector('.search-input, input[type="search"], input[placeholder]', { timeout: 8000 });
+  await page.waitForSelector('.search-input, input[type="search"], input[placeholder]', {
+    timeout: 8000,
+  });
 
   // 첫 input 요소에 포커스
   const firstInput = page.locator('input').first();
@@ -113,11 +120,15 @@ test('시나리오 8 — 도움말 모달 확인 버튼 닫기', async ({ page }
   await page.locator('body').click();
 
   await page.keyboard.press('?');
-  await expect(page.locator('.modal-overlay').filter({ hasText: '키보드 단축키' }).first()).toBeVisible();
+  await expect(
+    page.locator('.modal-overlay').filter({ hasText: '키보드 단축키' }).first()
+  ).toBeVisible();
 
   // Modal 시스템은 ESC 핸들러가 없음 — 확인 버튼 또는 X 버튼으로 닫기
   await page.click('#sc-help-ok');
-  await expect(page.locator('.modal-overlay').filter({ hasText: '키보드 단축키' })).toBeHidden({ timeout: 3000 });
+  await expect(page.locator('.modal-overlay').filter({ hasText: '키보드 단축키' })).toBeHidden({
+    timeout: 3000,
+  });
 });
 
 // ─── 모달 열림 상태에서 글로벌 단축키 무시 ─────────────────
@@ -127,7 +138,9 @@ test('시나리오 9 — 도움말 모달 열린 상태에서 N 키 무시', asy
   await page.locator('body').click();
 
   await page.keyboard.press('?');
-  await expect(page.locator('.modal-overlay').filter({ hasText: '키보드 단축키' }).first()).toBeVisible();
+  await expect(
+    page.locator('.modal-overlay').filter({ hasText: '키보드 단축키' }).first()
+  ).toBeVisible();
 
   // N 키 — 모달 열려있으므로 리드 페이지 이동 안 해야 함
   await page.keyboard.press('n');

@@ -66,9 +66,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (ids.activity) await pool.query('DELETE FROM activities WHERE id = ?', [ids.activity]);
-  if (ids.meeting)  await pool.query('DELETE FROM meeting_minutes WHERE id = ?', [ids.meeting]);
-  if (ids.project)  await pool.query('DELETE FROM projects WHERE id = ?', [ids.project]);
-  if (ids.lead)     await pool.query('DELETE FROM leads    WHERE id = ?', [ids.lead]);
+  if (ids.meeting) await pool.query('DELETE FROM meeting_minutes WHERE id = ?', [ids.meeting]);
+  if (ids.project) await pool.query('DELETE FROM projects WHERE id = ?', [ids.project]);
+  if (ids.lead) await pool.query('DELETE FROM leads    WHERE id = ?', [ids.lead]);
   if (ids.customer) await pool.query('DELETE FROM customers WHERE id = ?', [ids.customer]);
 });
 
@@ -153,7 +153,7 @@ describe('Search API — types filter', () => {
     const r = res.body.data.results;
     expect(r.customers.length).toBeGreaterThanOrEqual(1);
     // 다른 카테고리는 응답에 없어야 함 (혹은 빈 배열)
-    if ('leads' in r)    expect(r.leads.length).toBe(0);
+    if ('leads' in r) expect(r.leads.length).toBe(0);
     if ('projects' in r) expect(r.projects.length).toBe(0);
   });
 
@@ -168,7 +168,9 @@ describe('Search API — types filter', () => {
 
   it('types=leads,customers 복수 지정', async () => {
     const KEY = `${TEST_PREFIX}UNIQ`;
-    const res = await api().get('/api/search?q=' + encodeURIComponent(KEY) + '&types=leads,customers');
+    const res = await api().get(
+      '/api/search?q=' + encodeURIComponent(KEY) + '&types=leads,customers'
+    );
     expect(res.status).toBe(200);
     const r = res.body.data.results;
     expect(r.leads.length).toBeGreaterThanOrEqual(1);

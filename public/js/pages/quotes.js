@@ -59,14 +59,14 @@ const QuotesPage = (() => {
     if (!s) return '';
     const d = new Date(s);
     if (isNaN(d)) return s;
-    const p = (n) => String(n).padStart(2, '0');
+    const p = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
   }
   function _toInputDate(s) {
     if (!s) return new Date().toISOString().slice(0, 10);
     const d = new Date(s);
     if (isNaN(d)) return new Date().toISOString().slice(0, 10);
-    const p = (n) => String(n).padStart(2, '0');
+    const p = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
   // 공급단가 = 단가 × (1 - 할인%/100)  — 할인 0% 인 경우 단가와 동일
@@ -103,7 +103,7 @@ const QuotesPage = (() => {
 
   // 인스턴스 정리 (모달 닫힘 시)
   function _cleanupInstances() {
-    _comboboxes.forEach((c) => {
+    _comboboxes.forEach(c => {
       try {
         c.destroy?.();
       } catch (_) {}
@@ -191,7 +191,7 @@ const QuotesPage = (() => {
         <tbody>
           ${rows
             .map(
-              (r) => `
+              r => `
             <tr data-id="${r.id}">
               <td style="font-family:monospace;font-size:12px">${esc(r.quote_no)}</td>
               <td><a href="#" class="qt-link" data-id="${r.id}" style="color:var(--oci-red);font-weight:500">${esc(r.name)}</a></td>
@@ -253,24 +253,24 @@ const QuotesPage = (() => {
   }
 
   function _bindListEvents() {
-    document.querySelectorAll('.qt-link').forEach((a) => {
-      a.addEventListener('click', (e) => {
+    document.querySelectorAll('.qt-link').forEach(a => {
+      a.addEventListener('click', e => {
         e.preventDefault();
         const id = parseInt(a.dataset.id, 10);
         _openModal(id);
       });
     });
     // Phase 5-A: 리비전 링크 클릭 → 리비전 트리 모달
-    document.querySelectorAll('.qt-rev-link').forEach((a) => {
-      a.addEventListener('click', (e) => {
+    document.querySelectorAll('.qt-rev-link').forEach(a => {
+      a.addEventListener('click', e => {
         e.preventDefault();
         const id = parseInt(a.dataset.id, 10);
         _openRevisionTree(id);
       });
     });
     // Phase 5-B: 상태 워크플로우 액션 버튼
-    document.querySelectorAll('.qt-status-btn').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
+    document.querySelectorAll('.qt-status-btn').forEach(btn => {
+      btn.addEventListener('click', async e => {
         e.preventDefault();
         e.stopPropagation();
         const id = parseInt(btn.dataset.id, 10);
@@ -278,8 +278,8 @@ const QuotesPage = (() => {
         await _setStatus(id, status);
       });
     });
-    document.querySelectorAll('[data-act]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
+    document.querySelectorAll('[data-act]').forEach(btn => {
+      btn.addEventListener('click', e => {
         e.preventDefault();
         const id = parseInt(btn.dataset.id, 10);
         const act = btn.dataset.act;
@@ -351,7 +351,7 @@ const QuotesPage = (() => {
       try {
         const res = await API.quotes.get(id);
         _editing = res.data;
-        _items = (_editing.items || []).map((it) => ({ ...it }));
+        _items = (_editing.items || []).map(it => ({ ...it }));
         _columnLabels = _editing.column_labels || null;
       } catch (err) {
         Toast.error('견적 정보 불러오기 실패: ' + (err.message || err));
@@ -404,7 +404,7 @@ const QuotesPage = (() => {
         _attachLeadCombobox(e.lead_id || null);
         // Phase 3-B: 편집 모드 진입 시 lead 정보 표시
         if (e.lead_id) {
-          const linkedLead = _leadsCache.find((l) => String(l.id) === String(e.lead_id));
+          const linkedLead = _leadsCache.find(l => String(l.id) === String(e.lead_id));
           if (linkedLead) _showLeadInfo(linkedLead);
         }
         _renderItems();
@@ -429,7 +429,7 @@ const QuotesPage = (() => {
   // 초기 lead_id 가 있을 때 input 에 표시할 텍스트 ("고객사 - 프로젝트")
   function _leadInitialText(leadId) {
     if (!leadId) return '';
-    const l = _leadsCache.find((x) => String(x.id) === String(leadId));
+    const l = _leadsCache.find(x => String(x.id) === String(leadId));
     if (!l) return '';
     return `${l.customer_name || ''}${l.project_name ? ' - ' + l.project_name : ''}`;
   }
@@ -626,10 +626,10 @@ const QuotesPage = (() => {
       .join('');
 
     // 인풋 → 상태 동기화
-    tbody.querySelectorAll('.qt-it-input').forEach((inp) => {
+    tbody.querySelectorAll('.qt-it-input').forEach(inp => {
       inp.addEventListener('input', _onItemInput);
     });
-    tbody.querySelectorAll('.qt-it-del').forEach((btn) => {
+    tbody.querySelectorAll('.qt-it-del').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = parseInt(btn.dataset.idx, 10);
         _items.splice(idx, 1);
@@ -657,7 +657,7 @@ const QuotesPage = (() => {
       animation: 150,
       handle: '.qt-drag-handle',
       ghostClass: 'qt-row-ghost',
-      onEnd: (evt) => {
+      onEnd: evt => {
         if (evt.oldIndex === evt.newIndex) return;
         // _items 배열 reorder
         const moved = _items.splice(evt.oldIndex, 1)[0];
@@ -708,14 +708,14 @@ const QuotesPage = (() => {
   }
 
   function _resetColumnLabelsInputs() {
-    document.querySelectorAll('.qt-col-input').forEach((inp) => {
+    document.querySelectorAll('.qt-col-input').forEach(inp => {
       inp.value = DEFAULT_COLUMNS[inp.dataset.col] || '';
     });
   }
 
   function _applyColumnLabels() {
     const newLabels = {};
-    document.querySelectorAll('.qt-col-input').forEach((inp) => {
+    document.querySelectorAll('.qt-col-input').forEach(inp => {
       const key = inp.dataset.col;
       newLabels[key] = (inp.value || '').trim() || DEFAULT_COLUMNS[key];
     });
@@ -791,12 +791,12 @@ const QuotesPage = (() => {
 
     const cb = Combobox.attach({
       inputEl: input,
-      fetchFn: (q) => {
+      fetchFn: q => {
         const ql = (q || '').toLowerCase();
         if (!ql) return _leadsCache.slice(0, 20);
         return _leadsCache
           .filter(
-            (l) =>
+            l =>
               (l.customer_name || '').toLowerCase().includes(ql) ||
               (l.project_name || '').toLowerCase().includes(ql)
           )
@@ -819,7 +819,7 @@ const QuotesPage = (() => {
           </div>
         `;
       },
-      onSelect: (item) => {
+      onSelect: item => {
         const display = `${item.customer_name || ''}${
           item.project_name ? ' - ' + item.project_name : ''
         }`;
@@ -905,10 +905,16 @@ const QuotesPage = (() => {
     document.getElementById('qt-f-vat_included')?.addEventListener('change', _recalcTotals);
 
     // Phase 3-A: 컬럼 라벨 편집 패널 이벤트
-    document.getElementById('qt-col-edit-btn')?.addEventListener('click', () => _toggleColumnPanel());
-    document.getElementById('qt-col-cancel-btn')?.addEventListener('click', () => _toggleColumnPanel(false));
+    document
+      .getElementById('qt-col-edit-btn')
+      ?.addEventListener('click', () => _toggleColumnPanel());
+    document
+      .getElementById('qt-col-cancel-btn')
+      ?.addEventListener('click', () => _toggleColumnPanel(false));
     document.getElementById('qt-col-apply-btn')?.addEventListener('click', _applyColumnLabels);
-    document.getElementById('qt-col-reset-btn')?.addEventListener('click', _resetColumnLabelsInputs);
+    document
+      .getElementById('qt-col-reset-btn')
+      ?.addEventListener('click', _resetColumnLabelsInputs);
 
     // Phase 3-B: lead 연결 해제 버튼
     document.getElementById('qt-lead-clear-btn')?.addEventListener('click', _clearLead);
@@ -1002,7 +1008,7 @@ const QuotesPage = (() => {
       return;
     }
     // 비어있는 품목 자동 제거 (저장 시점)
-    const valid = _items.filter((it) => it.item_name && it.item_name.trim());
+    const valid = _items.filter(it => it.item_name && it.item_name.trim());
     if (!valid.length) {
       Toast.error('품목명이 입력된 행이 없습니다');
       return;
@@ -1123,8 +1129,8 @@ const QuotesPage = (() => {
         '#qt-revtree-close-btn': () => Modal.close(),
       },
       onOpen: () => {
-        document.querySelectorAll('.qt-rev-open').forEach((a) => {
-          a.addEventListener('click', (e) => {
+        document.querySelectorAll('.qt-rev-open').forEach(a => {
+          a.addEventListener('click', e => {
             e.preventDefault();
             const rid = parseInt(a.dataset.id, 10);
             Modal.close();
@@ -1139,18 +1145,17 @@ const QuotesPage = (() => {
   // 양식 HTML 빌드 — 모달 미리보기와 PDF 캡처용 임시 DOM 공통 사용
   // 공백 보존을 위해 NBSP (\u00A0) 치환 + 단일 폰트로 한국어/영어 혼합 안정
   function _buildPreviewHtml(q, opts = {}) {
-    const cols = (q.column_labels && typeof q.column_labels === 'object'
-      ? q.column_labels
-      : DEFAULT_COLUMNS);
+    const cols =
+      q.column_labels && typeof q.column_labels === 'object' ? q.column_labels : DEFAULT_COLUMNS;
     const items = Array.isArray(q.items) ? q.items : [];
     const vatIncluded = !!q.vat_included;
     const generatedAt = new Date().toLocaleString('ko-KR');
-    const _ps = (s) =>
-      esc(String(s === null || s === undefined ? '' : s)).replace(/ /g, '\u00A0');
-    const krw = (n) => '₩' + _fmtKRW(n);
+    const _ps = s => esc(String(s === null || s === undefined ? '' : s)).replace(/ /g, '\u00A0');
+    const krw = n => '₩' + _fmtKRW(n);
 
     const subtotal = items.reduce((s, it) => s + (Number(it.proposed_amount) || 0), 0);
-    const vatAmount = Number(q.vat_amount) || (vatIncluded ? Math.round(subtotal * 0.1 * 100) / 100 : 0);
+    const vatAmount =
+      Number(q.vat_amount) || (vatIncluded ? Math.round(subtotal * 0.1 * 100) / 100 : 0);
     const totalAmount = Number(q.total_amount) || subtotal + vatAmount;
 
     // PDF 캡처 모드 시 외곽 패딩/배경 추가, 미리보기 모드 시 간소화
@@ -1336,7 +1341,7 @@ const QuotesPage = (() => {
       document.body.appendChild(tempDiv);
 
       // 폰트 로드 + 레이아웃 안정화 대기
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 100));
       if (document.fonts?.ready) await document.fonts.ready;
 
       // html2canvas 캡처 (한국어/영어 혼합 안정)
@@ -1370,7 +1375,7 @@ const QuotesPage = (() => {
       doc.addImage(imgData, 'PNG', x, y, imgW, imgH);
 
       // 파일명: 견적번호_고객명_견적일.pdf
-      const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]/g, '_');
+      const safeName = s => String(s || '').replace(/[\\/:*?"<>|]/g, '_');
       const filename = `${safeName(quote.quote_no)}_${safeName(quote.customer_name)}_${safeName(_fmtDate(quote.quote_date))}.pdf`;
       doc.save(filename);
       Toast.success(`"${filename}" 다운로드 완료`);

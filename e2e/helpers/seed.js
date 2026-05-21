@@ -15,7 +15,7 @@ require('dotenv').config({
 const mysql = require('mysql2/promise');
 
 const SEED_PREFIX = '__E2E_SRCH__';
-const KEYWORD = SEED_PREFIX + 'KEY';  // 검색 시 사용할 키워드
+const KEYWORD = SEED_PREFIX + 'KEY'; // 검색 시 사용할 키워드
 
 function createPool() {
   return mysql.createPool({
@@ -83,7 +83,11 @@ async function insertSearchSeed(pool) {
 
   return {
     keyword: KEYWORD,
-    customerId, leadId, projectId, meetingId, activityId,
+    customerId,
+    leadId,
+    projectId,
+    meetingId,
+    activityId,
   };
 }
 

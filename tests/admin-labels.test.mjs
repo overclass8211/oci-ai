@@ -56,9 +56,7 @@ describe('Word Repository — /api/admin/labels', () => {
   });
 
   it('PUT /:scope/:key — 단건 저장 + audit 기록', async () => {
-    const r = await api()
-      .put('/api/admin/labels/leads/customer_name')
-      .send({ label: '거래처' });
+    const r = await api().put('/api/admin/labels/leads/customer_name').send({ label: '거래처' });
     expect(r.status).toBe(200);
     expect(r.body.changed).toBe(true);
 
@@ -80,8 +78,8 @@ describe('Word Repository — /api/admin/labels', () => {
       .put('/api/admin/labels')
       .send({
         items: [
-          { scope: 'leads', key: 'project_name',   label: '사업명' },
-          { scope: 'leads', key: 'business_type',  label: '제품군' },
+          { scope: 'leads', key: 'project_name', label: '사업명' },
+          { scope: 'leads', key: 'business_type', label: '제품군' },
         ],
       });
     expect(r.status).toBe(200);
@@ -93,16 +91,12 @@ describe('Word Repository — /api/admin/labels', () => {
   });
 
   it('PUT — 알 수 없는 scope.key 거부 (400)', async () => {
-    const r = await api()
-      .put('/api/admin/labels/leads/__nope__')
-      .send({ label: 'X' });
+    const r = await api().put('/api/admin/labels/leads/__nope__').send({ label: 'X' });
     expect(r.status).toBe(400);
   });
 
   it('PUT — 빈 라벨 거부 (400)', async () => {
-    const r = await api()
-      .put('/api/admin/labels/leads/customer_name')
-      .send({ label: '   ' });
+    const r = await api().put('/api/admin/labels/leads/customer_name').send({ label: '   ' });
     expect(r.status).toBe(400);
   });
 
@@ -152,12 +146,14 @@ describe('Word Repository — Multilingual', () => {
 
   it('PUT /:scope/:key — 언어별 독립 저장', async () => {
     // 한글 변경
-    const rKo = await api().put('/api/admin/labels/leads/customer_name')
+    const rKo = await api()
+      .put('/api/admin/labels/leads/customer_name')
       .send({ label: '거래처', locale: 'ko' });
     expect(rKo.status).toBe(200);
 
     // 영문 변경
-    const rEn = await api().put('/api/admin/labels/leads/customer_name')
+    const rEn = await api()
+      .put('/api/admin/labels/leads/customer_name')
       .send({ label: 'Client', locale: 'en' });
     expect(rEn.status).toBe(200);
 
@@ -201,8 +197,12 @@ describe('Word Repository — Multilingual', () => {
 
   it('POST /reset — locale 단위 초기화 (다른 언어 보존)', async () => {
     // 두 언어에 오버라이드
-    await api().put('/api/admin/labels/leads/customer_name').send({ label: '거래처', locale: 'ko' });
-    await api().put('/api/admin/labels/leads/customer_name').send({ label: 'Client', locale: 'en' });
+    await api()
+      .put('/api/admin/labels/leads/customer_name')
+      .send({ label: '거래처', locale: 'ko' });
+    await api()
+      .put('/api/admin/labels/leads/customer_name')
+      .send({ label: 'Client', locale: 'en' });
 
     // 영문만 리셋
     const r = await api().post('/api/admin/labels/reset').send({ scope: 'leads', locale: 'en' });

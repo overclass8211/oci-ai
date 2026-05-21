@@ -68,7 +68,7 @@ const Combobox = {
     dropdown.className = 'combobox-dropdown';
     dropdown.style.display = 'none';
     dropdown.style.position = 'fixed';
-    dropdown.style.zIndex = '1200';  // modal-overlay(1000) 위
+    dropdown.style.zIndex = '1200'; // modal-overlay(1000) 위
     dropdown.setAttribute('role', 'listbox');
     document.body.appendChild(dropdown);
 
@@ -117,31 +117,35 @@ const Combobox = {
         return;
       }
       const itemsHtml = items
-        .map((item, idx) => `
+        .map(
+          (item, idx) => `
           <div class="combobox-item ${idx === highlightedIdx ? 'is-highlighted' : ''}"
                role="option" data-idx="${idx}"
                aria-selected="${idx === highlightedIdx}">
             ${renderItem(item, currentQuery, { highlightMatch })}
           </div>
-        `)
+        `
+        )
         .join('');
 
-      const customHtml = allowCustom && currentQuery && onCustomCreate
-        ? `
+      const customHtml =
+        allowCustom && currentQuery && onCustomCreate
+          ? `
           <div class="combobox-custom-item ${highlightedIdx === items.length ? 'is-highlighted' : ''}"
                role="option" data-idx="${items.length}">
             ${customLabel.replace('"X"', `"<strong>${_esc(currentQuery)}</strong>"`)}
           </div>
         `
-        : '';
+          : '';
 
-      const emptyHtml = items.length === 0 && allowCustom
-        ? `<div class="combobox-empty">🔍 "${_esc(currentQuery)}" 매칭 없음</div>`
-        : '';
+      const emptyHtml =
+        items.length === 0 && allowCustom
+          ? `<div class="combobox-empty">🔍 "${_esc(currentQuery)}" 매칭 없음</div>`
+          : '';
 
       dropdown.innerHTML = emptyHtml + itemsHtml + customHtml;
       dropdown.style.display = 'block';
-      reposition();  // 표시 직전 좌표 갱신 (모달 스크롤 대응)
+      reposition(); // 표시 직전 좌표 갱신 (모달 스크롤 대응)
       isOpen = true;
     }
 
@@ -160,13 +164,15 @@ const Combobox = {
       }
       // 이전 요청 취소
       if (lastFetchAbort) {
-        try { lastFetchAbort.abort?.(); } catch (_) {}
+        try {
+          lastFetchAbort.abort?.();
+        } catch (_) {}
       }
       try {
         const result = await fetchFn(q);
         if (currentQuery !== q) return; // 입력 바뀜 → 무시
         items = Array.isArray(result) ? result : [];
-        highlightedIdx = items.length > 0 ? 0 : (allowCustom ? 0 : -1);
+        highlightedIdx = items.length > 0 ? 0 : allowCustom ? 0 : -1;
         render();
       } catch (err) {
         if (err.name !== 'AbortError') {

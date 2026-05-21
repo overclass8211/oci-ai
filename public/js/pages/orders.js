@@ -3,7 +3,6 @@
 // ERP 연동 후 실 기능 구현 예정
 // ============================================================
 const OrdersPage = {
-
   // 현재 활성 탭
   activeTab: 'input',
 
@@ -19,7 +18,7 @@ const OrdersPage = {
       <!-- 탭 컨텐츠 -->
       <div id="oms-tab-content"></div>
     `;
-    document.querySelector('.oms-tab-bar')?.addEventListener('click', (e) => {
+    document.querySelector('.oms-tab-bar')?.addEventListener('click', e => {
       const btn = e.target.closest('.oms-tab[data-tab]');
       if (btn) this.switchTab(btn.dataset.tab);
     });
@@ -31,7 +30,11 @@ const OrdersPage = {
     document.querySelectorAll('.oms-tab').forEach(el => {
       el.classList.toggle('active', el.dataset.tab === tab);
     });
-    const fn = { input: this.renderInput, approval: this.renderApproval, history: this.renderHistory };
+    const fn = {
+      input: this.renderInput,
+      approval: this.renderApproval,
+      history: this.renderHistory,
+    };
     fn[tab].call(this);
   },
 
@@ -230,5 +233,5 @@ const OrdersPage = {
         </div>
       </div>
     `;
-  }
+  },
 };

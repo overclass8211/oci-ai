@@ -42,15 +42,15 @@ describe('asyncRoute', () => {
   const makeRes = () => {
     const res = { headersSent: false };
     res.status = vi.fn().mockReturnValue(res);
-    res.json   = vi.fn().mockReturnValue(res);
+    res.json = vi.fn().mockReturnValue(res);
     return res;
   };
 
   it('정상 핸들러는 next 미호출로 완료', async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
-    const next    = vi.fn();
-    const req     = {};
-    const res     = makeRes();
+    const next = vi.fn();
+    const req = {};
+    const res = makeRes();
 
     await asyncRoute(handler)(req, res, next);
     expect(handler).toHaveBeenCalledWith(req, res, next);
@@ -58,11 +58,11 @@ describe('asyncRoute', () => {
   });
 
   it('헤더 미전송 시 에러는 handleError 로 위임', async () => {
-    const err     = new Error('db fail');
+    const err = new Error('db fail');
     const handler = vi.fn().mockRejectedValue(err);
-    const next    = vi.fn();
-    const req     = {};
-    const res     = makeRes();
+    const next = vi.fn();
+    const req = {};
+    const res = makeRes();
 
     await asyncRoute(handler)(req, res, next);
     // handleError → res.json 호출됨
@@ -71,11 +71,11 @@ describe('asyncRoute', () => {
   });
 
   it('헤더 이미 전송된 경우 next(err) 호출', async () => {
-    const err     = new Error('stream error');
+    const err = new Error('stream error');
     const handler = vi.fn().mockRejectedValue(err);
-    const next    = vi.fn();
-    const req     = {};
-    const res     = makeRes();
+    const next = vi.fn();
+    const req = {};
+    const res = makeRes();
     res.headersSent = true;
 
     await asyncRoute(handler)(req, res, next);

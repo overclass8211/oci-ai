@@ -8,14 +8,14 @@ const CostPage = {
   async render() {
     document.getElementById('content').innerHTML = `
       <div class="tab-bar">
-        <button class="tab-btn ${this.activeTab==='product'?'active':''}" data-tab="product">상품 원가</button>
-        <button class="tab-btn ${this.activeTab==='calculator'?'active':''}" data-tab="calculator">프로젝트 원가 산정</button>
-        <button class="tab-btn ${this.activeTab==='history'?'active':''}" data-tab="history">원가 변동 이력</button>
+        <button class="tab-btn ${this.activeTab === 'product' ? 'active' : ''}" data-tab="product">상품 원가</button>
+        <button class="tab-btn ${this.activeTab === 'calculator' ? 'active' : ''}" data-tab="calculator">프로젝트 원가 산정</button>
+        <button class="tab-btn ${this.activeTab === 'history' ? 'active' : ''}" data-tab="history">원가 변동 이력</button>
       </div>
       <div id="cost-content"><div class="loading">로딩중...</div></div>
     `;
     // tab delegation
-    document.querySelector('.tab-bar')?.addEventListener('click', (e) => {
+    document.querySelector('.tab-bar')?.addEventListener('click', e => {
       const btn = e.target.closest('.tab-btn[data-tab]');
       if (btn) this.switchTab(btn.dataset.tab, btn);
     });
@@ -67,7 +67,9 @@ const CostPage = {
               </tr>
             </thead>
             <tbody>
-              ${this.products.map(p => `
+              ${this.products
+                .map(
+                  p => `
                 <tr>
                   <td><strong>${esc(p.name)}</strong></td>
                   <td><span class="badge badge-gray">${esc(p.category || '-')}</span></td>
@@ -80,7 +82,9 @@ const CostPage = {
                     <button class="btn btn-ghost btn-sm" data-action="delete-product" data-pid="${p.id}">삭제</button>
                   </td>
                 </tr>
-              `).join('')}
+              `
+                )
+                .join('')}
             </tbody>
           </table>
         </div>
@@ -89,8 +93,10 @@ const CostPage = {
     document.getElementById('cost-content').innerHTML = html;
 
     document.getElementById('cost-sync-btn')?.addEventListener('click', () => this.syncOnERP());
-    document.getElementById('cost-add-product-btn')?.addEventListener('click', () => this.openProductForm());
-    document.getElementById('cost-content').addEventListener('click', (e) => {
+    document
+      .getElementById('cost-add-product-btn')
+      ?.addEventListener('click', () => this.openProductForm());
+    document.getElementById('cost-content').addEventListener('click', e => {
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
       const pid = parseInt(btn.dataset.pid);
@@ -101,7 +107,8 @@ const CostPage = {
 
   formatPrice(p) {
     const price = parseFloat(p.current_price);
-    if (p.currency === 'KRW') return '₩' + price.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
+    if (p.currency === 'KRW')
+      return '₩' + price.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
     if (p.currency === 'USD') return '$' + price.toFixed(price < 1 ? 4 : 2);
     return p.currency + ' ' + price.toFixed(2);
   },
@@ -125,10 +132,10 @@ const CostPage = {
           <div class="form-field">
             <label class="form-label">분류</label>
             <select class="form-control" id="cp-category">
-              <option ${p.category==='원자재'?'selected':''}>원자재</option>
-              <option ${p.category==='모듈'?'selected':''}>모듈</option>
-              <option ${p.category==='부품'?'selected':''}>부품</option>
-              <option ${p.category==='인건비'?'selected':''}>인건비</option>
+              <option ${p.category === '원자재' ? 'selected' : ''}>원자재</option>
+              <option ${p.category === '모듈' ? 'selected' : ''}>모듈</option>
+              <option ${p.category === '부품' ? 'selected' : ''}>부품</option>
+              <option ${p.category === '인건비' ? 'selected' : ''}>인건비</option>
             </select>
           </div>
           <div class="form-field">
@@ -142,10 +149,10 @@ const CostPage = {
           <div class="form-field">
             <label class="form-label">통화</label>
             <select class="form-control" id="cp-currency">
-              <option value="USD" ${p.currency==='USD'?'selected':''}>USD</option>
-              <option value="KRW" ${p.currency==='KRW'?'selected':''}>KRW</option>
-              <option value="EUR" ${p.currency==='EUR'?'selected':''}>EUR</option>
-              <option value="JPY" ${p.currency==='JPY'?'selected':''}>JPY</option>
+              <option value="USD" ${p.currency === 'USD' ? 'selected' : ''}>USD</option>
+              <option value="KRW" ${p.currency === 'KRW' ? 'selected' : ''}>KRW</option>
+              <option value="EUR" ${p.currency === 'EUR' ? 'selected' : ''}>EUR</option>
+              <option value="JPY" ${p.currency === 'JPY' ? 'selected' : ''}>JPY</option>
             </select>
           </div>
           <div class="form-field full">
@@ -160,8 +167,8 @@ const CostPage = {
       `,
       bind: {
         '#cost-product-cancel-btn': () => Modal.close(),
-        '#cost-product-save-btn':   () => this.saveProduct(id || null)
-      }
+        '#cost-product-save-btn': () => this.saveProduct(id || null),
+      },
     });
   },
 
@@ -172,16 +179,18 @@ const CostPage = {
       unit: document.getElementById('cp-unit').value,
       current_price: parseFloat(document.getElementById('cp-price').value),
       currency: document.getElementById('cp-currency').value,
-      notes: document.getElementById('cp-notes').value
+      notes: document.getElementById('cp-notes').value,
     };
     if (!body.name || !body.current_price) return Toast.error('필수값을 입력해주세요');
     try {
       if (id) await API.products.update(id, body);
-      else    await API.products.create(body);
+      else await API.products.create(body);
       Toast.success('저장되었습니다');
       Modal.close();
       this.renderProduct();
-    } catch (_) { /* save error shown via Toast by API layer */ }
+    } catch (_) {
+      /* save error shown via Toast by API layer */
+    }
   },
 
   deleteProduct(id) {
@@ -256,12 +265,17 @@ const CostPage = {
 
   async renderReferences() {
     const result = await API.products.list();
-    const html = result.data.slice(0, 7).map(p => `
+    const html = result.data
+      .slice(0, 7)
+      .map(
+        p => `
       <div class="flex-between" style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
         <div>${esc(p.name)}</div>
         <div class="mono fw-bold">${this.formatPrice(p)}</div>
       </div>
-    `).join('');
+    `
+      )
+      .join('');
     document.getElementById('calc-references').innerHTML = html;
   },
 
@@ -277,19 +291,19 @@ const CostPage = {
     const eng = total * 0.09;
 
     document.getElementById('calc-equip').textContent = '₩' + equip.toFixed(2) + '억';
-    document.getElementById('calc-inst').textContent  = '₩' + inst.toFixed(2) + '억';
-    document.getElementById('calc-eng').textContent   = '₩' + eng.toFixed(2) + '억';
+    document.getElementById('calc-inst').textContent = '₩' + inst.toFixed(2) + '억';
+    document.getElementById('calc-eng').textContent = '₩' + eng.toFixed(2) + '억';
     document.getElementById('calc-total').textContent = '₩' + total.toFixed(2) + '억';
-    document.getElementById('calc-sale').textContent  = '₩' + (total * 1.2).toFixed(2) + '억';
+    document.getElementById('calc-sale').textContent = '₩' + (total * 1.2).toFixed(2) + '억';
   },
 
   async renderHistory() {
     const result = await API.products.list();
     const tracked = result.data.slice(0, 6);
 
-    const histories = await Promise.all(tracked.map(p =>
-      API.products.history(p.id).then(r => ({ product: p, history: r.data }))
-    ));
+    const histories = await Promise.all(
+      tracked.map(p => API.products.history(p.id).then(r => ({ product: p, history: r.data })))
+    );
 
     const validHistories = histories.filter(h => h.history.length > 0);
 
@@ -311,7 +325,7 @@ const CostPage = {
       tension: 0.3,
       pointRadius: 3,
       borderWidth: 2,
-      fill: false
+      fill: false,
     }));
 
     if (this.chart) this.chart.destroy();
@@ -319,14 +333,15 @@ const CostPage = {
       type: 'line',
       data: { datasets },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true,
+        maintainAspectRatio: false,
         parsing: { xAxisKey: 'x', yAxisKey: 'y' },
         plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
         scales: {
           x: { type: 'category', grid: { display: false }, ticks: { font: { size: 11 } } },
-          y: { grid: { color: '#E8EAED' }, ticks: { font: { size: 11 } } }
-        }
-      }
+          y: { grid: { color: '#E8EAED' }, ticks: { font: { size: 11 } } },
+        },
+      },
     });
-  }
+  },
 };

@@ -12,8 +12,12 @@ const require = createRequire(import.meta.url);
 
 export async function teardown() {
   const { pool, server } = require('../server.js');
-  try { await pool.end(); } catch (_) {}
-  try { server.close(); } catch (_) {}
+  try {
+    await pool.end();
+  } catch (_) {}
+  try {
+    server.close();
+  } catch (_) {}
   // wsClients Set 안의 소켓이 남아있으면 프로세스가 종료되지 않음
   try {
     server.getConnections((err, count) => {

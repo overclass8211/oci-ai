@@ -21,7 +21,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of createdGuideIds) {
-    try { await pool.query('DELETE FROM healthmap_guides WHERE id = ?', [id]); } catch (_) { /* ignore */ }
+    try {
+      await pool.query('DELETE FROM healthmap_guides WHERE id = ?', [id]);
+    } catch (_) {
+      /* ignore */
+    }
   }
   await pool.query(`DELETE FROM healthmap_guides WHERE title LIKE ?`, [`${PREFIX}%`]);
 });
@@ -81,7 +85,9 @@ describe('Healthmap — snapshot', () => {
 
 describe('Healthmap — 노드별 로그', () => {
   it('GET /healthmap/node/api/:key/logs — API 로그 조회', async () => {
-    const res = await api().get('/api/admin/healthmap/node/api/' + encodeURIComponent('/api/dashboard') + '/logs');
+    const res = await api().get(
+      '/api/admin/healthmap/node/api/' + encodeURIComponent('/api/dashboard') + '/logs'
+    );
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
   });
@@ -111,16 +117,18 @@ describe('Healthmap — 가이드 CRUD', () => {
   });
 
   it('POST — 사용자 가이드 생성', async () => {
-    const res = await api().post('/api/admin/healthmap/guides').send({
-      node_type: 'api',
-      node_key: '/api/test',
-      severity: 'warn',
-      title: `${PREFIX}테스트가이드`,
-      symptom: '증상',
-      diagnosis: '진단',
-      remedy: '조치',
-      prevention: '예방',
-    });
+    const res = await api()
+      .post('/api/admin/healthmap/guides')
+      .send({
+        node_type: 'api',
+        node_key: '/api/test',
+        severity: 'warn',
+        title: `${PREFIX}테스트가이드`,
+        symptom: '증상',
+        diagnosis: '진단',
+        remedy: '조치',
+        prevention: '예방',
+      });
     expect(res.status).toBe(200);
     expect(res.body.id).toBeGreaterThan(0);
     createdGuideIds.push(res.body.id);
@@ -136,9 +144,11 @@ describe('Healthmap — 가이드 CRUD', () => {
 
   it('PUT — 사용자 가이드 수정', async () => {
     const id = createdGuideIds[0];
-    const res = await api().put(`/api/admin/healthmap/guides/${id}`).send({
-      title: `${PREFIX}수정됨`,
-    });
+    const res = await api()
+      .put(`/api/admin/healthmap/guides/${id}`)
+      .send({
+        title: `${PREFIX}수정됨`,
+      });
     expect(res.status).toBe(200);
     const check = await api().get(`/api/admin/healthmap/guides/${id}`);
     expect(check.body.data.title).toBe(`${PREFIX}수정됨`);
@@ -156,9 +166,7 @@ describe('Healthmap — 가이드 CRUD', () => {
 describe('Healthmap — 시스템 가이드 보호', () => {
   let sysGuideId;
   beforeAll(async () => {
-    const [[row]] = await pool.query(
-      `SELECT id FROM healthmap_guides WHERE is_system = 1 LIMIT 1`
-    );
+    const [[row]] = await pool.query(`SELECT id FROM healthmap_guides WHERE is_system = 1 LIMIT 1`);
     sysGuideId = row?.id;
   });
 
@@ -200,13 +208,15 @@ describe('Healthmap — AI 해석 캐시', () => {
 
   // 실제 Gemini 호출은 테스트 환경에서 키 없을 가능성 → 503 or 200 둘 다 정상 처리 확인
   it('POST /ai-interpret — 정상 페이로드 (AI 키 없을 시 503)', async () => {
-    const res = await api().post('/api/admin/healthmap/ai-interpret').send({
-      node_type: 'api',
-      node_key: '/api/leads',
-      status: 'warn',
-      metrics: { avgMs: 600, errRate: 2.5 },
-      recent_logs: [],
-    });
+    const res = await api()
+      .post('/api/admin/healthmap/ai-interpret')
+      .send({
+        node_type: 'api',
+        node_key: '/api/leads',
+        status: 'warn',
+        metrics: { avgMs: 600, errRate: 2.5 },
+        recent_logs: [],
+      });
     // AI 키가 있으면 200, 없으면 503 — 둘 다 valid
     expect([200, 503]).toContain(res.status);
   });

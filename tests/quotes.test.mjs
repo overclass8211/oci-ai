@@ -17,7 +17,9 @@ const createdQuoteIds = [];
 
 beforeAll(async () => {
   // 마이그레이션 완료 대기
-  const { _migrationPromise } = await import('../src/routes/quotes.js').then(m => m.default ?? m).catch(() => ({}));
+  const { _migrationPromise } = await import('../src/routes/quotes.js')
+    .then(m => m.default ?? m)
+    .catch(() => ({}));
   if (_migrationPromise) await _migrationPromise;
 });
 
@@ -42,7 +44,7 @@ describe('Quotes API', () => {
         vat_included: 0,
         items: [
           { item_name: '서버 A', unit_price: 1000000, quantity: 2, discount_pct: 10 },
-          { item_name: '서버 B', unit_price: 500000,  quantity: 3, discount_pct: 0  },
+          { item_name: '서버 B', unit_price: 500000, quantity: 3, discount_pct: 0 },
         ],
       });
     expect(res.status).toBe(200);
@@ -239,7 +241,7 @@ describe('Quotes API', () => {
     expect(tree.body.data.current_id).toBe(origId);
     expect(tree.body.data.revisions.length).toBe(3);
     // revision_no ASC 정렬
-    const revNos = tree.body.data.revisions.map((r) => Number(r.revision_no));
+    const revNos = tree.body.data.revisions.map(r => Number(r.revision_no));
     expect(revNos[0]).toBeLessThanOrEqual(revNos[1]);
     expect(revNos[1]).toBeLessThanOrEqual(revNos[2]);
 
@@ -416,9 +418,7 @@ describe('Quotes API', () => {
     const newId = res.body.id;
     createdQuoteIds.push(newId);
 
-    const r2 = await api()
-      .get(`/api/quotes/${newId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
+    const r2 = await api().get(`/api/quotes/${newId}`).set('X-User-Id', String(TEST_USER_ID));
     expect(r2.body.data.lead_id).toBe(99999);
   });
 
@@ -457,12 +457,10 @@ describe('Quotes API', () => {
     expect(put.status).toBe(200);
 
     // GET 재조회 — display_order ASC 정렬 시 [C, A, B] 순
-    const r2 = await api()
-      .get(`/api/quotes/${sortId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(r2.body.data.items.map((it) => it.item_name)).toEqual(['C', 'A', 'B']);
+    const r2 = await api().get(`/api/quotes/${sortId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(r2.body.data.items.map(it => it.item_name)).toEqual(['C', 'A', 'B']);
     // display_order 가 0, 1, 2 로 재계산됐는지
-    expect(r2.body.data.items.map((it) => Number(it.display_order))).toEqual([0, 1, 2]);
+    expect(r2.body.data.items.map(it => Number(it.display_order))).toEqual([0, 1, 2]);
   });
 
   // 🐛 사용자 보고 — 부가세 포함 시 10% 가산 (이전: 반대로 동작)
@@ -515,9 +513,7 @@ describe('Quotes API', () => {
   });
 
   it('GET /api/quotes/:id — 단건 + 품목', async () => {
-    const res = await api()
-      .get(`/api/quotes/${createdId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
+    const res = await api().get(`/api/quotes/${createdId}`).set('X-User-Id', String(TEST_USER_ID));
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.id).toBe(createdId);
@@ -529,9 +525,7 @@ describe('Quotes API', () => {
   });
 
   it('GET /api/quotes/:id — 존재하지 않는 ID 404', async () => {
-    const res = await api()
-      .get('/api/quotes/9999999')
-      .set('X-User-Id', String(TEST_USER_ID));
+    const res = await api().get('/api/quotes/9999999').set('X-User-Id', String(TEST_USER_ID));
     expect(res.status).toBe(404);
   });
 
@@ -544,9 +538,7 @@ describe('Quotes API', () => {
         customer_name: '__TEST__고객사_수정',
         quote_date: '2026-05-15',
         vat_included: 0,
-        items: [
-          { item_name: '신규품목', unit_price: 200000, quantity: 5, discount_pct: 5 },
-        ],
+        items: [{ item_name: '신규품목', unit_price: 200000, quantity: 5, discount_pct: 5 }],
       });
     expect(res.status).toBe(200);
     // 공급단가 = 200000 * 0.95 = 190,000 / 제안금액 = 190,000 * 5 = 950,000
@@ -556,9 +548,7 @@ describe('Quotes API', () => {
     expect(Number(res.body.data.total_amount)).toBe(950000);
 
     // 재조회로 품목 교체 확인
-    const r2 = await api()
-      .get(`/api/quotes/${createdId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
+    const r2 = await api().get(`/api/quotes/${createdId}`).set('X-User-Id', String(TEST_USER_ID));
     expect(r2.body.data.items.length).toBe(1);
     expect(r2.body.data.items[0].item_name).toBe('신규품목');
   });
@@ -594,9 +584,7 @@ describe('Quotes API', () => {
       });
     const delId = create.body.id;
 
-    const res = await api()
-      .delete(`/api/quotes/${delId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
+    const res = await api().delete(`/api/quotes/${delId}`).set('X-User-Id', String(TEST_USER_ID));
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
@@ -606,9 +594,7 @@ describe('Quotes API', () => {
   });
 
   it('DELETE /api/quotes/:id — 존재하지 않는 ID 404', async () => {
-    const res = await api()
-      .delete('/api/quotes/9999999')
-      .set('X-User-Id', String(TEST_USER_ID));
+    const res = await api().delete('/api/quotes/9999999').set('X-User-Id', String(TEST_USER_ID));
     expect(res.status).toBe(404);
   });
 });

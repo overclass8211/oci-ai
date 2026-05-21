@@ -10,7 +10,6 @@ afterAll(async () => {
   if (createdEventId) {
     await pool.query('DELETE FROM calendar_events WHERE id = ?', [createdEventId]);
   }
-  
 });
 
 describe('Calendar API', () => {
@@ -22,13 +21,13 @@ describe('Calendar API', () => {
 
   it('POST — 신규 일정 생성', async () => {
     const res = await api().post('/api/calendar/events').send({
-      title:          '__TEST__ 통합 테스트 미팅',
-      event_type:     '미팅',
-      status:         'planned',
+      title: '__TEST__ 통합 테스트 미팅',
+      event_type: '미팅',
+      status: 'planned',
       start_datetime: '2026-12-31 10:00:00',
-      end_datetime:   '2026-12-31 11:00:00',
-      all_day:        0,
-      color:          '#1a73e8'
+      end_datetime: '2026-12-31 11:00:00',
+      all_day: 0,
+      color: '#1a73e8',
     });
     expect(res.status).toBe(200);
     expect(res.body.id).toBeGreaterThan(0);
@@ -37,12 +36,12 @@ describe('Calendar API', () => {
 
   it('PUT /:id — 상태 변경 (planned → completed)', async () => {
     const res = await api().put(`/api/calendar/events/${createdEventId}`).send({
-      status: 'completed'
+      status: 'completed',
     });
     expect(res.status).toBe(200);
-    const [[row]] = await pool.query(
-      'SELECT status FROM calendar_events WHERE id = ?', [createdEventId]
-    );
+    const [[row]] = await pool.query('SELECT status FROM calendar_events WHERE id = ?', [
+      createdEventId,
+    ]);
     expect(row.status).toBe('completed');
   });
 

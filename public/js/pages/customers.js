@@ -11,10 +11,10 @@ const CustomersPage = {
   _view: localStorage.getItem('customers_view') || 'list',
 
   // Copy & Paste 상태
-  _selectedIds:    new Set(),
-  _allData:        [],
+  _selectedIds: new Set(),
+  _allData: [],
   _parsedCustomers: [],
-  _pasteHandler:   null,
+  _pasteHandler: null,
 
   async render() {
     document.getElementById('content').innerHTML = `
@@ -90,15 +90,23 @@ const CustomersPage = {
       </div>
     `;
     // bind render() buttons
-    document.getElementById('cp-paste-btn-cust')?.addEventListener('click', () => this.openPasteModal());
-    document.getElementById('cust-excel-export-btn')?.addEventListener('click', (e) => this._openExportMenu(e.currentTarget));
-    document.getElementById('cust-register-btn')?.addEventListener('click', () => this.openRegisterModal('direct'));
-    document.getElementById('cust-excel-import-input')?.addEventListener('change', (e) => this.importExcel(e.target));
-    document.querySelector('#cust-intel-panel')?.addEventListener('click', (e) => {
+    document
+      .getElementById('cp-paste-btn-cust')
+      ?.addEventListener('click', () => this.openPasteModal());
+    document
+      .getElementById('cust-excel-export-btn')
+      ?.addEventListener('click', e => this._openExportMenu(e.currentTarget));
+    document
+      .getElementById('cust-register-btn')
+      ?.addEventListener('click', () => this.openRegisterModal('direct'));
+    document
+      .getElementById('cust-excel-import-input')
+      ?.addEventListener('change', e => this.importExcel(e.target));
+    document.querySelector('#cust-intel-panel')?.addEventListener('click', e => {
       if (e.target.id === 'intel-close-btn') this.closeIntel();
     });
     // view toggle delegation
-    document.querySelector('.view-toggle')?.addEventListener('click', (e) => {
+    document.querySelector('.view-toggle')?.addEventListener('click', e => {
       const btn = e.target.closest('.view-toggle-btn');
       if (btn) this.switchView(btn.dataset.view);
     });
@@ -121,22 +129,28 @@ const CustomersPage = {
       const industryEl = document.getElementById('cust-industry');
       if (industryEl) {
         const industries = [...new Set(this.data.map(c => c.industry).filter(Boolean))].sort();
-        industryEl.innerHTML = '<option value="">전체 산업군</option>' +
+        industryEl.innerHTML =
+          '<option value="">전체 산업군</option>' +
           industries.map(i => `<option value="${esc(i)}">${esc(i)}</option>`).join('');
       }
 
       this.applyFilter();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   applyFilter() {
-    const search   = (document.getElementById('cust-search')?.value   || '').toLowerCase();
-    const region   =  document.getElementById('cust-region')?.value   || '';
-    const industry =  document.getElementById('cust-industry')?.value || '';
-    const filtered = this.data.filter(c =>
-      (!search   || c.name.toLowerCase().includes(search) || (c.contact_person || '').toLowerCase().includes(search)) &&
-      (!region   || c.region === region) &&
-      (!industry || c.industry === industry)
+    const search = (document.getElementById('cust-search')?.value || '').toLowerCase();
+    const region = document.getElementById('cust-region')?.value || '';
+    const industry = document.getElementById('cust-industry')?.value || '';
+    const filtered = this.data.filter(
+      c =>
+        (!search ||
+          c.name.toLowerCase().includes(search) ||
+          (c.contact_person || '').toLowerCase().includes(search)) &&
+        (!region || c.region === region) &&
+        (!industry || c.industry === industry)
     );
     this._selectedIds.clear();
     this.renderView(filtered);
@@ -177,22 +191,25 @@ const CustomersPage = {
     const container = document.getElementById('customers-view-container');
     if (!container) return;
     if (!data.length) {
-      const hasFilter = (document.getElementById('cust-search')?.value
-        || document.getElementById('cust-region')?.value
-        || document.getElementById('cust-industry')?.value);
+      const hasFilter =
+        document.getElementById('cust-search')?.value ||
+        document.getElementById('cust-region')?.value ||
+        document.getElementById('cust-industry')?.value;
       const presetKey = hasFilter ? 'filter' : 'customers';
-      const html = (typeof EmptyState !== 'undefined')
-        ? `<div class="card"><div class="card-body">${EmptyState.preset(presetKey)}</div></div>`
-        : '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
+      const html =
+        typeof EmptyState !== 'undefined'
+          ? `<div class="card"><div class="card-body">${EmptyState.preset(presetKey)}</div></div>`
+          : '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
       container.innerHTML = html;
       if (!hasFilter) {
-        document.getElementById('empty-customers-new')?.addEventListener('click', () =>
-          this.openForm?.());
+        document
+          .getElementById('empty-customers-new')
+          ?.addEventListener('click', () => this.openForm?.());
       }
       return;
     }
     const grouped = this._groupByName(data);
-    const visible = grouped.filter(c => c._isPrimary);   // 같은 name은 대표 1행만
+    const visible = grouped.filter(c => c._isPrimary); // 같은 name은 대표 1행만
     container.innerHTML = `
       <div class="card">
         <div class="card-header" style="min-height:42px">
@@ -217,10 +234,12 @@ const CustomersPage = {
               </tr>
             </thead>
             <tbody>
-              ${visible.map(c => `
+              ${visible
+                .map(
+                  c => `
                 <tr class="clickable${this._selectedIds.has(c.id) ? ' cp-selected' : ''}"
                     data-cust-id="${c.id}"
-                    data-cust-name="${esc(c.name).replace(/"/g,'&quot;')}">
+                    data-cust-name="${esc(c.name).replace(/"/g, '&quot;')}">
                   <td class="cp-check-col" data-stop-propagation="1">
                     <input type="checkbox" class="cp-checkbox cp-row-check"
                            data-id="${c.id}"
@@ -228,27 +247,37 @@ const CustomersPage = {
                   </td>
                   <td>
                     <strong>${esc(c.name)}</strong>
-                    ${c._groupCount > 1
-                      ? `<span class="badge badge-purple" style="font-size:10px;margin-left:6px"
+                    ${
+                      c._groupCount > 1
+                        ? `<span class="badge badge-purple" style="font-size:10px;margin-left:6px"
                            title="동일 회사명 ${c._groupCount}명 등록">👥 ${c._groupCount}</span>`
-                      : ''}
+                        : ''
+                    }
                   </td>
                   <td><span class="badge ${c.region === '해외' ? 'badge-purple' : 'badge-blue'}">${esc(c.region)}</span></td>
                   <td>${esc(c.country || '-')}</td>
                   <td>${esc(c.industry || '-')}</td>
                   <td>
-                    ${c._groupCount > 1 ? `
+                    ${
+                      c._groupCount > 1
+                        ? `
                       <div data-stop-propagation="1" style="display:flex;flex-wrap:wrap;gap:4px">
-                        ${c._group.map(m => `
+                        ${c._group
+                          .map(
+                            m => `
                           <span class="cust-member-chip" data-cust-id="${m.id}"
-                                title="${esc(m.email||'')} ${esc(m.phone||'')}"
+                                title="${esc(m.email || '')} ${esc(m.phone || '')}"
                                 style="cursor:pointer;font-size:11px;background:var(--surface-2);
                                        padding:2px 8px;border-radius:10px;border:1px solid var(--border)">
                             ${esc(m.contact_person || '담당자 미정')}
                           </span>
-                        `).join('')}
+                        `
+                          )
+                          .join('')}
                       </div>
-                    ` : esc(c.contact_person || '-')}
+                    `
+                        : esc(c.contact_person || '-')
+                    }
                   </td>
                   <td class="mono">${esc(c.phone || '-')}</td>
                   <td class="mono" style="font-size:11px">${esc(c.email || '-')}</td>
@@ -256,14 +285,16 @@ const CustomersPage = {
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                       <button class="ai-gen-btn"
                         data-action="ai-brief" data-feature="ai.intelligence"
-                        data-id="${c.id}" data-name="${esc(c.name).replace(/"/g,'&quot;')}">
+                        data-id="${c.id}" data-name="${esc(c.name).replace(/"/g, '&quot;')}">
                         🤖 AI 브리핑
                       </button>
                       ${this._briefBadgeHtml(c.id)}
                     </div>
                   </td>
                 </tr>
-              `).join('')}
+              `
+                )
+                .join('')}
             </tbody>
           </table>
         </div>
@@ -272,16 +303,24 @@ const CustomersPage = {
     this._updateSelectionUI();
 
     // event delegation for table
-    container.addEventListener('click', (e) => {
+    container.addEventListener('click', e => {
       const stopEl = e.target.closest('[data-stop-propagation]');
-      if (stopEl) { e.stopPropagation(); }
+      if (stopEl) {
+        e.stopPropagation();
+      }
 
       // toolbar buttons
       const actionBtn = e.target.closest('[data-action]');
       if (actionBtn) {
         const action = actionBtn.dataset.action;
-        if (action === 'copy-selected') { this.copySelected(); return; }
-        if (action === 'clear-selection') { this._clearSelection(); return; }
+        if (action === 'copy-selected') {
+          this.copySelected();
+          return;
+        }
+        if (action === 'clear-selection') {
+          this._clearSelection();
+          return;
+        }
         if (action === 'ai-brief') {
           // 통합 모달 열고 핵심 브리핑 탭 자동 활성 + 자동 생성
           const id = parseInt(actionBtn.dataset.id);
@@ -306,11 +345,17 @@ const CustomersPage = {
 
       // checkbox row toggle
       const cb = e.target.closest('.cp-row-check');
-      if (cb) { this._toggleRow(parseInt(cb.dataset.id), cb.checked); return; }
+      if (cb) {
+        this._toggleRow(parseInt(cb.dataset.id), cb.checked);
+        return;
+      }
 
       // header checkbox toggle-all
       const hdrCb = e.target.closest('#cp-check-all-cust');
-      if (hdrCb) { this._toggleAll(hdrCb.checked); return; }
+      if (hdrCb) {
+        this._toggleAll(hdrCb.checked);
+        return;
+      }
 
       // row click → 통합 모달 (정보·수정 + 딜 + 브리핑 + 그룹)
       if (!stopEl) {
@@ -324,28 +369,42 @@ const CustomersPage = {
     const container = document.getElementById('customers-view-container');
     if (!container) return;
     if (!data.length) {
-      const hasFilter = (document.getElementById('cust-search')?.value
-        || document.getElementById('cust-region')?.value
-        || document.getElementById('cust-industry')?.value);
+      const hasFilter =
+        document.getElementById('cust-search')?.value ||
+        document.getElementById('cust-region')?.value ||
+        document.getElementById('cust-industry')?.value;
       const presetKey = hasFilter ? 'filter' : 'customers';
-      const html = (typeof EmptyState !== 'undefined')
-        ? `<div class="card"><div class="card-body">${EmptyState.preset(presetKey)}</div></div>`
-        : '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
+      const html =
+        typeof EmptyState !== 'undefined'
+          ? `<div class="card"><div class="card-body">${EmptyState.preset(presetKey)}</div></div>`
+          : '<div class="card"><div class="card-body"><div class="empty">고객사가 없습니다</div></div></div>';
       container.innerHTML = html;
       if (!hasFilter) {
-        document.getElementById('empty-customers-new')?.addEventListener('click', () =>
-          this.openForm?.());
+        document
+          .getElementById('empty-customers-new')
+          ?.addEventListener('click', () => this.openForm?.());
       }
       return;
     }
     // 회사명 첫글자로 아바타 색상 분산
-    const palette = ['#1664E5', '#E63329', '#00A86B', '#F59C00', '#7C4DFF', '#0F7A3F', '#B5261E', '#1A73E8'];
+    const palette = [
+      '#1664E5',
+      '#E63329',
+      '#00A86B',
+      '#F59C00',
+      '#7C4DFF',
+      '#0F7A3F',
+      '#B5261E',
+      '#1A73E8',
+    ];
     const avatarColor = name => palette[(name?.charCodeAt(0) || 0) % palette.length];
 
     container.innerHTML = `
       <div class="cust-card-grid">
-        ${data.map(c => `
-          <div class="cust-card" data-cust-id="${c.id}" data-cust-name="${esc(c.name).replace(/"/g,'&quot;')}">
+        ${data
+          .map(
+            c => `
+          <div class="cust-card" data-cust-id="${c.id}" data-cust-name="${esc(c.name).replace(/"/g, '&quot;')}">
             <div class="cust-card-header">
               <div class="cust-avatar" style="background:${avatarColor(c.name)}">
                 ${esc((c.name || '?').charAt(0))}
@@ -375,22 +434,26 @@ const CustomersPage = {
               </div>
             </div>
             <div class="cust-card-footer" data-stop-propagation="1">
-              ${(() => { const info = this._getBriefedInfo(c.id);
+              ${(() => {
+                const info = this._getBriefedInfo(c.id);
                 return info
                   ? `<div class="brief-done-chip" data-brief-card-id="${c.id}">✅ ${info.label}</div>`
-                  : `<div data-brief-card-id="${c.id}" style="display:none"></div>`; })()}
+                  : `<div data-brief-card-id="${c.id}" style="display:none"></div>`;
+              })()}
               <button class="ai-gen-btn" style="width:100%;justify-content:center"
-                data-action="ai-brief" data-id="${c.id}" data-name="${esc(c.name).replace(/"/g,'&quot;')}">
+                data-action="ai-brief" data-id="${c.id}" data-name="${esc(c.name).replace(/"/g, '&quot;')}">
                 🤖 AI 브리핑 생성
               </button>
             </div>
           </div>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>
     `;
 
     // event delegation for cards
-    container.addEventListener('click', (e) => {
+    container.addEventListener('click', e => {
       const stopEl = e.target.closest('[data-stop-propagation]');
 
       const actionBtn = e.target.closest('[data-action]');
@@ -431,12 +494,15 @@ const CustomersPage = {
     const diffMs = now - d;
     const diffMins = Math.floor(diffMs / 60000);
     const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1)  return { label: '방금 완료',  cls: 'brief-badge-fresh' };
+    if (diffMins < 1) return { label: '방금 완료', cls: 'brief-badge-fresh' };
     if (diffMins < 60) return { label: `${diffMins}분 전`, cls: 'brief-badge-fresh' };
     if (diffDays === 0) return { label: '오늘 완료', cls: 'brief-badge-today' };
-    if (diffDays === 1) return { label: '어제',       cls: 'brief-badge-old' };
-    if (diffDays < 7)  return { label: `${diffDays}일 전`, cls: 'brief-badge-old' };
-    return { label: d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }), cls: 'brief-badge-old' };
+    if (diffDays === 1) return { label: '어제', cls: 'brief-badge-old' };
+    if (diffDays < 7) return { label: `${diffDays}일 전`, cls: 'brief-badge-old' };
+    return {
+      label: d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
+      cls: 'brief-badge-old',
+    };
   },
 
   _briefBadgeHtml(id) {
@@ -470,7 +536,7 @@ const CustomersPage = {
 
   _bindPasteShortcut() {
     if (this._pasteHandler) document.removeEventListener('keydown', this._pasteHandler);
-    this._pasteHandler = (e) => {
+    this._pasteHandler = e => {
       if (e.ctrlKey && e.key === 'v') {
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -486,15 +552,20 @@ const CustomersPage = {
       const id = parseInt(cb.dataset.id);
       cb.checked = checked;
       const row = cb.closest('tr');
-      if (checked) { this._selectedIds.add(id); row?.classList.add('cp-selected'); }
-      else          { this._selectedIds.delete(id); row?.classList.remove('cp-selected'); }
+      if (checked) {
+        this._selectedIds.add(id);
+        row?.classList.add('cp-selected');
+      } else {
+        this._selectedIds.delete(id);
+        row?.classList.remove('cp-selected');
+      }
     });
     this._updateSelectionUI();
   },
 
   _toggleRow(id, checked) {
     if (checked) this._selectedIds.add(id);
-    else         this._selectedIds.delete(id);
+    else this._selectedIds.delete(id);
     const row = document.querySelector(`tr[data-cust-id="${id}"]`);
     row?.classList.toggle('cp-selected', checked);
 
@@ -509,7 +580,9 @@ const CustomersPage = {
 
   _clearSelection() {
     this._selectedIds.clear();
-    document.querySelectorAll('.cp-row-check').forEach(cb => { cb.checked = false; });
+    document.querySelectorAll('.cp-row-check').forEach(cb => {
+      cb.checked = false;
+    });
     document.querySelectorAll('tr.cp-selected').forEach(r => r.classList.remove('cp-selected'));
     const hdr = document.getElementById('cp-check-all-cust');
     if (hdr) hdr.checked = false;
@@ -519,33 +592,39 @@ const CustomersPage = {
   _updateSelectionUI() {
     const cnt = this._selectedIds.size;
     const toolbar = document.getElementById('cp-toolbar-cust');
-    const empty   = document.getElementById('cp-toolbar-cust-empty');
+    const empty = document.getElementById('cp-toolbar-cust-empty');
     const countEl = document.getElementById('cp-sel-count-cust');
-    if (toolbar) toolbar.style.display   = cnt ? 'flex' : 'none';
-    if (empty)   empty.style.display     = cnt ? 'none' : '';
-    if (countEl) countEl.textContent     = `${cnt}개 선택`;
+    if (toolbar) toolbar.style.display = cnt ? 'flex' : 'none';
+    if (empty) empty.style.display = cnt ? 'none' : '';
+    if (countEl) countEl.textContent = `${cnt}개 선택`;
   },
 
   copySelected() {
-    if (!this._selectedIds.size) { Toast.warn('선택된 행이 없습니다'); return; }
+    if (!this._selectedIds.size) {
+      Toast.warn('선택된 행이 없습니다');
+      return;
+    }
     const HEADERS = ['고객사명', '지역', '국가', '산업군', '담당자', '연락처', '이메일', '주소'];
     const rows = this._allData.filter(c => this._selectedIds.has(c.id));
     const lines = [HEADERS.join('\t')];
     rows.forEach(c => {
-      lines.push([
-        c.name || '',
-        c.region || '',
-        c.country || '',
-        c.industry || '',
-        c.contact_person || '',
-        c.phone || '',
-        c.email || '',
-        c.address || ''
-      ].join('\t'));
+      lines.push(
+        [
+          c.name || '',
+          c.region || '',
+          c.country || '',
+          c.industry || '',
+          c.contact_person || '',
+          c.phone || '',
+          c.email || '',
+          c.address || '',
+        ].join('\t')
+      );
     });
     const tsv = lines.join('\n');
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(tsv)
+      navigator.clipboard
+        .writeText(tsv)
         .then(() => Toast.success(`${rows.length}개 행이 클립보드에 복사되었습니다`))
         .catch(() => this._copyFallback(tsv));
     } else {
@@ -589,8 +668,8 @@ const CustomersPage = {
       `,
       bind: {
         '#cp-paste-close-btn': () => Modal.close(),
-        '#cp-import-btn-cust': () => this._importParsed()
-      }
+        '#cp-import-btn-cust': () => this._importParsed(),
+      },
     });
 
     // 붙여넣기 이벤트
@@ -598,7 +677,7 @@ const CustomersPage = {
       const ta = document.getElementById('cp-paste-area-cust');
       if (ta) {
         ta.focus();
-        ta.addEventListener('paste', (e) => {
+        ta.addEventListener('paste', e => {
           e.preventDefault();
           const text = e.clipboardData.getData('text/plain');
           ta.value = text;
@@ -618,26 +697,41 @@ const CustomersPage = {
       return;
     }
 
-    const lines = raw.trim().split('\n').map(l => l.trimEnd());
+    const lines = raw
+      .trim()
+      .split('\n')
+      .map(l => l.trimEnd());
     const sep = lines[0].includes('\t') ? '\t' : ',';
     const rows = lines.map(l => l.split(sep).map(c => c.trim().replace(/^"|"$/g, '')));
 
     // 헤더 매핑 (대소문자·공백 무시)
     const COL_FIELD = {
-      '고객사명': 'name', '고객사': 'name', '회사명': 'name', 'company': 'name',
-      '지역': 'region',
-      '국가': 'country', 'country': 'country',
-      '산업군': 'industry', '산업': 'industry', 'industry': 'industry',
-      '담당자': 'contact_person', '담당자명': 'contact_person',
-      '연락처': 'phone', '전화번호': 'phone', '전화': 'phone', 'phone': 'phone',
-      '이메일': 'email', 'email': 'email',
-      '주소': 'address', 'address': 'address'
+      고객사명: 'name',
+      고객사: 'name',
+      회사명: 'name',
+      company: 'name',
+      지역: 'region',
+      국가: 'country',
+      country: 'country',
+      산업군: 'industry',
+      산업: 'industry',
+      industry: 'industry',
+      담당자: 'contact_person',
+      담당자명: 'contact_person',
+      연락처: 'phone',
+      전화번호: 'phone',
+      전화: 'phone',
+      phone: 'phone',
+      이메일: 'email',
+      email: 'email',
+      주소: 'address',
+      address: 'address',
     };
 
     let headerRow = null;
     let dataStart = 0;
-    const firstNorm = rows[0].map(h => h.toLowerCase().replace(/\s/g,''));
-    if (firstNorm.some(h => COL_FIELD[h] || COL_FIELD[h.replace(/[^a-z가-힣]/g,'')])) {
+    const firstNorm = rows[0].map(h => h.toLowerCase().replace(/\s/g, ''));
+    if (firstNorm.some(h => COL_FIELD[h] || COL_FIELD[h.replace(/[^a-z가-힣]/g, '')])) {
       headerRow = firstNorm;
       dataStart = 1;
     }
@@ -649,13 +743,24 @@ const CustomersPage = {
       const obj = {};
       if (headerRow) {
         headerRow.forEach((h, ci) => {
-          const field = COL_FIELD[h] || COL_FIELD[h.replace(/[^a-z가-힣]/g,'')];
+          const field = COL_FIELD[h] || COL_FIELD[h.replace(/[^a-z가-힣]/g, '')];
           if (field) obj[field] = r[ci] || '';
         });
       } else {
         // 헤더 없을 때 순서 기본 매핑: 고객사명, 지역, 국가, 산업군, 담당자, 연락처, 이메일, 주소
-        const DEF = ['name','region','country','industry','contact_person','phone','email','address'];
-        DEF.forEach((f, ci) => { obj[f] = r[ci] || ''; });
+        const DEF = [
+          'name',
+          'region',
+          'country',
+          'industry',
+          'contact_person',
+          'phone',
+          'email',
+          'address',
+        ];
+        DEF.forEach((f, ci) => {
+          obj[f] = r[ci] || '';
+        });
       }
       parsed.push(obj);
     }
@@ -663,17 +768,20 @@ const CustomersPage = {
     this._parsedCustomers = parsed;
 
     if (!parsed.length) {
-      if (previewEl) previewEl.innerHTML = '<div style="color:var(--oci-red);font-size:12px">파싱된 데이터가 없습니다</div>';
+      if (previewEl)
+        previewEl.innerHTML =
+          '<div style="color:var(--oci-red);font-size:12px">파싱된 데이터가 없습니다</div>';
       if (importBtn) importBtn.style.display = 'none';
       return;
     }
 
     // 미리보기 테이블
     const REGION_VALS = new Set(['국내', '해외']);
-    const previewRows = parsed.map(p => {
-      const region = REGION_VALS.has(p.region) ? p.region : (p.region ? p.region : '국내');
-      const warn = !p.name;
-      return `<tr class="${warn ? 'cp-row-warn' : ''}">
+    const previewRows = parsed
+      .map(p => {
+        const region = REGION_VALS.has(p.region) ? p.region : p.region ? p.region : '국내';
+        const warn = !p.name;
+        return `<tr class="${warn ? 'cp-row-warn' : ''}">
         <td>${esc(p.name || '')} ${warn ? '<span style="color:var(--oci-red);font-size:10px">필수</span>' : ''}</td>
         <td>${esc(region)}</td>
         <td>${esc(p.country || '')}</td>
@@ -683,10 +791,12 @@ const CustomersPage = {
         <td class="mono" style="font-size:11px">${esc(p.email || '')}</td>
         <td style="font-size:11px">${esc(p.address || '')}</td>
       </tr>`;
-    }).join('');
+      })
+      .join('');
 
     const validCount = parsed.filter(p => p.name).length;
-    if (previewEl) previewEl.innerHTML = `
+    if (previewEl)
+      previewEl.innerHTML = `
       <div style="font-size:12px;color:var(--text-2);margin-bottom:8px">
         미리보기 — <strong>${validCount}개</strong> 등록 가능
         ${validCount < parsed.length ? `<span style="color:var(--oci-red)">(${parsed.length - validCount}개 고객사명 없음 — 제외됨)</span>` : ''}
@@ -706,52 +816,65 @@ const CustomersPage = {
 
   async _importParsed() {
     const valid = this._parsedCustomers.filter(c => c.name);
-    if (!valid.length) { Toast.warn('등록 가능한 데이터가 없습니다'); return; }
+    if (!valid.length) {
+      Toast.warn('등록 가능한 데이터가 없습니다');
+      return;
+    }
 
     const btn = document.getElementById('cp-import-btn-cust');
-    if (btn) { btn.disabled = true; btn.textContent = '등록 중...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '등록 중...';
+    }
 
     try {
       const res = await API.post('/customers/bulk', { customers: valid });
       Modal.close();
 
       const parts = [];
-      if (res.inserted)   parts.push(`${res.inserted}개 등록 완료`);
+      if (res.inserted) parts.push(`${res.inserted}개 등록 완료`);
       if (res.duplicates) parts.push(`${res.duplicates}개 중복 건너뜀`);
       const failed = (res.errors || []).filter(e => !e.reason?.startsWith('중복')).length;
       if (failed) parts.push(`${failed}개 오류`);
 
       if (res.inserted) Toast.success(parts.join(' · '));
-      else              Toast.warn(parts.join(' · ') || '등록된 항목이 없습니다');
+      else Toast.warn(parts.join(' · ') || '등록된 항목이 없습니다');
 
       await this.loadData();
       await App.refreshCommon();
     } catch {
       Toast.error('등록 중 오류가 발생했습니다');
-      if (btn) { btn.disabled = false; btn.textContent = '✅ 등록하기'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '✅ 등록하기';
+      }
     }
   },
 
   // ── 엑셀 내보내기 ────────────────────────────────────────────
   exportExcel() {
     const path = this._buildExportPath();
-    API.downloadExport(path, '고객사_' + new Date().toISOString().slice(0,10), 'xlsx');
+    API.downloadExport(path, '고객사_' + new Date().toISOString().slice(0, 10), 'xlsx');
   },
 
   _buildExportPath() {
-    const search   = document.getElementById('cust-search')?.value   || '';
-    const region   = document.getElementById('cust-region')?.value   || '';
+    const search = document.getElementById('cust-search')?.value || '';
+    const region = document.getElementById('cust-region')?.value || '';
     const industry = document.getElementById('cust-industry')?.value || '';
     const qs = new URLSearchParams();
-    if (search)   qs.set('search', search);
-    if (region)   qs.set('region', region);
+    if (search) qs.set('search', search);
+    if (region) qs.set('region', region);
     if (industry) qs.set('industry', industry);
     return '/customers/export' + (qs.toString() ? '?' + qs.toString() : '');
   },
 
   _openExportMenu(triggerEl) {
     if (typeof ExportMenu === 'undefined') return this.exportExcel();
-    ExportMenu.open(triggerEl, this._buildExportPath(), '고객사_' + new Date().toISOString().slice(0,10));
+    ExportMenu.open(
+      triggerEl,
+      this._buildExportPath(),
+      '고객사_' + new Date().toISOString().slice(0, 10)
+    );
   },
 
   // ── 엑셀 가져오기 ────────────────────────────────────────────
@@ -764,29 +887,36 @@ const CustomersPage = {
     const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
     const headers = {};
     const uid = localStorage.getItem('current_user_id');
-    if (uid)   headers['X-User-Id'] = uid;
+    if (uid) headers['X-User-Id'] = uid;
     if (token) headers['Authorization'] = `Bearer ${token}`;
     try {
       const res = await fetch('/api/customers/import', { method: 'POST', headers, body: fd });
       const data = await res.json();
       if (data.success) {
         const parts = [];
-        if (data.inserted)   parts.push(`${data.inserted}개 등록 완료`);
+        if (data.inserted) parts.push(`${data.inserted}개 등록 완료`);
         if (data.duplicates) parts.push(`${data.duplicates}개 중복 건너뜀`);
         const failed = (data.errors || []).filter(e => !e.reason?.startsWith('중복')).length;
         if (failed) parts.push(`${failed}개 오류`);
         if (data.inserted) Toast.success(parts.join(' · '));
-        else               Toast.warn(parts.join(' · ') || '등록된 항목이 없습니다');
+        else Toast.warn(parts.join(' · ') || '등록된 항목이 없습니다');
         await this.loadData();
         await App.refreshCommon();
-      } else { Toast.error(data.message || '가져오기 실패'); }
-    } catch (e) { Toast.error('서버 오류: ' + (e.message || '')); }
+      } else {
+        Toast.error(data.message || '가져오기 실패');
+      }
+    } catch (e) {
+      Toast.error('서버 오류: ' + (e.message || ''));
+    }
   },
 
   // ── [통합] 고객 상세 모달 — 정보/수정 + 관련 딜 + 핵심 브리핑 + 그룹 ──
   showCustomerModal(id) {
     const cust = this._allData.find(c => c.id === id) || this.data.find(c => c.id === id);
-    if (!cust) { Toast.error('고객 정보를 찾을 수 없습니다'); return; }
+    if (!cust) {
+      Toast.error('고객 정보를 찾을 수 없습니다');
+      return;
+    }
 
     Modal.open({
       title: `🏢 ${cust.name}`,
@@ -824,45 +954,45 @@ const CustomersPage = {
             <div class="form-row-2">
               <div class="form-row">
                 <label class="form-label">고객사명 <span style="color:var(--oci-red)">*</span></label>
-                <input class="form-input" name="name" required value="${esc(cust.name||'')}">
+                <input class="form-input" name="name" required value="${esc(cust.name || '')}">
               </div>
               <div class="form-row">
                 <label class="form-label">산업군</label>
-                <input class="form-input" name="industry" value="${esc(cust.industry||'')}">
+                <input class="form-input" name="industry" value="${esc(cust.industry || '')}">
               </div>
             </div>
             <div class="form-row-3">
               <div class="form-row">
                 <label class="form-label">지역</label>
                 <select class="form-input" name="region">
-                  <option value="국내" ${cust.region==='국내'?'selected':''}>국내</option>
-                  <option value="해외" ${cust.region==='해외'?'selected':''}>해외</option>
+                  <option value="국내" ${cust.region === '국내' ? 'selected' : ''}>국내</option>
+                  <option value="해외" ${cust.region === '해외' ? 'selected' : ''}>해외</option>
                 </select>
               </div>
               <div class="form-row">
                 <label class="form-label">국가</label>
-                <input class="form-input" name="country" value="${esc(cust.country||'')}">
+                <input class="form-input" name="country" value="${esc(cust.country || '')}">
               </div>
               <div class="form-row">
                 <label class="form-label">담당자</label>
-                <input class="form-input" name="contact_person" value="${esc(cust.contact_person||'')}">
+                <input class="form-input" name="contact_person" value="${esc(cust.contact_person || '')}">
               </div>
             </div>
             <div class="form-row-2">
               <div class="form-row">
                 <label class="form-label">연락처</label>
-                <input class="form-input" name="phone" value="${esc(cust.phone||'')}">
+                <input class="form-input" name="phone" value="${esc(cust.phone || '')}">
               </div>
               <div class="form-row">
                 <label class="form-label">이메일</label>
-                <input class="form-input" name="email" type="email" value="${esc(cust.email||'')}">
+                <input class="form-input" name="email" type="email" value="${esc(cust.email || '')}">
               </div>
             </div>
             <div class="form-row">
               <label class="form-label">주소</label>
               <div style="display:flex;gap:6px">
                 <input class="form-input" name="address" id="cm-addr-input"
-                       value="${esc(cust.address||'')}" style="flex:1" placeholder="주소 검색 버튼을 눌러 검색하세요">
+                       value="${esc(cust.address || '')}" style="flex:1" placeholder="주소 검색 버튼을 눌러 검색하세요">
                 <button type="button" class="btn btn-ghost btn-sm" id="cm-addr-search"
                         style="white-space:nowrap">🔍 주소 검색</button>
               </div>
@@ -935,17 +1065,21 @@ const CustomersPage = {
         t.classList.add('active');
         t.style.color = 'var(--oci-red)';
         t.style.borderBottomColor = 'var(--oci-red)';
-        ['info','deals','brief','group'].forEach(k => {
+        ['info', 'deals', 'brief', 'group'].forEach(k => {
           const el = document.getElementById('cm-tab-' + k);
-          if (el) el.style.display = (k === t.dataset.mtab) ? '' : 'none';
+          if (el) el.style.display = k === t.dataset.mtab ? '' : 'none';
         });
       });
     });
 
     // 저장 / 취소 / 삭제
     document.getElementById('cm-cancel-btn').addEventListener('click', () => Modal.close());
-    document.getElementById('cm-save-btn').addEventListener('click', () => this._saveCustomerEdit(id));
-    document.getElementById('cm-delete-btn').addEventListener('click', () => this._deleteCustomer(id, cust.name));
+    document
+      .getElementById('cm-save-btn')
+      .addEventListener('click', () => this._saveCustomerEdit(id));
+    document
+      .getElementById('cm-delete-btn')
+      .addEventListener('click', () => this._deleteCustomer(id, cust.name));
     document.getElementById('cm-email-btn')?.addEventListener('click', () => {
       if (typeof Email !== 'undefined') {
         Email.open({
@@ -956,10 +1090,14 @@ const CustomersPage = {
     });
 
     // 브리핑 생성 버튼
-    document.getElementById('cm-brief-gen').addEventListener('click', () => this._generateBrief(id));
+    document
+      .getElementById('cm-brief-gen')
+      .addEventListener('click', () => this._generateBrief(id));
 
     // 카카오 주소 검색 + 지도
-    document.getElementById('cm-addr-search').addEventListener('click', () => this._openPostcodeSearch());
+    document
+      .getElementById('cm-addr-search')
+      .addEventListener('click', () => this._openPostcodeSearch());
     this._initKakaoMap(cust.address);
 
     // 📧 Gmail 대화 — lazy load
@@ -968,7 +1106,7 @@ const CustomersPage = {
     // 비동기로 딜/그룹/브리핑 캐시 로드
     this._loadModalDeals(id);
     this._loadModalGroup(id);
-    this._loadCachedBrief(id);  // ← 저장된 최신 브리핑 자동 표시
+    this._loadCachedBrief(id); // ← 저장된 최신 브리핑 자동 표시
   },
 
   // ── 카카오 우편번호 SDK 동적 로드 ─────────────────────────
@@ -1013,10 +1151,12 @@ const CustomersPage = {
 
       const close = () => overlay.remove();
       overlay.querySelector('#cm-postcode-close').addEventListener('click', close);
-      overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+      overlay.addEventListener('click', e => {
+        if (e.target === overlay) close();
+      });
 
       new daum.Postcode({
-        oncomplete: (data) => {
+        oncomplete: data => {
           const addr = data.roadAddress || data.jibunAddress || data.address || '';
           const extra = data.buildingName ? ' (' + data.buildingName + ')' : '';
           const full = addr + extra;
@@ -1025,7 +1165,8 @@ const CustomersPage = {
           close();
           this._renderKakaoMap(full);
         },
-        width: '100%', height: '100%',
+        width: '100%',
+        height: '100%',
       }).embed(overlay.querySelector('#cm-postcode-box'));
     } catch (e) {
       Toast.error(e.message);
@@ -1044,7 +1185,9 @@ const CustomersPage = {
           const j = await r.json();
           key = j?.data?.kakaoMapKey || '';
           window.__OCI_KAKAO_KEY__ = key;
-        } catch { key = ''; }
+        } catch {
+          key = '';
+        }
       }
       if (!key) throw new Error('NO_KEY');
 
@@ -1052,7 +1195,10 @@ const CustomersPage = {
 
       return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(key) + '&libraries=services&autoload=false';
+        s.src =
+          'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' +
+          encodeURIComponent(key) +
+          '&libraries=services&autoload=false';
         s.onload = () => window.kakao.maps.load(() => resolve(window.kakao));
         s.onerror = () => reject(new Error('카카오맵 SDK 로드 실패'));
         document.head.appendChild(s);
@@ -1068,7 +1214,7 @@ const CustomersPage = {
     const map = new kakao.maps.Map(wrap, { center: coords, level: 3 });
     const marker = new kakao.maps.Marker({ position: coords, map });
     new kakao.maps.InfoWindow({
-      content: `<div style="padding:6px 10px;font-size:12px;white-space:nowrap">${String(originalAddr).replace(/</g,'&lt;')}</div>`,
+      content: `<div style="padding:6px 10px;font-size:12px;white-space:nowrap">${String(originalAddr).replace(/</g, '&lt;')}</div>`,
     }).open(map, marker);
   },
 
@@ -1090,12 +1236,16 @@ const CustomersPage = {
       const r = await API.gmail.matchCustomer(customerId, 8);
       App._renderGmailCard(body, r, () => this._loadGmailForCustomer(customerId));
     } catch (err) {
-      App._renderGmailCard(body, {
-        success: false,
-        error: err.message || 'Gmail 조회 실패',
-        code: err.code,
-        feature: err.feature,
-      }, () => this._loadGmailForCustomer(customerId));
+      App._renderGmailCard(
+        body,
+        {
+          success: false,
+          error: err.message || 'Gmail 조회 실패',
+          code: err.code,
+          feature: err.feature,
+        },
+        () => this._loadGmailForCustomer(customerId)
+      );
     }
   },
 
@@ -1121,7 +1271,10 @@ const CustomersPage = {
     // 우편번호 (5자리)
     a = a.replace(/^\d{5}\s+/, '');
     // 괄호 안 모든 내용
-    const noParen = a.replace(/\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim();
+    const noParen = a
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
     // 끝에 붙은 층/호/동 (예: "...빌딩 6층")
     const noFloor = noParen.replace(/\s+\S+(층|호|동)\s*$/, '').trim();
     // 마지막 토큰 1개씩 제거한 후보들
@@ -1144,14 +1297,20 @@ const CustomersPage = {
       const candidates = this._normalizeAddress(address);
 
       // 후보 주소들을 순차적으로 시도 (Geocoder가 첫 매칭 반환)
-      const trySearch = (idx) => {
+      const trySearch = idx => {
         if (idx >= candidates.length) {
           // 모든 후보 실패 → 키워드 검색 fallback (Places)
           if (kakao.maps.services.Places) {
             const places = new kakao.maps.services.Places();
             places.keywordSearch(candidates[0], (result, status) => {
               if (status === kakao.maps.services.Status.OK && result.length) {
-                this._renderMapAt(wrap, kakao, parseFloat(result[0].y), parseFloat(result[0].x), address);
+                this._renderMapAt(
+                  wrap,
+                  kakao,
+                  parseFloat(result[0].y),
+                  parseFloat(result[0].x),
+                  address
+                );
               } else {
                 this._renderMapFailFallback(wrap, address);
               }
@@ -1163,7 +1322,13 @@ const CustomersPage = {
         }
         geocoder.addressSearch(candidates[idx], (result, status) => {
           if (status === kakao.maps.services.Status.OK && result.length) {
-            this._renderMapAt(wrap, kakao, parseFloat(result[0].y), parseFloat(result[0].x), address);
+            this._renderMapAt(
+              wrap,
+              kakao,
+              parseFloat(result[0].y),
+              parseFloat(result[0].x),
+              address
+            );
           } else {
             trySearch(idx + 1);
           }
@@ -1172,18 +1337,19 @@ const CustomersPage = {
       trySearch(0);
     } catch (e) {
       // 키 없음 → 외부 링크 placeholder
-      const fallback = e.message === 'NO_KEY'
-        ? `<div style="text-align:center;font-size:13px;color:var(--text-3);padding:20px">
+      const fallback =
+        e.message === 'NO_KEY'
+          ? `<div style="text-align:center;font-size:13px;color:var(--text-3);padding:20px">
             <div style="margin-bottom:8px">🗺 카카오맵 키가 설정되지 않았습니다</div>
             <a href="https://map.kakao.com/link/search/${encodeURIComponent(address)}"
                target="_blank" rel="noopener" style="color:var(--oci-blue);text-decoration:underline">
-              카카오맵에서 "${address.replace(/</g,'&lt;').slice(0,40)}" 보기 →
+              카카오맵에서 "${address.replace(/</g, '&lt;').slice(0, 40)}" 보기 →
             </a>
             <div style="margin-top:8px;font-size:11px;color:var(--text-4)">
               .env 파일의 KAKAO_MAP_KEY 를 설정하면 임베드 지도가 표시됩니다
             </div>
           </div>`
-        : `<div style="color:var(--oci-red);padding:10px;font-size:13px">지도 오류: ${e.message}</div>`;
+          : `<div style="color:var(--oci-red);padding:10px;font-size:13px">지도 오류: ${e.message}</div>`;
       wrap.innerHTML = fallback;
     }
   },
@@ -1198,9 +1364,16 @@ const CustomersPage = {
         wrap.innerHTML = `<div class="empty" style="padding:30px;text-align:center;color:var(--text-3);font-size:13px">관련 딜이 없습니다</div>`;
         return;
       }
-      const stageMap = { lead:'🔍 리드', review:'📋 검토', proposal:'📝 제안',
-                         bidding:'⚔️ 입찰', negotiation:'🤝 협상',
-                         won:'✅ 수주', lost:'❌ 실주', dropped:'⬇️ 드롭' };
+      const stageMap = {
+        lead: '🔍 리드',
+        review: '📋 검토',
+        proposal: '📝 제안',
+        bidding: '⚔️ 입찰',
+        negotiation: '🤝 협상',
+        won: '✅ 수주',
+        lost: '❌ 실주',
+        dropped: '⬇️ 드롭',
+      };
       wrap.innerHTML = `
         <table class="data-table" style="font-size:12px">
           <thead><tr>
@@ -1208,15 +1381,19 @@ const CustomersPage = {
             <th class="text-right">예상 금액</th><th>최근 업데이트</th>
           </tr></thead>
           <tbody>
-            ${deals.map(d => `
+            ${deals
+              .map(
+                d => `
               <tr class="cm-deal-row" data-lead-id="${d.id}" style="cursor:pointer">
-                <td><strong>${esc(d.project_name||'-')}</strong></td>
-                <td>${esc(d.business_type||'-')}</td>
-                <td><span class="badge">${stageMap[d.stage]||esc(d.stage||'-')}</span></td>
-                <td class="text-right mono">${d.expected_amount ? Number(d.expected_amount).toLocaleString() + ' ' + (d.currency||'') : '-'}</td>
+                <td><strong>${esc(d.project_name || '-')}</strong></td>
+                <td>${esc(d.business_type || '-')}</td>
+                <td><span class="badge">${stageMap[d.stage] || esc(d.stage || '-')}</span></td>
+                <td class="text-right mono">${d.expected_amount ? Number(d.expected_amount).toLocaleString() + ' ' + (d.currency || '') : '-'}</td>
                 <td style="font-size:11px;color:var(--text-3)">${d.updated_at ? new Date(d.updated_at).toLocaleDateString('ko-KR') : '-'}</td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
       `;
@@ -1260,15 +1437,19 @@ const CustomersPage = {
             <th>담당자</th><th>이메일</th><th>연락처</th><th>지역</th><th>산업</th>
           </tr></thead>
           <tbody>
-            ${members.map(m => `
-              <tr class="cm-grp-row ${m.id===id?'cp-selected':''}" data-cust-id="${m.id}" style="cursor:pointer">
-                <td><strong>${esc(m.contact_person||'-')}</strong>${m.id===id?' <span class="badge badge-blue" style="font-size:10px">현재</span>':''}</td>
-                <td class="mono" style="font-size:11px">${esc(m.email||'-')}</td>
-                <td class="mono">${esc(m.phone||'-')}</td>
-                <td>${esc(m.region||'-')}</td>
-                <td>${esc(m.industry||'-')}</td>
+            ${members
+              .map(
+                m => `
+              <tr class="cm-grp-row ${m.id === id ? 'cp-selected' : ''}" data-cust-id="${m.id}" style="cursor:pointer">
+                <td><strong>${esc(m.contact_person || '-')}</strong>${m.id === id ? ' <span class="badge badge-blue" style="font-size:10px">현재</span>' : ''}</td>
+                <td class="mono" style="font-size:11px">${esc(m.email || '-')}</td>
+                <td class="mono">${esc(m.phone || '-')}</td>
+                <td>${esc(m.region || '-')}</td>
+                <td>${esc(m.industry || '-')}</td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
       `;
@@ -1292,7 +1473,9 @@ const CustomersPage = {
       if (r.data) {
         this._renderBriefData(id, r.data);
       }
-    } catch (_) { /* 캐시 없으면 무시 */ }
+    } catch (_) {
+      /* 캐시 없으면 무시 */
+    }
   },
 
   // 브리핑 데이터 → 화면 렌더 (캐시 로드, 신규 생성 공통)
@@ -1301,38 +1484,46 @@ const CustomersPage = {
     if (!wrap) return;
     const s = d.stats || {};
     const genAtFmt = d.generated_at ? this._fmtDateTime(d.generated_at) : '';
-    const genBy    = d.generated_by_name || '';
+    const genBy = d.generated_by_name || '';
     wrap.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:11px;color:var(--text-3)">
         <span>${d.cached ? '🗂 저장된 브리핑' : '✨ 신규 생성됨'}</span>
-        ${genAtFmt ? `<span title="${esc(new Date(d.generated_at).toLocaleString())}">
-          🕐 ${esc(genAtFmt)} ${genBy ? '· '+esc(genBy) : ''}
-        </span>` : ''}
+        ${
+          genAtFmt
+            ? `<span title="${esc(new Date(d.generated_at).toLocaleString())}">
+          🕐 ${esc(genAtFmt)} ${genBy ? '· ' + esc(genBy) : ''}
+        </span>`
+            : ''
+        }
       </div>
       <div style="background:linear-gradient(135deg,rgba(22,100,229,.08),rgba(124,77,255,.06));
                   border-left:3px solid var(--oci-blue);padding:14px 16px;border-radius:8px;margin-bottom:14px">
-        <div style="font-size:14px;font-weight:600;line-height:1.5">${esc(d.headline||'')}</div>
+        <div style="font-size:14px;font-weight:600;line-height:1.5">${esc(d.headline || '')}</div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;font-size:11px">
-        <div class="stat-mini"><div style="color:var(--text-3)">총 딜</div><div style="font-size:18px;font-weight:700">${s.deals||0}</div></div>
-        <div class="stat-mini"><div style="color:var(--text-3)">진행</div><div style="font-size:18px;font-weight:700;color:var(--oci-blue)">${s.open||0}</div></div>
-        <div class="stat-mini"><div style="color:var(--text-3)">수주</div><div style="font-size:18px;font-weight:700;color:#17A85A">${s.won||0}</div></div>
-        <div class="stat-mini"><div style="color:var(--text-3)">누적 금액</div><div style="font-size:14px;font-weight:700">${(s.total_amount||0).toLocaleString()}</div></div>
+        <div class="stat-mini"><div style="color:var(--text-3)">총 딜</div><div style="font-size:18px;font-weight:700">${s.deals || 0}</div></div>
+        <div class="stat-mini"><div style="color:var(--text-3)">진행</div><div style="font-size:18px;font-weight:700;color:var(--oci-blue)">${s.open || 0}</div></div>
+        <div class="stat-mini"><div style="color:var(--text-3)">수주</div><div style="font-size:18px;font-weight:700;color:#17A85A">${s.won || 0}</div></div>
+        <div class="stat-mini"><div style="color:var(--text-3)">누적 금액</div><div style="font-size:14px;font-weight:700">${(s.total_amount || 0).toLocaleString()}</div></div>
       </div>
       <div style="font-size:13px;font-weight:600;margin:8px 0">📍 핵심 포인트</div>
       <ul style="margin:0 0 16px;padding-left:20px;line-height:1.8;font-size:13px">
-        ${(d.key_points||[]).map(k => `<li>${esc(k)}</li>`).join('')}
+        ${(d.key_points || []).map(k => `<li>${esc(k)}</li>`).join('')}
       </ul>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
         <div style="flex:1;min-width:200px;background:rgba(23,168,90,.08);border-left:3px solid #17A85A;padding:10px 12px;border-radius:6px">
           <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">🎯 이번 주 즉시 실행</div>
-          <div style="font-size:13px;font-weight:600">${esc(d.next_action||'-')}</div>
+          <div style="font-size:13px;font-weight:600">${esc(d.next_action || '-')}</div>
         </div>
-        ${d.risk ? `
+        ${
+          d.risk
+            ? `
         <div style="flex:1;min-width:200px;background:rgba(230,51,41,.08);border-left:3px solid var(--oci-red);padding:10px 12px;border-radius:6px">
           <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">⚠️ 리스크</div>
           <div style="font-size:13px;font-weight:600">${esc(d.risk)}</div>
-        </div>` : ''}
+        </div>`
+            : ''
+        }
       </div>
 
       <!-- 변경 이력 영역 -->
@@ -1376,29 +1567,31 @@ const CustomersPage = {
       wrap.innerHTML = `
         <div style="color:var(--text-3);margin-bottom:8px">총 ${list.length}건의 브리핑 이력 (최신순)</div>
         <div style="border-left:2px solid var(--border);padding-left:14px">
-          ${list.map((h, idx) => {
-            const isLatest = idx === 0;
-            const time = this._fmtDateTime(h.generated_at);
-            const fullTime = new Date(h.generated_at).toLocaleString('ko-KR');
-            return `
+          ${list
+            .map((h, idx) => {
+              const isLatest = idx === 0;
+              const time = this._fmtDateTime(h.generated_at);
+              const fullTime = new Date(h.generated_at).toLocaleString('ko-KR');
+              return `
               <div class="cm-brief-hist-item" style="position:relative;margin-bottom:14px;padding-left:6px">
                 <div style="position:absolute;left:-21px;top:4px;width:10px;height:10px;border-radius:50%;
-                            background:${isLatest?'var(--oci-blue)':'var(--text-4)'};border:2px solid var(--surface)"></div>
+                            background:${isLatest ? 'var(--oci-blue)' : 'var(--text-4)'};border:2px solid var(--surface)"></div>
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
-                  <span style="font-weight:600">${esc(h.headline||'(요약 없음)')}</span>
+                  <span style="font-weight:600">${esc(h.headline || '(요약 없음)')}</span>
                   <span style="font-size:11px;color:var(--text-3);white-space:nowrap" title="${esc(fullTime)}">
-                    ${esc(time)}${h.generated_by_name?' · '+esc(h.generated_by_name):''}
-                    ${isLatest?' <span class="badge badge-blue" style="font-size:9px;margin-left:4px">최신</span>':''}
+                    ${esc(time)}${h.generated_by_name ? ' · ' + esc(h.generated_by_name) : ''}
+                    ${isLatest ? ' <span class="badge badge-blue" style="font-size:9px;margin-left:4px">최신</span>' : ''}
                   </span>
                 </div>
                 <div style="color:var(--text-3);font-size:11px">
-                  🎯 ${esc(h.next_action||'-')}${h.risk?' · ⚠️ '+esc(h.risk):''}
+                  🎯 ${esc(h.next_action || '-')}${h.risk ? ' · ⚠️ ' + esc(h.risk) : ''}
                 </div>
                 <div style="font-size:10px;color:var(--text-4);margin-top:2px">
-                  딜 ${h.stats?.deals||0} · 수주 ${h.stats?.won||0} · 누적 ${(h.stats?.total_amount||0).toLocaleString()}
+                  딜 ${h.stats?.deals || 0} · 수주 ${h.stats?.won || 0} · 누적 ${(h.stats?.total_amount || 0).toLocaleString()}
                 </div>
               </div>`;
-          }).join('')}
+            })
+            .join('')}
         </div>
       `;
     } catch (e) {
@@ -1412,19 +1605,20 @@ const CustomersPage = {
     const d = new Date(ts);
     const diffMs = Date.now() - d.getTime();
     const m = Math.floor(diffMs / 60000);
-    if (m < 1)  return '방금 전';
+    if (m < 1) return '방금 전';
     if (m < 60) return `${m}분 전`;
     const h = Math.floor(m / 60);
     if (h < 24) return `${h}시간 전`;
     const day = Math.floor(h / 24);
     if (day < 7) return `${day}일 전`;
-    return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   },
 
   async _generateBrief(id) {
     const wrap = document.getElementById('cm-brief-content');
-    const btn  = document.getElementById('cm-brief-gen');
-    btn.disabled = true; btn.innerHTML = '⏳ 생성 중...';
+    const btn = document.getElementById('cm-brief-gen');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ 생성 중...';
     wrap.innerHTML = `<div class="loading" style="padding:30px;text-align:center">AI가 분석 중...</div>`;
     try {
       const r = await API.post(`/customers/${id}/brief`, {});
@@ -1432,7 +1626,8 @@ const CustomersPage = {
     } catch (e) {
       wrap.innerHTML = `<div class="empty" style="color:var(--oci-red);padding:20px">생성 실패: ${esc(e.message)}</div>`;
     } finally {
-      btn.disabled = false; btn.innerHTML = '🔄 다시 생성';
+      btn.disabled = false;
+      btn.innerHTML = '🔄 다시 생성';
     }
   },
 
@@ -1441,23 +1636,28 @@ const CustomersPage = {
     if (!form.reportValidity()) return;
     const fd = new FormData(form);
     const body = {};
-    fd.forEach((v, k) => body[k] = String(v).trim() || null);
+    fd.forEach((v, k) => (body[k] = String(v).trim() || null));
     try {
       await API.put(`/customers/${id}`, body);
       Toast.success('수정되었습니다');
       Modal.close();
       this.loadData();
-    } catch (e) { Toast.error('수정 실패: ' + e.message); }
+    } catch (e) {
+      Toast.error('수정 실패: ' + e.message);
+    }
   },
 
   async _deleteCustomer(id, name) {
-    if (!confirm(`정말 "${name}" 고객을 삭제하시겠습니까?\n관련 데이터는 영향받지 않습니다.`)) return;
+    if (!confirm(`정말 "${name}" 고객을 삭제하시겠습니까?\n관련 데이터는 영향받지 않습니다.`))
+      return;
     try {
       await API.delete(`/customers/${id}`);
       Toast.success('삭제되었습니다');
       Modal.close();
       this.loadData();
-    } catch (e) { Toast.error('삭제 실패: ' + e.message); }
+    } catch (e) {
+      Toast.error('삭제 실패: ' + e.message);
+    }
   },
 
   // ── 고객사 인텔리전스 스트리밍 (레거시 호환) ──────────────
@@ -1486,7 +1686,7 @@ const CustomersPage = {
     try {
       const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
       const res = await fetch(`/api/customers/${id}/intelligence`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
 
@@ -1505,7 +1705,10 @@ const CustomersPage = {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6).trim();
-          if (data === '[DONE]') { reader.cancel(); break; }
+          if (data === '[DONE]') {
+            reader.cancel();
+            break;
+          }
           try {
             const parsed = JSON.parse(data);
             if (parsed.error) {
@@ -1514,10 +1717,13 @@ const CustomersPage = {
             }
             if (parsed.text) {
               fullText += parsed.text;
-              contentEl.innerHTML = AI.renderMarkdown(fullText) + '<span class="ai-cursor">▋</span>';
+              contentEl.innerHTML =
+                AI.renderMarkdown(fullText) + '<span class="ai-cursor">▋</span>';
               contentEl.parentElement.scrollTop = contentEl.parentElement.scrollHeight;
             }
-          } catch (_) { /* malformed SSE JSON line, skip */ }
+          } catch (_) {
+            /* malformed SSE JSON line, skip */
+          }
         }
       }
       if (fullText) {
@@ -1543,18 +1749,22 @@ const CustomersPage = {
           <button id="rtab-btn-direct" data-reg-tab="direct"
             style="padding:10px 22px;font-size:13px;font-weight:500;border:none;background:none;
                    cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;
-                   transition:all .15s;color:${defaultTab==='direct'?'var(--oci-red)':'var(--text-3)'};
-                   border-bottom-color:${defaultTab==='direct'?'var(--oci-red)':'transparent'}">
+                   transition:all .15s;color:${defaultTab === 'direct' ? 'var(--oci-red)' : 'var(--text-3)'};
+                   border-bottom-color:${defaultTab === 'direct' ? 'var(--oci-red)' : 'transparent'}">
             직접 입력
           </button>
-          ${(typeof Features === 'undefined' || Features.isEnabled('ai.ocr')) ? `
+          ${
+            typeof Features === 'undefined' || Features.isEnabled('ai.ocr')
+              ? `
           <button id="rtab-btn-ocr" data-reg-tab="ocr"
             style="padding:10px 22px;font-size:13px;font-weight:500;border:none;background:none;
                    cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;
-                   transition:all .15s;color:${defaultTab==='ocr'?'var(--oci-red)':'var(--text-3)'};
-                   border-bottom-color:${defaultTab==='ocr'?'var(--oci-red)':'transparent'}">
+                   transition:all .15s;color:${defaultTab === 'ocr' ? 'var(--oci-red)' : 'var(--text-3)'};
+                   border-bottom-color:${defaultTab === 'ocr' ? 'var(--oci-red)' : 'transparent'}">
             📇 명함 업로드
-          </button>` : ''}
+          </button>`
+              : ''
+          }
         </div>
 
         <!-- 직접 입력 탭 -->
@@ -1636,11 +1846,11 @@ const CustomersPage = {
         </button>
       `,
       bind: {
-        '#reg-modal-close-btn':  () => Modal.close(),
-        '#rtab-footer-direct':   () => this.save(),
-        '#card-ocr-start-btn':   () => this._runOCR(),
-        '#card-save-all-btn':    () => this._saveAllOCR()
-      }
+        '#reg-modal-close-btn': () => Modal.close(),
+        '#rtab-footer-direct': () => this.save(),
+        '#card-ocr-start-btn': () => this._runOCR(),
+        '#card-save-all-btn': () => this._saveAllOCR(),
+      },
     });
     setTimeout(() => this._bindRegTabButtons(), 0);
   },
@@ -1652,9 +1862,12 @@ const CustomersPage = {
     const dropzone = document.getElementById('card-dropzone');
     if (dropzone) {
       dropzone.addEventListener('click', () => document.getElementById('card-file-input')?.click());
-      dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+      dropzone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropzone.classList.add('drag-over');
+      });
       dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-      dropzone.addEventListener('drop', (e) => this._handleDrop(e));
+      dropzone.addEventListener('drop', e => this._handleDrop(e));
     }
     const fileInput = document.getElementById('card-file-input');
     if (fileInput) fileInput.addEventListener('change', () => this._handleFiles(fileInput.files));
@@ -1693,7 +1906,9 @@ const CustomersPage = {
   async save() {
     const fd = new FormData(document.getElementById('cust-form'));
     const body = {};
-    fd.forEach((v, k) => { body[k] = v || null; });
+    fd.forEach((v, k) => {
+      body[k] = v || null;
+    });
     if (!body.name) return Toast.error('고객사명을 입력하세요');
 
     // 인라인 경고 초기화
@@ -1739,7 +1954,8 @@ const CustomersPage = {
     this._ocrFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
     const listEl = document.getElementById('card-file-list');
     if (!this._ocrFiles.length) {
-      listEl.innerHTML = '<div style="color:var(--oci-red);font-size:12px">이미지 파일이 없습니다</div>';
+      listEl.innerHTML =
+        '<div style="color:var(--oci-red);font-size:12px">이미지 파일이 없습니다</div>';
       return;
     }
     listEl.innerHTML = `
@@ -1747,13 +1963,17 @@ const CustomersPage = {
         <strong>${this._ocrFiles.length}장</strong> 선택됨
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${this._ocrFiles.map(f => `
+        ${this._ocrFiles
+          .map(
+            f => `
           <div style="display:flex;align-items:center;gap:4px;background:var(--surface-2);
                       border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px">
             📄 ${esc(f.name)}
-            <span style="color:var(--text-3)">(${(f.size/1024).toFixed(0)}KB)</span>
+            <span style="color:var(--text-3)">(${(f.size / 1024).toFixed(0)}KB)</span>
           </div>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>`;
 
     const startBtn = document.getElementById('card-ocr-start-btn');
@@ -1763,8 +1983,12 @@ const CustomersPage = {
   async _runOCR() {
     const startBtn = document.getElementById('card-ocr-start-btn');
     const resultsEl = document.getElementById('card-ocr-results');
-    if (startBtn) { startBtn.disabled = true; startBtn.textContent = '🔍 인식 중...'; }
-    resultsEl.innerHTML = '<div class="loading" style="padding:20px;text-align:center">AI가 명함을 분석 중입니다...</div>';
+    if (startBtn) {
+      startBtn.disabled = true;
+      startBtn.textContent = '🔍 인식 중...';
+    }
+    resultsEl.innerHTML =
+      '<div class="loading" style="padding:20px;text-align:center">AI가 명함을 분석 중입니다...</div>';
 
     try {
       const formData = new FormData();
@@ -1773,12 +1997,19 @@ const CustomersPage = {
       const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
       const ocrHeaders = {};
       if (token) ocrHeaders['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/customers/ocr', { method: 'POST', body: formData, headers: ocrHeaders });
+      const res = await fetch('/api/customers/ocr', {
+        method: 'POST',
+        body: formData,
+        headers: ocrHeaders,
+      });
       const data = await res.json();
 
       if (!data.success) {
         resultsEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(data.error)}</div>`;
-        if (startBtn) { startBtn.disabled = false; startBtn.textContent = '🔍 AI 인식 시작'; }
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.textContent = '🔍 AI 인식 시작';
+        }
         return;
       }
 
@@ -1789,7 +2020,10 @@ const CustomersPage = {
       if (startBtn) startBtn.style.display = 'none';
     } catch (err) {
       resultsEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(err.message)}</div>`;
-      if (startBtn) { startBtn.disabled = false; startBtn.textContent = '🔍 AI 인식 시작'; }
+      if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.textContent = '🔍 AI 인식 시작';
+      }
     }
   },
 
@@ -1803,79 +2037,100 @@ const CustomersPage = {
       <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text-1)">
         인식 결과 — 필드를 확인/수정 후 저장하세요
       </div>
-      ${this._ocrResults.map((r, i) => `
+      ${this._ocrResults
+        .map(
+          (r, i) => `
         <div class="ocr-result-card">
           <div style="background:var(--surface-2);padding:8px 12px;font-size:12px;font-weight:600;
                       color:var(--text-2);display:flex;justify-content:space-between;align-items:center;
                       border-bottom:1px solid var(--border)">
             <span>📄 ${esc(r.filename)}</span>
-            ${r.error
-              ? `<span style="color:var(--oci-red)">인식 실패</span>`
-              : `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
+            ${
+              r.error
+                ? `<span style="color:var(--oci-red)">인식 실패</span>`
+                : `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
                    <input type="checkbox" class="ocr-check" data-idx="${i}" checked> 저장 포함
                  </label>`
             }
           </div>
-          ${r.error
-            ? `<div style="padding:12px;color:var(--oci-red);font-size:12px">${esc(r.error)}</div>`
-            : `<div style="padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px" id="ocr-form-${i}">
+          ${
+            r.error
+              ? `<div style="padding:12px;color:var(--oci-red);font-size:12px">${esc(r.error)}</div>`
+              : `<div style="padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px" id="ocr-form-${i}">
                 ${[
-                  ['name','고객사명 *'],
-                  ['contact_person','담당자'],
-                  ['industry','산업군'],
-                  ['phone','전화번호'],
-                  ['email','이메일'],
-                  ['country','국가'],
-                  ['address','주소','grid-column:1/-1']
-                ].map(([field, label, style='']) => `
+                  ['name', '고객사명 *'],
+                  ['contact_person', '담당자'],
+                  ['industry', '산업군'],
+                  ['phone', '전화번호'],
+                  ['email', '이메일'],
+                  ['country', '국가'],
+                  ['address', '주소', 'grid-column:1/-1'],
+                ]
+                  .map(
+                    ([field, label, style = '']) => `
                   <div ${style ? `style="${style}"` : ''}>
                     <div style="font-size:11px;color:var(--text-3);margin-bottom:3px">${label}</div>
                     <input class="form-input" style="font-size:12px;padding:5px 8px"
                            id="ocr-${i}-${field}"
-                           value="${esc(r.parsed[field]||'')}"
+                           value="${esc(r.parsed[field] || '')}"
                            placeholder="${label}">
                   </div>
-                `).join('')}
+                `
+                  )
+                  .join('')}
                 <div>
                   <div style="font-size:11px;color:var(--text-3);margin-bottom:3px">지역</div>
                   <select class="form-input" style="font-size:12px;padding:5px 8px" id="ocr-${i}-region">
-                    <option value="국내" ${r.parsed.region!=='해외'?'selected':''}>국내</option>
-                    <option value="해외" ${r.parsed.region==='해외'?'selected':''}>해외</option>
+                    <option value="국내" ${r.parsed.region !== '해외' ? 'selected' : ''}>국내</option>
+                    <option value="해외" ${r.parsed.region === '해외' ? 'selected' : ''}>해외</option>
                   </select>
                 </div>
               </div>`
           }
         </div>
-      `).join('')}
+      `
+        )
+        .join('')}
     `;
   },
 
   _collectOCRForm(i) {
     const get = f => (document.getElementById(`ocr-${i}-${f}`)?.value || '').trim() || null;
     return {
-      name:           get('name'),
+      name: get('name'),
       contact_person: get('contact_person'),
-      industry:       get('industry'),
-      phone:          get('phone'),
-      email:          get('email'),
-      country:        get('country'),
-      address:        get('address'),
-      region:         document.getElementById(`ocr-${i}-region`)?.value || '국내'
+      industry: get('industry'),
+      phone: get('phone'),
+      email: get('email'),
+      country: get('country'),
+      address: get('address'),
+      region: document.getElementById(`ocr-${i}-region`)?.value || '국내',
     };
   },
 
   async _saveAllOCR() {
     const checks = document.querySelectorAll('.ocr-check:checked');
-    if (!checks.length) { Toast.error('저장할 항목을 선택하세요'); return; }
+    if (!checks.length) {
+      Toast.error('저장할 항목을 선택하세요');
+      return;
+    }
 
     const saveBtn = document.getElementById('card-save-all-btn');
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '저장 중...'; }
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '저장 중...';
+    }
 
-    let saved = 0; let duped = 0; let failed = 0;
+    let saved = 0;
+    let duped = 0;
+    let failed = 0;
     for (const chk of checks) {
       const i = parseInt(chk.dataset.idx);
       const body = this._collectOCRForm(i);
-      if (!body.name) { failed++; continue; }
+      if (!body.name) {
+        failed++;
+        continue;
+      }
       try {
         await API.customers.create(body);
         saved++;
@@ -1887,16 +2142,16 @@ const CustomersPage = {
 
     Modal.close();
     const parts = [];
-    if (saved)  parts.push(`${saved}개 등록 완료`);
-    if (duped)  parts.push(`${duped}개 중복 건너뜀`);
+    if (saved) parts.push(`${saved}개 등록 완료`);
+    if (duped) parts.push(`${duped}개 중복 건너뜀`);
     if (failed) parts.push(`${failed}개 오류`);
     const msg = parts.join(' · ') || '등록된 항목 없음';
 
-    if (saved)       Toast.success(msg);
-    else if (duped)  Toast.warn(`⚠️ 중복 방지: ${msg}`);
-    else             Toast.error(msg);
+    if (saved) Toast.success(msg);
+    else if (duped) Toast.warn(`⚠️ 중복 방지: ${msg}`);
+    else Toast.error(msg);
 
     await this.loadData();
     await App.refreshCommon();
-  }
+  },
 };

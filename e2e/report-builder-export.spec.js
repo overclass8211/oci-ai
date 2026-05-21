@@ -46,9 +46,8 @@ test('Excel 내보내기 — UI 핸들러 호출 → POST /export 응답 OK', as
 
   // POST /report-builder/export 응답 인터셉트
   const exportResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/report-builder/export') &&
-      response.request().method() === 'POST',
+    response =>
+      response.url().includes('/report-builder/export') && response.request().method() === 'POST',
     { timeout: 15000 }
   );
 

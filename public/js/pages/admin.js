@@ -28,11 +28,15 @@ const AdminPage = {
         <button class="tab-btn"        data-tab="pipeline">🔀 파이프라인 설정</button>
         <button class="tab-btn"        data-tab="menu-config">🧭 메뉴 구조</button>
         <button class="tab-btn"        data-tab="word-repo">🗂 워드 사전</button>
-        ${(App.currentUser?.role === 'superadmin') ? `
+        ${
+          App.currentUser?.role === 'superadmin'
+            ? `
         <button class="tab-btn" data-tab="token-monitor"
           style="color:#d93025;border-bottom-color:transparent">
           🔑 AI 토큰 현황
-        </button>` : ''}
+        </button>`
+            : ''
+        }
       </div>
 
       <div id="admin-tab-system"        class="admin-tab-panel"></div>
@@ -51,7 +55,7 @@ const AdminPage = {
     document.getElementById('content').innerHTML = html;
 
     // tab delegation
-    document.getElementById('admin-tab-bar')?.addEventListener('click', (e) => {
+    document.getElementById('admin-tab-bar')?.addEventListener('click', e => {
       const btn = e.target.closest('.tab-btn[data-tab]');
       if (btn) this.switchTab(btn.dataset.tab);
     });
@@ -175,7 +179,7 @@ const AdminPage = {
     const panel = document.getElementById('admin-tab-' + tab);
     if (!panel.dataset.loaded) {
       if (tab === 'system') this.loadSystem();
-      else if (tab === 'users')  this.loadUsers();
+      else if (tab === 'users') this.loadUsers();
       else if (tab === 'policy') this.loadPolicy();
       else if (tab === 'tokens') this.loadTokens();
       else if (tab === 'logs') this.loadLogs(0);
@@ -198,29 +202,31 @@ const AdminPage = {
     try {
       const r = await API.request('GET', '/auth/users');
       const ROLE_INFO = {
-        manager:    { label:'매니저',   color:'#6c757d', desc:'일반사용자' },
-        team_lead:  { label:'팀장',     color:'#3788d8', desc:'관리자' },
-        executive:  { label:'경영진',   color:'#fd7e14', desc:'전체열람' },
-        superadmin: { label:'IT운영',   color:'#e63946', desc:'수퍼어드민' },
+        manager: { label: '매니저', color: '#6c757d', desc: '일반사용자' },
+        team_lead: { label: '팀장', color: '#3788d8', desc: '관리자' },
+        executive: { label: '경영진', color: '#fd7e14', desc: '전체열람' },
+        superadmin: { label: 'IT운영', color: '#e63946', desc: '수퍼어드민' },
       };
-      const rows = r.data.map(u => {
-        const ri = ROLE_INFO[u.role] || ROLE_INFO.manager;
-        return `<tr>
+      const rows = r.data
+        .map(u => {
+          const ri = ROLE_INFO[u.role] || ROLE_INFO.manager;
+          return `<tr>
           <td><strong>${u.username}</strong></td>
           <td>${u.full_name || '-'}</td>
           <td>${u.email || '-'}</td>
           <td><span class="badge" style="background:${ri.color}20;color:${ri.color};border:1px solid ${ri.color}40;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${ri.label}</span></td>
-          <td><span style="color:${u.is_active?'#28a745':'#dc3545'}">${u.is_active ? '활성' : '비활성'}</span></td>
+          <td><span style="color:${u.is_active ? '#28a745' : '#dc3545'}">${u.is_active ? '활성' : '비활성'}</span></td>
           <td>${u.otp_enabled ? '✅' : '-'}</td>
           <td>${u.last_login ? new Date(u.last_login).toLocaleDateString('ko-KR') : '-'}</td>
           <td>
             <button class="btn-sm btn-outline" data-action="edit-user"
-              data-uid="${u.id}" data-username="${esc(u.username)}" data-fullname="${esc(u.full_name||'')}"
-              data-email="${esc(u.email||'')}" data-role="${esc(u.role)}" data-active="${u.is_active?1:0}">수정</button>
+              data-uid="${u.id}" data-username="${esc(u.username)}" data-fullname="${esc(u.full_name || '')}"
+              data-email="${esc(u.email || '')}" data-role="${esc(u.role)}" data-active="${u.is_active ? 1 : 0}">수정</button>
             ${u.role !== 'superadmin' ? `<button class="btn-sm btn-danger-outline" data-action="delete-user" data-uid="${u.id}" data-username="${esc(u.username)}">비활성화</button>` : ''}
           </td>
         </tr>`;
-      }).join('');
+        })
+        .join('');
       panel.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div>
@@ -245,28 +251,41 @@ const AdminPage = {
       `;
       panel.dataset.loaded = '1';
 
-      document.getElementById('admin-create-user-btn')?.addEventListener('click', () => this.createUserModal());
-      panel.addEventListener('click', (e) => {
+      document
+        .getElementById('admin-create-user-btn')
+        ?.addEventListener('click', () => this.createUserModal());
+      panel.addEventListener('click', e => {
         const btn = e.target.closest('[data-action]');
         if (!btn) return;
         const uid = parseInt(btn.dataset.uid);
         if (btn.dataset.action === 'edit-user') {
-          this.editUser(uid, btn.dataset.username, btn.dataset.fullname, btn.dataset.email, btn.dataset.role, btn.dataset.active === '1');
+          this.editUser(
+            uid,
+            btn.dataset.username,
+            btn.dataset.fullname,
+            btn.dataset.email,
+            btn.dataset.role,
+            btn.dataset.active === '1'
+          );
         } else if (btn.dataset.action === 'delete-user') {
           this.deleteUser(uid, btn.dataset.username);
         }
       });
-    } catch (e) { panel.innerHTML = `<div class="empty-state">오류: ${e.message}</div>`; }
+    } catch (e) {
+      panel.innerHTML = `<div class="empty-state">오류: ${e.message}</div>`;
+    }
   },
 
   createUserModal() {
     const ROLES = [
-      { v:'manager',    l:'매니저 (일반사용자)' },
-      { v:'team_lead',  l:'팀장 (관리자)' },
-      { v:'executive',  l:'경영진 (전체열람)' },
-      { v:'superadmin', l:'IT운영 (수퍼어드민)' },
+      { v: 'manager', l: '매니저 (일반사용자)' },
+      { v: 'team_lead', l: '팀장 (관리자)' },
+      { v: 'executive', l: '경영진 (전체열람)' },
+      { v: 'superadmin', l: 'IT운영 (수퍼어드민)' },
     ];
-    Modal.open('사용자 추가', `
+    Modal.open(
+      '사용자 추가',
+      `
       <div class="form-group"><label>아이디 *</label><input id="nu-username" class="form-control" placeholder="영문/숫자 4~20자"></div>
       <div class="form-group"><label>이름</label><input id="nu-fullname" class="form-control" placeholder="홍길동"></div>
       <div class="form-group"><label>이메일</label><input id="nu-email" class="form-control" type="email" placeholder="user@oci.com"></div>
@@ -276,58 +295,67 @@ const AdminPage = {
           ${ROLES.map(r => `<option value="${r.v}">${r.l}</option>`).join('')}
         </select>
       </div>
-    `, async () => {
-      const body = {
-        username:  document.getElementById('nu-username').value.trim(),
-        full_name: document.getElementById('nu-fullname').value.trim(),
-        email:     document.getElementById('nu-email').value.trim(),
-        password:  document.getElementById('nu-password').value,
-        role:      document.getElementById('nu-role').value,
-      };
-      if (!body.username || !body.password) { Toast.error('아이디와 비밀번호는 필수입니다.'); return; }
-      await API.request('POST', '/auth/users', body);
-      Toast.success('사용자가 추가되었습니다.');
-      document.getElementById('admin-tab-users').dataset.loaded = '';
-      AdminPage.loadUsers();
-    });
+    `,
+      async () => {
+        const body = {
+          username: document.getElementById('nu-username').value.trim(),
+          full_name: document.getElementById('nu-fullname').value.trim(),
+          email: document.getElementById('nu-email').value.trim(),
+          password: document.getElementById('nu-password').value,
+          role: document.getElementById('nu-role').value,
+        };
+        if (!body.username || !body.password) {
+          Toast.error('아이디와 비밀번호는 필수입니다.');
+          return;
+        }
+        await API.request('POST', '/auth/users', body);
+        Toast.success('사용자가 추가되었습니다.');
+        document.getElementById('admin-tab-users').dataset.loaded = '';
+        AdminPage.loadUsers();
+      }
+    );
   },
 
   editUser(id, username, fullName, email, role, isActive) {
     const ROLES = [
-      { v:'manager',    l:'매니저 (일반사용자)' },
-      { v:'team_lead',  l:'팀장 (관리자)' },
-      { v:'executive',  l:'경영진 (전체열람)' },
-      { v:'superadmin', l:'IT운영 (수퍼어드민)' },
+      { v: 'manager', l: '매니저 (일반사용자)' },
+      { v: 'team_lead', l: '팀장 (관리자)' },
+      { v: 'executive', l: '경영진 (전체열람)' },
+      { v: 'superadmin', l: 'IT운영 (수퍼어드민)' },
     ];
-    Modal.open(`사용자 수정 — ${username}`, `
+    Modal.open(
+      `사용자 수정 — ${username}`,
+      `
       <div class="form-group"><label>이름</label><input id="eu-fullname" class="form-control" value="${fullName}"></div>
       <div class="form-group"><label>이메일</label><input id="eu-email" class="form-control" type="email" value="${email}"></div>
       <div class="form-group"><label>역할</label>
         <select id="eu-role" class="form-control">
-          ${ROLES.map(r => `<option value="${r.v}" ${r.v===role?'selected':''}>${r.l}</option>`).join('')}
+          ${ROLES.map(r => `<option value="${r.v}" ${r.v === role ? 'selected' : ''}>${r.l}</option>`).join('')}
         </select>
       </div>
       <div class="form-group"><label>상태</label>
         <select id="eu-active" class="form-control">
-          <option value="1" ${isActive?'selected':''}>활성</option>
-          <option value="0" ${!isActive?'selected':''}>비활성</option>
+          <option value="1" ${isActive ? 'selected' : ''}>활성</option>
+          <option value="0" ${!isActive ? 'selected' : ''}>비활성</option>
         </select>
       </div>
       <div class="form-group"><label>새 비밀번호 (변경 시만)</label><input id="eu-password" class="form-control" type="password" placeholder="비워두면 변경 안 함"></div>
-    `, async () => {
-      const body = {
-        full_name: document.getElementById('eu-fullname').value.trim(),
-        email:     document.getElementById('eu-email').value.trim(),
-        role:      document.getElementById('eu-role').value,
-        is_active: parseInt(document.getElementById('eu-active').value),
-      };
-      const pw = document.getElementById('eu-password').value;
-      if (pw) body.password = pw;
-      await API.request('PUT', `/auth/users/${id}`, body);
-      Toast.success('사용자 정보가 수정되었습니다.');
-      document.getElementById('admin-tab-users').dataset.loaded = '';
-      AdminPage.loadUsers();
-    });
+    `,
+      async () => {
+        const body = {
+          full_name: document.getElementById('eu-fullname').value.trim(),
+          email: document.getElementById('eu-email').value.trim(),
+          role: document.getElementById('eu-role').value,
+          is_active: parseInt(document.getElementById('eu-active').value),
+        };
+        const pw = document.getElementById('eu-password').value;
+        if (pw) body.password = pw;
+        await API.request('PUT', `/auth/users/${id}`, body);
+        Toast.success('사용자 정보가 수정되었습니다.');
+        document.getElementById('admin-tab-users').dataset.loaded = '';
+        AdminPage.loadUsers();
+      }
+    );
   },
 
   async deleteUser(id, username) {
@@ -362,13 +390,13 @@ const AdminPage = {
             <div class="form-row" style="max-width:340px">
               <label class="form-label">자동 로그아웃 대기 시간 (분)</label>
               <select class="form-input" id="policy-idle">
-                <option value="0"  ${idle===0?'selected':''}>비활성화 (자동 로그아웃 안 함)</option>
-                <option value="5"  ${idle===5?'selected':''}>5분</option>
-                <option value="10" ${idle===10?'selected':''}>10분</option>
-                <option value="15" ${idle===15?'selected':''}>15분</option>
-                <option value="30" ${idle===30?'selected':''}>30분</option>
-                <option value="60" ${idle===60?'selected':''}>60분</option>
-                <option value="120" ${idle===120?'selected':''}>120분</option>
+                <option value="0"  ${idle === 0 ? 'selected' : ''}>비활성화 (자동 로그아웃 안 함)</option>
+                <option value="5"  ${idle === 5 ? 'selected' : ''}>5분</option>
+                <option value="10" ${idle === 10 ? 'selected' : ''}>10분</option>
+                <option value="15" ${idle === 15 ? 'selected' : ''}>15분</option>
+                <option value="30" ${idle === 30 ? 'selected' : ''}>30분</option>
+                <option value="60" ${idle === 60 ? 'selected' : ''}>60분</option>
+                <option value="120" ${idle === 120 ? 'selected' : ''}>120분</option>
               </select>
             </div>
           </div>
@@ -398,24 +426,28 @@ const AdminPage = {
         </div>
       `;
       panel.dataset.loaded = '1';
-      document.getElementById('policy-save-btn')?.addEventListener('click', () => this.savePolicy());
+      document
+        .getElementById('policy-save-btn')
+        ?.addEventListener('click', () => this.savePolicy());
     } catch (err) {
       panel.innerHTML = `<div class="empty">설정 로드 실패: ${esc(err.message)}</div>`;
     }
   },
 
   async savePolicy() {
-    const idle  = document.getElementById('policy-idle').value;
+    const idle = document.getElementById('policy-idle').value;
     const limit = document.getElementById('policy-token-limit').value;
     try {
       await API.admin.saveSettings({
         idle_timeout_min: idle,
-        default_monthly_token_limit: limit
+        default_monthly_token_limit: limit,
       });
       Toast.success('정책이 저장되었습니다');
       // 즉시 적용
       if (typeof UserPrefs !== 'undefined') UserPrefs.reloadIdlePolicy();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   // ============================================================
@@ -457,21 +489,27 @@ const AdminPage = {
                 </tr>
               </thead>
               <tbody id="tokens-tbody">
-                ${rows.map(u => {
-                  const limit = (u.monthly_token_limit !== null && u.monthly_token_limit !== undefined) ? u.monthly_token_limit : defaultLimit;
-                  const used = Number(u.used_this_month);
-                  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-                  const barColor = pct >= 90 ? '#d93025' : pct >= 70 ? '#f59c00' : '#1a73e8';
-                  return `
+                ${rows
+                  .map(u => {
+                    const limit =
+                      u.monthly_token_limit !== null && u.monthly_token_limit !== undefined
+                        ? u.monthly_token_limit
+                        : defaultLimit;
+                    const used = Number(u.used_this_month);
+                    const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+                    const barColor = pct >= 90 ? '#d93025' : pct >= 70 ? '#f59c00' : '#1a73e8';
+                    return `
                     <tr>
-                      <td><strong>${esc(u.name)}</strong><br><span style="font-size:11px;color:var(--text-3)">${esc(u.email||'')}</span></td>
+                      <td><strong>${esc(u.name)}</strong><br><span style="font-size:11px;color:var(--text-3)">${esc(u.email || '')}</span></td>
                       <td><span class="badge badge-blue">${esc(u.role)}</span></td>
                       <td class="mono">${used.toLocaleString()}</td>
                       <td class="mono">${u.calls_this_month}</td>
                       <td class="mono">
-                        ${(u.monthly_token_limit !== null && u.monthly_token_limit !== undefined)
-                          ? `<strong>${Number(u.monthly_token_limit).toLocaleString()}</strong>`
-                          : `<span style="color:var(--text-3)">기본 (${defaultLimit.toLocaleString()})</span>`}
+                        ${
+                          u.monthly_token_limit !== null && u.monthly_token_limit !== undefined
+                            ? `<strong>${Number(u.monthly_token_limit).toLocaleString()}</strong>`
+                            : `<span style="color:var(--text-3)">기본 (${defaultLimit.toLocaleString()})</span>`
+                        }
                       </td>
                       <td>
                         <div style="display:flex;align-items:center;gap:8px">
@@ -490,14 +528,15 @@ const AdminPage = {
                       </td>
                     </tr>
                   `;
-                }).join('')}
+                  })
+                  .join('')}
               </tbody>
             </table>
           </div>
         </div>
       `;
       panel.dataset.loaded = '1';
-      panel.addEventListener('click', (e) => {
+      panel.addEventListener('click', e => {
         const btn = e.target.closest('[data-action="save-limit"]');
         if (btn) this.saveUserLimit(parseInt(btn.dataset.uid));
       });
@@ -513,7 +552,9 @@ const AdminPage = {
       Toast.success('한도가 저장되었습니다');
       delete document.getElementById('admin-tab-tokens').dataset.loaded;
       this.loadTokens();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   // ============================================================
@@ -538,17 +579,17 @@ const AdminPage = {
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">금일 API 호출</div>
-            <div class="admin-stat-value">${(d.api_calls_today !== null && d.api_calls_today !== undefined) ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
+            <div class="admin-stat-value">${d.api_calls_today !== null && d.api_calls_today !== undefined ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
             <div class="admin-stat-sub">오늘 0시 이후 누적</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">DB 크기</div>
-            <div class="admin-stat-value">${(d.db_size_mb !== null && d.db_size_mb !== undefined) ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
+            <div class="admin-stat-value">${d.db_size_mb !== null && d.db_size_mb !== undefined ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
             <div class="admin-stat-sub">MariaDB 전체 데이터</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">가동 시간</div>
-            <div class="admin-stat-value">${(d.uptime_hours !== null && d.uptime_hours !== undefined) ? Math.floor(d.uptime_hours) : '-'}<span class="admin-stat-unit">hr</span></div>
+            <div class="admin-stat-value">${d.uptime_hours !== null && d.uptime_hours !== undefined ? Math.floor(d.uptime_hours) : '-'}<span class="admin-stat-unit">hr</span></div>
             <div class="admin-stat-sub">마지막 재시작 이후</div>
           </div>
         </div>
@@ -575,7 +616,9 @@ const AdminPage = {
           </div>
         </div>
       `;
-      document.getElementById('system-refresh-btn')?.addEventListener('click', () => this.loadSystem());
+      document
+        .getElementById('system-refresh-btn')
+        ?.addEventListener('click', () => this.loadSystem());
     } catch (err) {
       panel.innerHTML = `<div class="alert alert-error">시스템 현황을 불러올 수 없습니다: ${esc(err.message)}</div>`;
     }
@@ -586,18 +629,24 @@ const AdminPage = {
     const services = [
       {
         name: 'DB 연결',
-        ok: (d.db_size_mb !== null && d.db_size_mb !== undefined),
-        desc: (d.db_size_mb !== null && d.db_size_mb !== undefined) ? `MariaDB 정상 응답 · ${parseFloat(d.db_size_mb).toFixed(1)} MB` : '연결 실패'
+        ok: d.db_size_mb !== null && d.db_size_mb !== undefined,
+        desc:
+          d.db_size_mb !== null && d.db_size_mb !== undefined
+            ? `MariaDB 정상 응답 · ${parseFloat(d.db_size_mb).toFixed(1)} MB`
+            : '연결 실패',
       },
       {
         name: 'API 서비스',
-        ok: (d.api_calls_today !== null && d.api_calls_today !== undefined),
-        desc: (d.api_calls_today !== null && d.api_calls_today !== undefined) ? `Express API 정상 · 금일 ${d.api_calls_today.toLocaleString()}회 처리` : '응답 없음'
+        ok: d.api_calls_today !== null && d.api_calls_today !== undefined,
+        desc:
+          d.api_calls_today !== null && d.api_calls_today !== undefined
+            ? `Express API 정상 · 금일 ${d.api_calls_today.toLocaleString()}회 처리`
+            : '응답 없음',
       },
       {
         name: '파일 스토리지',
         ok: true,
-        desc: '로컬 파일시스템 정상'
+        desc: '로컬 파일시스템 정상',
       },
       {
         // 이 앱은 native `ws` 라이브러리 사용 (Socket.IO 아님)
@@ -605,15 +654,18 @@ const AdminPage = {
         // 서버 측: getClientCount() 가 d.ws_connections 에 활성 클라이언트 수 반환
         name: 'WebSocket',
         ok: typeof WS !== 'undefined' && WS.socket?.readyState === 1,
-        desc: (typeof WS !== 'undefined' && WS.socket?.readyState === 1)
-          ? `WebSocket 연결 활성${(d.ws_connections !== null && d.ws_connections !== undefined) ? ` · 활성 클라이언트 ${d.ws_connections}개` : ''}`
-          : (d.ws_connections > 0
+        desc:
+          typeof WS !== 'undefined' && WS.socket?.readyState === 1
+            ? `WebSocket 연결 활성${d.ws_connections !== null && d.ws_connections !== undefined ? ` · 활성 클라이언트 ${d.ws_connections}개` : ''}`
+            : d.ws_connections > 0
               ? `서버 측 WebSocket 활성(${d.ws_connections}개 연결) · 현재 브라우저 연결 끊김`
-              : 'WebSocket 연결 끊김 또는 미초기화')
-      }
+              : 'WebSocket 연결 끊김 또는 미초기화',
+      },
     ];
 
-    return services.map(s => `
+    return services
+      .map(
+        s => `
       <tr>
         <td><strong>${esc(s.name)}</strong></td>
         <td>
@@ -625,7 +677,9 @@ const AdminPage = {
         <td class="text-muted">${esc(s.desc)}</td>
         <td class="text-muted fs-12">${now}</td>
       </tr>
-    `).join('');
+    `
+      )
+      .join('');
   },
 
   // ============================================================
@@ -658,22 +712,24 @@ const AdminPage = {
       const limit = 50;
       const offset = page * limit;
       const res = await API.get(`/admin/access-logs?limit=${limit}&offset=${offset}`);
-      const rows = Array.isArray(res) ? res : (res.data || []);
+      const rows = Array.isArray(res) ? res : res.data || [];
       this.logsData = rows;
       this._renderLogsTable(rows, page, limit);
     } catch (err) {
       const wrap2 = document.getElementById('logs-table-wrap');
-      if (wrap2) wrap2.innerHTML = `<div class="alert alert-error" style="margin:12px">로그를 불러올 수 없습니다: ${esc(err.message)}</div>`;
+      if (wrap2)
+        wrap2.innerHTML = `<div class="alert alert-error" style="margin:12px">로그를 불러올 수 없습니다: ${esc(err.message)}</div>`;
     }
   },
 
   _renderLogsTable(rows, page, limit) {
     const wrap = document.getElementById('logs-table-wrap');
-    const pag  = document.getElementById('logs-pagination');
+    const pag = document.getElementById('logs-pagination');
     if (!wrap) return;
 
     if (!rows.length) {
-      wrap.innerHTML = '<div class="empty" style="padding:40px;text-align:center;color:var(--text-2)">기록된 로그가 없습니다</div>';
+      wrap.innerHTML =
+        '<div class="empty" style="padding:40px;text-align:center;color:var(--text-2)">기록된 로그가 없습니다</div>';
       if (pag) pag.innerHTML = '';
       return;
     }
@@ -691,16 +747,20 @@ const AdminPage = {
           </tr>
         </thead>
         <tbody>
-          ${rows.map(r => `
+          ${rows
+            .map(
+              r => `
             <tr>
               <td class="text-muted fs-12 mono" style="white-space:nowrap">${Fmt.relTime(r.created_at)}</td>
               <td class="mono fs-12" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.path)}">${esc(r.path)}</td>
               <td><span class="log-method log-method-${esc(r.method)}">${esc(r.method)}</span></td>
               <td>${this._statusBadge(r.status_code)}</td>
-              <td class="text-right mono fs-12">${(r.duration_ms !== null && r.duration_ms !== undefined) ? r.duration_ms + ' ms' : '-'}</td>
+              <td class="text-right mono fs-12">${r.duration_ms !== null && r.duration_ms !== undefined ? r.duration_ms + ' ms' : '-'}</td>
               <td class="text-muted fs-12 mono">${esc(r.ip || '-')}</td>
             </tr>
-          `).join('')}
+          `
+            )
+            .join('')}
         </tbody>
       </table>
     `;
@@ -713,7 +773,7 @@ const AdminPage = {
         <button class="btn btn-ghost btn-sm" ${hasPrev ? '' : 'disabled'} data-logs-page="${page - 1}">← 이전</button>
         <button class="btn btn-ghost btn-sm" ${hasNext ? '' : 'disabled'} data-logs-page="${page + 1}">다음 →</button>
       `;
-      pag.addEventListener('click', (e) => {
+      pag.addEventListener('click', e => {
         const btn = e.target.closest('[data-logs-page]');
         if (btn && !btn.disabled) this.loadLogs(parseInt(btn.dataset.logsPage));
       });
@@ -752,7 +812,7 @@ const AdminPage = {
     panel.innerHTML = '<div class="loading">로딩중...</div>';
     try {
       const res = await API.get('/admin/team-stats');
-      this.teamData = Array.isArray(res) ? res : (res.data || []);
+      this.teamData = Array.isArray(res) ? res : res.data || [];
       panel.dataset.loaded = '1';
       this._renderTeamPanel();
     } catch (err) {
@@ -773,19 +833,22 @@ const AdminPage = {
         </div>
       </div>
     `;
-    document.getElementById('admin-add-member-btn')?.addEventListener('click', () => this.openMemberForm());
+    document
+      .getElementById('admin-add-member-btn')
+      ?.addEventListener('click', () => this.openMemberForm());
     this._renderTeamTable();
   },
 
   _renderTeamTable() {
     const wrap = document.getElementById('admin-team-table-wrap');
-    const cnt  = document.getElementById('admin-team-count');
+    const cnt = document.getElementById('admin-team-count');
     if (!wrap) return;
 
     if (cnt) cnt.textContent = `(총 ${this.teamData.length}명)`;
 
     if (!this.teamData.length) {
-      wrap.innerHTML = '<div class="empty" style="padding:40px;text-align:center;color:var(--text-2)">등록된 팀원이 없습니다</div>';
+      wrap.innerHTML =
+        '<div class="empty" style="padding:40px;text-align:center;color:var(--text-2)">등록된 팀원이 없습니다</div>';
       return;
     }
 
@@ -804,7 +867,9 @@ const AdminPage = {
           </tr>
         </thead>
         <tbody>
-          ${this.teamData.map(m => `
+          ${this.teamData
+            .map(
+              m => `
             <tr>
               <td>
                 <div style="display:flex;align-items:center;gap:8px">
@@ -818,32 +883,47 @@ const AdminPage = {
               <td class="text-muted">${esc(m.team || '-')}</td>
               <td class="text-muted fs-12">${esc(m.email || '-')}</td>
               <td class="text-muted fs-12">${m.last_active ? Fmt.relTime(m.last_active) : '-'}</td>
-              <td class="text-right mono">${(m.leads_count !== null && m.leads_count !== undefined) ? m.leads_count : '-'}</td>
-              <td class="text-right mono">${(m.activities_count !== null && m.activities_count !== undefined) ? m.activities_count : '-'}</td>
+              <td class="text-right mono">${m.leads_count !== null && m.leads_count !== undefined ? m.leads_count : '-'}</td>
+              <td class="text-right mono">${m.activities_count !== null && m.activities_count !== undefined ? m.activities_count : '-'}</td>
               <td style="white-space:nowrap">
                 <button class="btn btn-ghost btn-sm" data-action="edit-member" data-mid="${m.id}">편집</button>
                 <button class="btn btn-ghost btn-sm text-danger" data-action="deactivate-member" data-mid="${m.id}" data-mname="${esc(m.name || '')}">비활성화</button>
               </td>
             </tr>
-          `).join('')}
+          `
+            )
+            .join('')}
         </tbody>
       </table>
     `;
-    wrap.addEventListener('click', (e) => {
+    wrap.addEventListener('click', e => {
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
       const mid = parseInt(btn.dataset.mid);
       if (btn.dataset.action === 'edit-member') this.openMemberForm(mid);
-      else if (btn.dataset.action === 'deactivate-member') this.deactivateMember(mid, btn.dataset.mname);
+      else if (btn.dataset.action === 'deactivate-member')
+        this.deactivateMember(mid, btn.dataset.mname);
     });
   },
 
   _roleColor(role) {
-    return { Sales: '#E63329', Field: '#2357E8', CS: '#17A85A', Manager: '#7C4DFF', Admin: '#F59C00' }[role] || '#6B7280';
+    return (
+      { Sales: '#E63329', Field: '#2357E8', CS: '#17A85A', Manager: '#7C4DFF', Admin: '#F59C00' }[
+        role
+      ] || '#6B7280'
+    );
   },
 
   _roleBadge(role) {
-    return { Sales: 'badge-red', Field: 'badge-blue', CS: 'badge-green', Manager: 'badge-purple', Admin: 'badge-amber' }[role] || 'badge-gray';
+    return (
+      {
+        Sales: 'badge-red',
+        Field: 'badge-blue',
+        CS: 'badge-green',
+        Manager: 'badge-purple',
+        Admin: 'badge-amber',
+      }[role] || 'badge-gray'
+    );
   },
 
   openMemberForm(id = null) {
@@ -884,10 +964,12 @@ const AdminPage = {
         <button class="btn btn-primary" id="member-save-btn">${m ? '저장' : '등록'}</button>
       `,
       bind: {
-        ...(m ? { '#member-deactivate-btn': () => this.deactivateMember(m.id, m.name || '', true) } : {}),
+        ...(m
+          ? { '#member-deactivate-btn': () => this.deactivateMember(m.id, m.name || '', true) }
+          : {}),
         '#member-cancel-btn': () => Modal.close(),
-        '#member-save-btn':   () => this.saveMember(m?.id || null)
-      }
+        '#member-save-btn': () => this.saveMember(m?.id || null),
+      },
     });
   },
 
@@ -896,7 +978,9 @@ const AdminPage = {
     if (!form) return;
     const fd = new FormData(form);
     const body = {};
-    fd.forEach((v, k) => { body[k] = v; });
+    fd.forEach((v, k) => {
+      body[k] = v;
+    });
     if (!body.name) return Toast.error('이름을 입력하세요');
     try {
       if (id) {
@@ -974,17 +1058,17 @@ const AdminPage = {
         <div class="stat-card-grid" style="grid-template-columns:repeat(3,1fr)">
           <div class="admin-stat-card">
             <div class="admin-stat-label">금일 API 호출</div>
-            <div class="admin-stat-value">${(d.api_calls_today !== null && d.api_calls_today !== undefined) ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
+            <div class="admin-stat-value">${d.api_calls_today !== null && d.api_calls_today !== undefined ? d.api_calls_today.toLocaleString() : '-'}<span class="admin-stat-unit">회</span></div>
             <div class="admin-stat-sub">오늘 0시 기준 누적</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">활성 세션</div>
-            <div class="admin-stat-value">${(d.active_sessions !== null && d.active_sessions !== undefined) ? d.active_sessions : '-'}<span class="admin-stat-unit">개</span></div>
+            <div class="admin-stat-value">${d.active_sessions !== null && d.active_sessions !== undefined ? d.active_sessions : '-'}<span class="admin-stat-unit">개</span></div>
             <div class="admin-stat-sub">현재 접속 중인 세션</div>
           </div>
           <div class="admin-stat-card">
             <div class="admin-stat-label">DB 크기</div>
-            <div class="admin-stat-value">${(d.db_size_mb !== null && d.db_size_mb !== undefined) ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
+            <div class="admin-stat-value">${d.db_size_mb !== null && d.db_size_mb !== undefined ? parseFloat(d.db_size_mb).toFixed(1) : '-'}<span class="admin-stat-unit">MB</span></div>
             <div class="admin-stat-sub">MariaDB 누적 데이터</div>
           </div>
         </div>
@@ -1019,12 +1103,12 @@ const AdminPage = {
       // synthetic fallback: gentle curve leading up to today
       callData = [
         Math.round(todayVal * 0.55),
-        Math.round(todayVal * 0.70),
-        Math.round(todayVal * 0.60),
-        Math.round(todayVal * 0.80),
+        Math.round(todayVal * 0.7),
+        Math.round(todayVal * 0.6),
+        Math.round(todayVal * 0.8),
         Math.round(todayVal * 0.75),
-        Math.round(todayVal * 0.90),
-        todayVal
+        Math.round(todayVal * 0.9),
+        todayVal,
       ];
     }
 
@@ -1037,13 +1121,15 @@ const AdminPage = {
       type: 'bar',
       data: {
         labels,
-        datasets: [{
-          label: 'API 호출 수',
-          data: callData,
-          backgroundColor: '#1664E5',
-          borderRadius: 5,
-          borderSkipped: false
-        }]
+        datasets: [
+          {
+            label: 'API 호출 수',
+            data: callData,
+            backgroundColor: '#1664E5',
+            borderRadius: 5,
+            borderSkipped: false,
+          },
+        ],
       },
       options: {
         responsive: true,
@@ -1052,25 +1138,25 @@ const AdminPage = {
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: ctx => ` ${ctx.parsed.y.toLocaleString()}회`
-            }
-          }
+              label: ctx => ` ${ctx.parsed.y.toLocaleString()}회`,
+            },
+          },
         },
         scales: {
           x: {
             grid: { display: false },
-            ticks: { font: { size: 11 } }
+            ticks: { font: { size: 11 } },
           },
           y: {
             beginAtZero: true,
             grid: { color: '#E8EAED' },
             ticks: {
               font: { size: 11 },
-              callback: v => v.toLocaleString()
-            }
-          }
-        }
-      }
+              callback: v => v.toLocaleString(),
+            },
+          },
+        },
+      },
     });
   },
 
@@ -1079,18 +1165,51 @@ const AdminPage = {
     if (!wrap) return;
 
     // Use top_endpoints if provided, otherwise show static common endpoints
-    const endpoints = Array.isArray(d.top_endpoints) && d.top_endpoints.length
-      ? d.top_endpoints
-      : [
-          { path: '/api/leads',           method: 'GET',  count: Math.round((d.api_calls_today || 100) * 0.28) },
-          { path: '/api/dashboard/stats', method: 'GET',  count: Math.round((d.api_calls_today || 100) * 0.18) },
-          { path: '/api/activities',      method: 'POST', count: Math.round((d.api_calls_today || 100) * 0.14) },
-          { path: '/api/team',            method: 'GET',  count: Math.round((d.api_calls_today || 100) * 0.10) },
-          { path: '/api/notifications',   method: 'GET',  count: Math.round((d.api_calls_today || 100) * 0.08) },
-          { path: '/api/products',        method: 'GET',  count: Math.round((d.api_calls_today || 100) * 0.07) },
-          { path: '/api/customers',       method: 'GET',  count: Math.round((d.api_calls_today || 100) * 0.06) },
-          { path: '/api/admin/stats',     method: 'GET',  count: Math.round((d.api_calls_today || 100) * 0.05) }
-        ];
+    const endpoints =
+      Array.isArray(d.top_endpoints) && d.top_endpoints.length
+        ? d.top_endpoints
+        : [
+            {
+              path: '/api/leads',
+              method: 'GET',
+              count: Math.round((d.api_calls_today || 100) * 0.28),
+            },
+            {
+              path: '/api/dashboard/stats',
+              method: 'GET',
+              count: Math.round((d.api_calls_today || 100) * 0.18),
+            },
+            {
+              path: '/api/activities',
+              method: 'POST',
+              count: Math.round((d.api_calls_today || 100) * 0.14),
+            },
+            {
+              path: '/api/team',
+              method: 'GET',
+              count: Math.round((d.api_calls_today || 100) * 0.1),
+            },
+            {
+              path: '/api/notifications',
+              method: 'GET',
+              count: Math.round((d.api_calls_today || 100) * 0.08),
+            },
+            {
+              path: '/api/products',
+              method: 'GET',
+              count: Math.round((d.api_calls_today || 100) * 0.07),
+            },
+            {
+              path: '/api/customers',
+              method: 'GET',
+              count: Math.round((d.api_calls_today || 100) * 0.06),
+            },
+            {
+              path: '/api/admin/stats',
+              method: 'GET',
+              count: Math.round((d.api_calls_today || 100) * 0.05),
+            },
+          ];
 
     const total = endpoints.reduce((s, e) => s + (e.count || 0), 0) || 1;
 
@@ -1105,9 +1224,10 @@ const AdminPage = {
           </tr>
         </thead>
         <tbody>
-          ${endpoints.map(e => {
-            const pct = Math.round((e.count / total) * 100);
-            return `
+          ${endpoints
+            .map(e => {
+              const pct = Math.round((e.count / total) * 100);
+              return `
               <tr>
                 <td class="mono fs-12">${esc(e.path)}</td>
                 <td><span class="log-method log-method-${esc(e.method)}">${esc(e.method)}</span></td>
@@ -1122,7 +1242,8 @@ const AdminPage = {
                 </td>
               </tr>
             `;
-          }).join('')}
+            })
+            .join('')}
         </tbody>
       </table>
     `;
@@ -1131,15 +1252,16 @@ const AdminPage = {
   // ============================================================
   // Tab — 게시판 통계 (월별 / 조직별)
   // ============================================================
-  _boardYear:  new Date().getFullYear(),
+  _boardYear: new Date().getFullYear(),
   _boardMonth: new Date().getMonth() + 1,
 
   async loadBoardStats(year, month) {
-    if (year  !== undefined) this._boardYear  = parseInt(year);
+    if (year !== undefined) this._boardYear = parseInt(year);
     if (month !== undefined) this._boardMonth = parseInt(month);
 
     const panel = document.getElementById('admin-tab-board');
-    panel.innerHTML = '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
+    panel.innerHTML =
+      '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
 
     try {
       const res = await API.get(
@@ -1153,11 +1275,15 @@ const AdminPage = {
   },
 
   _renderBoardStats(panel, d) {
-    const y = d.year; const m = d.month;
-    const monthOptions = Array.from({length:12}, (_,i) =>
-      `<option value="${i+1}" ${i+1===m?'selected':''}>${i+1}월</option>`).join('');
-    const yearOptions = [y-2,y-1,y,y+1].map(yr =>
-      `<option value="${yr}" ${yr===y?'selected':''}>${yr}년</option>`).join('');
+    const y = d.year;
+    const m = d.month;
+    const monthOptions = Array.from(
+      { length: 12 },
+      (_, i) => `<option value="${i + 1}" ${i + 1 === m ? 'selected' : ''}>${i + 1}월</option>`
+    ).join('');
+    const yearOptions = [y - 2, y - 1, y, y + 1]
+      .map(yr => `<option value="${yr}" ${yr === y ? 'selected' : ''}>${yr}년</option>`)
+      .join('');
 
     // 본부(role) 목록
     const roles = [...new Set(d.members.map(mb => mb.role))];
@@ -1165,7 +1291,7 @@ const AdminPage = {
     const buildRows = () => {
       let html = '';
       roles.forEach(role => {
-        const roleData = d.roles.find(r => r.role === role) || {posts:0,comments:0,views:0};
+        const roleData = d.roles.find(r => r.role === role) || { posts: 0, comments: 0, views: 0 };
         html += `
           <tr class="board-stat-role board-stat-toggle-row" style="background:var(--bg-2);font-weight:700;cursor:pointer"
               data-bs-role="${esc(role)}" data-toggle-type="role" data-toggle-key="${esc(role)}">
@@ -1178,10 +1304,14 @@ const AdminPage = {
             <td class="text-right mono" style="font-size:13px">${roleData.views.toLocaleString()}</td>
           </tr>`;
 
-        const teams = [...new Set(d.members.filter(mb=>mb.role===role).map(mb=>mb.team))];
+        const teams = [...new Set(d.members.filter(mb => mb.role === role).map(mb => mb.team))];
         teams.forEach(team => {
-          const teamData = d.teams.find(t=>t.role===role&&t.team===team) || {posts:0,comments:0,views:0};
-          const teamKey  = `${role}||${team}`;
+          const teamData = d.teams.find(t => t.role === role && t.team === team) || {
+            posts: 0,
+            comments: 0,
+            views: 0,
+          };
+          const teamKey = `${role}||${team}`;
           html += `
             <tr class="board-stat-team board-stat-toggle-row" data-role="${esc(role)}" data-team="${esc(teamKey)}"
                 style="background:var(--surface-1,#fff);font-weight:600;cursor:pointer"
@@ -1191,24 +1321,26 @@ const AdminPage = {
                 <span style="margin-left:6px;color:var(--oci-blue,#1a73e8)">👥 ${esc(team)}</span>
               </td>
               <td class="text-muted fs-12">
-                ${d.members.filter(mb=>mb.role===role&&mb.team===team).length}명
+                ${d.members.filter(mb => mb.role === role && mb.team === team).length}명
               </td>
               <td class="text-right mono fs-13">${teamData.posts.toLocaleString()}</td>
               <td class="text-right mono fs-13">${teamData.comments.toLocaleString()}</td>
               <td class="text-right mono fs-13">${teamData.views.toLocaleString()}</td>
             </tr>`;
 
-          d.members.filter(mb=>mb.role===role&&mb.team===team).forEach(mem => {
-            const hasAct = mem.posts + mem.comments + mem.views > 0;
-            html += `
+          d.members
+            .filter(mb => mb.role === role && mb.team === team)
+            .forEach(mem => {
+              const hasAct = mem.posts + mem.comments + mem.views > 0;
+              html += `
               <tr data-role="${esc(role)}" data-team="${esc(teamKey)}"
-                  style="font-size:13px${hasAct?'':';color:var(--text-3)'}">
+                  style="font-size:13px${hasAct ? '' : ';color:var(--text-3)'}">
                 <td colspan="2" style="padding:6px 14px 6px 46px">👤 ${esc(mem.name)}</td>
-                <td class="text-right mono">${mem.posts>0?`<strong>${mem.posts}</strong>`:'<span style="color:var(--text-3)">-</span>'}</td>
-                <td class="text-right mono">${mem.comments>0?`<strong>${mem.comments}</strong>`:'<span style="color:var(--text-3)">-</span>'}</td>
-                <td class="text-right mono">${mem.views>0?`<strong>${mem.views}</strong>`:'<span style="color:var(--text-3)">-</span>'}</td>
+                <td class="text-right mono">${mem.posts > 0 ? `<strong>${mem.posts}</strong>` : '<span style="color:var(--text-3)">-</span>'}</td>
+                <td class="text-right mono">${mem.comments > 0 ? `<strong>${mem.comments}</strong>` : '<span style="color:var(--text-3)">-</span>'}</td>
+                <td class="text-right mono">${mem.views > 0 ? `<strong>${mem.views}</strong>` : '<span style="color:var(--text-3)">-</span>'}</td>
               </tr>`;
-          });
+            });
         });
       });
       return html;
@@ -1216,22 +1348,24 @@ const AdminPage = {
 
     // 월별 트렌드 바
     const maxVal = Math.max(...d.monthly.map(r => r.posts + r.comments + r.views), 1);
-    const trendBars = d.monthly.map(row => {
-      const active = row.month === m;
-      return `
+    const trendBars = d.monthly
+      .map(row => {
+        const active = row.month === m;
+        return `
         <div style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;flex:1"
              data-board-yr="${y}" data-board-mo="${row.month}" title="${row.month}월: 게시${row.posts} 댓글${row.comments} 열람${row.views}">
           <div style="width:100%;height:56px;background:var(--border);border-radius:4px 4px 0 0;overflow:hidden;position:relative;display:flex;align-items:flex-end">
-            <div style="width:34%;height:${Math.round((row.posts/Math.max(maxVal,1))*100)}%;background:#1a73e8;"></div>
-            <div style="width:33%;height:${Math.round((row.comments/Math.max(maxVal,1))*100)}%;background:#34a853;"></div>
-            <div style="width:33%;height:${Math.round((row.views/Math.max(maxVal,1))*100)}%;background:#9c27b0;"></div>
+            <div style="width:34%;height:${Math.round((row.posts / Math.max(maxVal, 1)) * 100)}%;background:#1a73e8;"></div>
+            <div style="width:33%;height:${Math.round((row.comments / Math.max(maxVal, 1)) * 100)}%;background:#34a853;"></div>
+            <div style="width:33%;height:${Math.round((row.views / Math.max(maxVal, 1)) * 100)}%;background:#9c27b0;"></div>
           </div>
-          <div style="font-size:10px;font-weight:${active?700:400};color:${active?'var(--oci-blue,#1a73e8)':'var(--text-3)'}">
+          <div style="font-size:10px;font-weight:${active ? 700 : 400};color:${active ? 'var(--oci-blue,#1a73e8)' : 'var(--text-3)'}">
             ${row.month}월
           </div>
-          ${active?`<div style="width:6px;height:6px;border-radius:50%;background:var(--oci-blue,#1a73e8)"></div>`:''}
+          ${active ? `<div style="width:6px;height:6px;border-radius:50%;background:var(--oci-blue,#1a73e8)"></div>` : ''}
         </div>`;
-    }).join('');
+      })
+      .join('');
 
     panel.innerHTML = `
       <!-- 필터 -->
@@ -1246,18 +1380,31 @@ const AdminPage = {
       <!-- 요약 카드 -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
         ${[
-          { label:'총 게시글',  val: d.total.posts.toLocaleString(),    icon:'📝', color:'#1a73e8' },
-          { label:'총 댓글',    val: d.total.comments.toLocaleString(), icon:'💬', color:'#34a853' },
-          { label:'총 열람',    val: d.total.views.toLocaleString(),    icon:'👁',  color:'#9c27b0' },
-          { label:'활동 인원',  val: d.members.filter(mb=>mb.posts+mb.comments+mb.views>0).length + '명',
-            icon:'👤', color:'#ff7043' },
-        ].map(c=>`
+          { label: '총 게시글', val: d.total.posts.toLocaleString(), icon: '📝', color: '#1a73e8' },
+          {
+            label: '총 댓글',
+            val: d.total.comments.toLocaleString(),
+            icon: '💬',
+            color: '#34a853',
+          },
+          { label: '총 열람', val: d.total.views.toLocaleString(), icon: '👁', color: '#9c27b0' },
+          {
+            label: '활동 인원',
+            val: d.members.filter(mb => mb.posts + mb.comments + mb.views > 0).length + '명',
+            icon: '👤',
+            color: '#ff7043',
+          },
+        ]
+          .map(
+            c => `
           <div class="card" style="margin:0">
             <div class="card-body" style="padding:14px 18px">
               <div class="fs-11 text-muted">${c.icon} ${c.label}</div>
               <div style="font-size:24px;font-weight:800;color:${c.color};margin-top:4px">${c.val}</div>
             </div>
-          </div>`).join('')}
+          </div>`
+          )
+          .join('')}
       </div>
 
       <!-- 월별 트렌드 -->
@@ -1320,20 +1467,30 @@ const AdminPage = {
     `;
 
     // add event listeners after innerHTML
-    document.getElementById('board-year-sel')?.addEventListener('change', (e) => this.loadBoardStats(e.target.value, m));
-    document.getElementById('board-month-sel')?.addEventListener('change', (e) => this.loadBoardStats(y, e.target.value));
-    document.getElementById('board-refresh-btn')?.addEventListener('click', () => this.loadBoardStats(y, m));
-    document.getElementById('board-expand-btn')?.addEventListener('click', () => this._expandAllBoard(true));
-    document.getElementById('board-collapse-btn')?.addEventListener('click', () => this._expandAllBoard(false));
+    document
+      .getElementById('board-year-sel')
+      ?.addEventListener('change', e => this.loadBoardStats(e.target.value, m));
+    document
+      .getElementById('board-month-sel')
+      ?.addEventListener('change', e => this.loadBoardStats(y, e.target.value));
+    document
+      .getElementById('board-refresh-btn')
+      ?.addEventListener('click', () => this.loadBoardStats(y, m));
+    document
+      .getElementById('board-expand-btn')
+      ?.addEventListener('click', () => this._expandAllBoard(true));
+    document
+      .getElementById('board-collapse-btn')
+      ?.addEventListener('click', () => this._expandAllBoard(false));
 
     // trend bar delegation
-    panel.querySelector('.card-body')?.addEventListener('click', (e) => {
+    panel.querySelector('.card-body')?.addEventListener('click', e => {
       const bar = e.target.closest('[data-board-yr]');
       if (bar) this.loadBoardStats(parseInt(bar.dataset.boardYr), parseInt(bar.dataset.boardMo));
     });
 
     // row toggle delegation
-    document.getElementById('board-stat-tbody')?.addEventListener('click', (e) => {
+    document.getElementById('board-stat-tbody')?.addEventListener('click', e => {
       const row = e.target.closest('.board-stat-toggle-row');
       if (row) this._toggleBoardGroup(row, row.dataset.toggleType, row.dataset.toggleKey);
     });
@@ -1342,29 +1499,29 @@ const AdminPage = {
   _toggleBoardGroup(row, type, key) {
     const tbody = document.getElementById('board-stat-tbody');
     if (!tbody) return;
-    const attr    = type === 'role' ? 'data-role' : 'data-team';
+    const attr = type === 'role' ? 'data-role' : 'data-team';
     const targets = [...tbody.querySelectorAll(`tr[${attr}="${key}"]`)];
-    const hidden  = targets.some(r => r.classList.contains('board-stat-hidden'));
+    const hidden = targets.some(r => r.classList.contains('board-stat-hidden'));
     targets.forEach(r => r.classList.toggle('board-stat-hidden', !hidden));
-    const toggle  = row.querySelector('.board-stat-toggle');
+    const toggle = row.querySelector('.board-stat-toggle');
     if (toggle) toggle.style.transform = hidden ? '' : 'rotate(-90deg)';
   },
 
   _expandAllBoard(expand) {
     const tbody = document.getElementById('board-stat-tbody');
     if (!tbody) return;
-    tbody.querySelectorAll('tr[data-role], tr[data-team]').forEach(r =>
-      r.classList.toggle('board-stat-hidden', !expand)
-    );
-    tbody.querySelectorAll('.board-stat-toggle').forEach(t =>
-      t.style.transform = expand ? '' : 'rotate(-90deg)'
-    );
+    tbody
+      .querySelectorAll('tr[data-role], tr[data-team]')
+      .forEach(r => r.classList.toggle('board-stat-hidden', !expand));
+    tbody
+      .querySelectorAll('.board-stat-toggle')
+      .forEach(t => (t.style.transform = expand ? '' : 'rotate(-90deg)'));
   },
 
   // ============================================================
   // 🔑 AI 토큰 현황 (superadmin 전용)
   // ============================================================
-  _tmYear:  new Date().getFullYear(),
+  _tmYear: new Date().getFullYear(),
   _tmMonth: new Date().getMonth() + 1,
 
   async loadTokenMonitor(year, month) {
@@ -1374,11 +1531,12 @@ const AdminPage = {
         '<div style="padding:40px;text-align:center;color:#d93025">⛔ 관리자(superadmin) 권한이 필요합니다.</div>';
       return;
     }
-    if (year  !== undefined) this._tmYear  = parseInt(year);
+    if (year !== undefined) this._tmYear = parseInt(year);
     if (month !== undefined) this._tmMonth = parseInt(month);
 
     const panel = document.getElementById('admin-tab-token-monitor');
-    panel.innerHTML = '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
+    panel.innerHTML =
+      '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
     try {
       const res = await API.admin.tokenMonitor(this._tmYear, this._tmMonth);
       panel.dataset.loaded = '1';
@@ -1389,43 +1547,54 @@ const AdminPage = {
   },
 
   _renderTokenMonitor(panel, d) {
-    const y = d.year; const m = d.month;
+    const y = d.year;
+    const m = d.month;
     const USD_KRW = 1380; // 환율 (고정 근사값)
-    const fmt     = n => Number(n || 0).toLocaleString();
-    const fmtUsd  = v => `$${Number(v||0).toFixed(4)}`;
-    const fmtKrw  = v => `₩${Math.round(Number(v||0)*USD_KRW).toLocaleString()}`;
+    const fmt = n => Number(n || 0).toLocaleString();
+    const fmtUsd = v => `$${Number(v || 0).toFixed(4)}`;
+    const fmtKrw = v => `₩${Math.round(Number(v || 0) * USD_KRW).toLocaleString()}`;
 
-    const yearSel  = [y-2,y-1,y,y+1].map(yr=>`<option value="${yr}" ${yr===y?'selected':''}>${yr}년</option>`).join('');
-    const monthSel = Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===m?'selected':''}>${i+1}월</option>`).join('');
+    const yearSel = [y - 2, y - 1, y, y + 1]
+      .map(yr => `<option value="${yr}" ${yr === y ? 'selected' : ''}>${yr}년</option>`)
+      .join('');
+    const monthSel = Array.from(
+      { length: 12 },
+      (_, i) => `<option value="${i + 1}" ${i + 1 === m ? 'selected' : ''}>${i + 1}월</option>`
+    ).join('');
 
     // ── 일별 스파크라인 (최근 30일) ──
-    const maxDay = Math.max(...d.daily.map(r=>r.total), 1);
-    const dailyBars = d.daily.map(r => {
-      const pct = Math.round((r.total / maxDay) * 100);
-      const isToday = r.day === new Date().toISOString().slice(0,10);
-      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;cursor:default" title="${r.day}\n토큰:${fmt(r.total)}\n비용:${fmtUsd(r.cost_usd)}\n호출:${r.calls}회">
-        <div style="width:100%;height:${Math.max(pct*0.6,2)}px;background:${isToday?'#d93025':'#1a73e8'};border-radius:2px 2px 0 0;min-height:2px"></div>
+    const maxDay = Math.max(...d.daily.map(r => r.total), 1);
+    const dailyBars = d.daily
+      .map(r => {
+        const pct = Math.round((r.total / maxDay) * 100);
+        const isToday = r.day === new Date().toISOString().slice(0, 10);
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;cursor:default" title="${r.day}\n토큰:${fmt(r.total)}\n비용:${fmtUsd(r.cost_usd)}\n호출:${r.calls}회">
+        <div style="width:100%;height:${Math.max(pct * 0.6, 2)}px;background:${isToday ? '#d93025' : '#1a73e8'};border-radius:2px 2px 0 0;min-height:2px"></div>
       </div>`;
-    }).join('');
+      })
+      .join('');
 
     // ── 월별 트렌드 ──
-    const maxMon = Math.max(...d.monthly.map(r=>Number(r.total)), 1);
-    const monthlyBars = d.monthly.map(r => {
-      const pct  = Math.round((Number(r.total)/maxMon)*100);
-      const lbl  = `${r.yr}-${String(r.mo).padStart(2,'0')}`;
-      const isCur = r.yr===y && r.mo===m;
-      return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;cursor:pointer"
+    const maxMon = Math.max(...d.monthly.map(r => Number(r.total)), 1);
+    const monthlyBars = d.monthly
+      .map(r => {
+        const pct = Math.round((Number(r.total) / maxMon) * 100);
+        const lbl = `${r.yr}-${String(r.mo).padStart(2, '0')}`;
+        const isCur = r.yr === y && r.mo === m;
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;cursor:pointer"
         data-tm-yr="${r.yr}" data-tm-mo="${r.mo}" title="${lbl}: ${fmt(r.total)} tokens">
-        <div style="width:100%;height:${Math.max(pct*0.5,2)}px;background:${isCur?'#d93025':'#9c27b0'};border-radius:2px 2px 0 0"></div>
-        <div style="font-size:9px;color:${isCur?'#d93025':'var(--text-3)'};font-weight:${isCur?700:400}">${r.mo}월</div>
+        <div style="width:100%;height:${Math.max(pct * 0.5, 2)}px;background:${isCur ? '#d93025' : '#9c27b0'};border-radius:2px 2px 0 0"></div>
+        <div style="font-size:9px;color:${isCur ? '#d93025' : 'var(--text-3)'};font-weight:${isCur ? 700 : 400}">${r.mo}월</div>
       </div>`;
-    }).join('');
+      })
+      .join('');
 
     // ── 기능별 파이 대체(테이블) ──
-    const totalEp = d.byEndpoint.reduce((s,e)=>s+Number(e.total),0)||1;
-    const epRows = d.byEndpoint.map(e=>{
-      const pct = Math.round(Number(e.total)/totalEp*100);
-      return `<tr>
+    const totalEp = d.byEndpoint.reduce((s, e) => s + Number(e.total), 0) || 1;
+    const epRows = d.byEndpoint
+      .map(e => {
+        const pct = Math.round((Number(e.total) / totalEp) * 100);
+        return `<tr>
         <td>${esc(e.endpoint)}</td>
         <td class="text-right mono">${fmt(e.total)}</td>
         <td class="text-right mono">${fmt(e.calls)}</td>
@@ -1437,10 +1606,13 @@ const AdminPage = {
           <span style="font-size:11px;min-width:32px;text-align:right">${pct}%</span>
         </div></td>
       </tr>`;
-    }).join('');
+      })
+      .join('');
 
     // ── 모델별 ──
-    const modelRows = d.byModel.map(m2=>`
+    const modelRows = d.byModel
+      .map(
+        m2 => `
       <tr>
         <td><span class="badge badge-blue" style="font-size:11px">${esc(m2.model)}</span></td>
         <td class="text-right mono">${fmt(m2.prompt)}</td>
@@ -1448,21 +1620,25 @@ const AdminPage = {
         <td class="text-right mono">${fmt(m2.total)}</td>
         <td class="text-right mono">${fmt(m2.calls)}</td>
         <td class="text-right" style="color:#d93025;font-weight:600">${fmtUsd(m2.cost_usd)}</td>
-      </tr>`).join('');
+      </tr>`
+      )
+      .join('');
 
     // ── 사용자별 ──
-    const userRows = d.users.map(u => {
-      const limit   = u.eff_limit || 0;
-      const pct     = limit > 0 ? Math.min(100, Math.round(u.used_tokens/limit*100)) : 0;
-      const barClr  = pct>=90?'#d93025':pct>=70?'#f59c00':'#34a853';
-      const limitLabel = (u.monthly_token_limit !== null && u.monthly_token_limit !== undefined)
-        ? `<strong>${fmt(u.monthly_token_limit)}</strong>`
-        : `<span style="color:var(--text-3)">기본 (${fmt(d.defaultLimit)})</span>`;
-      return `
+    const userRows = d.users
+      .map(u => {
+        const limit = u.eff_limit || 0;
+        const pct = limit > 0 ? Math.min(100, Math.round((u.used_tokens / limit) * 100)) : 0;
+        const barClr = pct >= 90 ? '#d93025' : pct >= 70 ? '#f59c00' : '#34a853';
+        const limitLabel =
+          u.monthly_token_limit !== null && u.monthly_token_limit !== undefined
+            ? `<strong>${fmt(u.monthly_token_limit)}</strong>`
+            : `<span style="color:var(--text-3)">기본 (${fmt(d.defaultLimit)})</span>`;
+        return `
         <tr id="tm-row-${u.id}">
           <td>
             <strong>${esc(u.name)}</strong>
-            <div style="font-size:11px;color:var(--text-3)">${esc(u.role||'')}</div>
+            <div style="font-size:11px;color:var(--text-3)">${esc(u.role || '')}</div>
           </td>
           <td class="mono">${fmt(u.used_tokens)}</td>
           <td class="mono">${fmt(u.calls)}</td>
@@ -1479,7 +1655,7 @@ const AdminPage = {
           <td>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <!-- 한도 변경 -->
-              <input type="number" id="tlim2-${u.id}" value="${u.monthly_token_limit||''}"
+              <input type="number" id="tlim2-${u.id}" value="${u.monthly_token_limit || ''}"
                 placeholder="기본값" min="0" step="10000"
                 style="width:90px;height:28px;font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px">
               <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px"
@@ -1488,26 +1664,33 @@ const AdminPage = {
               <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;color:#1a73e8"
                 data-action="open-recharge" data-uid="${u.id}" data-uname="${esc(u.name)}" data-ulimit="${u.eff_limit}">⚡ 충전</button>
               <!-- 자동충전 설정 -->
-              <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;color:${u.auto_recharge_enabled?'#34a853':'var(--text-3)'}"
+              <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;color:${u.auto_recharge_enabled ? '#34a853' : 'var(--text-3)'}"
                 data-action="open-auto-recharge" data-uid="${u.id}" data-uname="${esc(u.name)}"
                 title="자동충전 설정">
-                ${u.auto_recharge_enabled?'🔄 자동ON':'🔄 자동OFF'}
+                ${u.auto_recharge_enabled ? '🔄 자동ON' : '🔄 자동OFF'}
               </button>
             </div>
           </td>
         </tr>`;
-    }).join('');
+      })
+      .join('');
 
     // ── 충전 로그 ──
-    const logRows = (d.rechargeLogs||[]).map(r=>`
+    const logRows =
+      (d.rechargeLogs || [])
+        .map(
+          r => `
       <tr>
-        <td>${esc(r.user_name||r.user_id)}</td>
-        <td><span class="badge ${r.triggered_by==='auto'?'badge-blue':'badge-green'}" style="font-size:10px">${r.triggered_by==='auto'?'자동':'수동'}</span></td>
+        <td>${esc(r.user_name || r.user_id)}</td>
+        <td><span class="badge ${r.triggered_by === 'auto' ? 'badge-blue' : 'badge-green'}" style="font-size:10px">${r.triggered_by === 'auto' ? '자동' : '수동'}</span></td>
         <td class="mono" style="color:#34a853">+${fmt(r.recharge_amount)}</td>
         <td class="mono">${fmt(r.new_limit)}</td>
-        <td>${esc(r.reason||'')}</td>
-        <td style="color:var(--text-3);font-size:12px">${Fmt.dateTime?Fmt.dateTime(r.created_at):Fmt.date(r.created_at)}</td>
-      </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:20px">충전 이력 없음</td></tr>';
+        <td>${esc(r.reason || '')}</td>
+        <td style="color:var(--text-3);font-size:12px">${Fmt.dateTime ? Fmt.dateTime(r.created_at) : Fmt.date(r.created_at)}</td>
+      </tr>`
+        )
+        .join('') ||
+      '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:20px">충전 이력 없음</td></tr>';
 
     panel.innerHTML = `
       <!-- 헤더 필터 -->
@@ -1523,20 +1706,60 @@ const AdminPage = {
       <!-- 요약 카드 6개 -->
       <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px">
         ${[
-          { label:'이번달 토큰',  val: fmt(d.summary.month_tokens),   sub:'합계',             color:'#1a73e8', icon:'🔤' },
-          { label:'오늘 토큰',    val: fmt(d.summary.today_tokens),    sub:'금일',             color:'#ff7043', icon:'📅' },
-          { label:'이번달 호출',  val: fmt(d.summary.month_calls)+'회', sub:'API 요청',        color:'#9c27b0', icon:'📡' },
-          { label:'이번달 비용',  val: fmtUsd(d.summary.cost_usd),    sub: fmtKrw(d.summary.cost_usd), color:'#d93025', icon:'💰' },
-          { label:'예상 월비용',  val: fmtUsd(d.summary.projected_cost_usd), sub:'월말 예상', color:'#f59c00', icon:'📈' },
-          { label:'활동 사용자',  val: d.summary.month_active_users+'명', sub:'이번달',        color:'#34a853', icon:'👥' },
-        ].map(c=>`
+          {
+            label: '이번달 토큰',
+            val: fmt(d.summary.month_tokens),
+            sub: '합계',
+            color: '#1a73e8',
+            icon: '🔤',
+          },
+          {
+            label: '오늘 토큰',
+            val: fmt(d.summary.today_tokens),
+            sub: '금일',
+            color: '#ff7043',
+            icon: '📅',
+          },
+          {
+            label: '이번달 호출',
+            val: fmt(d.summary.month_calls) + '회',
+            sub: 'API 요청',
+            color: '#9c27b0',
+            icon: '📡',
+          },
+          {
+            label: '이번달 비용',
+            val: fmtUsd(d.summary.cost_usd),
+            sub: fmtKrw(d.summary.cost_usd),
+            color: '#d93025',
+            icon: '💰',
+          },
+          {
+            label: '예상 월비용',
+            val: fmtUsd(d.summary.projected_cost_usd),
+            sub: '월말 예상',
+            color: '#f59c00',
+            icon: '📈',
+          },
+          {
+            label: '활동 사용자',
+            val: d.summary.month_active_users + '명',
+            sub: '이번달',
+            color: '#34a853',
+            icon: '👥',
+          },
+        ]
+          .map(
+            c => `
           <div class="card" style="margin:0">
             <div class="card-body" style="padding:12px 14px">
               <div style="font-size:10px;color:var(--text-3)">${c.icon} ${c.label}</div>
               <div style="font-size:18px;font-weight:800;color:${c.color};margin-top:3px;line-height:1.2">${c.val}</div>
               <div style="font-size:10px;color:var(--text-3);margin-top:2px">${c.sub}</div>
             </div>
-          </div>`).join('')}
+          </div>`
+          )
+          .join('')}
       </div>
 
       <!-- 일별 스파크라인 + 월별 트렌드 -->
@@ -1546,9 +1769,9 @@ const AdminPage = {
           <div class="card-body" style="padding:10px 14px">
             <div style="display:flex;gap:2px;align-items:flex-end;height:64px">${dailyBars}</div>
             <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text-3)">
-              <span>${d.daily[0]?.day?.slice(5)||''}</span>
+              <span>${d.daily[0]?.day?.slice(5) || ''}</span>
               <span style="color:#d93025">● 오늘</span>
-              <span>${d.daily[d.daily.length-1]?.day?.slice(5)||''}</span>
+              <span>${d.daily[d.daily.length - 1]?.day?.slice(5) || ''}</span>
             </div>
           </div>
         </div>
@@ -1567,7 +1790,7 @@ const AdminPage = {
           <div class="card-body no-pad">
             <table class="data-table" style="font-size:12px">
               <thead><tr><th>기능</th><th class="text-right">토큰</th><th class="text-right">호출</th><th class="text-right">평균</th><th>비율</th></tr></thead>
-              <tbody>${epRows||'<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-3)">데이터 없음</td></tr>'}</tbody>
+              <tbody>${epRows || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-3)">데이터 없음</td></tr>'}</tbody>
             </table>
           </div>
         </div>
@@ -1576,7 +1799,7 @@ const AdminPage = {
           <div class="card-body no-pad">
             <table class="data-table" style="font-size:12px">
               <thead><tr><th>모델</th><th class="text-right">입력</th><th class="text-right">출력</th><th class="text-right">합계</th><th class="text-right">호출</th><th class="text-right" style="color:#d93025">비용(USD)</th></tr></thead>
-              <tbody>${modelRows||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-3)">데이터 없음</td></tr>'}</tbody>
+              <tbody>${modelRows || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-3)">데이터 없음</td></tr>'}</tbody>
             </table>
           </div>
         </div>
@@ -1619,21 +1842,32 @@ const AdminPage = {
     `;
 
     // add event listeners
-    document.getElementById('tm-year-sel')?.addEventListener('change', (e) => this.loadTokenMonitor(e.target.value, m));
-    document.getElementById('tm-month-sel')?.addEventListener('change', (e) => this.loadTokenMonitor(y, e.target.value));
-    document.getElementById('tm-refresh-btn')?.addEventListener('click', () => this.loadTokenMonitor(y, m));
+    document
+      .getElementById('tm-year-sel')
+      ?.addEventListener('change', e => this.loadTokenMonitor(e.target.value, m));
+    document
+      .getElementById('tm-month-sel')
+      ?.addEventListener('change', e => this.loadTokenMonitor(y, e.target.value));
+    document
+      .getElementById('tm-refresh-btn')
+      ?.addEventListener('click', () => this.loadTokenMonitor(y, m));
 
     // monthly bars delegation
-    panel.addEventListener('click', (e) => {
+    panel.addEventListener('click', e => {
       const bar = e.target.closest('[data-tm-yr]');
-      if (bar) { this.loadTokenMonitor(parseInt(bar.dataset.tmYr), parseInt(bar.dataset.tmMo)); return; }
+      if (bar) {
+        this.loadTokenMonitor(parseInt(bar.dataset.tmYr), parseInt(bar.dataset.tmMo));
+        return;
+      }
 
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
       const uid = parseInt(btn.dataset.uid);
       if (btn.dataset.action === 'save-limit2') this._saveLimit2(uid);
-      else if (btn.dataset.action === 'open-recharge') this._openRechargeModal(uid, btn.dataset.uname, parseInt(btn.dataset.ulimit));
-      else if (btn.dataset.action === 'open-auto-recharge') this._openAutoRechargeModal(uid, btn.dataset.uname);
+      else if (btn.dataset.action === 'open-recharge')
+        this._openRechargeModal(uid, btn.dataset.uname, parseInt(btn.dataset.ulimit));
+      else if (btn.dataset.action === 'open-auto-recharge')
+        this._openAutoRechargeModal(uid, btn.dataset.uname);
     });
   },
 
@@ -1644,7 +1878,9 @@ const AdminPage = {
       Toast.success('한도가 저장되었습니다');
       delete document.getElementById('admin-tab-token-monitor').dataset.loaded;
       this.loadTokenMonitor();
-    } catch (err) { Toast.error('저장 실패: ' + err.message); }
+    } catch (err) {
+      Toast.error('저장 실패: ' + err.message);
+    }
   },
 
   _openRechargeModal(userId, userName, currentLimit) {
@@ -1652,7 +1888,7 @@ const AdminPage = {
       title: `⚡ 토큰 수동 충전 — ${esc(userName)}`,
       body: `
         <div style="margin-bottom:14px;font-size:13px">
-          현재 한도: <strong>${Number(currentLimit||0).toLocaleString()} 토큰</strong>
+          현재 한도: <strong>${Number(currentLimit || 0).toLocaleString()} 토큰</strong>
         </div>
         <div class="form-field">
           <label class="form-label">충전할 토큰 수</label>
@@ -1668,9 +1904,9 @@ const AdminPage = {
         <button class="btn btn-primary" id="recharge-confirm-btn">충전하기</button>
       `,
       bind: {
-        '#recharge-cancel-btn':  () => Modal.close(),
-        '#recharge-confirm-btn': () => this._doManualRecharge(userId)
-      }
+        '#recharge-cancel-btn': () => Modal.close(),
+        '#recharge-confirm-btn': () => this._doManualRecharge(userId),
+      },
     });
   },
 
@@ -1683,7 +1919,9 @@ const AdminPage = {
       Modal.close();
       delete document.getElementById('admin-tab-token-monitor').dataset.loaded;
       this.loadTokenMonitor();
-    } catch (err) { Toast.error('충전 실패: ' + err.message); }
+    } catch (err) {
+      Toast.error('충전 실패: ' + err.message);
+    }
   },
 
   async _openAutoRechargeModal(userId, userName) {
@@ -1704,14 +1942,14 @@ const AdminPage = {
         <div class="form-field" style="margin-bottom:12px">
           <label class="form-label">자동충전 활성화</label>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="checkbox" id="ar-enabled" ${u.auto_recharge_enabled?'checked':''} style="width:16px;height:16px">
+            <input type="checkbox" id="ar-enabled" ${u.auto_recharge_enabled ? 'checked' : ''} style="width:16px;height:16px">
             <span style="font-size:13px">활성화</span>
           </label>
         </div>
         <div class="form-field" style="margin-bottom:12px">
           <label class="form-label">트리거 임계값 (%)</label>
           <input class="form-control" type="number" id="ar-threshold"
-            value="${u.auto_recharge_threshold??80}" min="50" max="99" step="5">
+            value="${u.auto_recharge_threshold ?? 80}" min="50" max="99" step="5">
           <div style="font-size:11px;color:var(--text-3);margin-top:4px">
             사용률이 이 값에 도달하면 자동충전 실행
           </div>
@@ -1719,7 +1957,7 @@ const AdminPage = {
         <div class="form-field">
           <label class="form-label">1회 충전량 (토큰)</label>
           <input class="form-control" type="number" id="ar-amount"
-            value="${u.auto_recharge_amount??100000}" min="10000" step="10000">
+            value="${u.auto_recharge_amount ?? 100000}" min="10000" step="10000">
         </div>
       `,
       footer: `
@@ -1728,16 +1966,16 @@ const AdminPage = {
       `,
       bind: {
         '#auto-recharge-cancel-btn': () => Modal.close(),
-        '#auto-recharge-save-btn':   () => this._saveAutoRecharge(userId)
-      }
+        '#auto-recharge-save-btn': () => this._saveAutoRecharge(userId),
+      },
     });
   },
 
   async _saveAutoRecharge(userId) {
     const body = {
-      auto_recharge_enabled:   document.getElementById('ar-enabled')?.checked ? 1 : 0,
+      auto_recharge_enabled: document.getElementById('ar-enabled')?.checked ? 1 : 0,
       auto_recharge_threshold: parseInt(document.getElementById('ar-threshold')?.value || 80),
-      auto_recharge_amount:    parseInt(document.getElementById('ar-amount')?.value || 100000),
+      auto_recharge_amount: parseInt(document.getElementById('ar-amount')?.value || 100000),
     };
     try {
       await API.admin.saveRechargeSettings(userId, body);
@@ -1745,7 +1983,9 @@ const AdminPage = {
       Modal.close();
       delete document.getElementById('admin-tab-token-monitor').dataset.loaded;
       this.loadTokenMonitor();
-    } catch (err) { Toast.error('저장 실패: ' + err.message); }
+    } catch (err) {
+      Toast.error('저장 실패: ' + err.message);
+    }
   },
 
   // ============================================================
@@ -1756,13 +1996,16 @@ const AdminPage = {
   // ============================================================
   async loadPipelineStages() {
     const panel = document.getElementById('admin-tab-pipeline');
-    const role  = App.currentUser?.role;
-    const canEdit = (role === 'admin' || role === 'superadmin');
+    const role = App.currentUser?.role;
+    const canEdit = role === 'admin' || role === 'superadmin';
 
-    panel.innerHTML = '<div class="loading" style="padding:30px;text-align:center">로딩 중...</div>';
+    panel.innerHTML =
+      '<div class="loading" style="padding:30px;text-align:center">로딩 중...</div>';
     try {
       const r = await API.get('/pipeline/stages?include=all');
-      const stages = (r.data || []).slice().sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+      const stages = (r.data || [])
+        .slice()
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
       panel.innerHTML = `
         <div class="card mb-3">
@@ -1777,9 +2020,10 @@ const AdminPage = {
                   • ⚠️ <code>stage_key</code> 와 <code>role</code>은 변경 불가 (시스템 통계 무결성)
                 </div>
               </div>
-              ${canEdit
-                ? `<button class="btn btn-primary btn-sm" id="ps-add-btn">+ 단계 추가</button>`
-                : `<span class="badge badge-gray" style="font-size:11px">읽기 전용 — 관리자만 편집 가능</span>`
+              ${
+                canEdit
+                  ? `<button class="btn btn-primary btn-sm" id="ps-add-btn">+ 단계 추가</button>`
+                  : `<span class="badge badge-gray" style="font-size:11px">읽기 전용 — 관리자만 편집 가능</span>`
               }
             </div>
           </div>
@@ -1813,22 +2057,28 @@ const AdminPage = {
 
       // 이벤트 바인딩
       if (canEdit) {
-        document.getElementById('ps-add-btn').addEventListener('click', () => this._openStageModal(null));
+        document
+          .getElementById('ps-add-btn')
+          .addEventListener('click', () => this._openStageModal(null));
         panel.querySelectorAll('[data-ps-edit]').forEach(b =>
           b.addEventListener('click', () => {
             const stage = stages.find(s => s.id === parseInt(b.dataset.psEdit));
             this._openStageModal(stage);
           })
         );
-        panel.querySelectorAll('[data-ps-toggle]').forEach(b =>
-          b.addEventListener('click', () => this._toggleStageActive(parseInt(b.dataset.psToggle)))
-        );
-        panel.querySelectorAll('[data-ps-delete]').forEach(b =>
-          b.addEventListener('click', () => this._deleteStage(parseInt(b.dataset.psDelete)))
-        );
+        panel
+          .querySelectorAll('[data-ps-toggle]')
+          .forEach(b =>
+            b.addEventListener('click', () => this._toggleStageActive(parseInt(b.dataset.psToggle)))
+          );
+        panel
+          .querySelectorAll('[data-ps-delete]')
+          .forEach(b =>
+            b.addEventListener('click', () => this._deleteStage(parseInt(b.dataset.psDelete)))
+          );
         panel.querySelectorAll('[data-ps-up], [data-ps-down]').forEach(b =>
           b.addEventListener('click', () => {
-            const id  = parseInt(b.dataset.psUp || b.dataset.psDown);
+            const id = parseInt(b.dataset.psUp || b.dataset.psDown);
             const dir = b.dataset.psUp ? -1 : 1;
             this._moveStage(id, dir, stages);
           })
@@ -1840,7 +2090,7 @@ const AdminPage = {
   },
 
   _renderStageRow(s, idx, canEdit) {
-    const roleColors = { active:'#1664E5', won:'#17A85A', lost:'#6B7280', dropped:'#E63329' };
+    const roleColors = { active: '#1664E5', won: '#17A85A', lost: '#6B7280', dropped: '#E63329' };
     const roleClr = roleColors[s.role] || '#999';
     return `
       <tr style="${s.is_active ? '' : 'opacity:.55'}">
@@ -1855,17 +2105,23 @@ const AdminPage = {
           </div>
         </td>
         <td class="text-center"><span class="ps-usage" data-stage-key="${esc(s.stage_key)}" style="font-size:11px;color:var(--text-3)">…</span></td>
-        <td class="text-center">${s.is_active
-          ? '<span class="badge badge-green" style="font-size:10px">✓ 활성</span>'
-          : '<span class="badge badge-gray" style="font-size:10px">비활성</span>'}</td>
-        ${canEdit ? `
+        <td class="text-center">${
+          s.is_active
+            ? '<span class="badge badge-green" style="font-size:10px">✓ 활성</span>'
+            : '<span class="badge badge-gray" style="font-size:10px">비활성</span>'
+        }</td>
+        ${
+          canEdit
+            ? `
         <td class="text-right" style="white-space:nowrap">
           <button class="btn btn-ghost btn-sm" data-ps-up="${s.id}" title="위로" style="padding:2px 6px">↑</button>
           <button class="btn btn-ghost btn-sm" data-ps-down="${s.id}" title="아래로" style="padding:2px 6px">↓</button>
           <button class="btn btn-ghost btn-sm" data-ps-edit="${s.id}" title="편집">편집</button>
           <button class="btn btn-ghost btn-sm" data-ps-toggle="${s.id}" title="활성 토글">${s.is_active ? '비활성' : '활성'}</button>
           <button class="btn btn-ghost btn-sm" data-ps-delete="${s.id}" title="삭제" style="color:var(--oci-red)">🗑</button>
-        </td>` : ''}
+        </td>`
+            : ''
+        }
       </tr>
     `;
   },
@@ -1882,19 +2138,26 @@ const AdminPage = {
           const cnt = cr.pagination?.total ?? (cr.data?.length || 0);
           const el = document.querySelector(`.ps-usage[data-stage-key="${s.stage_key}"]`);
           if (el) el.textContent = cnt + '건';
-        } catch { /* 단계별 실패는 무시 */ }
+        } catch {
+          /* 단계별 실패는 무시 */
+        }
       }
-    } catch (e) { console.warn('usage 조회 실패:', e.message); }
+    } catch (e) {
+      console.warn('usage 조회 실패:', e.message);
+    }
   },
 
   _openStageModal(stage) {
     const isEdit = !!stage;
     Modal.open({
       title: isEdit ? `단계 편집 — ${stage.label}` : '새 단계 추가',
-      compact: true, width: 520,
+      compact: true,
+      width: 520,
       body: `
         <form id="ps-form" class="form-grid">
-          ${isEdit ? `
+          ${
+            isEdit
+              ? `
             <div class="form-row">
               <label class="form-label">stage_key <span style="font-size:11px;color:var(--text-3)">(변경 불가)</span></label>
               <input class="form-input" disabled value="${esc(stage.stage_key)}" style="background:var(--surface-2);color:var(--text-3)">
@@ -1903,7 +2166,8 @@ const AdminPage = {
               <label class="form-label">role <span style="font-size:11px;color:var(--text-3)">(변경 불가 — 시스템 통계 보호)</span></label>
               <input class="form-input" disabled value="${esc(stage.role)}" style="background:var(--surface-2);color:var(--text-3)">
             </div>
-          ` : `
+          `
+              : `
             <div class="form-row">
               <label class="form-label">stage_key <span style="color:var(--oci-red)">*</span></label>
               <input class="form-input" id="ps-key" placeholder="예: estimate (영문 소문자, 숫자, 밑줄)"
@@ -1919,7 +2183,8 @@ const AdminPage = {
                 <option value="dropped">dropped — 드롭</option>
               </select>
             </div>
-          `}
+          `
+          }
           <div class="form-row">
             <label class="form-label">표시 이름 <span style="color:var(--oci-red)">*</span></label>
             <input class="form-input" id="ps-label" required maxlength="100"
@@ -1938,12 +2203,16 @@ const AdminPage = {
                      value="${stage?.color || '#93B4F9'}" style="height:38px;padding:2px 6px">
             </div>
           </div>
-          ${isEdit ? `
+          ${
+            isEdit
+              ? `
             <div class="form-row" style="display:flex;align-items:center;gap:8px">
               <input type="checkbox" id="ps-active" ${stage.is_active ? 'checked' : ''} style="width:16px;height:16px">
               <label for="ps-active" style="margin:0;cursor:pointer">활성 (체크 해제 시 칸반에서 숨김)</label>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
         </form>
       `,
       footer: `
@@ -1952,7 +2221,7 @@ const AdminPage = {
       `,
       bind: {
         '#ps-cancel': () => Modal.close(),
-        '#ps-save':   () => this._saveStage(stage),
+        '#ps-save': () => this._saveStage(stage),
       },
     });
   },
@@ -1971,7 +2240,7 @@ const AdminPage = {
       body.is_active = document.getElementById('ps-active').checked ? 1 : 0;
     } else {
       body.stage_key = document.getElementById('ps-key').value.trim().toLowerCase();
-      body.role      = document.getElementById('ps-role').value;
+      body.role = document.getElementById('ps-role').value;
     }
 
     try {
@@ -1998,7 +2267,9 @@ const AdminPage = {
       await API.put(`/pipeline/stages/${id}`, { is_active: stage.is_active ? 0 : 1 });
       Toast.success(stage.is_active ? '비활성화됨' : '활성화됨');
       await this._refreshStages();
-    } catch (e) { Toast.error('처리 실패: ' + e.message); }
+    } catch (e) {
+      Toast.error('처리 실패: ' + e.message);
+    }
   },
 
   async _deleteStage(id) {
@@ -2019,7 +2290,7 @@ const AdminPage = {
     if (!cur) return;
     const peers = stages
       .filter(s => s.role === cur.role)
-      .sort((a, b) => (a.sort_order||0) - (b.sort_order||0));
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const idx = peers.findIndex(s => s.id === id);
     const targetIdx = idx + dir;
     if (targetIdx < 0 || targetIdx >= peers.length) {
@@ -2030,12 +2301,14 @@ const AdminPage = {
     try {
       await API.post('/pipeline/stages/reorder', {
         order: [
-          { id: cur.id,    sort_order: target.sort_order },
+          { id: cur.id, sort_order: target.sort_order },
           { id: target.id, sort_order: cur.sort_order },
         ],
       });
       await this._refreshStages();
-    } catch (e) { Toast.error('순서 변경 실패: ' + e.message); }
+    } catch (e) {
+      Toast.error('순서 변경 실패: ' + e.message);
+    }
   },
 
   async _refreshStages() {
@@ -2055,40 +2328,41 @@ const AdminPage = {
   // minRole: 백엔드 ROLE_PAGES + dev 특례를 시각적으로 안내 (실제 차단은 서버 측)
   _menuMeta: {
     sections: {
-      main:     { label: '메인',     icon: '🏠' },
-      erp:      { label: 'ERP',      icon: '🛒' },
-      sales:    { label: '영업관리', icon: '📁' },
-      analysis: { label: '분석',     icon: '📊' },
-      comm:     { label: '소통',     icon: '💬' },
-      ai:       { label: 'AI 기능',  icon: '🤖' },
-      system:   { label: '시스템',   icon: '⚙️' },
+      main: { label: '메인', icon: '🏠' },
+      erp: { label: 'ERP', icon: '🛒' },
+      sales: { label: '영업관리', icon: '📁' },
+      analysis: { label: '분석', icon: '📊' },
+      comm: { label: '소통', icon: '💬' },
+      ai: { label: 'AI 기능', icon: '🤖' },
+      system: { label: '시스템', icon: '⚙️' },
     },
     items: {
-      dashboard:      { label: '대시보드',     icon: '📊' },
-      pipeline:       { label: '파이프라인',   icon: '📈' },
-      orders:         { label: 'ERP 연계',     icon: '🛒' },
-      leads:          { label: '영업 리드',    icon: '🎯' },
-      projects:       { label: '프로젝트',     icon: '📁', minRole: '팀장+' },
-      customers:      { label: '고객사',       icon: '🏢' },
-      calendar:       { label: '영업 캘린더',  icon: '📅' },
-      team:           { label: '팀 현황',      icon: '👥', minRole: '팀장+' },
-      reports:        { label: '리포트',       icon: '📋', minRole: '팀장+' },
-      board:          { label: '커뮤니케이션', icon: '💬' },
+      dashboard: { label: '대시보드', icon: '📊' },
+      pipeline: { label: '파이프라인', icon: '📈' },
+      orders: { label: 'ERP 연계', icon: '🛒' },
+      leads: { label: '영업 리드', icon: '🎯' },
+      projects: { label: '프로젝트', icon: '📁', minRole: '팀장+' },
+      customers: { label: '고객사', icon: '🏢' },
+      calendar: { label: '영업 캘린더', icon: '📅' },
+      team: { label: '팀 현황', icon: '👥', minRole: '팀장+' },
+      reports: { label: '리포트', icon: '📋', minRole: '팀장+' },
+      board: { label: '커뮤니케이션', icon: '💬' },
       'ai-assistant': { label: 'AI 어시스턴트', icon: '🤖' },
-      meeting:        { label: '회의록 AI',    icon: '🎤' },
-      'meeting-list': { label: '회의록 목록',  icon: '📝' },
-      admin:          { label: '관리자',       icon: '🛡️', minRole: '경영진+' },
-      settings:       { label: '설정',         icon: '⚙️' },
-      dev:            { label: '개발자 옵션',  icon: '🔧', minRole: '슈퍼관리자' },
+      meeting: { label: '회의록 AI', icon: '🎤' },
+      'meeting-list': { label: '회의록 목록', icon: '📝' },
+      admin: { label: '관리자', icon: '🛡️', minRole: '경영진+' },
+      settings: { label: '설정', icon: '⚙️' },
+      dev: { label: '개발자 옵션', icon: '🔧', minRole: '슈퍼관리자' },
     },
   },
-  _menuConfigData: null,        // { sections: [...], items: [...] }
+  _menuConfigData: null, // { sections: [...], items: [...] }
   _menuConfigDirty: false,
-  _sortableInstances: [],       // 정리용
+  _sortableInstances: [], // 정리용
 
   async loadMenuConfig() {
     const panel = document.getElementById('admin-tab-menu-config');
-    panel.innerHTML = '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
+    panel.innerHTML =
+      '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
     try {
       const r = await API.request('GET', '/admin/menu-config');
       this._menuConfigData = r.data || { sections: [], items: [] };
@@ -2113,37 +2387,43 @@ const AdminPage = {
       itemsBySection[it.section_key].push(it);
     });
     // 각 섹션 내 정렬 (display_order ASC)
-    Object.values(itemsBySection).forEach(arr => arr.sort((a, b) => (a.display_order || 0) - (b.display_order || 0)));
+    Object.values(itemsBySection).forEach(arr =>
+      arr.sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+    );
 
-    const sectionCards = sections.map(s => {
-      const sMeta = meta.sections[s.section_key] || { label: s.section_label, icon: '📌' };
-      const sLabel = s.section_label || sMeta.label;
-      const sysSec = s.is_system ? 'is-system' : '';
-      const sysLockHtml = s.is_system
-        ? '<span class="mc-lock" title="시스템 섹션 — 라벨/가시성 변경 불가">🔒</span>'
-        : '';
-      const visBtn = s.is_system
-        ? ''
-        : `<button type="button" class="mc-vis-btn" data-section="${esc(s.section_key)}" data-visible="${s.is_visible ? 1 : 0}" title="가시성">${s.is_visible ? '👁' : '🚫'}</button>`;
-      const labelInput = s.is_system
-        ? `<span class="mc-section-label">${sMeta.icon} ${esc(sLabel)}</span>`
-        : `<input type="text" class="mc-section-input" data-section="${esc(s.section_key)}" value="${esc(sLabel)}" placeholder="${esc(sMeta.label)}" maxlength="100">`;
-
-      const itemRows = (itemsBySection[s.section_key] || []).map(it => {
-        const iMeta = meta.items[it.menu_key] || { label: it.menu_key, icon: '📄' };
-        const curLabel = it.label_override || iMeta.label;
-        const sysItem = it.is_system ? 'is-system' : '';
-        const sysLockI = it.is_system ? '<span class="mc-lock" title="시스템 항목 — 가시성/라벨 변경 불가">🔒</span>' : '';
-        const visBtnI = it.is_system
-          ? ''
-          : `<button type="button" class="mc-vis-btn" data-menu="${esc(it.menu_key)}" data-visible="${it.is_visible ? 1 : 0}" title="가시성">${it.is_visible ? '👁' : '🚫'}</button>`;
-        const labelI = it.is_system
-          ? `<span class="mc-item-label">${esc(curLabel)}</span>`
-          : `<input type="text" class="mc-item-input" data-menu="${esc(it.menu_key)}" value="${esc(curLabel)}" placeholder="${esc(iMeta.label)}" maxlength="100">`;
-        const roleBadge = iMeta.minRole
-          ? `<span class="mc-role-badge" title="이 메뉴는 ${esc(iMeta.minRole)} 권한 이상만 볼 수 있습니다">${esc(iMeta.minRole)}</span>`
+    const sectionCards = sections
+      .map(s => {
+        const sMeta = meta.sections[s.section_key] || { label: s.section_label, icon: '📌' };
+        const sLabel = s.section_label || sMeta.label;
+        const sysSec = s.is_system ? 'is-system' : '';
+        const sysLockHtml = s.is_system
+          ? '<span class="mc-lock" title="시스템 섹션 — 라벨/가시성 변경 불가">🔒</span>'
           : '';
-        return `
+        const visBtn = s.is_system
+          ? ''
+          : `<button type="button" class="mc-vis-btn" data-section="${esc(s.section_key)}" data-visible="${s.is_visible ? 1 : 0}" title="가시성">${s.is_visible ? '👁' : '🚫'}</button>`;
+        const labelInput = s.is_system
+          ? `<span class="mc-section-label">${sMeta.icon} ${esc(sLabel)}</span>`
+          : `<input type="text" class="mc-section-input" data-section="${esc(s.section_key)}" value="${esc(sLabel)}" placeholder="${esc(sMeta.label)}" maxlength="100">`;
+
+        const itemRows = (itemsBySection[s.section_key] || [])
+          .map(it => {
+            const iMeta = meta.items[it.menu_key] || { label: it.menu_key, icon: '📄' };
+            const curLabel = it.label_override || iMeta.label;
+            const sysItem = it.is_system ? 'is-system' : '';
+            const sysLockI = it.is_system
+              ? '<span class="mc-lock" title="시스템 항목 — 가시성/라벨 변경 불가">🔒</span>'
+              : '';
+            const visBtnI = it.is_system
+              ? ''
+              : `<button type="button" class="mc-vis-btn" data-menu="${esc(it.menu_key)}" data-visible="${it.is_visible ? 1 : 0}" title="가시성">${it.is_visible ? '👁' : '🚫'}</button>`;
+            const labelI = it.is_system
+              ? `<span class="mc-item-label">${esc(curLabel)}</span>`
+              : `<input type="text" class="mc-item-input" data-menu="${esc(it.menu_key)}" value="${esc(curLabel)}" placeholder="${esc(iMeta.label)}" maxlength="100">`;
+            const roleBadge = iMeta.minRole
+              ? `<span class="mc-role-badge" title="이 메뉴는 ${esc(iMeta.minRole)} 권한 이상만 볼 수 있습니다">${esc(iMeta.minRole)}</span>`
+              : '';
+            return `
           <div class="mc-item ${sysItem} ${it.is_visible ? '' : 'is-hidden'}" data-menu-key="${esc(it.menu_key)}">
             <span class="mc-handle ${it.is_system ? 'is-disabled' : ''}" title="드래그">≡</span>
             <span class="mc-icon">${iMeta.icon}</span>
@@ -2152,9 +2432,10 @@ const AdminPage = {
             ${sysLockI}
             ${visBtnI}
           </div>`;
-      }).join('');
+          })
+          .join('');
 
-      return `
+        return `
         <div class="mc-section ${sysSec} ${s.is_visible ? '' : 'is-hidden'}" data-section-key="${esc(s.section_key)}">
           <div class="mc-section-header">
             <span class="mc-handle mc-section-handle ${s.is_system ? 'is-disabled' : ''}" title="섹션 드래그">≡</span>
@@ -2167,7 +2448,8 @@ const AdminPage = {
             ${itemRows || '<div class="mc-empty">(빈 섹션 — 다른 메뉴를 드래그해서 추가 가능)</div>'}
           </div>
         </div>`;
-    }).join('');
+      })
+      .join('');
 
     panel.innerHTML = `
       <div class="mc-toolbar">
@@ -2197,7 +2479,7 @@ const AdminPage = {
     panel.querySelector('#mc-reset-btn')?.addEventListener('click', () => this._resetMenuConfig());
 
     // 가시성 토글 (이벤트 위임)
-    panel.addEventListener('click', (e) => {
+    panel.addEventListener('click', e => {
       const btn = e.target.closest('.mc-vis-btn');
       if (!btn) return;
       const cur = btn.dataset.visible === '1';
@@ -2218,7 +2500,7 @@ const AdminPage = {
     });
 
     // 라벨 입력 변경
-    panel.addEventListener('input', (e) => {
+    panel.addEventListener('input', e => {
       const t = e.target;
       if (t.classList.contains('mc-section-input')) {
         const s = this._menuConfigData.sections.find(x => x.section_key === t.dataset.section);
@@ -2227,7 +2509,7 @@ const AdminPage = {
       } else if (t.classList.contains('mc-item-input')) {
         const it = this._menuConfigData.items.find(x => x.menu_key === t.dataset.menu);
         const original = this._menuMeta.items[it?.menu_key]?.label;
-        if (it) it.label_override = (t.value && t.value !== original) ? t.value : null;
+        if (it) it.label_override = t.value && t.value !== original ? t.value : null;
         this._markMenuConfigDirty();
       }
     });
@@ -2235,7 +2517,11 @@ const AdminPage = {
 
   _initMenuConfigSortable() {
     // 기존 인스턴스 정리
-    this._sortableInstances.forEach(s => { try { s.destroy(); } catch (_) {} });
+    this._sortableInstances.forEach(s => {
+      try {
+        s.destroy();
+      } catch (_) {}
+    });
     this._sortableInstances = [];
 
     if (typeof Sortable === 'undefined') {
@@ -2261,7 +2547,7 @@ const AdminPage = {
       const inst = new Sortable(list, {
         group: {
           name: 'menu-items',
-          put: (to) => {
+          put: to => {
             // 시스템 섹션으로는 시스템 항목만 받음 (역방향 가능)
             const toSec = to.el.dataset.sectionItems;
             return toSec !== 'system' || true; // 일단 모두 허용, 서버측에서 시스템 항목은 시스템에서만 정렬 적용
@@ -2292,7 +2578,7 @@ const AdminPage = {
         const mk = it.dataset.menuKey;
         const item = this._menuConfigData.items.find(x => x.menu_key === mk);
         if (item) {
-          item.section_key = key;          // cross-section 이동 반영
+          item.section_key = key; // cross-section 이동 반영
           item.display_order = j + 1;
         }
       });
@@ -2314,20 +2600,33 @@ const AdminPage = {
   async _saveMenuConfig() {
     if (!this._menuConfigDirty || !this._menuConfigData) return;
     const saveBtn = document.getElementById('mc-save-btn');
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '저장 중...'; }
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '저장 중...';
+    }
     try {
       await API.request('PUT', '/admin/menu-config', this._menuConfigData);
       this._menuConfigDirty = false;
       const badge = document.getElementById('mc-changes-badge');
-      if (badge) { badge.textContent = '✓ 저장 완료'; badge.classList.remove('is-dirty'); }
+      if (badge) {
+        badge.textContent = '✓ 저장 완료';
+        badge.classList.remove('is-dirty');
+      }
       if (saveBtn) saveBtn.textContent = '💾 저장';
       // 즉시 사이드바에 반영 (본인 화면 — 다른 사용자는 새로고침 시 반영)
       if (typeof App?.applyMenuConfig === 'function') {
-        try { await App.applyMenuConfig(); } catch (_) { /* non-critical */ }
+        try {
+          await App.applyMenuConfig();
+        } catch (_) {
+          /* non-critical */
+        }
       }
       Toast.success('메뉴 구조가 저장되었습니다.');
     } catch (e) {
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 저장'; }
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 저장';
+      }
       Toast.error('저장 실패: ' + (e.message || ''));
     }
   },
@@ -2339,7 +2638,7 @@ const AdminPage = {
         try {
           await API.request('POST', '/admin/menu-config/reset');
           Toast.success('기본값으로 복원되었습니다.');
-          await this.loadMenuConfig();  // 다시 불러옴
+          await this.loadMenuConfig(); // 다시 불러옴
         } catch (e) {
           Toast.error('복원 실패: ' + (e.message || ''));
         }
@@ -2359,7 +2658,8 @@ const AdminPage = {
 
   async loadWordRepo() {
     const panel = document.getElementById('admin-tab-word-repo');
-    panel.innerHTML = '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
+    panel.innerHTML =
+      '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
     try {
       const locale = this._wordRepoLocale || 'ko';
       const r = await API.request('GET', `/admin/labels?locale=${encodeURIComponent(locale)}`);
@@ -2379,45 +2679,58 @@ const AdminPage = {
   _renderWordRepo() {
     const panel = document.getElementById('admin-tab-word-repo');
     const {
-      scopes = [], labels = {},
-      locales = [], system_locale = 'ko',
+      scopes = [],
+      labels = {},
+      locales = [],
+      system_locale = 'ko',
     } = this._wordRepoData || {};
     const activeScope = this._wordRepoScope;
     const activeLocale = this._wordRepoLocale || 'ko';
     const SCOPE_LABEL = {
-      leads:      '영업 리드',
-      customers:  '고객사',
-      projects:   '프로젝트',
+      leads: '영업 리드',
+      customers: '고객사',
+      projects: '프로젝트',
       activities: '영업 활동',
-      team:       '팀',
-      menu:       '메뉴',
-      common:     '공통',
+      team: '팀',
+      menu: '메뉴',
+      common: '공통',
     };
 
     // 언어 탭
-    const localeTabs = locales.map(lo => `
+    const localeTabs = locales
+      .map(
+        lo => `
       <button class="wr-locale-btn${lo.code === activeLocale ? ' active' : ''}"
               data-locale="${lo.code}"
               title="${esc(lo.label)}">
         ${lo.flag || ''} ${esc(lo.label)}
         ${lo.code === system_locale ? '<span class="wr-sys-badge">시스템</span>' : ''}
       </button>
-    `).join('');
+    `
+      )
+      .join('');
 
-    const sideList = scopes.map(s => `
+    const sideList = scopes
+      .map(
+        s => `
       <button class="wr-scope-btn${s === activeScope ? ' active' : ''}" data-scope="${s}">
         ${SCOPE_LABEL[s] || s}
       </button>
-    `).join('');
+    `
+      )
+      .join('');
 
     const dirtyCount = Object.keys(this._wordRepoDirty).length;
-    const rows = Object.entries(labels[activeScope] || {}).map(([k, v]) => {
-      const dirtyKey = `${activeScope}.${k}`;
-      const curr = (this._wordRepoDirty[dirtyKey] !== undefined)
-        ? this._wordRepoDirty[dirtyKey]
-        : v.current;
-      const isOverridden = v.overridden || (this._wordRepoDirty[dirtyKey] !== undefined && this._wordRepoDirty[dirtyKey] !== v.default);
-      return `
+    const rows = Object.entries(labels[activeScope] || {})
+      .map(([k, v]) => {
+        const dirtyKey = `${activeScope}.${k}`;
+        const curr =
+          this._wordRepoDirty[dirtyKey] !== undefined ? this._wordRepoDirty[dirtyKey] : v.current;
+        const isOverridden =
+          v.overridden ||
+          (this._wordRepoDirty[dirtyKey] !== undefined &&
+            this._wordRepoDirty[dirtyKey] !== v.default);
+        return `
         <tr data-scope="${activeScope}" data-key="${k}">
           <td><span class="mono fs-12" style="color:var(--text-3)">${esc(k)}</span></td>
           <td><span style="color:var(--text-2)">${esc(v.default)}</span></td>
@@ -2433,7 +2746,8 @@ const AdminPage = {
           </td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     panel.innerHTML = `
       <style id="word-repo-style">
@@ -2501,7 +2815,9 @@ const AdminPage = {
         </span>
       </div>
 
-      ${dirtyCount > 0 ? `
+      ${
+        dirtyCount > 0
+          ? `
         <div class="wr-dirty-bar">
           <div><strong style="color:#c2410c">변경된 항목 ${dirtyCount}개</strong> · 저장 전까지 적용되지 않습니다</div>
           <div>
@@ -2509,7 +2825,9 @@ const AdminPage = {
             <button class="btn-primary btn-sm" id="wr-save" style="margin-left:6px">💾 저장</button>
           </div>
         </div>
-      ` : ''}
+      `
+          : ''
+      }
       <div class="wr-wrap">
         <div class="wr-side">${sideList}</div>
         <div class="wr-main">
@@ -2546,14 +2864,21 @@ const AdminPage = {
     panel.querySelectorAll('.wr-locale-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (Object.keys(this._wordRepoDirty).length > 0) {
-          if (!confirm('저장하지 않은 변경 사항이 있습니다. 언어를 전환하면 사라집니다. 계속하시겠습니까?')) return;
+          if (
+            !confirm(
+              '저장하지 않은 변경 사항이 있습니다. 언어를 전환하면 사라집니다. 계속하시겠습니까?'
+            )
+          )
+            return;
         }
         this._wordRepoLocale = btn.dataset.locale;
         await this.loadWordRepo();
       });
     });
 
-    document.getElementById('wr-set-system')?.addEventListener('click', () => this._setSystemLocale(activeLocale));
+    document
+      .getElementById('wr-set-system')
+      ?.addEventListener('click', () => this._setSystemLocale(activeLocale));
 
     panel.querySelectorAll('.wr-input').forEach(inp => {
       inp.addEventListener('input', () => {
@@ -2576,8 +2901,12 @@ const AdminPage = {
       this._wordRepoDirty = {};
       this._renderWordRepo();
     });
-    document.getElementById('wr-reset-scope-btn')?.addEventListener('click', () => this._resetWordRepoScope());
-    document.getElementById('wr-audit-btn')?.addEventListener('click', () => this._showWordRepoAudit());
+    document
+      .getElementById('wr-reset-scope-btn')
+      ?.addEventListener('click', () => this._resetWordRepoScope());
+    document
+      .getElementById('wr-audit-btn')
+      ?.addEventListener('click', () => this._showWordRepoAudit());
   },
 
   _refreshDirtyBar() {
@@ -2662,7 +2991,11 @@ const AdminPage = {
         try {
           await API.request('POST', '/admin/labels/reset', { scope, locale });
           Toast.success('초기화되었습니다.');
-          if (typeof Labels !== 'undefined') { Labels.invalidate(); await Labels.ensureLoaded(); Labels.apply(); }
+          if (typeof Labels !== 'undefined') {
+            Labels.invalidate();
+            await Labels.ensureLoaded();
+            Labels.apply();
+          }
           await this.loadWordRepo();
         } catch (e) {
           Toast.error('초기화 실패: ' + (e.message || ''));
@@ -2675,7 +3008,9 @@ const AdminPage = {
     try {
       const r = await API.request('GET', '/admin/labels/audit?limit=200');
       const FLAG = { ko: '🇰🇷', en: '🇺🇸', ja: '🇯🇵', zh: '🇨🇳' };
-      const rows = (r.data || []).map(a => `
+      const rows = (r.data || [])
+        .map(
+          a => `
         <tr>
           <td class="fs-11">${FLAG[a.locale] || ''} <span class="mono">${esc(a.locale || 'ko')}</span></td>
           <td class="mono fs-11">${esc(a.scope)}.${esc(a.key_name)}</td>
@@ -2685,17 +3020,23 @@ const AdminPage = {
           <td>${esc(a.changed_by_name || '-')}</td>
           <td class="fs-11" style="color:var(--text-3)">${new Date(a.changed_at).toLocaleString('ko-KR')}</td>
         </tr>
-      `).join('');
+      `
+        )
+        .join('');
       Modal.open({
         title: '워드 사전 변경 이력',
         confirmOnClose: false,
         body: `
           <div style="max-height:60vh;overflow:auto">
-            ${rows ? `
+            ${
+              rows
+                ? `
               <table class="wr-table">
                 <thead><tr><th>언어</th><th>키</th><th>이전</th><th></th><th>변경 후</th><th>변경자</th><th>일시</th></tr></thead>
                 <tbody>${rows}</tbody>
-              </table>` : '<div class="empty-state">변경 이력이 없습니다.</div>'}
+              </table>`
+                : '<div class="empty-state">변경 이력이 없습니다.</div>'
+            }
           </div>
         `,
         footer: `<button class="btn btn-primary" id="wr-audit-close">닫기</button>`,

@@ -29,28 +29,44 @@ const Onboarding = {
       desc: '거래처를 등록하세요. 명함을 스캔하면 AI 가 자동으로 정보를 추출합니다.',
       target: 'customers',
       // 진행 상태 체크 (Phase 2) — list 결과 1건 이상이면 완료
-      check: () => API.customers.list().then(r => (r.data || []).length > 0).catch(() => false),
+      check: () =>
+        API.customers
+          .list()
+          .then(r => (r.data || []).length > 0)
+          .catch(() => false),
     },
     {
       icon: '🎯',
       title: '2. 영업 리드 추가',
       desc: '잠재 사업 기회를 리드로 등록하고 단계 (검토 → 제안 → 입찰 → 수주) 를 관리하세요.',
       target: 'leads',
-      check: () => API.leads.list().then(r => (r.data || []).length > 0).catch(() => false),
+      check: () =>
+        API.leads
+          .list()
+          .then(r => (r.data || []).length > 0)
+          .catch(() => false),
     },
     {
       icon: '📅',
       title: '3. 미팅 일정 등록',
       desc: '입찰 마감일과 미팅을 캘린더에 추가하면 자동 알림이 갑니다.',
       target: 'calendar',
-      check: () => API.calendar.list().then(r => (r.data || []).length > 0).catch(() => false),
+      check: () =>
+        API.calendar
+          .list()
+          .then(r => (r.data || []).length > 0)
+          .catch(() => false),
     },
     {
       icon: '🎙️',
       title: '4. AI 회의록 활용',
       desc: '미팅 녹음을 업로드하면 AI 가 요약 + 액션 아이템을 자동 추출합니다.',
       target: 'meeting',
-      check: () => API.meetings.list().then(r => (r.data || []).length > 0).catch(() => false),
+      check: () =>
+        API.meetings
+          .list()
+          .then(r => (r.data || []).length > 0)
+          .catch(() => false),
     },
     {
       icon: '📊',
@@ -71,7 +87,9 @@ const Onboarding = {
         if (typeof Modal === 'undefined') return;
         this.show();
       });
-    } catch (_) { /* localStorage 차단 시 무시 */ }
+    } catch (_) {
+      /* localStorage 차단 시 무시 */
+    }
   },
 
   // ─── 진행 상태 조회 (Phase 2) ─────────────────────────────
@@ -95,7 +113,10 @@ const Onboarding = {
     const completed = await this._checkProgress();
     const doneCount = completed.filter(Boolean).length;
     const totalCount = this.STEPS.length;
-    const progressLabel = doneCount > 0 ? ` <span style="font-size:12px;color:var(--text-3);font-weight:400">(${doneCount}/${totalCount} 완료)</span>` : '';
+    const progressLabel =
+      doneCount > 0
+        ? ` <span style="font-size:12px;color:var(--text-3);font-weight:400">(${doneCount}/${totalCount} 완료)</span>`
+        : '';
 
     Modal.open({
       title: `🎉 OCI CRM에 오신 것을 환영합니다${progressLabel}`,
@@ -106,9 +127,16 @@ const Onboarding = {
         <button class="btn btn-primary" id="onb-start">시작하기</button>
       `,
       bind: {
-        '#onb-skip':  () => { this._markDone(); Modal.close(); },
-        '#onb-start': () => { this._markDone(); Modal.close(); this._gotoFirstIncomplete(completed); },
-        '[data-onb-goto]': (e) => {
+        '#onb-skip': () => {
+          this._markDone();
+          Modal.close();
+        },
+        '#onb-start': () => {
+          this._markDone();
+          Modal.close();
+          this._gotoFirstIncomplete(completed);
+        },
+        '[data-onb-goto]': e => {
           const tgt = e.currentTarget.dataset.onbGoto;
           this._markDone();
           Modal.close();
@@ -121,11 +149,12 @@ const Onboarding = {
   _buildBody(completed = []) {
     const doneCount = completed.filter(Boolean).length;
     const totalCount = this.STEPS.length;
-    const introText = doneCount === 0
-      ? '영업 활동의 시작부터 분석까지, <strong>5단계로 빠르게 시작</strong>해 보세요.<br>각 항목을 클릭하면 해당 페이지로 이동합니다.'
-      : doneCount === totalCount
-        ? '🎉 <strong>모든 단계를 완료하셨습니다!</strong> 계속해서 활용해 주세요.'
-        : `<strong>${doneCount}/${totalCount} 단계 완료</strong> — 다음 단계를 진행해보세요. 완료된 단계는 ✓ 로 표시됩니다.`;
+    const introText =
+      doneCount === 0
+        ? '영업 활동의 시작부터 분석까지, <strong>5단계로 빠르게 시작</strong>해 보세요.<br>각 항목을 클릭하면 해당 페이지로 이동합니다.'
+        : doneCount === totalCount
+          ? '🎉 <strong>모든 단계를 완료하셨습니다!</strong> 계속해서 활용해 주세요.'
+          : `<strong>${doneCount}/${totalCount} 단계 완료</strong> — 다음 단계를 진행해보세요. 완료된 단계는 ✓ 로 표시됩니다.`;
 
     return `
       <div class="onboarding-intro">
@@ -157,8 +186,11 @@ const Onboarding = {
   },
 
   _markDone() {
-    try { localStorage.setItem(this.FLAG_KEY, String(Date.now())); }
-    catch (_) { /* ignore */ }
+    try {
+      localStorage.setItem(this.FLAG_KEY, String(Date.now()));
+    } catch (_) {
+      /* ignore */
+    }
   },
 
   // "시작하기" 클릭 시: 첫 미완료 단계로 이동 (전체 완료면 customers, 기본)
@@ -171,8 +203,11 @@ const Onboarding = {
 
   // 사용자 요청으로 다시 보기 — 플래그 초기화 후 표시
   reset() {
-    try { localStorage.removeItem(this.FLAG_KEY); }
-    catch (_) { /* ignore */ }
+    try {
+      localStorage.removeItem(this.FLAG_KEY);
+    } catch (_) {
+      /* ignore */
+    }
     this.show();
   },
 
@@ -193,14 +228,14 @@ const Onboarding = {
         const lastNudge = parseInt(lastNudgeStr, 10);
         const elapsed = Date.now() - lastNudge;
         const intervalMs = this.NUDGE_INTERVAL_DAYS * 24 * 60 * 60 * 1000;
-        if (elapsed < intervalMs) return;  // 아직 간격 안 됨
+        if (elapsed < intervalMs) return; // 아직 간격 안 됨
       }
 
       // 조건 3: 미완료 단계 확인 (Toast 가 도움 되는 경우만)
       if (typeof Modal === 'undefined' || typeof API === 'undefined') return;
       const completed = await this._checkProgress();
       const incompleteIdx = completed.findIndex(c => !c);
-      if (incompleteIdx < 0) return;  // 모두 완료 — nudge 불필요
+      if (incompleteIdx < 0) return; // 모두 완료 — nudge 불필요
 
       const step = this.STEPS[incompleteIdx];
       const msg = `${step.icon} 아직 ${step.title.replace(/^\d+\.\s*/, '')} 을(를) 시도하지 않으셨네요!`;
@@ -212,12 +247,17 @@ const Onboarding = {
 
       // nudge 시점 기록 — 다음 NUDGE_INTERVAL_DAYS 일 동안 안 뜸
       localStorage.setItem(this.NUDGE_KEY, String(Date.now()));
-    } catch (_) { /* localStorage / API 실패 시 무시 — 핵심 동작 X */ }
+    } catch (_) {
+      /* localStorage / API 실패 시 무시 — 핵심 동작 X */
+    }
   },
 
   _esc(s) {
     return String(s === null || s === undefined ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   },
 };

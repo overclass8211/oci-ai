@@ -19,16 +19,24 @@ let pool;
 
 test.beforeAll(async () => {
   pool = createPool();
-  await pool.query(`DELETE FROM webhook_deliveries WHERE webhook_id IN (SELECT id FROM webhooks WHERE name LIKE ?)`, [`${PREFIX}%`]);
+  await pool.query(
+    `DELETE FROM webhook_deliveries WHERE webhook_id IN (SELECT id FROM webhooks WHERE name LIKE ?)`,
+    [`${PREFIX}%`]
+  );
   await pool.query(`DELETE FROM webhooks WHERE name LIKE ?`, [`${PREFIX}%`]);
 });
 
 test.afterAll(async () => {
   if (pool) {
     try {
-      await pool.query(`DELETE FROM webhook_deliveries WHERE webhook_id IN (SELECT id FROM webhooks WHERE name LIKE ?)`, [`${PREFIX}%`]);
+      await pool.query(
+        `DELETE FROM webhook_deliveries WHERE webhook_id IN (SELECT id FROM webhooks WHERE name LIKE ?)`,
+        [`${PREFIX}%`]
+      );
       await pool.query(`DELETE FROM webhooks WHERE name LIKE ?`, [`${PREFIX}%`]);
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      /* ignore */
+    }
     await pool.end();
   }
 });
@@ -105,7 +113,12 @@ test('시나리오 5 — Webhook 편집 (이름 변경)', async ({ page }) => {
   const [r] = await pool.query(
     `INSERT INTO webhooks (name, url, event_types, secret, is_active)
        VALUES (?, ?, ?, ?, 1)`,
-    [tplName, 'https://example.com/edit-hook', JSON.stringify(['lead.won']), 'test-secret-32-bytes-hex-string']
+    [
+      tplName,
+      'https://example.com/edit-hook',
+      JSON.stringify(['lead.won']),
+      'test-secret-32-bytes-hex-string',
+    ]
   );
   const id = r.insertId;
 
@@ -164,7 +177,9 @@ test('시나리오 7 — 발송 이력 모달 (빈 상태)', async ({ page }) =>
     await page.waitForSelector(`tr[data-wh-id="${id}"]`, { timeout: 10000 });
     await page.locator(`tr[data-wh-id="${id}"] [data-wh-action="logs"]`).click();
     // 이력 모달 — 빈 상태 또는 테이블
-    await expect(page.locator('.modal-overlay').filter({ hasText: '발송 이력' })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.modal-overlay').filter({ hasText: '발송 이력' })).toBeVisible({
+      timeout: 5000,
+    });
   } finally {
     await pool.query('DELETE FROM webhook_deliveries WHERE webhook_id = ?', [id]);
     await pool.query('DELETE FROM webhooks WHERE id = ?', [id]);

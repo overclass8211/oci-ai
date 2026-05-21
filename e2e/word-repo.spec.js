@@ -18,14 +18,15 @@ test.beforeEach(async ({ page }) => {
 
 // admin 페이지 직접 진입 헬퍼 — hashchange race 회피
 async function gotoAdminPage(page) {
-  await page.evaluate(() => { location.hash = '#admin'; });
+  await page.evaluate(() => {
+    location.hash = '#admin';
+  });
   await page.waitForSelector('#admin-tab-bar', { timeout: 10000 });
 }
 
 // API 직접 호출 — 깨끗한 상태 보장
 async function resetLeads(page) {
-  const token =
-    (await page.evaluate(() => localStorage.getItem('oci_token'))) || '';
+  const token = (await page.evaluate(() => localStorage.getItem('oci_token'))) || '';
   await page.request.post('/api/admin/labels/reset', {
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
     data: { scope: 'leads' },
@@ -129,7 +130,9 @@ test('시나리오 5 — 다국어: 언어 탭 표시 + 영문으로 전환', as
   await page.waitForSelector('.wr-locale-btn[data-locale="en"].active', { timeout: 5000 });
 
   // customer_name 행의 default = 'Customer'
-  const defaultCell = page.locator('tr[data-scope="leads"][data-key="customer_name"] td:nth-child(2)');
+  const defaultCell = page.locator(
+    'tr[data-scope="leads"][data-key="customer_name"] td:nth-child(2)'
+  );
   await expect(defaultCell).toHaveText('Customer', { timeout: 5000 });
 });
 
@@ -143,7 +146,9 @@ test('시나리오 6 — 프로젝트 페이지 마커 반영', async ({ page })
 
   // API 직접 변경 후 브라우저 캐시 + 인메모리 _dict 무효화
   await page.evaluate(() => {
-    Object.keys(sessionStorage).forEach(k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k));
+    Object.keys(sessionStorage).forEach(
+      k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k)
+    );
     if (window.Labels) window.Labels.invalidate();
   });
 
@@ -167,7 +172,9 @@ test('시나리오 8 — 다국어 전환 시 화면 내 라벨 종합 적용', 
     data: { locale: 'ja' },
   });
   await page.evaluate(() => {
-    Object.keys(sessionStorage).forEach(k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k));
+    Object.keys(sessionStorage).forEach(
+      k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k)
+    );
     localStorage.removeItem('oci_user_locale');
   });
 
@@ -177,16 +184,26 @@ test('시나리오 8 — 다국어 전환 시 화면 내 라벨 종합 적용', 
   // 대시보드 타이틀 (topbar)
   await expect(page.locator('#page-title')).toHaveText('ダッシュボード', { timeout: 8000 });
   // 사이드바 섹션
-  await expect(page.locator('.nav-section[data-section-key="main"] .nav-section-title')).toHaveText('メイン');
-  await expect(page.locator('.nav-section[data-section-key="sales"] .nav-section-title')).toHaveText('営業管理');
+  await expect(page.locator('.nav-section[data-section-key="main"] .nav-section-title')).toHaveText(
+    'メイン'
+  );
+  await expect(
+    page.locator('.nav-section[data-section-key="sales"] .nav-section-title')
+  ).toHaveText('営業管理');
   // 대시보드 카드 제목
-  await expect(page.locator('[data-label="dashboard.recent_activities"]').first()).toHaveText('最近の営業活動');
-  await expect(page.locator('[data-label="dashboard.ai_insights"]').first()).toHaveText('🤖 AIインサイト');
+  await expect(page.locator('[data-label="dashboard.recent_activities"]').first()).toHaveText(
+    '最近の営業活動'
+  );
+  await expect(page.locator('[data-label="dashboard.ai_insights"]').first()).toHaveText(
+    '🤖 AIインサイト'
+  );
   // 알림 패널 헤더
   await expect(page.locator('[data-label="topbar.notifications"]').first()).toHaveText('通知');
 
   // 영업 리드 페이지로 이동 → 필터 + 버튼 + 컬럼 헤더
-  await page.evaluate(() => { location.hash = '#leads'; });
+  await page.evaluate(() => {
+    location.hash = '#leads';
+  });
   await page.waitForSelector('th[data-label="leads.customer_name"]', { timeout: 8000 });
   await expect(page.locator('th[data-label="leads.customer_name"]')).toHaveText('顧客');
   await expect(page.locator('#leads-open-form-btn')).toHaveText('+ リード追加');
@@ -211,12 +228,16 @@ test('시나리오 7 — 사이드바 메뉴 라벨 반영', async ({ page }) =>
 
   // 사용자 override 없는 상태 시뮬레이션 — 캐시 무효화 후 reload
   await page.evaluate(() => {
-    Object.keys(sessionStorage).forEach(k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k));
+    Object.keys(sessionStorage).forEach(
+      k => k.startsWith('oci_labels_cache') && sessionStorage.removeItem(k)
+    );
     localStorage.removeItem('oci_user_locale');
   });
   await page.reload();
   // 사이드바 dashboard menu = 'ダッシュボード'
-  const dashSpan = page.locator('.nav-item[data-page="dashboard"] span[data-label="menu.dashboard"]');
+  const dashSpan = page.locator(
+    '.nav-item[data-page="dashboard"] span[data-label="menu.dashboard"]'
+  );
   await expect(dashSpan).toHaveText('ダッシュボード', { timeout: 8000 });
 
   // 복원

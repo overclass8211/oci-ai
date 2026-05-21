@@ -9,18 +9,17 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { api } from './helpers.mjs';
 
-
 describe('GET /api/dashboard/*', () => {
   it('stats — 7개 핵심 KPI 키 존재', async () => {
     const res = await api().get('/api/dashboard/stats');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data).toMatchObject({
-      totalLeads:  expect.any(Number),
-      monthlyNew:  expect.any(Number),
-      bidding:     expect.any(Number),
-      domestic:    expect.any(Number),
-      overseas:    expect.any(Number)
+      totalLeads: expect.any(Number),
+      monthlyNew: expect.any(Number),
+      bidding: expect.any(Number),
+      domestic: expect.any(Number),
+      overseas: expect.any(Number),
     });
   });
 

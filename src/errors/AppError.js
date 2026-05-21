@@ -39,4 +39,11 @@ class DatabaseError extends AppError {
   }
 }
 
-module.exports = { AppError, ValidationError, NotFoundError, AuthError, ForbiddenError, DatabaseError };
+module.exports = {
+  AppError,
+  ValidationError,
+  NotFoundError,
+  AuthError,
+  ForbiddenError,
+  DatabaseError,
+};

@@ -1,8 +1,8 @@
 const { handleError } = require('../middleware/errorHandler');
 
-const PAGE_DEFAULT  = 1;
+const PAGE_DEFAULT = 1;
 const LIMIT_DEFAULT = 50;
-const LIMIT_MAX     = 9999;
+const LIMIT_MAX = 9999;
 
 /**
  * Wraps an async route handler so unhandled rejections call handleError
@@ -42,7 +42,7 @@ function buildPatch(body, allowedFields) {
  *   const [rows] = await pool.query(`SELECT ... LIMIT ? OFFSET ?`, [limit, offset]);
  */
 function parsePage(query) {
-  const page  = Math.max(1, parseInt(query.page,  10) || PAGE_DEFAULT);
+  const page = Math.max(1, parseInt(query.page, 10) || PAGE_DEFAULT);
   const limit = Math.min(LIMIT_MAX, Math.max(1, parseInt(query.limit, 10) || LIMIT_DEFAULT));
   return { page, limit, offset: (page - 1) * limit };
 }

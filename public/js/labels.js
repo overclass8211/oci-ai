@@ -11,16 +11,18 @@
 'use strict';
 
 const Labels = {
-  _dict: null,             // { scope: { key: 'label' } }
-  _locale: 'ko',           // 현재 적용 locale
-  _systemLocale: 'ko',     // 시스템 기본 locale (백엔드 설정)
-  _supportedLocales: [],   // [{code,label,flag}]
+  _dict: null, // { scope: { key: 'label' } }
+  _locale: 'ko', // 현재 적용 locale
+  _systemLocale: 'ko', // 시스템 기본 locale (백엔드 설정)
+  _supportedLocales: [], // [{code,label,flag}]
   _ttl: 10 * 60 * 1000,
   _key: 'oci_labels_cache',
   _loading: null,
 
   // ── 캐시 ─────────────────────────────────────────────────
-  _cacheKey() { return `${this._key}_${this._locale}`; },
+  _cacheKey() {
+    return `${this._key}_${this._locale}`;
+  },
   _loadFromCache() {
     try {
       const raw = sessionStorage.getItem(this._cacheKey());
@@ -32,17 +34,22 @@ const Labels = {
       this._systemLocale = systemLocale || this._systemLocale;
       this._supportedLocales = locales || this._supportedLocales;
       return data;
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   },
   _saveToCache(data, meta) {
     try {
-      sessionStorage.setItem(this._cacheKey(), JSON.stringify({
-        ts: Date.now(),
-        data,
-        locale: meta?.locale || this._locale,
-        systemLocale: meta?.systemLocale || this._systemLocale,
-        locales: meta?.locales || this._supportedLocales,
-      }));
+      sessionStorage.setItem(
+        this._cacheKey(),
+        JSON.stringify({
+          ts: Date.now(),
+          data,
+          locale: meta?.locale || this._locale,
+          systemLocale: meta?.systemLocale || this._systemLocale,
+          locales: meta?.locales || this._supportedLocales,
+        })
+      );
     } catch (_) {}
   },
   invalidate() {
@@ -71,7 +78,10 @@ const Labels = {
   ensureLoaded() {
     if (this._dict) return this._dict;
     const cached = this._loadFromCache();
-    if (cached) { this._dict = cached; return cached; }
+    if (cached) {
+      this._dict = cached;
+      return cached;
+    }
     if (this._loading) return this._loading;
 
     this._loading = (async () => {
@@ -81,7 +91,7 @@ const Labels = {
         const userPref = this._detectInitialLocale();
         const url = userPref ? '/api/labels?locale=' + encodeURIComponent(userPref) : '/api/labels';
         const r = await fetch(url, {
-          headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+          headers: token ? { Authorization: 'Bearer ' + token } : {},
           credentials: 'include',
         });
         if (!r.ok) throw new Error('labels fetch failed: ' + r.status);
@@ -111,23 +121,33 @@ const Labels = {
   // 사용자 override 저장 + 캐시 무효화 + 재로드 + DOM 재치환
   async setLocale(locale) {
     if (!locale) return;
-    try { localStorage.setItem('oci_user_locale', locale); } catch (_) {}
+    try {
+      localStorage.setItem('oci_user_locale', locale);
+    } catch (_) {}
     this.invalidate();
     this._locale = locale;
     await this.ensureLoaded();
     this.apply();
   },
   async clearUserLocale() {
-    try { localStorage.removeItem('oci_user_locale'); } catch (_) {}
+    try {
+      localStorage.removeItem('oci_user_locale');
+    } catch (_) {}
     this.invalidate();
     await this.ensureLoaded();
     this.apply();
   },
 
   // ── getter ──────────────────────────────────────────────
-  getLocale() { return this._locale; },
-  getSystemLocale() { return this._systemLocale; },
-  getSupportedLocales() { return this._supportedLocales; },
+  getLocale() {
+    return this._locale;
+  },
+  getSystemLocale() {
+    return this._systemLocale;
+  },
+  getSupportedLocales() {
+    return this._supportedLocales;
+  },
 
   get(qualified, fallback) {
     if (!this._dict) return fallback ?? qualified;

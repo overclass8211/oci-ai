@@ -11,7 +11,7 @@
 //   - 단계 삭제: 사용 중이면 차단 + soft delete(is_active=0) 권장
 // =============================================================
 const router = require('express').Router();
-const pool   = require('../db');
+const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
 
 // ── 권한 가드: admin 또는 superadmin ─────────────────────────
@@ -29,18 +29,22 @@ function adminOnly(req, res, next) {
 // ── 캐시 (성능 — validate 미들웨어가 매번 조회하지 않도록) ──
 let _cache = null;
 let _cacheAt = 0;
-const CACHE_TTL_MS = 30_000;  // 30초
+const CACHE_TTL_MS = 30_000; // 30초
 
 async function getStagesCached() {
   if (_cache && Date.now() - _cacheAt < CACHE_TTL_MS) return _cache;
   const [rows] = await pool.query(
     `SELECT id, stage_key, label, role, sort_order, color, is_active
-     FROM pipeline_stages ORDER BY sort_order ASC, id ASC`);
-  _cache   = rows;
+     FROM pipeline_stages ORDER BY sort_order ASC, id ASC`
+  );
+  _cache = rows;
   _cacheAt = Date.now();
   return rows;
 }
-function invalidate() { _cache = null; _cacheAt = 0; }
+function invalidate() {
+  _cache = null;
+  _cacheAt = 0;
+}
 
 // 외부에서 stage 유효성 검사용 (활성 단계 + 비활성도 포함 — 기존 데이터 호환)
 async function getValidKeys(opts = {}) {
@@ -58,7 +62,9 @@ router.get('/', async (req, res) => {
     const rows = await getStagesCached();
     const data = includeInactive ? rows : rows.filter(r => r.is_active);
     res.json({ success: true, data });
-  } catch (e) { handleError(res, e); }
+  } catch (e) {
+    handleError(res, e);
+  }
 });
 
 // ── POST /api/pipeline/stages ────────────────────────────────
@@ -69,9 +75,13 @@ router.post('/', adminOnly, async (req, res) => {
     if (!stage_key || !label)
       return res.status(400).json({ success: false, error: 'stage_key, label 필수' });
     if (!/^[a-z0-9_]{1,30}$/.test(stage_key))
-      return res.status(400).json({ success: false, error: 'stage_key는 소문자/숫자/_만 허용 (30자)' });
-    if (!['active','won','lost','dropped'].includes(role))
-      return res.status(400).json({ success: false, error: 'role은 active/won/lost/dropped 중 하나' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'stage_key는 소문자/숫자/_만 허용 (30자)' });
+    if (!['active', 'won', 'lost', 'dropped'].includes(role))
+      return res
+        .status(400)
+        .json({ success: false, error: 'role은 active/won/lost/dropped 중 하나' });
 
     const [r] = await pool.query(
       `INSERT INTO pipeline_stages (stage_key, label, role, sort_order, color)
@@ -93,18 +103,35 @@ router.put('/:id', adminOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { label, sort_order, color, is_active } = req.body || {};
-    const updates = []; const vals = [];
-    if (label      !== undefined) { updates.push('label=?');      vals.push(String(label).slice(0, 100)); }
-    if (sort_order !== undefined) { updates.push('sort_order=?'); vals.push(parseInt(sort_order) || 0); }
-    if (color      !== undefined) { updates.push('color=?');      vals.push(color); }
-    if (is_active  !== undefined) { updates.push('is_active=?');  vals.push(is_active ? 1 : 0); }
+    const updates = [];
+    const vals = [];
+    if (label !== undefined) {
+      updates.push('label=?');
+      vals.push(String(label).slice(0, 100));
+    }
+    if (sort_order !== undefined) {
+      updates.push('sort_order=?');
+      vals.push(parseInt(sort_order) || 0);
+    }
+    if (color !== undefined) {
+      updates.push('color=?');
+      vals.push(color);
+    }
+    if (is_active !== undefined) {
+      updates.push('is_active=?');
+      vals.push(is_active ? 1 : 0);
+    }
     if (!updates.length)
-      return res.status(400).json({ success: false, error: '수정할 항목 없음 (stage_key/role 은 변경 불가)' });
+      return res
+        .status(400)
+        .json({ success: false, error: '수정할 항목 없음 (stage_key/role 은 변경 불가)' });
     vals.push(id);
     await pool.query(`UPDATE pipeline_stages SET ${updates.join(',')} WHERE id=?`, vals);
     invalidate();
     res.json({ success: true });
-  } catch (e) { handleError(res, e); }
+  } catch (e) {
+    handleError(res, e);
+  }
 });
 
 // ── POST /api/pipeline/stages/reorder ────────────────────────
@@ -120,7 +147,9 @@ router.post('/reorder', adminOnly, async (req, res) => {
     }
     invalidate();
     res.json({ success: true, updated: order.length });
-  } catch (e) { handleError(res, e); }
+  } catch (e) {
+    handleError(res, e);
+  }
 });
 
 // ── DELETE /api/pipeline/stages/:id ──────────────────────────
@@ -131,8 +160,9 @@ router.delete('/:id', adminOnly, async (req, res) => {
     const [[stage]] = await pool.query('SELECT stage_key FROM pipeline_stages WHERE id=?', [id]);
     if (!stage) return res.status(404).json({ success: false, error: '단계 없음' });
 
-    const [[usage]] = await pool.query(
-      'SELECT COUNT(*) AS cnt FROM leads WHERE stage=?', [stage.stage_key]);
+    const [[usage]] = await pool.query('SELECT COUNT(*) AS cnt FROM leads WHERE stage=?', [
+      stage.stage_key,
+    ]);
     if (usage.cnt > 0) {
       return res.status(409).json({
         success: false,
@@ -143,11 +173,13 @@ router.delete('/:id', adminOnly, async (req, res) => {
     await pool.query('DELETE FROM pipeline_stages WHERE id=?', [id]);
     invalidate();
     res.json({ success: true });
-  } catch (e) { handleError(res, e); }
+  } catch (e) {
+    handleError(res, e);
+  }
 });
 
 // ── 외부 노출 (다른 모듈에서 사용) ──────────────────────────
 module.exports = router;
 module.exports.getStagesCached = getStagesCached;
-module.exports.getValidKeys    = getValidKeys;
-module.exports.invalidate      = invalidate;
+module.exports.getValidKeys = getValidKeys;
+module.exports.invalidate = invalidate;

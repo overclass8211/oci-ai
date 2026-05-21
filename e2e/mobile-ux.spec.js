@@ -21,7 +21,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function gotoPage(page, pageId, waitSelector) {
-  await page.evaluate(id => { location.hash = '#' + id; }, pageId);
+  await page.evaluate(id => {
+    location.hash = '#' + id;
+  }, pageId);
   if (waitSelector) await page.waitForSelector(waitSelector, { timeout: 10000 });
 }
 
@@ -32,9 +34,8 @@ test('UX-1 — 영업리드 폼: input font-size >= 16px (iOS 자동 줌 방지)
   await page.waitForSelector('.modal-overlay.active', { timeout: 15000 });
   await page.waitForSelector('#modal-box input[name="customer_name"]', { timeout: 15000 });
 
-  const sizes = await page.$$eval(
-    '#modal-box input, #modal-box select, #modal-box textarea',
-    els => els.map(el => ({
+  const sizes = await page.$$eval('#modal-box input, #modal-box select, #modal-box textarea', els =>
+    els.map(el => ({
       tag: el.tagName,
       name: el.name || '',
       type: el.type || '',
@@ -45,15 +46,18 @@ test('UX-1 — 영업리드 폼: input font-size >= 16px (iOS 자동 줌 방지)
   const visible = sizes.filter(s => !['hidden', 'checkbox', 'radio'].includes(s.type));
   expect(visible.length).toBeGreaterThan(0);
   for (const s of visible) {
-    expect(s.fontSize, `${s.tag}[name="${s.name}"] font-size ${s.fontSize}px (<16px → iOS 자동 줌)`).toBeGreaterThanOrEqual(16);
+    expect(
+      s.fontSize,
+      `${s.tag}[name="${s.name}"] font-size ${s.fontSize}px (<16px → iOS 자동 줌)`
+    ).toBeGreaterThanOrEqual(16);
   }
 });
 
 test('UX-2 — 필터바 input font-size >= 16px', async ({ page }) => {
   await gotoPage(page, 'leads', '#leads-search');
-  const fs = await page.locator('#leads-search').evaluate(el =>
-    parseFloat(window.getComputedStyle(el).fontSize)
-  );
+  const fs = await page
+    .locator('#leads-search')
+    .evaluate(el => parseFloat(window.getComputedStyle(el).fontSize));
   expect(fs, `검색 input font-size ${fs}px (<16px → iOS 자동 줌)`).toBeGreaterThanOrEqual(16);
 });
 
@@ -86,7 +90,9 @@ test('UX-5 — Landscape (667×375) 가로 스크롤 없음', async ({ page }) =
 });
 
 test('UX-7 — 페이지 타이틀: 좁은 화면에서도 한 줄 (세로 깨짐 방지)', async ({ page }) => {
-  await page.evaluate(id => { location.hash = '#' + id; }, 'dashboard');
+  await page.evaluate(id => {
+    location.hash = '#' + id;
+  }, 'dashboard');
   await page.waitForSelector('#page-title');
   // 한국어 글자가 세로로 쌓이지 않는지 — height 가 폰트 행간 이상이면 깨진 것
   const m = await page.locator('#page-title').evaluate(el => {
@@ -99,13 +105,17 @@ test('UX-7 — 페이지 타이틀: 좁은 화면에서도 한 줄 (세로 깨�
   });
   expect(m.whiteSpace).toBe('nowrap');
   // 한 줄 = 대략 line-height 이내 (1.5배 여유)
-  expect(m.height, `page-title 높이 ${m.height}px (한 줄 ${m.lineHeight}px 초과 → 세로 깨짐)`)
-    .toBeLessThan(m.lineHeight * 1.5);
+  expect(
+    m.height,
+    `page-title 높이 ${m.height}px (한 줄 ${m.lineHeight}px 초과 → 세로 깨짐)`
+  ).toBeLessThan(m.lineHeight * 1.5);
 });
 
 test('UX-8 — iPhone 14 Pro Max (430×932) 페이지 타이틀 정상', async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 932 });
-  await page.evaluate(id => { location.hash = '#' + id; }, 'dashboard');
+  await page.evaluate(id => {
+    location.hash = '#' + id;
+  }, 'dashboard');
   await page.waitForSelector('#page-title');
   // 사용자 보고 사례 — 대시보드 타이틀이 세로로 깨지면 안 됨
   const h = await page.locator('#page-title').evaluate(el => el.getBoundingClientRect().height);

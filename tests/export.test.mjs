@@ -13,7 +13,7 @@ import { api } from './helpers.mjs';
 import { toCsvBuffer, toJsonBuffer, normalizeFormat } from '../src/utils/exportHelper.js';
 
 const SAMPLE_COLUMNS = [
-  { key: 'id',   label: 'ID' },
+  { key: 'id', label: 'ID' },
   { key: 'name', label: '이름' },
   { key: 'note', label: '메모' },
 ];
@@ -45,9 +45,9 @@ describe('exportHelper — CSV 변환', () => {
   it('UTF-8 BOM 포함', () => {
     const buf = toCsvBuffer(SAMPLE_COLUMNS, SAMPLE_ROWS);
     // BOM = 0xEF 0xBB 0xBF
-    expect(buf[0]).toBe(0xEF);
-    expect(buf[1]).toBe(0xBB);
-    expect(buf[2]).toBe(0xBF);
+    expect(buf[0]).toBe(0xef);
+    expect(buf[1]).toBe(0xbb);
+    expect(buf[2]).toBe(0xbf);
   });
 
   it('헤더 한글 정상', () => {
@@ -111,12 +111,12 @@ describe('exportHelper — JSON 변환', () => {
 
 describe('Export endpoints — format 응답 헤더', () => {
   const cases = [
-    { path: '/api/leads/export',      entity: 'leads' },
-    { path: '/api/customers/export',  entity: 'customers' },
-    { path: '/api/projects/export',   entity: 'projects' },
+    { path: '/api/leads/export', entity: 'leads' },
+    { path: '/api/customers/export', entity: 'customers' },
+    { path: '/api/projects/export', entity: 'projects' },
     { path: '/api/activities/export', entity: 'activities' },
-    { path: '/api/meetings/export',   entity: 'meetings' },
-    { path: '/api/team/export',       entity: 'team' },
+    { path: '/api/meetings/export', entity: 'meetings' },
+    { path: '/api/team/export', entity: 'team' },
   ];
 
   for (const c of cases) {
@@ -137,7 +137,7 @@ describe('Export endpoints — format 응답 헤더', () => {
       const first = body.length > 0 ? body[0] : null;
       // supertest 응답은 buffer 또는 string — 둘 다 처리
       if (Buffer.isBuffer(body) && body.length >= 3) {
-        expect(body[0]).toBe(0xEF);
+        expect(body[0]).toBe(0xef);
       }
     });
 

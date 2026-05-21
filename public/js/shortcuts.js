@@ -23,7 +23,7 @@
 
 const Shortcuts = {
   _initialized: false,
-  _sequenceKey: null,     // G 누르면 'G' 저장
+  _sequenceKey: null, // G 누르면 'G' 저장
   _sequenceTimer: null,
   _hintEl: null,
 
@@ -46,26 +46,26 @@ const Shortcuts = {
     {
       title: '글로벌',
       items: [
-        { keys: ['N'],         label: '새 리드 추가' },
-        { keys: ['/'],         label: '검색 열기' },
-        { keys: ['⌘', 'K'],    label: '검색 열기 (대안)' },
-        { keys: ['?'],         label: '이 도움말 표시' },
-        { keys: ['Esc'],       label: '모달/패널 닫기' },
+        { keys: ['N'], label: '새 리드 추가' },
+        { keys: ['/'], label: '검색 열기' },
+        { keys: ['⌘', 'K'], label: '검색 열기 (대안)' },
+        { keys: ['?'], label: '이 도움말 표시' },
+        { keys: ['Esc'], label: '모달/패널 닫기' },
       ],
     },
     {
       title: '페이지 이동 (G 누른 후)',
       items: [
-        { keys: ['G', 'D'],    label: '대시보드' },
-        { keys: ['G', 'L'],    label: '영업 리드' },
-        { keys: ['G', 'C'],    label: '고객사' },
-        { keys: ['G', 'P'],    label: '파이프라인' },
-        { keys: ['G', 'M'],    label: '회의록 목록' },
-        { keys: ['G', 'K'],    label: '캘린더' },
-        { keys: ['G', 'R'],    label: '리포트' },
-        { keys: ['G', 'T'],    label: '팀 현황' },
-        { keys: ['G', 'B'],    label: '게시판' },
-        { keys: ['G', 'O'],    label: '주문관리' },
+        { keys: ['G', 'D'], label: '대시보드' },
+        { keys: ['G', 'L'], label: '영업 리드' },
+        { keys: ['G', 'C'], label: '고객사' },
+        { keys: ['G', 'P'], label: '파이프라인' },
+        { keys: ['G', 'M'], label: '회의록 목록' },
+        { keys: ['G', 'K'], label: '캘린더' },
+        { keys: ['G', 'R'], label: '리포트' },
+        { keys: ['G', 'T'], label: '팀 현황' },
+        { keys: ['G', 'B'], label: '게시판' },
+        { keys: ['G', 'O'], label: '주문관리' },
       ],
     },
   ],
@@ -74,7 +74,7 @@ const Shortcuts = {
   init() {
     if (this._initialized) return;
     this._initialized = true;
-    document.addEventListener('keydown', (e) => this._onKey(e));
+    document.addEventListener('keydown', e => this._onKey(e));
   },
 
   _onKey(e) {
@@ -83,12 +83,12 @@ const Shortcuts = {
 
     // 입력 필드 포커스 검사
     const ae = document.activeElement;
-    const inField = ae && (
-      ae.tagName === 'INPUT' ||
-      ae.tagName === 'TEXTAREA' ||
-      ae.tagName === 'SELECT' ||
-      ae.isContentEditable
-    );
+    const inField =
+      ae &&
+      (ae.tagName === 'INPUT' ||
+        ae.tagName === 'TEXTAREA' ||
+        ae.tagName === 'SELECT' ||
+        ae.isContentEditable);
     if (inField) return;
 
     // 모달 열림 — 글로벌 단축키 비활성 (Esc 만 모달에서 처리)
@@ -163,7 +163,10 @@ const Shortcuts = {
   // ─── 모달 열림 감지 ─────────────────────────────────────
   _isAnyModalOpen() {
     // 1) Modal 유틸의 활성 모달 (.modal-overlay.active 가 표준)
-    if (document.querySelector('.modal-overlay.active, .modal-overlay.show, .modal-overlay.is-open')) return true;
+    if (
+      document.querySelector('.modal-overlay.active, .modal-overlay.show, .modal-overlay.is-open')
+    )
+      return true;
     // 2) 검색 모달
     const search = document.getElementById('global-search-modal');
     if (search && search.style.display !== 'none' && search.style.display !== '') return true;
@@ -187,21 +190,27 @@ const Shortcuts = {
 
   // ─── 도움말 모달 ──────────────────────────────────────────
   showHelp() {
-    const body = this.HELP_GROUPS.map(g => `
+    const body = this.HELP_GROUPS.map(
+      g => `
       <div class="shortcut-group">
         <div class="shortcut-group-title">${this._esc(g.title)}</div>
         <div class="shortcut-list">
-          ${g.items.map(it => `
+          ${g.items
+            .map(
+              it => `
             <div class="shortcut-row">
               <div class="shortcut-keys">
                 ${it.keys.map(k => `<kbd>${this._esc(k)}</kbd>`).join('<span class="shortcut-sep">+</span>')}
               </div>
               <div class="shortcut-label">${this._esc(it.label)}</div>
             </div>
-          `).join('')}
+          `
+            )
+            .join('')}
         </div>
       </div>
-    `).join('');
+    `
+    ).join('');
 
     Modal.open({
       title: '⌨️ 키보드 단축키',
@@ -231,8 +240,11 @@ const Shortcuts = {
   // 유틸
   _esc(s) {
     return String(s === null || s === undefined ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   },
 };
 

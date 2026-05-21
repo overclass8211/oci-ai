@@ -15,7 +15,7 @@
 const ReportBuilderPage = {
   // ─── 상태 ──────────────────────────────────────────────
   _state: {
-    fields: null,                       // 서버에서 fetch 한 필드 카탈로그
+    fields: null, // 서버에서 fetch 한 필드 카탈로그
     config: {
       datasource: 'leads',
       rows: [],
@@ -24,16 +24,16 @@ const ReportBuilderPage = {
       measures: [],
       chartType: 'auto',
     },
-    savedReports: [],                   // 본인 저장 리포트 목록
-    currentId: null,                    // 현재 편집 중인 저장 리포트 ID
-    chart: null,                        // Chart.js 인스턴스
-    queryResult: null,                  // 마지막 쿼리 결과
+    savedReports: [], // 본인 저장 리포트 목록
+    currentId: null, // 현재 편집 중인 저장 리포트 ID
+    chart: null, // Chart.js 인스턴스
+    queryResult: null, // 마지막 쿼리 결과
     // Phase 2-A: 사이드바 패널 상태
-    savedPanelOpen: false,              // 우측 저장 리포트 패널 열림 여부
-    savedSearchQuery: '',               // 검색어 (이름/설명 필터)
-    _searchDebounce: null,              // 검색 디바운스 타이머
+    savedPanelOpen: false, // 우측 저장 리포트 패널 열림 여부
+    savedSearchQuery: '', // 검색어 (이름/설명 필터)
+    _searchDebounce: null, // 검색 디바운스 타이머
     // 차트 다중 measure 버그 fix: pie/stacked-bar 시 어떤 지표를 차트에 표시할지
-    chartMeasureIndex: 0,               // 0 = 첫 번째 measure (기본값)
+    chartMeasureIndex: 0, // 0 = 첫 번째 measure (기본값)
     // 차트 정규화 버그 fix: 단위 다른 measure 들을 0~100% 비율로 환산하여 비교 가능
     chartNormalize: false,
     // 필터 값 캐시: 'datasource.field' → string[] (distinct 값) / null (pending) / undefined (미사용)
@@ -194,7 +194,10 @@ const ReportBuilderPage = {
 
     // Phase 2-B-1: 데이터 소스 드롭다운 (선택 가능)
     const dsOptions = (datasources || [{ key: 'leads', label: '영업 리드' }])
-      .map(d => `<option value="${esc(d.key)}" ${d.key === currentDs ? 'selected' : ''}>${esc(d.label)}</option>`)
+      .map(
+        d =>
+          `<option value="${esc(d.key)}" ${d.key === currentDs ? 'selected' : ''}>${esc(d.label)}</option>`
+      )
       .join('');
 
     panel.innerHTML = `
@@ -206,21 +209,29 @@ const ReportBuilderPage = {
       </div>
       <div class="rb-section">
         <div class="rb-section-title">📐 차원 (Dimensions)</div>
-        ${dimensions.map(d => `
+        ${dimensions
+          .map(
+            d => `
           <div class="rb-field rb-field-dim" draggable="true" data-field-key="${esc(d.key)}" data-field-type="dimension">
             <span class="rb-field-icon">${d.dataType === 'date' ? '📅' : '🏷'}</span>
             <span class="rb-field-label">${esc(d.label)}</span>
           </div>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>
       <div class="rb-section">
         <div class="rb-section-title">📊 지표 (Measures)</div>
-        ${measures.map(m => `
+        ${measures
+          .map(
+            m => `
           <div class="rb-field rb-field-measure" draggable="true" data-field-key="${esc(m.key)}" data-field-type="measure">
             <span class="rb-field-icon">🔢</span>
             <span class="rb-field-label">${esc(m.label)}</span>
           </div>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>
     `;
 
@@ -234,10 +245,13 @@ const ReportBuilderPage = {
     panel.querySelectorAll('.rb-field').forEach(el => {
       el.addEventListener('dragstart', e => {
         e.dataTransfer.effectAllowed = 'copy';
-        e.dataTransfer.setData('text/plain', JSON.stringify({
-          key: el.dataset.fieldKey,
-          type: el.dataset.fieldType,
-        }));
+        e.dataTransfer.setData(
+          'text/plain',
+          JSON.stringify({
+            key: el.dataset.fieldKey,
+            type: el.dataset.fieldType,
+          })
+        );
         el.classList.add('dragging');
       });
       el.addEventListener('dragend', () => el.classList.remove('dragging'));
@@ -261,8 +275,8 @@ const ReportBuilderPage = {
         measures: [],
         chartType: 'auto',
       };
-      this._state.currentId = null;  // 다른 datasource — 다른 리포트로 취급
-      this._state.valueCache = {};   // 다른 datasource — 필터 값 캐시 무효화
+      this._state.currentId = null; // 다른 datasource — 다른 리포트로 취급
+      this._state.valueCache = {}; // 다른 datasource — 필터 값 캐시 무효화
       const ctype = document.getElementById('rb-chart-type');
       if (ctype) ctype.value = 'auto';
       this._renderFieldsPanel();
@@ -270,8 +284,10 @@ const ReportBuilderPage = {
       this._clearChart();
       const tbl = document.getElementById('rb-data-table');
       if (tbl) tbl.innerHTML = '';
-      this._renderSavedList();  // active 표시 해제
-      Toast.success(`데이터 소스를 "${this._state.fields.datasources.find(d => d.key === newDs)?.label || newDs}" 로 변경`);
+      this._renderSavedList(); // active 표시 해제
+      Toast.success(
+        `데이터 소스를 "${this._state.fields.datasources.find(d => d.key === newDs)?.label || newDs}" 로 변경`
+      );
     } catch (err) {
       Toast.error('데이터 소스 전환 실패: ' + (err.message || ''));
     }
@@ -283,17 +299,24 @@ const ReportBuilderPage = {
     const cfg = this._state.config;
 
     // Row
-    document.getElementById('rb-zone-rows').innerHTML = cfg.rows.map(k => this._chipHtml(k, fieldsMap[k], 'rows')).join('');
-    document.getElementById('rb-zone-columns').innerHTML = cfg.columns.map(k => this._chipHtml(k, fieldsMap[k], 'columns')).join('');
-    document.getElementById('rb-zone-measures').innerHTML = cfg.measures.map(k => this._chipHtml(k, fieldsMap[k], 'measures')).join('');
+    document.getElementById('rb-zone-rows').innerHTML = cfg.rows
+      .map(k => this._chipHtml(k, fieldsMap[k], 'rows'))
+      .join('');
+    document.getElementById('rb-zone-columns').innerHTML = cfg.columns
+      .map(k => this._chipHtml(k, fieldsMap[k], 'columns'))
+      .join('');
+    document.getElementById('rb-zone-measures').innerHTML = cfg.measures
+      .map(k => this._chipHtml(k, fieldsMap[k], 'measures'))
+      .join('');
 
     // Filter — 차원 필터: 단순 값 선택 (연산자 제거, op='eq' 자동 고정)
     // 사용자 의도: 기호 연산자 (=, ≠, >, < 등) 불필요. 실제 차원 값을 드롭다운으로 선택만.
     // Combobox 활용 — 클릭 즉시 dropdown 표시 + 자유 입력도 허용
-    document.getElementById('rb-zone-filters').innerHTML = cfg.filters.map((f, idx) => {
-      const fld = fieldsMap[f.field];
-      if (!fld) return '';
-      return `
+    document.getElementById('rb-zone-filters').innerHTML = cfg.filters
+      .map((f, idx) => {
+        const fld = fieldsMap[f.field];
+        if (!fld) return '';
+        return `
         <div class="rb-chip rb-chip-filter" data-zone="filters" data-idx="${idx}">
           <span class="rb-chip-label">${esc(fld.label)} =</span>
           <input class="rb-chip-value" data-idx="${idx}" data-field="${esc(f.field)}" type="text"
@@ -301,7 +324,8 @@ const ReportBuilderPage = {
           <button class="rb-chip-remove" data-zone="filters" data-idx="${idx}" title="제거">✕</button>
         </div>
       `;
-    }).join('');
+      })
+      .join('');
 
     // 각 필터 input 에 Combobox 부착 — 클릭 즉시 드롭다운 + 자유 입력 허용
     if (typeof Combobox !== 'undefined') {
@@ -318,7 +342,7 @@ const ReportBuilderPage = {
           debounceMs: 100,
           allowCustom: true,
           customLabel: '+ "X" 그대로 사용 (자유 입력)',
-          fetchFn: async (q) => {
+          fetchFn: async q => {
             // 캐시 활용 — 첫 호출만 백엔드 fetch, 이후는 클라이언트 필터링
             let values = this._state.valueCache[cacheKey];
             if (!Array.isArray(values)) {
@@ -332,22 +356,20 @@ const ReportBuilderPage = {
               }
             }
             const ql = String(q || '').toLowerCase();
-            return values
-              .filter(v => !ql || String(v).toLowerCase().includes(ql))
-              .slice(0, 50);  // 너무 많으면 자르기
+            return values.filter(v => !ql || String(v).toLowerCase().includes(ql)).slice(0, 50); // 너무 많으면 자르기
           },
           renderItem: (item, q, { highlightMatch }) => `
             <div class="combobox-item-content">
               <div class="combobox-item-title">${highlightMatch(String(item), q)}</div>
             </div>
           `,
-          onSelect: (item) => {
+          onSelect: item => {
             const val = String(item);
             input.value = val;
             this._state.config.filters[idx].value = val;
             this._runQuery();
           },
-          onCustomCreate: (query) => {
+          onCustomCreate: query => {
             input.value = query;
             this._state.config.filters[idx].value = query;
             this._runQuery();
@@ -392,22 +414,26 @@ const ReportBuilderPage = {
   },
 
   _opLabel(op) {
-    return { eq:'=', ne:'≠', like:'포함', gt:'>', lt:'<', gte:'≥', lte:'≤' }[op] || op;
+    return { eq: '=', ne: '≠', like: '포함', gt: '>', lt: '<', gte: '≥', lte: '≤' }[op] || op;
   },
 
   // ─── 필드 맵 (key → meta) ─────────────────────────────
   _fieldsByKey() {
     if (!this._state.fields) return {};
     const map = {};
-    this._state.fields.dimensions.forEach(d => { map[d.key] = { ...d, type: 'dimension' }; });
-    this._state.fields.measures.forEach(m => { map[m.key] = { ...m, type: 'measure' }; });
+    this._state.fields.dimensions.forEach(d => {
+      map[d.key] = { ...d, type: 'dimension' };
+    });
+    this._state.fields.measures.forEach(m => {
+      map[m.key] = { ...m, type: 'measure' };
+    });
     return map;
   },
 
   // ─── 이벤트 바인딩 ─────────────────────────────────────
   _bindEvents() {
     // 4개 drop zone
-    ['rows','columns','filters','measures'].forEach(zone => {
+    ['rows', 'columns', 'filters', 'measures'].forEach(zone => {
       const el = document.querySelector(`.rb-zone[data-zone="${zone}"]`);
       if (!el) return;
       el.ondragover = e => {
@@ -422,7 +448,9 @@ const ReportBuilderPage = {
         try {
           const payload = JSON.parse(e.dataTransfer.getData('text/plain'));
           this._handleDrop(zone, payload);
-        } catch (_) { /* invalid payload */ }
+        } catch (_) {
+          /* invalid payload */
+        }
       };
     });
 
@@ -442,12 +470,12 @@ const ReportBuilderPage = {
     const exportBtn = document.getElementById('rb-export-btn');
     const exportMenu = document.getElementById('rb-export-menu');
     if (exportBtn && exportMenu) {
-      exportBtn.onclick = (e) => {
+      exportBtn.onclick = e => {
         e.stopPropagation();
         exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
       };
       exportMenu.querySelectorAll('.rb-export-item').forEach(item => {
-        item.onclick = (e) => {
+        item.onclick = e => {
           e.stopPropagation();
           exportMenu.style.display = 'none';
           const format = item.dataset.exportFormat;
@@ -456,11 +484,15 @@ const ReportBuilderPage = {
         };
       });
       // 바깥 클릭 시 닫기
-      document.addEventListener('click', () => { exportMenu.style.display = 'none'; });
+      document.addEventListener('click', () => {
+        exportMenu.style.display = 'none';
+      });
     }
 
     // Phase 2-A: 사이드바 닫기 버튼
-    document.getElementById('rb-saved-close')?.addEventListener('click', () => this._toggleSavedPanel(false));
+    document
+      .getElementById('rb-saved-close')
+      ?.addEventListener('click', () => this._toggleSavedPanel(false));
 
     // Phase 2-A: 검색 디바운스
     const searchInput = document.getElementById('rb-saved-search-input');
@@ -567,7 +599,8 @@ const ReportBuilderPage = {
 
     const { rows, config } = result;
     if (!rows || rows.length === 0) {
-      document.getElementById('rb-data-table').innerHTML = '<div class="rb-empty">조회된 데이터가 없습니다</div>';
+      document.getElementById('rb-data-table').innerHTML =
+        '<div class="rb-empty">조회된 데이터가 없습니다</div>';
       return;
     }
 
@@ -581,7 +614,10 @@ const ReportBuilderPage = {
     if (this._state.chartMeasureIndex >= measureKeys.length) {
       this._state.chartMeasureIndex = 0;
     }
-    const selectedMIdx = Math.max(0, Math.min(this._state.chartMeasureIndex, measureKeys.length - 1));
+    const selectedMIdx = Math.max(
+      0,
+      Math.min(this._state.chartMeasureIndex, measureKeys.length - 1)
+    );
     const selectedM = measureKeys[selectedMIdx];
 
     // 측정값 선택 드롭다운 갱신 — pie/stacked-bar + 다중 measure 일 때만 표시
@@ -589,8 +625,16 @@ const ReportBuilderPage = {
 
     // ── chart.js 설정 ─────────────────────────────────
     const colors = [
-      '#E63329', '#1A73E8', '#34A853', '#FBBC04', '#9C27B0',
-      '#FF6B35', '#00BCD4', '#8BC34A', '#FF5722', '#673AB7',
+      '#E63329',
+      '#1A73E8',
+      '#34A853',
+      '#FBBC04',
+      '#9C27B0',
+      '#FF6B35',
+      '#00BCD4',
+      '#8BC34A',
+      '#FF5722',
+      '#673AB7',
     ];
 
     let chartConfig;
@@ -603,7 +647,9 @@ const ReportBuilderPage = {
         type: 'doughnut',
         data: {
           labels,
-          datasets: [{ label: fieldsMap[selectedM]?.label || selectedM, data, backgroundColor: colors }],
+          datasets: [
+            { label: fieldsMap[selectedM]?.label || selectedM, data, backgroundColor: colors },
+          ],
         },
         options: {
           responsive: true,
@@ -615,7 +661,11 @@ const ReportBuilderPage = {
       const labels = rows.map(r => String(r.row_key || ''));
       // 다축/정규화 적용 (multi-measure 단위 차이 해결)
       const { datasets: lineDs, scales: lineScales } = this._buildMultiMeasureDatasets(
-        measureKeys, fieldsMap, rows, colors, 'line'
+        measureKeys,
+        fieldsMap,
+        rows,
+        colors,
+        'line'
       );
       chartConfig = {
         type: 'line',
@@ -664,7 +714,11 @@ const ReportBuilderPage = {
       // bar (default) — 다축/정규화 적용 (multi-measure 단위 차이 해결)
       const labels = rows.map(r => String(r.row_key || ''));
       const { datasets: barDs, scales: barScales } = this._buildMultiMeasureDatasets(
-        measureKeys, fieldsMap, rows, colors, 'bar'
+        measureKeys,
+        fieldsMap,
+        rows,
+        colors,
+        'bar'
       );
       chartConfig = {
         type: 'bar',
@@ -707,10 +761,18 @@ const ReportBuilderPage = {
         const base = {
           label: `${fieldsMap[m]?.label || m} (정규화)`,
           data,
-          _originalValues: vals,  // tooltip 에서 "실제값: ..." 표시용
+          _originalValues: vals, // tooltip 에서 "실제값: ..." 표시용
         };
         return isLine
-          ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3, pointRadius: 4, pointHoverRadius: 7, borderWidth: 2 }
+          ? {
+              ...base,
+              borderColor: colors[i],
+              backgroundColor: colors[i] + '33',
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 7,
+              borderWidth: 2,
+            }
           : { ...base, backgroundColor: colors[i] };
       });
       return {
@@ -737,7 +799,15 @@ const ReportBuilderPage = {
         yAxisID,
       };
       return isLine
-        ? { ...base, borderColor: colors[i], backgroundColor: colors[i] + '33', tension: 0.3, pointRadius: 4, pointHoverRadius: 7, borderWidth: 2 }
+        ? {
+            ...base,
+            borderColor: colors[i],
+            backgroundColor: colors[i] + '33',
+            tension: 0.3,
+            pointRadius: 4,
+            pointHoverRadius: 7,
+            borderWidth: 2,
+          }
         : { ...base, backgroundColor: colors[i] };
     });
 
@@ -754,10 +824,13 @@ const ReportBuilderPage = {
       scales.y1 = {
         type: 'linear',
         position: 'right',
-        grid: { drawOnChartArea: false },  // 우측 grid 안 그림 (시각적 혼란 방지)
+        grid: { drawOnChartArea: false }, // 우측 grid 안 그림 (시각적 혼란 방지)
         title: {
           display: true,
-          text: measureKeys.slice(1).map(m => fieldsMap[m]?.label || m).join(' / '),
+          text: measureKeys
+            .slice(1)
+            .map(m => fieldsMap[m]?.label || m)
+            .join(' / '),
         },
       };
     }
@@ -779,7 +852,7 @@ const ReportBuilderPage = {
           const defaults = chart.legend.options.labels;
           const defaultGen = Chart.defaults.plugins.legend.labels.generateLabels;
           const original = defaultGen.call(defaults, chart);
-          return original.map((item) => {
+          return original.map(item => {
             const meta = chart.getDatasetMeta(item.datasetIndex);
             const isHidden = meta.hidden === true;
             return {
@@ -875,16 +948,20 @@ const ReportBuilderPage = {
   _updateMeasureSelector(chartType, measureKeys, fieldsMap) {
     const sel = document.getElementById('rb-measure-select');
     if (!sel) return;
-    const needsSelector = (chartType === 'pie' || chartType === 'stacked-bar') && measureKeys.length >= 2;
+    const needsSelector =
+      (chartType === 'pie' || chartType === 'stacked-bar') && measureKeys.length >= 2;
     if (!needsSelector) {
       sel.style.display = 'none';
       return;
     }
     // 옵션 갱신 (현재 selectedIdx 보존)
     const currentIdx = this._state.chartMeasureIndex;
-    sel.innerHTML = measureKeys.map((m, i) =>
-      `<option value="${i}" ${i === currentIdx ? 'selected' : ''}>📐 ${esc(fieldsMap[m]?.label || m)}</option>`
-    ).join('');
+    sel.innerHTML = measureKeys
+      .map(
+        (m, i) =>
+          `<option value="${i}" ${i === currentIdx ? 'selected' : ''}>📐 ${esc(fieldsMap[m]?.label || m)}</option>`
+      )
+      .join('');
     sel.style.display = '';
     // 이벤트 (매번 onchange 재할당으로 idempotent — 동일 select 에 누적 안 됨)
     sel.onchange = () => {
@@ -911,9 +988,14 @@ const ReportBuilderPage = {
             <tr>${columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr>
           </thead>
           <tbody>
-            ${rows.slice(0, 50).map(r => `
+            ${rows
+              .slice(0, 50)
+              .map(
+                r => `
               <tr>${columns.map(c => `<td>${esc(String(r[c] ?? ''))}</td>`).join('')}</tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
         ${rows.length > 50 ? `<div style="padding:8px;color:var(--text-3);font-size:11px">...총 ${rows.length}건 중 50건 표시</div>` : ''}
@@ -933,11 +1015,12 @@ const ReportBuilderPage = {
     }
     const hasCurrent = !!this._state.currentId;
     const currentName = hasCurrent
-      ? (this._state.savedReports.find(r => r.id === this._state.currentId)?.name || '현재 리포트')
+      ? this._state.savedReports.find(r => r.id === this._state.currentId)?.name || '현재 리포트'
       : '';
 
     // 모드 선택 라디오 (편집 중인 리포트 있을 때만 표시)
-    const modeSelector = hasCurrent ? `
+    const modeSelector = hasCurrent
+      ? `
       <div class="rb-save-mode" style="grid-column:1 / -1;padding:10px 12px;background:var(--surface-2);border-radius:6px;font-size:12px">
         <div style="margin-bottom:6px;color:var(--text-2)">
           ⓘ 현재 편집 중: <strong>"${esc(currentName)}"</strong>
@@ -951,7 +1034,8 @@ const ReportBuilderPage = {
           <span>"${esc(currentName)}" 수정 <span style="color:var(--oci-red)">(덮어쓰기)</span></span>
         </label>
       </div>
-    ` : '';
+    `
+      : '';
 
     Modal.open({
       title: '💾 리포트 저장',
@@ -974,7 +1058,10 @@ const ReportBuilderPage = {
         '#rb-save-ok': async () => {
           const name = document.getElementById('rb-save-name').value.trim();
           const description = document.getElementById('rb-save-desc').value.trim();
-          if (!name) { Toast.warn('이름을 입력하세요'); return; }
+          if (!name) {
+            Toast.warn('이름을 입력하세요');
+            return;
+          }
 
           // 라디오에서 'update' 선택 시만 덮어쓰기 (없으면 기본 'new')
           const modeEl = document.querySelector('input[name="rb-save-mode"]:checked');
@@ -995,7 +1082,7 @@ const ReportBuilderPage = {
             }
             Modal.close();
             await this._refreshSaved();
-            this._renderSavedList();  // 편집중 ⭐ 표시 갱신
+            this._renderSavedList(); // 편집중 ⭐ 표시 갱신
 
             // ★ returnTo=reports 흐름 — 저장 후 자동으로 리포트 페이지에 위젯으로 추가
             // hash 의 returnTo 파라미터 확인 (예: #report-builder?returnTo=reports)
@@ -1005,7 +1092,9 @@ const ReportBuilderPage = {
               try {
                 await API.reports.widgets.add({ report_id: savedId });
                 Toast.success('리포트 페이지에 위젯으로 추가되었습니다');
-              } catch (_) { /* 이미 위젯에 있으면 silent skip */ }
+              } catch (_) {
+                /* 이미 위젯에 있으면 silent skip */
+              }
               // hash 정리 후 reports 페이지로 이동
               location.hash = '#reports';
               if (typeof App !== 'undefined' && App.navigate) App.navigate('reports');
@@ -1038,12 +1127,15 @@ const ReportBuilderPage = {
     Modal.open({
       title: '📂 내 리포트',
       width: 560,
-      body: rows.length === 0 ? `
+      body:
+        rows.length === 0
+          ? `
         <div style="padding:30px;text-align:center;color:var(--text-3)">
           저장된 리포트가 없습니다.<br>
           좌측에서 리포트를 구성한 후 💾 저장 버튼을 눌러보세요.
         </div>
-      ` : `
+      `
+          : `
         <table class="data-table">
           <thead>
             <tr>
@@ -1053,7 +1145,9 @@ const ReportBuilderPage = {
             </tr>
           </thead>
           <tbody>
-            ${rows.map(r => `
+            ${rows
+              .map(
+                r => `
               <tr>
                 <td>
                   <strong>${esc(r.name)}</strong>
@@ -1065,7 +1159,9 @@ const ReportBuilderPage = {
                   <button class="btn btn-ghost btn-sm" data-rb-del="${r.id}" style="color:var(--oci-red)">🗑</button>
                 </td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
       `,
@@ -1083,7 +1179,8 @@ const ReportBuilderPage = {
           try {
             const r = await API.reportBuilder.getSaved(id);
             const tpl = r.data;
-            const cfg = typeof tpl.config_json === 'string' ? JSON.parse(tpl.config_json) : tpl.config_json;
+            const cfg =
+              typeof tpl.config_json === 'string' ? JSON.parse(tpl.config_json) : tpl.config_json;
             this._state.config = {
               datasource: cfg.datasource || 'leads',
               rows: cfg.rows || [],
@@ -1128,7 +1225,9 @@ const ReportBuilderPage = {
       this._state.savedReports = r.data || [];
       this._renderSavedList();
       this._updateSavedCountBadge();
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      /* ignore */
+    }
   },
 
   // ─── Phase 2-A: 사이드바 패널 토글 ────────────────────
@@ -1155,7 +1254,8 @@ const ReportBuilderPage = {
       if (n > 0) {
         badge.style.display = '';
         badge.textContent = `(${n})`;
-        badge.style.cssText = 'display:inline;background:var(--surface-2);padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px;color:var(--text-2)';
+        badge.style.cssText =
+          'display:inline;background:var(--surface-2);padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px;color:var(--text-2)';
       } else {
         badge.style.display = 'none';
       }
@@ -1169,9 +1269,11 @@ const ReportBuilderPage = {
     if (!list) return;
     const q = (this._state.savedSearchQuery || '').toLowerCase().trim();
     const reports = q
-      ? this._state.savedReports.filter(r =>
-          (r.name || '').toLowerCase().includes(q) ||
-          (r.description || '').toLowerCase().includes(q))
+      ? this._state.savedReports.filter(
+          r =>
+            (r.name || '').toLowerCase().includes(q) ||
+            (r.description || '').toLowerCase().includes(q)
+        )
       : this._state.savedReports;
 
     if (this._state.savedReports.length === 0) {
@@ -1220,18 +1322,26 @@ const ReportBuilderPage = {
   _savedCardHtml(r) {
     const isActive = this._state.currentId === r.id;
     const cfg = (() => {
-      try { return typeof r.config_json === 'string' ? JSON.parse(r.config_json) : (r.config_json || {}); }
-      catch (_) { return {}; }
+      try {
+        return typeof r.config_json === 'string' ? JSON.parse(r.config_json) : r.config_json || {};
+      } catch (_) {
+        return {};
+      }
     })();
     const fieldsMap = this._fieldsByKey();
     // Phase 2-B-1: 카드의 datasource 와 현재 data source 비교 표시
     const cardDs = cfg.datasource || 'leads';
-    const cardDsLabel = (this._state.fields?.datasources || []).find(d => d.key === cardDs)?.label
-                        || (cardDs === 'leads' ? '영업 리드' : cardDs);
+    const cardDsLabel =
+      (this._state.fields?.datasources || []).find(d => d.key === cardDs)?.label ||
+      (cardDs === 'leads' ? '영업 리드' : cardDs);
     // 필드 라벨: 카드 datasource 와 현재 datasource 가 같으면 fieldsMap, 다르면 fallback (key)
     const sameDs = cardDs === (this._state.config.datasource || 'leads');
-    const rowsLabel = (cfg.rows || []).map(k => (sameDs ? fieldsMap[k]?.label : null) || k).join(', ');
-    const measLabel = (cfg.measures || []).map(k => (sameDs ? fieldsMap[k]?.label : null) || k).join(', ');
+    const rowsLabel = (cfg.rows || [])
+      .map(k => (sameDs ? fieldsMap[k]?.label : null) || k)
+      .join(', ');
+    const measLabel = (cfg.measures || [])
+      .map(k => (sameDs ? fieldsMap[k]?.label : null) || k)
+      .join(', ');
     const meta = [];
     if (rowsLabel) meta.push(`<span>📋 ${esc(rowsLabel)}</span>`);
     if (measLabel) meta.push(`<span>📐 ${esc(measLabel)}</span>`);
@@ -1282,30 +1392,31 @@ const ReportBuilderPage = {
     try {
       const r = await API.reportBuilder.getSaved(id);
       const tpl = r.data;
-      const cfg = typeof tpl.config_json === 'string' ? JSON.parse(tpl.config_json) : tpl.config_json;
+      const cfg =
+        typeof tpl.config_json === 'string' ? JSON.parse(tpl.config_json) : tpl.config_json;
       const targetDs = cfg.datasource || 'leads';
 
       // Phase 2-B-1: 다른 데이터 소스 리포트면 fields 카탈로그 먼저 재로드
       if (targetDs !== (this._state.config.datasource || 'leads')) {
         const fr = await API.reportBuilder.fields(targetDs);
         this._state.fields = fr.data;
-        this._renderFieldsPanel();  // 좌측 패널 갱신 (드롭다운 + 필드 목록)
+        this._renderFieldsPanel(); // 좌측 패널 갱신 (드롭다운 + 필드 목록)
       }
 
       this._state.config = {
         datasource: targetDs,
-        rows:       cfg.rows       || [],
-        columns:    cfg.columns    || [],
-        filters:    cfg.filters    || [],
-        measures:   cfg.measures   || [],
-        chartType:  cfg.chartType  || 'auto',
+        rows: cfg.rows || [],
+        columns: cfg.columns || [],
+        filters: cfg.filters || [],
+        measures: cfg.measures || [],
+        chartType: cfg.chartType || 'auto',
       };
       this._state.currentId = tpl.id;
       const ctype = document.getElementById('rb-chart-type');
       if (ctype) ctype.value = this._state.config.chartType;
       this._renderDropZones();
       await this._runQuery();
-      this._renderSavedList();  // active 표시 갱신
+      this._renderSavedList(); // active 표시 갱신
       Toast.success(`"${tpl.name}" 불러오기 완료`);
     } catch (err) {
       Toast.error('불러오기 실패: ' + (err.message || ''));
@@ -1348,10 +1459,14 @@ const ReportBuilderPage = {
         '#rb-rename-ok': async () => {
           const name = document.getElementById('rb-rename-name').value.trim();
           const description = document.getElementById('rb-rename-desc').value.trim();
-          if (!name) { Toast.warn('이름을 입력하세요'); return; }
+          if (!name) {
+            Toast.warn('이름을 입력하세요');
+            return;
+          }
           try {
             // config_json 그대로 보내야 백엔드가 보존 — listSaved 응답에 config_json 포함
-            const cfgJson = typeof r.config_json === 'string' ? JSON.parse(r.config_json) : (r.config_json || {});
+            const cfgJson =
+              typeof r.config_json === 'string' ? JSON.parse(r.config_json) : r.config_json || {};
             await API.reportBuilder.update(id, { name, description, config_json: cfgJson });
             Toast.success('이름이 변경되었습니다');
             Modal.close();
@@ -1429,7 +1544,9 @@ const ReportBuilderPage = {
       // ── 메타 정보 ─────────────────────────────────────
       const savedName = this._state.savedReports.find(r => r.id === this._state.currentId)?.name;
       const reportName = savedName || `리포트 ${new Date().toLocaleDateString('ko-KR')}`;
-      const dsLabel = (this._state.fields?.datasources || []).find(d => d.key === cfg.datasource)?.label || cfg.datasource;
+      const dsLabel =
+        (this._state.fields?.datasources || []).find(d => d.key === cfg.datasource)?.label ||
+        cfg.datasource;
       const generatedAt = new Date().toLocaleString('ko-KR');
       const fieldsMap = this._fieldsByKey();
       const { rows: data } = this._state.queryResult;
@@ -1460,9 +1577,9 @@ const ReportBuilderPage = {
       //   - letter-spacing 0 + word-spacing 0.08em 명시 → 공백 흡수 방지
       //   - 공백을 \u00A0 (NBSP) 로 일부 치환 → html2canvas 공백 collapse 회피
       //   - text-rendering: geometricPrecision → 글자 측정 정확도 ↑
-      const _esc = (s) => esc(String(s));
+      const _esc = s => esc(String(s));
       // 공백 보존을 위해 일부 텍스트의 공백을 NBSP 로 치환
-      const _preserveSpaces = (s) => _esc(s).replace(/ /g, '\u00A0');
+      const _preserveSpaces = s => _esc(s).replace(/ /g, '\u00A0');
       tempDiv = document.createElement('div');
       tempDiv.style.cssText = `
         position: fixed;
@@ -1501,18 +1618,26 @@ const ReportBuilderPage = {
             </tr>
           </thead>
           <tbody>
-            ${tableRows.map((row, i) => `
+            ${tableRows
+              .map(
+                (row, i) => `
               <tr style="background:${i % 2 ? '#f9fafb' : '#ffffff'}">
                 ${row.map(cell => `<td style="padding:6px 10px;text-align:center;border:1px solid #e5e7eb;letter-spacing:0">${_preserveSpaces(cell)}</td>`).join('')}
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
-        ${data.length > 30 ? `
+        ${
+          data.length > 30
+            ? `
           <div style="font-size:10px;color:#888;margin-top:8px;text-align:right;letter-spacing:0">
             ${_preserveSpaces(`…총 ${data.length}건 중 30건 표시 (전체 데이터는 Excel 로 내보내기)`)}
           </div>
-        ` : ''}
+        `
+            : ''
+        }
         <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center;letter-spacing:0;word-spacing:0.05em">
           ${_preserveSpaces('OCI CRM Report Builder')}\u00A0·\u00A0${_preserveSpaces(generatedAt)}
         </div>
@@ -1528,23 +1653,23 @@ const ReportBuilderPage = {
 
       // ── html2canvas 캡처 (글자 정밀 렌더링 옵션) ─────────
       const canvas = await window.html2canvas(tempDiv, {
-        scale: 2,                  // 고해상도 (Retina)
+        scale: 2, // 고해상도 (Retina)
         backgroundColor: '#ffffff',
         logging: false,
         useCORS: true,
-        letterRendering: true,     // 🐛 fix: 글자별 렌더링 → 한국어/영어 혼합 공백 보존
+        letterRendering: true, // 🐛 fix: 글자별 렌더링 → 한국어/영어 혼합 공백 보존
         allowTaint: false,
-        windowWidth: 1100,         // 명시적 viewport width
+        windowWidth: 1100, // 명시적 viewport width
       });
       const imgData = canvas.toDataURL('image/png');
 
       // ── PDF 생성 + 이미지 삽입 ───────────────────────────
       // A4 가로: 297 x 210mm — 캡처 이미지 가로/세로 비율에 맞춰 자동 조정
       const doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      const pageWidth = doc.internal.pageSize.getWidth();   // 297
+      const pageWidth = doc.internal.pageSize.getWidth(); // 297
       const pageHeight = doc.internal.pageSize.getHeight(); // 210
       const margin = 10;
-      const maxImgWidth = pageWidth - margin * 2;   // 277
+      const maxImgWidth = pageWidth - margin * 2; // 277
       const maxImgHeight = pageHeight - margin * 2; // 190
 
       // 이미지 원본 비율 유지하면서 최대 영역에 맞춤

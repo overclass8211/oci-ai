@@ -9,25 +9,37 @@ const App = {
 
   // 페이지 매핑
   pages: {
-    dashboard: { obj: () => DashboardPage,  title: '대시보드',       crumb: '홈 / 대시보드' },
-    orders:    { obj: () => OrdersPage,     title: '주문관리 (OMS)', crumb: 'OMS / 주문관리' },
-    cost:      { obj: () => CostPage,       title: '원가관리',       crumb: 'ERP / 원가관리' },
-    pipeline:  { obj: () => PipelinePage,   title: '파이프라인',     crumb: '영업관리 / 파이프라인' },
-    leads:     { obj: () => LeadsPage,      title: '영업 리드',       crumb: '영업관리 / 리드' },
-    projects:  { obj: () => ProjectsPage,   title: '프로젝트',       crumb: '영업관리 / 프로젝트' },
-    customers: { obj: () => CustomersPage,  title: '고객사',         crumb: '영업관리 / 고객사' },
-    calendar:  { obj: () => CalendarPage,   title: '영업 캘린더',    crumb: '영업관리 / 캘린더' },
-    quotes:    { obj: () => QuotesPage,     title: '견적서',         crumb: '영업관리 / 견적서' },
-    team:      { obj: () => TeamPage,       title: '팀 현황',        crumb: '분석 / 팀' },
-    reports:   { obj: () => ReportsPage,    title: '리포트',         crumb: '분석 / 리포트' },
-    'report-builder': { obj: () => ReportBuilderPage, title: '리포트 빌더', crumb: '분석 / 리포트 빌더' },
-    board:     { obj: () => BoardPage,      title: '커뮤니케이션',   crumb: '소통 / 게시판' },
-    meeting:       { obj: () => MeetingPage,        title: '회의록 AI',      crumb: 'AI 기능 / 회의록' },
-    'meeting-list':{ obj: () => MeetingListPage,    title: '회의록 목록',    crumb: 'AI 기능 / 회의록 목록' },
-    admin:         { obj: () => AdminPage,             title: '관리자',         crumb: '시스템 / 관리자' },
-    settings:      { obj: () => SettingsPage,          title: '설정',           crumb: '시스템 / 설정' },
-    notifications: { obj: () => NotificationsListPage, title: '알림 전체 목록', crumb: '알림 / 전체 목록' },
-    dev:           { obj: () => DevPage,               title: '개발자 옵션',    crumb: '시스템 / 개발자 옵션' }
+    dashboard: { obj: () => DashboardPage, title: '대시보드', crumb: '홈 / 대시보드' },
+    orders: { obj: () => OrdersPage, title: '주문관리 (OMS)', crumb: 'OMS / 주문관리' },
+    cost: { obj: () => CostPage, title: '원가관리', crumb: 'ERP / 원가관리' },
+    pipeline: { obj: () => PipelinePage, title: '파이프라인', crumb: '영업관리 / 파이프라인' },
+    leads: { obj: () => LeadsPage, title: '영업 리드', crumb: '영업관리 / 리드' },
+    projects: { obj: () => ProjectsPage, title: '프로젝트', crumb: '영업관리 / 프로젝트' },
+    customers: { obj: () => CustomersPage, title: '고객사', crumb: '영업관리 / 고객사' },
+    calendar: { obj: () => CalendarPage, title: '영업 캘린더', crumb: '영업관리 / 캘린더' },
+    quotes: { obj: () => QuotesPage, title: '견적서', crumb: '영업관리 / 견적서' },
+    team: { obj: () => TeamPage, title: '팀 현황', crumb: '분석 / 팀' },
+    reports: { obj: () => ReportsPage, title: '리포트', crumb: '분석 / 리포트' },
+    'report-builder': {
+      obj: () => ReportBuilderPage,
+      title: '리포트 빌더',
+      crumb: '분석 / 리포트 빌더',
+    },
+    board: { obj: () => BoardPage, title: '커뮤니케이션', crumb: '소통 / 게시판' },
+    meeting: { obj: () => MeetingPage, title: '회의록 AI', crumb: 'AI 기능 / 회의록' },
+    'meeting-list': {
+      obj: () => MeetingListPage,
+      title: '회의록 목록',
+      crumb: 'AI 기능 / 회의록 목록',
+    },
+    admin: { obj: () => AdminPage, title: '관리자', crumb: '시스템 / 관리자' },
+    settings: { obj: () => SettingsPage, title: '설정', crumb: '시스템 / 설정' },
+    notifications: {
+      obj: () => NotificationsListPage,
+      title: '알림 전체 목록',
+      crumb: '알림 / 전체 목록',
+    },
+    dev: { obj: () => DevPage, title: '개발자 옵션', crumb: '시스템 / 개발자 옵션' },
   },
 
   async init() {
@@ -63,13 +75,16 @@ const App = {
     // 알림 로드 (기능 토글 ON 일 때만)
     if (Features.isEnabled('crm.notifications')) {
       Notifications.load();
-      setInterval(() => {
-        if (Features.isEnabled('crm.notifications')) Notifications.load();
-      }, 5 * 60 * 1000);
+      setInterval(
+        () => {
+          if (Features.isEnabled('crm.notifications')) Notifications.load();
+        },
+        5 * 60 * 1000
+      );
     }
 
     // 알림 패널 외부 클릭 닫기
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', e => {
       if (!e.target.closest('.notif-wrap')) {
         document.getElementById('notif-panel')?.classList.remove('show');
       }
@@ -109,7 +124,7 @@ const App = {
   // ── 이벤트 위임 핸들러 (인라인 onclick 대체) ──────────────
   _initEventDelegation() {
     // 1) 네비게이션 (data-action="navigate" + data-page="...")
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', e => {
       const el = e.target.closest('[data-action]');
       if (!el) return;
       const action = el.dataset.action;
@@ -169,7 +184,7 @@ const App = {
     });
 
     // 6) AI 퀵 액션 버튼 (data-ai-report, data-ai-prompt)
-    document.getElementById('ai-quick-actions')?.addEventListener('click', (e) => {
+    document.getElementById('ai-quick-actions')?.addEventListener('click', e => {
       const btn = e.target.closest('.ai-quick-btn');
       if (!btn || typeof AI === 'undefined') return;
       if (btn.dataset.aiReport) {
@@ -184,13 +199,13 @@ const App = {
     // 7) AI 입력창 키 이벤트 (Enter: 전송, Shift+Enter: 줄바꿈)
     const aiInput = document.getElementById('ai-input');
     if (aiInput) {
-      aiInput.addEventListener('keydown', (e) => {
+      aiInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           if (typeof AI !== 'undefined') AI.send();
         }
       });
-      aiInput.addEventListener('input', function() {
+      aiInput.addEventListener('input', function () {
         this.style.height = 'auto';
         this.style.height = Math.min(this.scrollHeight, 120) + 'px';
       });
@@ -200,12 +215,18 @@ const App = {
   // ── 인증 + RBAC ───────────────────────────────────────────
   async checkAuth() {
     const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
-    if (!token) { window.location.href = '/login'; return; }
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
 
     try {
-      const res  = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
-      if (!data.success) { this.logout(); return; }
+      if (!data.success) {
+        this.logout();
+        return;
+      }
 
       this.currentUser = data.data;
       localStorage.setItem('current_user_id', data.data.id);
@@ -225,12 +246,16 @@ const App = {
       if (token) {
         fetch('/api/auth/logout', {
           method: 'POST',
-          credentials: 'include',   // Refresh Token 쿠키 전송 → 서버에서 쿠키 삭제
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          keepalive: true,           // 페이지 종료 후에도 요청 유지
-        }).catch(() => { /* 백그라운드 — 오류 무시 */ });
+          credentials: 'include', // Refresh Token 쿠키 전송 → 서버에서 쿠키 삭제
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          keepalive: true, // 페이지 종료 후에도 요청 유지
+        }).catch(() => {
+          /* 백그라운드 — 오류 무시 */
+        });
       }
-    } catch (_) { /* 클라이언트 정리는 반드시 진행 */ }
+    } catch (_) {
+      /* 클라이언트 정리는 반드시 진행 */
+    }
     localStorage.removeItem('oci_token');
     sessionStorage.removeItem('oci_token');
     localStorage.removeItem('oci_user');
@@ -241,7 +266,7 @@ const App = {
   },
 
   applyRbacToNav(user) {
-    const pages   = user.pages || [];
+    const pages = user.pages || [];
     const allAccess = pages.includes('*');
     document.querySelectorAll('.nav-item[data-page]').forEach(el => {
       const page = el.dataset.page;
@@ -259,7 +284,13 @@ const App = {
   renderUserBadge(user) {
     const el = document.getElementById('user-badge');
     if (!el) return;
-    const roleLabels = { manager:'매니저', team_lead:'팀장', executive:'경영진', admin:'IT운영관리자', superadmin:'시스템담당자' };
+    const roleLabels = {
+      manager: '매니저',
+      team_lead: '팀장',
+      executive: '경영진',
+      admin: 'IT운영관리자',
+      superadmin: '시스템담당자',
+    };
     el.innerHTML = `
       <div class="ubadge">
         <div class="ubadge-info">
@@ -281,25 +312,27 @@ const App = {
       const [teamRes, custRes] = await Promise.all([
         API.team.list(),
         API.customers.list(),
-        loadStages(),  // 파이프라인 단계 정의 동적 로드 (실패해도 fallback)
+        loadStages(), // 파이프라인 단계 정의 동적 로드 (실패해도 fallback)
       ]);
       this.team = teamRes.data;
       this.customers = custRes.data;
-    } catch (err) { console.warn('common data load failed:', err); }
+    } catch (err) {
+      console.warn('common data load failed:', err);
+    }
   },
 
   async updateNavBadges() {
     try {
       const result = await API.leads.list();
-      const active = result.data.filter(l =>
-        !['won', 'lost', 'dropped'].includes(l.stage)
-      ).length;
+      const active = result.data.filter(l => !['won', 'lost', 'dropped'].includes(l.stage)).length;
       const total = result.data.length;
       const elPipe = document.getElementById('nav-pipeline-count');
       const elLeads = document.getElementById('nav-leads-count');
       if (elPipe) elPipe.textContent = active;
       if (elLeads) elLeads.textContent = total;
-    } catch (_) { /* nav badge update is non-critical */ }
+    } catch (_) {
+      /* nav badge update is non-critical */
+    }
   },
 
   // ─────────────────────────────────────────────────────────────
@@ -315,8 +348,8 @@ const App = {
       const r = await API.request('GET', '/menu/sidebar');
       const data = r?.data || {};
       const sections = Array.isArray(data.sections) ? data.sections : [];
-      const items    = Array.isArray(data.items)    ? data.items    : [];
-      if (!sections.length) return;  // 데이터 없으면 폴백 유지
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!sections.length) return; // 데이터 없으면 폴백 유지
 
       const navEl = document.querySelector('.sidebar-nav');
       if (!navEl) return;
@@ -338,7 +371,9 @@ const App = {
         if (!el) return;
         // 라벨 오버라이드: 첫 번째 .nav-badge 가 아닌 span 교체
         if (it.label_override) {
-          const span = [...el.children].find(c => c.tagName === 'SPAN' && !c.classList.contains('nav-badge'));
+          const span = [...el.children].find(
+            c => c.tagName === 'SPAN' && !c.classList.contains('nav-badge')
+          );
           if (span) span.textContent = it.label_override;
         }
         if (!itemsBySection[it.section_key]) itemsBySection[it.section_key] = [];
@@ -352,7 +387,7 @@ const App = {
         const keys = itemsBySection[s.section_key] || [];
         keys.forEach(k => {
           const itemEl = itemEls[k];
-          if (itemEl) secEl.appendChild(itemEl);  // 이미 다른 섹션에 있어도 옮김
+          if (itemEl) secEl.appendChild(itemEl); // 이미 다른 섹션에 있어도 옮김
         });
       });
 
@@ -380,7 +415,9 @@ const App = {
       // 5) 응답에 없거나 비어있는 섹션 숨김
       const visibleSectionKeys = new Set(sections.map(s => s.section_key));
       const sectionHasItems = {};
-      items.forEach(it => { sectionHasItems[it.section_key] = true; });
+      items.forEach(it => {
+        sectionHasItems[it.section_key] = true;
+      });
       Object.keys(sectionEls).forEach(k => {
         const el = sectionEls[k];
         const empty = !sectionHasItems[k];
@@ -423,9 +460,10 @@ const App = {
   toggleMobileNav() {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.getElementById('sidebar-overlay');
-    const isOpen  = sidebar.classList.contains('mobile-open');
-    if (isOpen) { this.closeMobileNav(); }
-    else {
+    const isOpen = sidebar.classList.contains('mobile-open');
+    if (isOpen) {
+      this.closeMobileNav();
+    } else {
       sidebar.classList.add('mobile-open');
       overlay.classList.add('active');
     }
@@ -456,16 +494,16 @@ const App = {
     // ── 기능 토글 OFF 페이지 차단 (URL 직접 접근 방어) ───────
     // 사이드바 nav-item 의 data-feature 와 매핑 — UI 와 일관성 확보
     const featureMap = {
-      'dashboard': 'crm.dashboard',
-      'pipeline': 'crm.pipeline',
-      'calendar': 'crm.calendar',
-      'quotes': 'crm.quotes',
-      'reports': 'crm.reports',
+      dashboard: 'crm.dashboard',
+      pipeline: 'crm.pipeline',
+      calendar: 'crm.calendar',
+      quotes: 'crm.quotes',
+      reports: 'crm.reports',
       'report-builder': 'crm.report_builder',
-      'board': 'crm.board',
-      'meeting': 'ai.meeting',
+      board: 'crm.board',
+      meeting: 'ai.meeting',
       'meeting-list': 'ai.meeting',
-      'dev': 'dev.options',
+      dev: 'dev.options',
     };
     const featKey = featureMap[pageId];
     if (featKey && typeof Features !== 'undefined' && !Features.isEnabled(featKey)) {
@@ -484,7 +522,9 @@ const App = {
     this.currentPage = pageId;
 
     // ⚠️ F5 새로고침 후 같은 페이지로 복귀 — 마지막 페이지 저장
-    try { localStorage.setItem('oci_lastPage', pageId); } catch (_) {}
+    try {
+      localStorage.setItem('oci_lastPage', pageId);
+    } catch (_) {}
     // URL hash 동기화 (브라우저 뒤로가기 호환)
     if (location.hash.replace(/^#/, '') !== pageId) {
       history.replaceState(null, '', '#' + pageId);
@@ -502,13 +542,17 @@ const App = {
     const crumbEl = document.getElementById('page-breadcrumb');
     titleEl.setAttribute('data-label', titleKey);
     crumbEl.setAttribute('data-label', crumbKey);
-    titleEl.textContent = (typeof Labels !== 'undefined' ? Labels.get(titleKey, page.title) : page.title);
-    crumbEl.textContent = (typeof Labels !== 'undefined' ? Labels.get(crumbKey, page.crumb) : page.crumb);
+    titleEl.textContent =
+      typeof Labels !== 'undefined' ? Labels.get(titleKey, page.title) : page.title;
+    crumbEl.textContent =
+      typeof Labels !== 'undefined' ? Labels.get(crumbKey, page.crumb) : page.crumb;
 
     // 컨텐츠 로딩
     document.getElementById('content').innerHTML =
       `<div class="loading" data-label="common.loading_data">${
-        typeof Labels !== 'undefined' ? Labels.get('common.loading_data', '데이터 로딩중...') : '데이터 로딩중...'
+        typeof Labels !== 'undefined'
+          ? Labels.get('common.loading_data', '데이터 로딩중...')
+          : '데이터 로딩중...'
       }</div>`;
 
     try {
@@ -549,18 +593,28 @@ const App = {
       try {
         const result = await API.leads.get(id);
         lead = result.data;
-      } catch (_) { return; }
+      } catch (_) {
+        return;
+      }
     }
 
     if (!this.team.length) await this.refreshCommon();
 
-    const teamOpts = this.team.map(t =>
-      `<option value="${t.id}" ${lead?.assigned_to === t.id ? 'selected' : ''}>${esc(t.name)} (${esc(t.role)})</option>`
-    ).join('');
+    const teamOpts = this.team
+      .map(
+        t =>
+          `<option value="${t.id}" ${lead?.assigned_to === t.id ? 'selected' : ''}>${esc(t.name)} (${esc(t.role)})</option>`
+      )
+      .join('');
 
     Modal.open({
-      title: lead ? (typeof Labels !== 'undefined' ? Labels.get('leads.modal_edit', '리드 정보 수정') : '리드 정보 수정')
-                  : (typeof Labels !== 'undefined' ? Labels.get('leads.modal_new', '신규 리드 등록') : '신규 리드 등록'),
+      title: lead
+        ? typeof Labels !== 'undefined'
+          ? Labels.get('leads.modal_edit', '리드 정보 수정')
+          : '리드 정보 수정'
+        : typeof Labels !== 'undefined'
+          ? Labels.get('leads.modal_new', '신규 리드 등록')
+          : '신규 리드 등록',
       width: 640,
       body: `
         <form id="lead-form" class="form-grid">
@@ -600,9 +654,12 @@ const App = {
             <div class="form-row">
               <label class="form-label" data-label="leads.stage">단계</label>
               <select class="form-input" name="stage">
-                ${Object.keys(STAGES).map(s =>
-                  `<option value="${s}" data-label="stages.${s}" ${(lead?.stage || 'lead') === s ? 'selected' : ''}>${STAGES[s].label}</option>`
-                ).join('')}
+                ${Object.keys(STAGES)
+                  .map(
+                    s =>
+                      `<option value="${s}" data-label="stages.${s}" ${(lead?.stage || 'lead') === s ? 'selected' : ''}>${STAGES[s].label}</option>`
+                  )
+                  .join('')}
               </select>
             </div>
           </div>
@@ -666,8 +723,7 @@ const App = {
         <button class="btn btn-primary" id="lf-save" data-label="${lead ? 'common.save' : 'common.register'}">${lead ? '저장' : '등록'}</button>
       `,
       bind: Object.assign(
-        { '#lf-cancel': () => Modal.close(),
-          '#lf-save':   () => App.saveLead(lead?.id || null) },
+        { '#lf-cancel': () => Modal.close(), '#lf-save': () => App.saveLead(lead?.id || null) },
         lead ? { '#lf-delete': () => App.deleteLead(lead.id) } : {}
       ),
       onOpen: () => {
@@ -675,7 +731,7 @@ const App = {
         const amtEl = document.querySelector('#lead-form [name="expected_amount"]');
         const curEl = document.getElementById('lf-currency');
         const prevWrap = document.getElementById('lf-krw-preview');
-        const prevVal  = document.getElementById('lf-krw-value');
+        const prevVal = document.getElementById('lf-krw-value');
         const prevRate = document.getElementById('lf-krw-rate');
 
         const updatePreview = async () => {
@@ -688,26 +744,26 @@ const App = {
           if (cur === 'KRW') {
             prevWrap.style.display = 'flex';
             // KRW expected_amount는 "억 단위" 정책 — 그대로 표시
-            prevVal.textContent  = Fmt.amount(amt, 'KRW');
+            prevVal.textContent = Fmt.amount(amt, 'KRW');
             prevRate.textContent = '(원화 입력)';
             return;
           }
           prevWrap.style.display = 'flex';
-          prevVal.textContent  = '환산 중...';
+          prevVal.textContent = '환산 중...';
           prevRate.textContent = '';
           try {
             const r = await API.get(`/exchange/convert?amount=${amt}&currency=${cur}`);
             // 환산 결과는 원 단위 → Fmt.krw 로 표시 (1,488.58 → ₩1,489)
-            prevVal.textContent  = '≈ ' + Fmt.krw(r.krw);
+            prevVal.textContent = '≈ ' + Fmt.krw(r.krw);
             prevRate.textContent = `(1 ${cur} = ${Number(r.rate).toLocaleString()} KRW)`;
           } catch (e) {
-            prevVal.textContent  = '환산 실패';
+            prevVal.textContent = '환산 실패';
             prevRate.textContent = `(${e.message})`;
           }
         };
         amtEl?.addEventListener('input', debounce(updatePreview, 400));
         curEl?.addEventListener('change', updatePreview);
-        updatePreview();  // 초기 호출
+        updatePreview(); // 초기 호출
 
         // ─── 고객사 자동완성 (Combobox) ───────────────────
         // 기존 <datalist> 제거 후 Combobox.attach 로 교체
@@ -725,18 +781,22 @@ const App = {
           });
           Combobox.attach({
             inputEl: custInput,
-            fetchFn: async (q) => {
+            fetchFn: async q => {
               try {
                 const r = await API.customers.autocomplete(q, 10);
                 return r.data || [];
-              } catch (_) { return []; }
+              } catch (_) {
+                return [];
+              }
             },
             renderItem: (item, q, { highlightMatch }) => {
               const meta = [];
               if (item.industry) meta.push(esc(item.industry));
               if (item.region) meta.push(esc(item.region));
               if (item.active_deals_count > 0) {
-                meta.push(`<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`);
+                meta.push(
+                  `<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`
+                );
               }
               const myBadge = item.is_my_customer
                 ? `<span style="font-size:9px;background:var(--oci-red-light);color:var(--oci-red);padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px">본인담당</span>`
@@ -748,11 +808,11 @@ const App = {
                 </div>
               `;
             },
-            onSelect: (item) => {
+            onSelect: item => {
               custInput.value = item.name;
               if (custHidden) custHidden.value = item.id;
             },
-            onCustomCreate: (query) => {
+            onCustomCreate: query => {
               custInput.value = query;
               if (custHidden) custHidden.value = '';
             },
@@ -762,7 +822,7 @@ const App = {
             customLabel: '+ "X" 그대로 등록 (신규 고객사)',
           });
         }
-      }
+      },
     });
   },
 
@@ -796,7 +856,9 @@ const App = {
       const cur = this.pages[this.currentPage]?.obj();
       if (cur && cur.loadData) cur.loadData();
       this.updateNavBadges();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   deleteLead(id) {
@@ -808,7 +870,9 @@ const App = {
         const cur = this.pages[this.currentPage]?.obj();
         if (cur && cur.loadData) cur.loadData();
         this.updateNavBadges();
-      } catch (err) { console.error(err); }
+      } catch (err) {
+        console.error(err);
+      }
     });
   },
 
@@ -835,15 +899,17 @@ const App = {
         break;
       case 'customers':
         targetPage = 'customers';
-        openFn = () => (typeof CustomersPage !== 'undefined') && CustomersPage.showCustomerModal?.(numId);
+        openFn = () =>
+          typeof CustomersPage !== 'undefined' && CustomersPage.showCustomerModal?.(numId);
         break;
       case 'projects':
         targetPage = 'projects';
-        openFn = () => (typeof ProjectsPage !== 'undefined') && ProjectsPage.openForm?.(numId);
+        openFn = () => typeof ProjectsPage !== 'undefined' && ProjectsPage.openForm?.(numId);
         break;
       case 'meetings':
         targetPage = 'meeting-list';
-        openFn = () => (typeof MeetingListPage !== 'undefined') && MeetingListPage.showDetail?.(numId);
+        openFn = () =>
+          typeof MeetingListPage !== 'undefined' && MeetingListPage.showDetail?.(numId);
         break;
       case 'activities': {
         // 활동은 부모(리드 또는 프로젝트) 상세를 연다
@@ -854,7 +920,7 @@ const App = {
           openFn = () => this.openLeadDetail(pLead);
         } else if (Number.isFinite(pProj)) {
           targetPage = 'projects';
-          openFn = () => (typeof ProjectsPage !== 'undefined') && ProjectsPage.openForm?.(pProj);
+          openFn = () => typeof ProjectsPage !== 'undefined' && ProjectsPage.openForm?.(pProj);
         } else {
           return;
         }
@@ -883,58 +949,79 @@ const App = {
       const l = result.data;
       const stage = STAGES[l.stage] || STAGES.lead;
       const days = Fmt.daysLeft(l.expected_close_date);
-      const daysBadge = (days === null || days === undefined) ? '' :
-        days < 0 ? `<span class="badge badge-red">${Math.abs(days)}일 경과</span>` :
-        days <= 7 ? `<span class="badge badge-amber">D-${days}</span>` :
-        `<span class="badge badge-gray">D-${days}</span>`;
+      const daysBadge =
+        days === null || days === undefined
+          ? ''
+          : days < 0
+            ? `<span class="badge badge-red">${Math.abs(days)}일 경과</span>`
+            : days <= 7
+              ? `<span class="badge badge-amber">D-${days}</span>`
+              : `<span class="badge badge-gray">D-${days}</span>`;
 
       // 고객 담당자 정보 (App.customers 캐시 활용)
       const custInfo = (this.customers || []).find(c => c.name === l.customer_name);
       const contactPerson = custInfo?.contact_person || '-';
-      const contactPhone  = custInfo?.phone  || '';
-      const contactEmail  = custInfo?.email  || '';
-      const customerId    = custInfo?.id || null;          // 고객사 모달 연결용
+      const contactPhone = custInfo?.phone || '';
+      const contactEmail = custInfo?.email || '';
+      const customerId = custInfo?.id || null; // 고객사 모달 연결용
 
       // 활동 이력 HTML 생성 (data 속성으로 CSP-safe 이벤트 준비)
-      const activitiesHtml = (l.activities && l.activities.length) ? `
+      const activitiesHtml =
+        l.activities && l.activities.length
+          ? `
         <div class="activity-list">
-          ${l.activities.map(a => {
-            const dateStr = a.activity_date ? String(a.activity_date).slice(0,10)
-                          : a.performed_at  ? String(a.performed_at).slice(0,10) : '';
-            const isLinkable = !a.calendar_event_id
-              && a.activity_type
-              && !['stage_change','수주','드롭'].includes(a.activity_type);
-            return `
+          ${l.activities
+            .map(a => {
+              const dateStr = a.activity_date
+                ? String(a.activity_date).slice(0, 10)
+                : a.performed_at
+                  ? String(a.performed_at).slice(0, 10)
+                  : '';
+              const isLinkable =
+                !a.calendar_event_id &&
+                a.activity_type &&
+                !['stage_change', '수주', '드롭'].includes(a.activity_type);
+              return `
             <div class="activity-item ${a.calendar_event_id ? 'has-calendar' : ''}"
-                 ${a.calendar_event_id
-                   ? `data-act-cal="${a.calendar_event_id}" data-act-date="${dateStr}" style="cursor:pointer"`
-                   : ''}>
+                 ${
+                   a.calendar_event_id
+                     ? `data-act-cal="${a.calendar_event_id}" data-act-date="${dateStr}" style="cursor:pointer"`
+                     : ''
+                 }>
               <div class="activity-icon">${this.activityIcon(a.activity_type)}</div>
               <div class="activity-body">
                 <div class="activity-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                   <span>${esc(a.title)}</span>
-                  ${a.status === 'done'
-                    ? '<span class="badge" style="background:rgba(23,168,90,.12);color:#17A85A;font-size:10px;padding:1px 7px">✅ 완료</span>'
-                    : a.status === 'planned'
-                      ? '<span class="badge" style="background:rgba(33,150,243,.12);color:#1976D2;font-size:10px;padding:1px 7px">📌 계획</span>'
-                      : ''}
-                  ${a.calendar_event_id
-                    ? '<span class="activity-cal-badge">📅 캘린더</span>'
-                    : isLinkable
-                      ? `<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;border-color:#ccc;color:#888;white-space:nowrap"
+                  ${
+                    a.status === 'done'
+                      ? '<span class="badge" style="background:rgba(23,168,90,.12);color:#17A85A;font-size:10px;padding:1px 7px">✅ 완료</span>'
+                      : a.status === 'planned'
+                        ? '<span class="badge" style="background:rgba(33,150,243,.12);color:#1976D2;font-size:10px;padding:1px 7px">📌 계획</span>'
+                        : ''
+                  }
+                  ${
+                    a.calendar_event_id
+                      ? '<span class="activity-cal-badge">📅 캘린더</span>'
+                      : isLinkable
+                        ? `<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;border-color:#ccc;color:#888;white-space:nowrap"
                                data-link-act="${a.id}" data-act-date="${dateStr}">📅 연결</button>`
-                      : ''}
+                        : ''
+                  }
                 </div>
                 ${a.content ? `<div class="activity-content">${esc(a.content)}</div>` : ''}
                 <div class="activity-meta">${esc(a.performer_name || '시스템')} · ${Fmt.relTime(a.activity_date || a.performed_at)}</div>
               </div>
             </div>`;
-          }).join('')}
+            })
+            .join('')}
         </div>
-      ` : '<div class="empty"><div class="empty-icon">📝</div>활동 이력이 없습니다</div>';
+      `
+          : '<div class="empty"><div class="empty-icon">📝</div>활동 이력이 없습니다</div>';
 
       // 회의록 HTML 생성
-      const meetingsHtml = (l.meetings && l.meetings.length) ? `
+      const meetingsHtml =
+        l.meetings && l.meetings.length
+          ? `
         <div class="card mb-3">
           <div class="card-header">
             <div class="card-title">📋 연결된 회의록 (${l.meetings.length}건)</div>
@@ -942,11 +1029,15 @@ const App = {
           </div>
           <div class="card-body no-pad">
             <div class="activity-list">
-              ${l.meetings.map(m => {
-                const preview = (m.summary_md || '')
-                  .replace(/#{1,3}\s*/g, '').replace(/\*\*/g, '').replace(/\n+/g, ' ').trim()
-                  .substring(0, 60);
-                return `
+              ${l.meetings
+                .map(m => {
+                  const preview = (m.summary_md || '')
+                    .replace(/#{1,3}\s*/g, '')
+                    .replace(/\*\*/g, '')
+                    .replace(/\n+/g, ' ')
+                    .trim()
+                    .substring(0, 60);
+                  return `
                 <div class="activity-item" style="cursor:pointer" data-meeting-detail="${m.id}">
                   <div class="activity-icon">📝</div>
                   <div class="activity-body">
@@ -954,15 +1045,17 @@ const App = {
                       ${esc(m.title)}
                       ${m.calendar_event_id ? '<span class="activity-cal-badge">📅 캘린더</span>' : ''}
                     </div>
-                    ${preview ? `<div class="activity-content">${esc(preview)}${(m.summary_md||'').length > 60 ? '...' : ''}</div>` : ''}
+                    ${preview ? `<div class="activity-content">${esc(preview)}${(m.summary_md || '').length > 60 ? '...' : ''}</div>` : ''}
                     <div class="activity-meta">${Fmt.date(m.meeting_date)} · ${esc(m.customer_name || '')}</div>
                   </div>
                 </div>`;
-              }).join('')}
+                })
+                .join('')}
             </div>
           </div>
         </div>
-      ` : '';
+      `
+          : '';
 
       Modal.open({
         title: `${esc(l.customer_name)} · ${esc(l.project_name)}`,
@@ -985,32 +1078,38 @@ const App = {
             <div class="kv-row">
               <span class="kv-key" data-label="leads.customer_name">고객사</span>
               <span class="kv-val">
-                ${customerId
-                  ? `<a href="#" data-cust-link="${customerId}"
+                ${
+                  customerId
+                    ? `<a href="#" data-cust-link="${customerId}"
                        style="color:var(--oci-blue);text-decoration:none;font-weight:600;cursor:pointer"
                        title="고객사 상세 보기">🏢 ${esc(l.customer_name)}</a>`
-                  : `<span style="font-weight:600">🏢 ${esc(l.customer_name)}</span>
-                     <span style="font-size:11px;color:var(--text-4);margin-left:6px">(미등록)</span>`}
+                    : `<span style="font-weight:600">🏢 ${esc(l.customer_name)}</span>
+                     <span style="font-size:11px;color:var(--text-4);margin-left:6px">(미등록)</span>`
+                }
               </span>
             </div>
             <div class="kv-row">
               <span class="kv-key" data-label="leads.assigned_to">영업 담당자</span>
               <span class="kv-val">
-                ${l.assigned_name
-                  ? `<a href="#" data-assignee-link="${l.assigned_to || ''}"
+                ${
+                  l.assigned_name
+                    ? `<a href="#" data-assignee-link="${l.assigned_to || ''}"
                        style="color:var(--oci-blue);text-decoration:none;cursor:pointer"
                        title="팀원 페이지로 이동">👤 ${esc(l.assigned_name)}</a>`
-                  : '<span style="color:var(--text-4)">미배정</span>'}
+                    : '<span style="color:var(--text-4)">미배정</span>'
+                }
               </span>
             </div>
             <div class="kv-row">
               <span class="kv-key" data-label="leads.contact_person">고객 담당자</span>
               <span class="kv-val">
-                ${customerId && contactPerson !== '-'
-                  ? `<a href="#" data-contact-link="${customerId}"
+                ${
+                  customerId && contactPerson !== '-'
+                    ? `<a href="#" data-contact-link="${customerId}"
                        style="color:var(--oci-blue);text-decoration:none;cursor:pointer"
                        title="고객사 상세 보기">👥 ${esc(contactPerson)}</a>`
-                  : `<span>${esc(contactPerson)}</span>`}
+                    : `<span>${esc(contactPerson)}</span>`
+                }
                 ${contactPhone ? ' · <span class="mono" style="font-size:11px">' + esc(contactPhone) + '</span>' : ''}
               </span>
             </div>
@@ -1022,12 +1121,16 @@ const App = {
             ${contactEmail ? `<div class="kv-row"><span class="kv-key">고객 이메일</span><span class="kv-val mono" style="font-size:11px">${esc(contactEmail)}</span></div>` : ''}
           </div>
 
-          ${l.notes ? `
+          ${
+            l.notes
+              ? `
             <div class="card mb-3">
               <div class="card-header"><div class="card-title">메모</div></div>
               <div class="card-body" style="white-space:pre-line;font-size:13px;line-height:1.6">${esc(l.notes)}</div>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
 
           <div class="card mb-3">
             <div class="card-header">
@@ -1059,24 +1162,37 @@ const App = {
         bind: {
           // 푸터 버튼
           '#ld-add-act': () => App.openActivityForm(l.id, l.customer_name),
-          '#ld-ai':      () => { Modal.close(); AI.summarizeLead(l.id, l.project_name); },
-          '#ld-close':   () => Modal.close(),
-          '#ld-edit':    () => { Modal.close(); App.openLeadForm(l.id); },
-          '#ld-email':   () => {
+          '#ld-ai': () => {
+            Modal.close();
+            AI.summarizeLead(l.id, l.project_name);
+          },
+          '#ld-close': () => Modal.close(),
+          '#ld-edit': () => {
+            Modal.close();
+            App.openLeadForm(l.id);
+          },
+          '#ld-email': () => {
             if (typeof Email !== 'undefined') {
               Email.open({
-                to:       contactEmail || '',
-                customer: { id: customerId, name: l.customer_name,
-                            email: contactEmail, contact_person: contactPerson },
-                lead:     { id: l.id, project_name: l.project_name,
-                            customer_name: l.customer_name,
-                            bidding_deadline: l.bidding_deadline },
+                to: contactEmail || '',
+                customer: {
+                  id: customerId,
+                  name: l.customer_name,
+                  email: contactEmail,
+                  contact_person: contactPerson,
+                },
+                lead: {
+                  id: l.id,
+                  project_name: l.project_name,
+                  customer_name: l.customer_name,
+                  bidding_deadline: l.bidding_deadline,
+                },
                 defaultCategory: 'lead',
               });
             }
           },
           // ── 고객사/고객담당자 클릭 → 고객사 모달 ──
-          '[data-cust-link]': (e) => {
+          '[data-cust-link]': e => {
             e.preventDefault();
             const cid = parseInt(e.currentTarget.dataset.custLink);
             if (!cid) return;
@@ -1089,7 +1205,7 @@ const App = {
               });
             }, 100);
           },
-          '[data-contact-link]': (e) => {
+          '[data-contact-link]': e => {
             e.preventDefault();
             const cid = parseInt(e.currentTarget.dataset.contactLink);
             if (!cid) return;
@@ -1103,38 +1219,48 @@ const App = {
             }, 100);
           },
           // ── 영업 담당자 클릭 → 팀 페이지 ──
-          '[data-assignee-link]': (e) => {
+          '[data-assignee-link]': e => {
             e.preventDefault();
             Modal.close();
             setTimeout(() => App.navigate('team'), 100);
           },
           // 새 회의록 버튼 (회의록 있을 때만 렌더됨)
-          '#ld-new-meeting': () => { Modal.close(); App.navigate('meeting'); },
+          '#ld-new-meeting': () => {
+            Modal.close();
+            App.navigate('meeting');
+          },
           // 활동 → 캘린더 이동 (activity-item 행 클릭)
-          '[data-act-cal]': (e) => {
+          '[data-act-cal]': e => {
             if (e.target.closest('[data-link-act]')) return; // 연결 버튼 클릭 시 무시
             const el = e.currentTarget;
             Modal.close();
             App.goToCalendarEvent(parseInt(el.dataset.actCal), el.dataset.actDate);
           },
           // 캘린더 연결 버튼
-          '[data-link-act]': (e) => {
+          '[data-link-act]': e => {
             e.stopPropagation();
             const el = e.currentTarget;
-            App.openCalendarLinkPicker(parseInt(el.dataset.linkAct), l.id, el.dataset.actDate, l.id);
+            App.openCalendarLinkPicker(
+              parseInt(el.dataset.linkAct),
+              l.id,
+              el.dataset.actDate,
+              l.id
+            );
           },
           // 회의록 상세 이동
-          '[data-meeting-detail]': (e) => {
+          '[data-meeting-detail]': e => {
             const mid = parseInt(e.currentTarget.dataset.meetingDetail);
             Modal.close();
             App.navigate('meeting-list');
             setTimeout(() => MeetingListPage.showDetail(mid), 400);
-          }
-        }
+          },
+        },
       });
       // 📧 Gmail 카드 lazy load — modal 렌더 후 비동기
       this._loadGmailForLead(l.id);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   // ── Gmail 메시지 카드 — 리드 모달용 (lazy) ────────────────
@@ -1147,20 +1273,24 @@ const App = {
     } catch (err) {
       // 401/403/500 등 — API 자체에서 던진 에러
       // FEATURE_DISABLED (클라이언트 가드) 도 _renderGmailCard 에서 분기 처리
-      this._renderGmailCard(body, {
-        success: false,
-        error: err.message || 'Gmail 조회 실패',
-        statusCode: err.status || 0,
-        code: err.code,
-        feature: err.feature,
-      }, () => this._loadGmailForLead(leadId));
+      this._renderGmailCard(
+        body,
+        {
+          success: false,
+          error: err.message || 'Gmail 조회 실패',
+          statusCode: err.status || 0,
+          code: err.code,
+          feature: err.feature,
+        },
+        () => this._loadGmailForLead(leadId)
+      );
     }
   },
 
   // ── Gmail 카드 렌더 (lead/customer 공용) ───────────────────
   _renderGmailCard(bodyEl, res, retryFn) {
-    const refreshBtn = document.getElementById('ld-gmail-refresh') ||
-                       document.getElementById('cust-gmail-refresh');
+    const refreshBtn =
+      document.getElementById('ld-gmail-refresh') || document.getElementById('cust-gmail-refresh');
 
     // 0) 기능 토글 OFF — Graceful Degradation (에러 X, 친절한 안내)
     if (res && res.code === 'FEATURE_DISABLED') {
@@ -1219,12 +1349,13 @@ const App = {
       <div style="padding:8px 14px;font-size:11px;color:var(--text-3);border-bottom:1px solid var(--border)">
         매칭 이메일: <span class="mono">${esc(res.email)}</span> · ${res.count}건
       </div>
-      ${res.data.map(m => {
-        const dirIcon = m.direction === 'outbound' ? '📤' : '📥';
-        const dirLabel = m.direction === 'outbound' ? '보냄' : '받음';
-        const dirColor = m.direction === 'outbound' ? '#1664E5' : '#17A85A';
-        const dateStr = m.date ? new Date(m.date).toLocaleString('ko-KR') : '';
-        return `
+      ${res.data
+        .map(m => {
+          const dirIcon = m.direction === 'outbound' ? '📤' : '📥';
+          const dirLabel = m.direction === 'outbound' ? '보냄' : '받음';
+          const dirColor = m.direction === 'outbound' ? '#1664E5' : '#17A85A';
+          const dateStr = m.date ? new Date(m.date).toLocaleString('ko-KR') : '';
+          return `
           <a href="${esc(m.gmail_url)}" target="_blank" rel="noopener noreferrer"
              style="display:block;padding:10px 14px;border-bottom:1px solid var(--border);text-decoration:none;color:inherit"
              title="Gmail 에서 열기">
@@ -1240,7 +1371,8 @@ const App = {
             </div>
           </a>
         `;
-      }).join('')}
+        })
+        .join('')}
     `;
     if (refreshBtn) {
       refreshBtn.style.display = '';
@@ -1258,7 +1390,7 @@ const App = {
       proposal: '📄',
       bidding: '📋',
       contract: '✍',
-      note: '📝'
+      note: '📝',
     };
     return map[type] || '●';
   },
@@ -1280,15 +1412,27 @@ const App = {
       const r = await API.get(`/activities/${activityId}/calendar-candidates`);
       const candidates = r.data || [];
 
-      const EVENT_ICONS = { '미팅':'🤝', '영업방문':'🏗', '입찰':'📋', '제안':'📄', '내부':'🗂', '기타':'📌' };
-      const STATUS_LABEL = { planned:'계획', completed:'완료' };
+      const EVENT_ICONS = {
+        미팅: '🤝',
+        영업방문: '🏗',
+        입찰: '📋',
+        제안: '📄',
+        내부: '🗂',
+        기타: '📌',
+      };
+      const STATUS_LABEL = { planned: '계획', completed: '완료' };
 
       const listHtml = candidates.length
-        ? candidates.map(c => {
-            const dt  = c.start_datetime ? String(c.start_datetime).slice(0, 16).replace('T', ' ') : '-';
-            const ico  = EVENT_ICONS[c.event_type] || '📌';
-            const used = c.already_linked_act ? ' <span style="color:#bbb;font-size:10px">(이미 연결됨)</span>' : '';
-            return `
+        ? candidates
+            .map(c => {
+              const dt = c.start_datetime
+                ? String(c.start_datetime).slice(0, 16).replace('T', ' ')
+                : '-';
+              const ico = EVENT_ICONS[c.event_type] || '📌';
+              const used = c.already_linked_act
+                ? ' <span style="color:#bbb;font-size:10px">(이미 연결됨)</span>'
+                : '';
+              return `
               <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);
                           border-radius:8px;margin-bottom:6px;${c.already_linked_act ? 'opacity:.5' : 'cursor:pointer'}"
                    ${!c.already_linked_act ? `data-clp-cal="${c.id}"` : ''}>
@@ -1299,7 +1443,8 @@ const App = {
                 </div>
                 ${!c.already_linked_act ? '<span style="font-size:11px;color:#1a73e8;white-space:nowrap">연결 →</span>' : ''}
               </div>`;
-          }).join('')
+            })
+            .join('')
         : `<div class="empty" style="padding:20px 0">
              <div class="empty-icon">📅</div>
              <div>같은 리드의 ±7일 이내 캘린더 일정이 없습니다</div>
@@ -1319,13 +1464,16 @@ const App = {
         footer: `<button class="btn btn-ghost" id="clp-cancel">취소</button>`,
         bind: {
           '#clp-cancel': () => Modal.close(),
-          '[data-clp-cal]': (e) => {
+          '[data-clp-cal]': e => {
             const calId = parseInt(e.currentTarget.dataset.clpCal);
             App._doLinkActivity(activityId, calId, reopenLeadId);
-          }
-        }
+          },
+        },
       });
-    } catch (e) { console.error(e); Toast.error('후보 일정을 불러오지 못했습니다'); }
+    } catch (e) {
+      console.error(e);
+      Toast.error('후보 일정을 불러오지 못했습니다');
+    }
   },
 
   async _doLinkActivity(activityId, calEventId, reopenLeadId) {
@@ -1334,17 +1482,22 @@ const App = {
       Toast.success('캘린더 일정과 연결되었습니다');
       Modal.close();
       if (reopenLeadId) setTimeout(() => this.openLeadDetail(reopenLeadId), 150);
-    } catch { Toast.error('연결에 실패했습니다'); }
+    } catch {
+      Toast.error('연결에 실패했습니다');
+    }
   },
 
   openActivityForm(leadId, customerName = '') {
     Modal.close();
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
-    const defaultDt = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:00`;
+    const defaultDt = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:00`;
     setTimeout(() => {
       Modal.open({
-        title: (typeof Labels !== 'undefined' ? Labels.get('activities.modal_new', '활동 추가') : '활동 추가'),
+        title:
+          typeof Labels !== 'undefined'
+            ? Labels.get('activities.modal_new', '활동 추가')
+            : '활동 추가',
         width: 480,
         body: `
           <form id="activity-form" class="form-grid">
@@ -1401,10 +1554,10 @@ const App = {
         `,
         bind: {
           '#af-cancel': () => Modal.close(),
-          '#af-save':   () => App.saveActivity(leadId)
+          '#af-save': () => App.saveActivity(leadId),
         },
         onOpen: () => {
-          const sel       = document.getElementById('act-type-sel');
+          const sel = document.getElementById('act-type-sel');
           const statusSel = document.getElementById('act-status-sel');
           // 활동 유형 변경 시 캘린더 동기화 행 토글 + 활동 구분 자동 추천
           if (sel) {
@@ -1412,12 +1565,15 @@ const App = {
               App._toggleCalendarSync(sel.value);
               // 메모·이메일·전화는 이미 발생한 사실 → 완료 / 그 외는 계획
               if (statusSel) {
-                const auto = (sel.value === 'note' || sel.value === 'email' || sel.value === 'call') ? 'done' : 'planned';
+                const auto =
+                  sel.value === 'note' || sel.value === 'email' || sel.value === 'call'
+                    ? 'done'
+                    : 'planned';
                 statusSel.value = auto;
               }
             });
           }
-        }
+        },
       });
     }, 100);
   },
@@ -1426,14 +1582,14 @@ const App = {
     const row = document.getElementById('calendar-sync-row');
     if (!row) return;
     // 메모·이메일은 캘린더 등록 불필요 — 숨김
-    row.style.display = (type === 'note' || type === 'email') ? 'none' : '';
+    row.style.display = type === 'note' || type === 'email' ? 'none' : '';
   },
 
   async saveActivity(leadId) {
     const form = document.getElementById('activity-form');
     const fd = new FormData(form);
     const body = {};
-    fd.forEach((v, k) => body[k] = v || null);
+    fd.forEach((v, k) => (body[k] = v || null));
     body.lead_id = leadId;
     const syncCalendar = document.getElementById('sync-calendar-cb')?.checked;
     const activityDatetime = body.activity_datetime;
@@ -1450,36 +1606,48 @@ const App = {
       const actId = actResult.id;
 
       if (syncCalendar && activityDatetime) {
-        const typeToEvent = { meeting:'미팅', site_visit:'영업방문', proposal:'제안', call:'기타', bidding:'입찰' };
-        const typeToColor = { meeting:'#3788d8', site_visit:'#28a745', proposal:'#fd7e14', call:'#6c757d', bidding:'#e63946' };
+        const typeToEvent = {
+          meeting: '미팅',
+          site_visit: '영업방문',
+          proposal: '제안',
+          call: '기타',
+          bidding: '입찰',
+        };
+        const typeToColor = {
+          meeting: '#3788d8',
+          site_visit: '#28a745',
+          proposal: '#fd7e14',
+          call: '#6c757d',
+          bidding: '#e63946',
+        };
         const eventType = typeToEvent[body.activity_type] || '기타';
-        const color     = typeToColor[body.activity_type] || '#6c757d';
+        const color = typeToColor[body.activity_type] || '#6c757d';
         const dt = activityDatetime.replace('T', ' ') + ':00';
         const endDt = (() => {
           const d = new Date(activityDatetime);
           d.setHours(d.getHours() + 1);
-          const p = n => String(n).padStart(2,'0');
-          return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:00`;
+          const p = n => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:00`;
         })();
         try {
           // ② 캘린더 이벤트 생성 → calEventId 확보
           const calResult = await API.calendar.create({
-            title:          `[${eventType}] ${customerName ? customerName + ' ' : ''}${body.title}`,
-            event_type:     eventType,
-            status:         'planned',
+            title: `[${eventType}] ${customerName ? customerName + ' ' : ''}${body.title}`,
+            event_type: eventType,
+            status: 'planned',
             start_datetime: dt,
-            end_datetime:   endDt,
-            lead_id:        leadId || null,
-            customer_name:  customerName || null,
+            end_datetime: endDt,
+            lead_id: leadId || null,
+            customer_name: customerName || null,
             color,
           });
           const calId = calResult.id;
 
           // ③ 활동에 calendar_event_id 역방향 연결 (양방향성 완성)
           if (actId && calId) {
-            await API.activities.update(actId, { calendar_event_id: calId }).catch(e =>
-              console.warn('calendar_event_id 역방향 연결 실패:', e)
-            );
+            await API.activities
+              .update(actId, { calendar_event_id: calId })
+              .catch(e => console.warn('calendar_event_id 역방향 연결 실패:', e));
           }
         } catch (calErr) {
           console.warn('캘린더 등록 실패:', calErr);
@@ -1487,11 +1655,15 @@ const App = {
         }
       }
 
-      Toast.success(syncCalendar && activityDatetime ? '활동 추가 + 캘린더 등록 완료' : '활동이 추가되었습니다');
+      Toast.success(
+        syncCalendar && activityDatetime ? '활동 추가 + 캘린더 등록 완료' : '활동이 추가되었습니다'
+      );
       Modal.close();
       setTimeout(() => this.openLeadDetail(leadId), 150);
-    } catch (err) { console.error(err); }
-  }
+    } catch (err) {
+      console.error(err);
+    }
+  },
 };
 
 // ============================================================
@@ -1514,7 +1686,7 @@ const WS = {
         DevPage._updateWsStatus?.();
       }
     };
-    this.socket.onmessage = (e) => {
+    this.socket.onmessage = e => {
       try {
         const msg = JSON.parse(e.data);
 
@@ -1545,15 +1717,18 @@ const WS = {
 
         // ── 리드 단계 변경 ─────────────────────────────────
         if (msg.type === 'stage_change') {
-          const label = msg.stage === 'won'
-            ? `🏆 수주 완료! ${msg.customer_name} - ${msg.project_name}`
-            : `${msg.icon} ${msg.customer_name} → ${msg.stage_label}`;
+          const label =
+            msg.stage === 'won'
+              ? `🏆 수주 완료! ${msg.customer_name} - ${msg.project_name}`
+              : `${msg.icon} ${msg.customer_name} → ${msg.stage_label}`;
           // 클릭 시 파이프라인 이동 + 리드 상세 열기
-          const onClick = msg.lead_id ? () => {
-            App.navigate('pipeline').then(() => {
-              if (msg.lead_id) App.openLeadDetail(msg.lead_id);
-            });
-          } : null;
+          const onClick = msg.lead_id
+            ? () => {
+                App.navigate('pipeline').then(() => {
+                  if (msg.lead_id) App.openLeadDetail(msg.lead_id);
+                });
+              }
+            : null;
           if (msg.stage === 'won') Toast.success(label, onClick);
           else Toast.info(label, onClick);
           Notifications.load();
@@ -1589,7 +1764,9 @@ const WS = {
             Toast.info('🔔 스키마 변경이 감지되었습니다. [스키마 동기화]를 눌러 반영하세요.');
           }
         }
-      } catch (_) { /* malformed WS message, skip */ }
+      } catch (_) {
+        /* malformed WS message, skip */
+      }
     };
     this.socket.onclose = () => {
       if (typeof DevPage !== 'undefined') {
@@ -1609,14 +1786,14 @@ const WS = {
     void badge.offsetWidth;
     badge.classList.add('pulse-anim');
     setTimeout(() => badge.classList.remove('pulse-anim'), 1200);
-  }
+  },
 };
 
 // ============================================================
 // 기능 플래그 (Feature Flags) — 프론트엔드 헬퍼
 // ============================================================
 const Features = {
-  _flags: {},     // { 'ai.assistant': true, 'auth.otp': false, ... }
+  _flags: {}, // { 'ai.assistant': true, 'auth.otp': false, ... }
   _loaded: false,
 
   // 앱 초기화 직후 호출 — /api/admin/dev/features/public 에서 플래그 로드
@@ -1657,7 +1834,9 @@ const Features = {
 
     // ── ② ai.assistant 비활성화 시 열려있는 패널 닫기 ──
     if (!this.isEnabled('ai.assistant')) {
-      try { AI.close(); } catch (_) {}
+      try {
+        AI.close();
+      } catch (_) {}
     }
 
     // ── ③ nav 섹션: 모든 nav 아이템이 숨겨질 때만 섹션 타이틀 숨김 ──
@@ -1672,14 +1851,14 @@ const Features = {
       });
       section.style.display = allHidden ? 'none' : '';
     });
-  }
+  },
 };
 
 // ============================================================
 // 부팅
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
-  await App.init();  // Features.load() + apply()가 App.init() 내부에서 RBAC 이후 실행됨
+  await App.init(); // Features.load() + apply()가 App.init() 내부에서 RBAC 이후 실행됨
   // realtime.ws 플래그가 ON일 때만 WebSocket 연결
   if (Features.isEnabled('realtime.ws')) WS.connect();
   UserPrefs.init();

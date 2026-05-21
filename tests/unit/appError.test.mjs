@@ -6,8 +6,12 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const {
-  AppError, ValidationError, NotFoundError,
-  AuthError, ForbiddenError, DatabaseError,
+  AppError,
+  ValidationError,
+  NotFoundError,
+  AuthError,
+  ForbiddenError,
+  DatabaseError,
 } = require('../../src/errors/AppError.js');
 
 describe('AppError 기본 클래스', () => {

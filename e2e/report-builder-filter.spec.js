@@ -58,7 +58,9 @@ test('필터 input 클릭 → Combobox 드롭다운 표시 + 값 선택 동작',
   const hasEmpty = await page.locator('.combobox-empty').count();
   const hasCustom = await page.locator('.combobox-custom-item').count();
 
-  console.log(`[E2E] Combobox state — items: ${hasItems}, empty: ${hasEmpty}, custom: ${hasCustom}`);
+  console.log(
+    `[E2E] Combobox state — items: ${hasItems}, empty: ${hasEmpty}, custom: ${hasCustom}`
+  );
 
   // 최소한 dropdown 자체가 표시되어야 함 (위에서 toBeVisible 검증)
   // 데이터가 없어도 OK — 빈 상태 또는 자유 입력 옵션
@@ -67,7 +69,7 @@ test('필터 input 클릭 → Combobox 드롭다운 표시 + 값 선택 동작',
   // ─── 5) 자유 입력 테스트 ──────────────────────────────────
   // input 에 타이핑 → Combobox 의 onCustomCreate 트리거 또는 매칭 결과
   await filterInput.fill('test-value');
-  await page.waitForTimeout(300);  // 디바운스 대기
+  await page.waitForTimeout(300); // 디바운스 대기
 
   // input.value 가 반영되었는지
   await expect(filterInput).toHaveValue('test-value');

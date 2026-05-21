@@ -3,8 +3,8 @@
 // ============================================================
 const ReportsPage = {
   charts: {},
-  widgetCharts: {},     // 위젯별 Chart.js 인스턴스 (key: widget id)
-  widgets: [],          // 현재 사용자 위젯 목록 (API 응답 캐시)
+  widgetCharts: {}, // 위젯별 Chart.js 인스턴스 (key: widget id)
+  widgets: [], // 현재 사용자 위젯 목록 (API 응답 캐시)
   selectedYear: new Date().getFullYear(),
 
   async render() {
@@ -16,7 +16,9 @@ const ReportsPage = {
       <div class="filter-bar">
         <div class="card-title" style="margin-right:auto" id="reports-title">영업 리포트 (${this.selectedYear}년)</div>
         <div style="display:flex;gap:4px;align-items:center">
-          ${years.map(y => `
+          ${years
+            .map(
+              y => `
             <button class="year-btn ${y === this.selectedYear ? 'active' : ''}"
               data-year="${y}"
               style="padding:4px 10px;border-radius:var(--radius);border:1px solid var(--border-2);
@@ -24,7 +26,9 @@ const ReportsPage = {
                      color:${y === this.selectedYear ? '#fff' : 'var(--text-2)'};
                      font-size:12px;cursor:pointer;font-weight:${y === this.selectedYear ? '600' : '400'}">
               ${y}
-            </button>`).join('')}
+            </button>`
+            )
+            .join('')}
         </div>
         <button class="ai-gen-btn" id="reports-weekly-btn">📊 주간보고서 AI생성</button>
         <button class="ai-gen-btn" id="reports-monthly-btn">📈 월간보고서 AI생성</button>
@@ -104,19 +108,27 @@ const ReportsPage = {
     document.getElementById('content').innerHTML = html;
 
     // year buttons delegation
-    document.querySelector('.filter-bar')?.addEventListener('click', (e) => {
+    document.querySelector('.filter-bar')?.addEventListener('click', e => {
       const btn = e.target.closest('.year-btn[data-year]');
       if (btn) this.changeYear(parseInt(btn.dataset.year));
     });
-    document.getElementById('reports-weekly-btn')?.addEventListener('click', () => this.generateWeekly());
-    document.getElementById('reports-monthly-btn')?.addEventListener('click', () => this.generateMonthly());
-    document.getElementById('reports-export-btn')?.addEventListener('click', () => this.exportCsv());
+    document
+      .getElementById('reports-weekly-btn')
+      ?.addEventListener('click', () => this.generateWeekly());
+    document
+      .getElementById('reports-monthly-btn')
+      ?.addEventListener('click', () => this.generateMonthly());
+    document
+      .getElementById('reports-export-btn')
+      ?.addEventListener('click', () => this.exportCsv());
     document.getElementById('reports-copy-btn')?.addEventListener('click', () => this.copyReport());
     document.getElementById('reports-close-report-btn')?.addEventListener('click', () => {
       document.getElementById('ai-report-card').style.display = 'none';
     });
     // ★ 위젯 추가 버튼
-    document.getElementById('rp-add-widget-btn')?.addEventListener('click', () => this._openAddWidgetModal());
+    document
+      .getElementById('rp-add-widget-btn')
+      ?.addEventListener('click', () => this._openAddWidgetModal());
 
     await this.loadData();
     // 위젯은 별도 비동기 로드 (기존 대시보드와 독립 — 실패해도 KPI 영향 없음)
@@ -133,7 +145,8 @@ const ReportsPage = {
     });
     const titleEl = document.getElementById('reports-title');
     if (titleEl) titleEl.textContent = `영업 리포트 (${year}년)`;
-    document.getElementById('reports-kpis').innerHTML = '<div class="metric-card"><div class="metric-label">로딩...</div></div>';
+    document.getElementById('reports-kpis').innerHTML =
+      '<div class="metric-card"><div class="metric-label">로딩...</div></div>';
     document.getElementById('reports-funnel').innerHTML = '<div class="loading">로딩...</div>';
     document.getElementById('reports-top').innerHTML = '<div class="loading">로딩...</div>';
     await this.loadData();
@@ -147,34 +160,37 @@ const ReportsPage = {
         API.dashboard.stats(y),
         API.leads.list({ date_from: `${y}-01-01`, date_to: `${y}-12-31`, date_field: 'created' }),
         API.team.list(),
-        API.dashboard.funnel(y)
+        API.dashboard.funnel(y),
       ]);
       this.renderKpis(statsRes.data, leadsRes.data);
       this.renderRegionChart(leadsRes.data);
       this.renderBusinessChart(leadsRes.data);
       this.renderFunnel(funnelRes.data);
       this.renderTopTeam(teamRes.data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   renderKpis(stats, leads) {
     const yearTarget = 1500; // 연 목표 1,500억
-    const wonAmount  = parseFloat(stats.wonAmount || 0);
-    const wonLeads   = leads.filter(l => l.stage === 'won');
-    const wonCount   = wonLeads.length;
+    const wonAmount = parseFloat(stats.wonAmount || 0);
+    const wonLeads = leads.filter(l => l.stage === 'won');
+    const wonCount = wonLeads.length;
     const totalCount = leads.length;
     const droppedCount = leads.filter(l => l.stage === 'dropped' || l.stage === 'lost').length;
-    const dropRate = totalCount ? (droppedCount / totalCount * 100) : 0;
-    const avgWon = wonCount ? (wonAmount / wonCount) : 0;
-    const achievement = (wonAmount / yearTarget * 100);
+    const dropRate = totalCount ? (droppedCount / totalCount) * 100 : 0;
+    const avgWon = wonCount ? wonAmount / wonCount : 0;
+    const achievement = (wonAmount / yearTarget) * 100;
     const curYear = new Date().getFullYear();
-    const monthDivisor = this.selectedYear === curYear ? Math.max(new Date().getMonth() + 1, 1) : 12;
+    const monthDivisor =
+      this.selectedYear === curYear ? Math.max(new Date().getMonth() + 1, 1) : 12;
 
     document.getElementById('reports-kpis').innerHTML = `
       <div class="metric-card">
         <div class="metric-label">연간 목표 달성률</div>
         <div class="metric-value">${achievement.toFixed(1)}<span class="metric-unit">%</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(achievement,100)}%"></div></div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(achievement, 100)}%"></div></div>
         <div class="metric-sub">목표 ${yearTarget}억 / 누적 ${Fmt.amount(wonAmount)}</div>
       </div>
       <div class="metric-card">
@@ -205,17 +221,20 @@ const ReportsPage = {
       type: 'doughnut',
       data: {
         labels: ['국내', '해외'],
-        datasets: [{
-          data: [domestic, overseas],
-          backgroundColor: ['#2357E8', '#A855F7'],
-          borderWidth: 0
-        }]
+        datasets: [
+          {
+            data: [domestic, overseas],
+            backgroundColor: ['#2357E8', '#A855F7'],
+            borderWidth: 0,
+          },
+        ],
       },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true,
+        maintainAspectRatio: false,
         plugins: { legend: { position: 'bottom' } },
-        cutout: '60%'
-      }
+        cutout: '60%',
+      },
     });
   },
 
@@ -236,32 +255,36 @@ const ReportsPage = {
       type: 'bar',
       data: {
         labels,
-        datasets: [{
-          label: '수주 금액 (억)',
-          data,
-          backgroundColor: labels.map((_, i) => colors[i % colors.length]),
-          borderRadius: 6
-        }]
+        datasets: [
+          {
+            label: '수주 금액 (억)',
+            data,
+            backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+            borderRadius: 6,
+          },
+        ],
       },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true,
+        maintainAspectRatio: false,
         indexAxis: 'y',
         plugins: { legend: { display: false } },
-        scales: { x: { beginAtZero: true, grid: { color: '#F1F2F4' } } }
-      }
+        scales: { x: { beginAtZero: true, grid: { color: '#F1F2F4' } } },
+      },
     });
   },
 
   renderFunnel(funnel) {
     const order = ['lead', 'review', 'proposal', 'bidding', 'negotiation', 'won'];
     const map = {};
-    funnel.forEach(f => map[f.stage] = parseInt(f.count) || 0);
+    funnel.forEach(f => (map[f.stage] = parseInt(f.count) || 0));
     const max = Math.max(...order.map(s => map[s] || 0), 1);
 
-    const html = order.map(s => {
-      const c = map[s] || 0;
-      const pct = (c / max * 100);
-      return `
+    const html = order
+      .map(s => {
+        const c = map[s] || 0;
+        const pct = (c / max) * 100;
+        return `
         <div class="funnel-row">
           <div class="funnel-label">${STAGES[s].label}</div>
           <div class="funnel-bar-wrap">
@@ -270,15 +293,16 @@ const ReportsPage = {
           <div class="funnel-count">${c}건</div>
         </div>
       `;
-    }).join('');
+      })
+      .join('');
 
     document.getElementById('reports-funnel').innerHTML = html;
   },
 
   renderTopTeam(team) {
-    const sorted = [...team].sort((a, b) =>
-      parseFloat(b.won_amount || 0) - parseFloat(a.won_amount || 0)
-    ).slice(0, 5);
+    const sorted = [...team]
+      .sort((a, b) => parseFloat(b.won_amount || 0) - parseFloat(a.won_amount || 0))
+      .slice(0, 5);
 
     if (!sorted.length || !sorted[0].won_amount) {
       document.getElementById('reports-top').innerHTML =
@@ -292,7 +316,9 @@ const ReportsPage = {
           <tr><th>순위</th><th>담당자</th><th>역할</th><th class="text-right">수주건수</th><th class="text-right">수주금액</th></tr>
         </thead>
         <tbody>
-          ${sorted.map((m, i) => `
+          ${sorted
+            .map(
+              (m, i) => `
             <tr>
               <td><strong>#${i + 1}</strong></td>
               <td><strong>${esc(m.name)}</strong></td>
@@ -300,15 +326,21 @@ const ReportsPage = {
               <td class="text-right mono">${m.won_count || 0}</td>
               <td class="text-right mono"><strong>${Fmt.amount(m.won_amount)}</strong></td>
             </tr>
-          `).join('')}
+          `
+            )
+            .join('')}
         </tbody>
       </table>
     `;
     document.getElementById('reports-top').innerHTML = html;
   },
 
-  async generateWeekly() { await this._generateReport('weekly', '주간 보고서'); },
-  async generateMonthly() { await this._generateReport('monthly', '월간 보고서'); },
+  async generateWeekly() {
+    await this._generateReport('weekly', '주간 보고서');
+  },
+  async generateMonthly() {
+    await this._generateReport('monthly', '월간 보고서');
+  },
 
   async _generateReport(type, label) {
     const card = document.getElementById('ai-report-card');
@@ -326,9 +358,9 @@ const ReportsPage = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ type })
+        body: JSON.stringify({ type }),
       });
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -340,7 +372,14 @@ const ReportsPage = {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6);
           if (data === '[DONE]') break;
-          try { const { text } = JSON.parse(data); fullText += text; body.textContent = fullText; body.scrollTop = body.scrollHeight; } catch (_) { /* skip */ }
+          try {
+            const { text } = JSON.parse(data);
+            fullText += text;
+            body.textContent = fullText;
+            body.scrollTop = body.scrollHeight;
+          } catch (_) {
+            /* skip */
+          }
         }
       }
       title.textContent = `✅ AI ${label} 완료`;
@@ -351,22 +390,48 @@ const ReportsPage = {
 
   copyReport() {
     const text = document.getElementById('ai-report-body').textContent;
-    navigator.clipboard.writeText(text).then(() => Toast.success('보고서가 클립보드에 복사되었습니다'));
+    navigator.clipboard
+      .writeText(text)
+      .then(() => Toast.success('보고서가 클립보드에 복사되었습니다'));
   },
 
   async exportCsv() {
     try {
       const y = this.selectedYear;
-      const result = await API.leads.list({ date_from: `${y}-01-01`, date_to: `${y}-12-31`, date_field: 'created' });
+      const result = await API.leads.list({
+        date_from: `${y}-01-01`,
+        date_to: `${y}-12-31`,
+        date_field: 'created',
+      });
       const rows = result.data;
-      const headers = ['고객사', '프로젝트', '사업유형', '지역', '단계', '담당자', '예상금액', '통화', '예상마감일'];
+      const headers = [
+        '고객사',
+        '프로젝트',
+        '사업유형',
+        '지역',
+        '단계',
+        '담당자',
+        '예상금액',
+        '통화',
+        '예상마감일',
+      ];
       const lines = [headers.join(',')];
       rows.forEach(r => {
-        lines.push([
-          r.customer_name, r.project_name, r.business_type, r.region,
-          STAGES[r.stage]?.label || r.stage, r.assigned_name || '',
-          r.expected_amount || '', r.currency || '', r.expected_close_date || ''
-        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+        lines.push(
+          [
+            r.customer_name,
+            r.project_name,
+            r.business_type,
+            r.region,
+            STAGES[r.stage]?.label || r.stage,
+            r.assigned_name || '',
+            r.expected_amount || '',
+            r.currency || '',
+            r.expected_close_date || '',
+          ]
+            .map(v => `"${String(v).replace(/"/g, '""')}"`)
+            .join(',')
+        );
       });
       const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -376,7 +441,9 @@ const ReportsPage = {
       a.click();
       URL.revokeObjectURL(url);
       Toast.success('CSV 파일이 다운로드되었습니다');
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   // ═══════════════════════════════════════════════════════════
@@ -395,7 +462,8 @@ const ReportsPage = {
     } catch (err) {
       console.warn('[Widgets] list 실패:', err.message);
       const grid = document.getElementById('rp-widgets-grid');
-      if (grid) grid.innerHTML = `<div class="rp-widgets-empty">위젯 목록을 불러올 수 없습니다 (${err.message})</div>`;
+      if (grid)
+        grid.innerHTML = `<div class="rp-widgets-empty">위젯 목록을 불러올 수 없습니다 (${err.message})</div>`;
     }
   },
 
@@ -406,7 +474,11 @@ const ReportsPage = {
     if (countEl) countEl.textContent = this.widgets.length > 0 ? `(${this.widgets.length}개)` : '';
 
     // 이전 차트 인스턴스 정리
-    Object.values(this.widgetCharts).forEach(c => { try { c.destroy(); } catch (_) {} });
+    Object.values(this.widgetCharts).forEach(c => {
+      try {
+        c.destroy();
+      } catch (_) {}
+    });
     this.widgetCharts = {};
 
     if (this.widgets.length === 0) {
@@ -420,7 +492,9 @@ const ReportsPage = {
           <button class="btn btn-primary btn-sm" style="margin-top:14px" id="rp-empty-add-btn">+ 첫 위젯 추가</button>
         </div>
       `;
-      document.getElementById('rp-empty-add-btn')?.addEventListener('click', () => this._openAddWidgetModal());
+      document
+        .getElementById('rp-empty-add-btn')
+        ?.addEventListener('click', () => this._openAddWidgetModal());
       return;
     }
 
@@ -481,19 +555,29 @@ const ReportsPage = {
     try {
       // 기존 차트 destroy
       if (this.widgetCharts[widget.id]) {
-        try { this.widgetCharts[widget.id].destroy(); } catch (_) {}
+        try {
+          this.widgetCharts[widget.id].destroy();
+        } catch (_) {}
         delete this.widgetCharts[widget.id];
       }
       if (isRefresh && metaEl) metaEl.textContent = '새로고침 중...';
 
-      const cfg = typeof widget.config_json === 'string'
-        ? JSON.parse(widget.config_json) : (widget.config_json || {});
+      const cfg =
+        typeof widget.config_json === 'string'
+          ? JSON.parse(widget.config_json)
+          : widget.config_json || {};
       const r = await API.reportBuilder.query(cfg);
       const result = r.data;
       this._drawWidgetChart(canvas, cfg, result);
       if (metaEl) {
         const ds = cfg.datasource || 'leads';
-        const dsLabel = ({ leads: '영업 리드', projects: '프로젝트', customers: '고객사', activities: '영업 활동' })[ds] || ds;
+        const dsLabel =
+          {
+            leads: '영업 리드',
+            projects: '프로젝트',
+            customers: '고객사',
+            activities: '영업 활동',
+          }[ds] || ds;
         metaEl.textContent = `${dsLabel} · ${result.rows.length}건 · ${new Date().toLocaleTimeString('ko-KR')}`;
       }
     } catch (err) {
@@ -526,15 +610,23 @@ const ReportsPage = {
       config = {
         type: 'doughnut',
         data: { labels, datasets: [{ data, backgroundColor: colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } } },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } },
+        },
       };
     } else if (chartType === 'stacked-bar' && colKey) {
       const rowKeys = [...new Set(rows.map(r => String(r.row_key)))];
       const colKeys = [...new Set(rows.map(r => String(r.col_key)))];
       const m = measures[0];
       const pivot = {};
-      rowKeys.forEach(rk => { pivot[rk] = {}; });
-      rows.forEach(r => { pivot[String(r.row_key)][String(r.col_key)] = Number(r[m] || 0); });
+      rowKeys.forEach(rk => {
+        pivot[rk] = {};
+      });
+      rows.forEach(r => {
+        pivot[String(r.row_key)][String(r.col_key)] = Number(r[m] || 0);
+      });
       config = {
         type: 'bar',
         data: {
@@ -546,7 +638,8 @@ const ReportsPage = {
           })),
         },
         options: {
-          responsive: true, maintainAspectRatio: false,
+          responsive: true,
+          maintainAspectRatio: false,
           scales: { x: { stacked: true }, y: { stacked: true } },
           plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } } },
         },
@@ -564,7 +657,8 @@ const ReportsPage = {
         type: chartType === 'line' ? 'line' : 'bar',
         data: { labels, datasets },
         options: {
-          responsive: true, maintainAspectRatio: false,
+          responsive: true,
+          maintainAspectRatio: false,
           plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } } },
         },
       };
@@ -588,7 +682,9 @@ const ReportsPage = {
       Toast.success('위젯이 제거되었습니다');
       // 차트 인스턴스 정리
       if (this.widgetCharts[widgetId]) {
-        try { this.widgetCharts[widgetId].destroy(); } catch (_) {}
+        try {
+          this.widgetCharts[widgetId].destroy();
+        } catch (_) {}
         delete this.widgetCharts[widgetId];
       }
       this.widgets = this.widgets.filter(w => w.id !== widgetId);
@@ -603,7 +699,9 @@ const ReportsPage = {
   async _onReorder() {
     const grid = document.getElementById('rp-widgets-grid');
     if (!grid) return;
-    const ids = [...grid.querySelectorAll('[data-widget-id]')].map(el => parseInt(el.dataset.widgetId, 10));
+    const ids = [...grid.querySelectorAll('[data-widget-id]')].map(el =>
+      parseInt(el.dataset.widgetId, 10)
+    );
     try {
       await API.reports.widgets.reorder(ids);
       // 메모리 widgets 도 동일 순서로 정렬
@@ -630,18 +728,22 @@ const ReportsPage = {
           <p style="font-size:13px;color:var(--text-2);margin:0 0 14px">
             리포트 빌더에서 만든 리포트를 위젯으로 추가하거나, 새 리포트를 만들 수 있습니다.
           </p>
-          ${savedReports.length === 0 ? `
+          ${
+            savedReports.length === 0
+              ? `
             <div style="padding:24px;text-align:center;background:var(--surface-2);border-radius:8px;margin-bottom:14px">
               <div style="font-size:24px;margin-bottom:6px;opacity:0.4">📝</div>
               <div style="font-size:13px;color:var(--text-2)">아직 저장된 리포트가 없습니다.</div>
               <div style="font-size:11px;color:var(--text-3);margin-top:4px">먼저 리포트 빌더에서 리포트를 만들어 보세요.</div>
             </div>
-          ` : `
+          `
+              : `
             <div style="margin-bottom:8px;font-size:12px;font-weight:600;color:var(--text-2)">📊 기존 리포트에서 추가</div>
             <div class="rp-add-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:14px">
-              ${savedReports.map(rep => {
-                const disabled = alreadyAdded.has(rep.id);
-                return `
+              ${savedReports
+                .map(rep => {
+                  const disabled = alreadyAdded.has(rep.id);
+                  return `
                   <label class="rp-add-item" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:${disabled ? 'not-allowed' : 'pointer'};border-bottom:1px solid var(--border);opacity:${disabled ? '0.5' : '1'}">
                     <input type="checkbox" name="rp-add-rep" value="${rep.id}" ${disabled ? 'disabled' : ''} style="cursor:${disabled ? 'not-allowed' : 'pointer'}">
                     <div style="flex:1;min-width:0">
@@ -650,9 +752,11 @@ const ReportsPage = {
                     </div>
                   </label>
                 `;
-              }).join('')}
+                })
+                .join('')}
             </div>
-          `}
+          `
+          }
           <div style="text-align:center;padding-top:10px;border-top:1px dashed var(--border)">
             <button class="btn btn-ghost" id="rp-add-new-btn" style="padding:8px 18px">
               ➕ 새 리포트 만들기 (빌더로 이동)
@@ -692,7 +796,7 @@ const ReportsPage = {
     } catch (err) {
       Toast.error('리포트 목록 로드 실패: ' + (err.message || ''));
     }
-  }
+  },
 };
 
 // 전역 노출 — e2e 테스트 및 다른 페이지에서 ReportsPage._openAddWidgetModal 등 호출 가능

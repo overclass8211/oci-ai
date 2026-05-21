@@ -77,14 +77,16 @@ test('OQ-4 — done 항목: 결과 보기 → 화자 영역에 transcript 표시
   await page.evaluate(async () => {
     const blob = new Blob([new Uint8Array(256)], { type: 'audio/webm' });
     const item = await window.OfflineQueue.add(blob, {
-      filename: 'done.webm', meeting_title: 'DoneTest',
+      filename: 'done.webm',
+      meeting_title: 'DoneTest',
     });
     await window.OfflineQueue.update(item.id, {
       status: 'done',
       result: {
         transcript: '이것은 테스트 전사 결과입니다.',
         speakers: [{ speaker: 1, text: '이것은 테스트 전사 결과입니다.' }],
-        durationSec: 10, sizeKB: 1,
+        durationSec: 10,
+        sizeKB: 1,
       },
     });
   });
@@ -94,7 +96,9 @@ test('OQ-4 — done 항목: 결과 보기 → 화자 영역에 transcript 표시
   // "결과 보기" 클릭 — meeting-result 영역 표시 + 화자 텍스트 노출
   await page.locator('[data-oq-view]').click();
   await expect(page.locator('#meeting-result')).toBeVisible();
-  await expect(page.locator('#speakers-list')).toContainText('이것은 테스트 전사 결과입니다.', { timeout: 5000 });
+  await expect(page.locator('#speakers-list')).toContainText('이것은 테스트 전사 결과입니다.', {
+    timeout: 5000,
+  });
 });
 
 test('OQ-5 — error 상태: 재시도 버튼 노출', async ({ page }) => {

@@ -17,7 +17,7 @@ afterEach(() => {
 const makeRes = () => {
   const res = {};
   res.status = vi.fn().mockReturnValue(res);
-  res.json   = vi.fn().mockReturnValue(res);
+  res.json = vi.fn().mockReturnValue(res);
   return res;
 };
 
@@ -25,7 +25,7 @@ const makeRes = () => {
 describe('authenticate (non-test env)', () => {
   it('Authorization 헤더 없으면 401', () => {
     process.env.NODE_ENV = 'production';
-    const res  = makeRes();
+    const res = makeRes();
     const next = vi.fn();
     rbac.authenticate({ headers: {} }, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
@@ -34,9 +34,15 @@ describe('authenticate (non-test env)', () => {
 
   it('유효한 JWT → req.user 주입 + next()', async () => {
     process.env.NODE_ENV = 'production';
-    const { token } = signToken({ id: 1, username: 'alice', full_name: '앨리스', role: 'manager', email: 'a@t.com' });
-    const req   = { headers: { authorization: `Bearer ${token}` } };
-    const next  = vi.fn();
+    const { token } = signToken({
+      id: 1,
+      username: 'alice',
+      full_name: '앨리스',
+      role: 'manager',
+      email: 'a@t.com',
+    });
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const next = vi.fn();
     await rbac.authenticate(req, makeRes(), next);
     expect(req.user).toBeDefined();
     expect(req.user.id).toBe(1);
@@ -45,7 +51,7 @@ describe('authenticate (non-test env)', () => {
 
   it('위조 토큰 → 401', async () => {
     process.env.NODE_ENV = 'production';
-    const res  = makeRes();
+    const res = makeRes();
     const next = vi.fn();
     await rbac.authenticate({ headers: { authorization: 'Bearer fake.token.here' } }, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
@@ -63,14 +69,14 @@ describe('requireLevel (non-test env)', () => {
 
   it('level 부족 → 403', () => {
     process.env.NODE_ENV = 'production';
-    const res  = makeRes();
+    const res = makeRes();
     rbac.requireLevel(3)({ user: { role: 'manager' } }, res, vi.fn());
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
   it('req.user 없으면 401', () => {
     process.env.NODE_ENV = 'production';
-    const res  = makeRes();
+    const res = makeRes();
     rbac.requireLevel(1)({ user: null }, res, vi.fn());
     expect(res.status).toHaveBeenCalledWith(401);
   });
@@ -80,7 +86,7 @@ describe('requireLevel (non-test env)', () => {
 describe('autoLevel (non-test env)', () => {
   it('manager 가 /admin 접근 시 403 (req.path = /api 이후 경로)', () => {
     process.env.NODE_ENV = 'production';
-    const res  = makeRes();
+    const res = makeRes();
     // app.use('/api', autoLevel) → req.path 는 '/admin/...'
     rbac.autoLevel({ user: { role: 'manager' }, path: '/admin/stats' }, res, vi.fn());
     expect(res.status).toHaveBeenCalledWith(403);

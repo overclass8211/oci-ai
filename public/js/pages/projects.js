@@ -46,20 +46,31 @@ const ProjectsPage = {
       </div>
     `;
 
-    document.getElementById('proj-search').addEventListener('input', debounce(e => {
-      const q = e.target.value.toLowerCase();
-      const filtered = this._allProjects.filter(p =>
-        p.name?.toLowerCase().includes(q) || p.customer_name?.toLowerCase().includes(q)
-      );
-      this.renderTable(filtered);
-    }, 300));
+    document.getElementById('proj-search').addEventListener(
+      'input',
+      debounce(e => {
+        const q = e.target.value.toLowerCase();
+        const filtered = this._allProjects.filter(
+          p => p.name?.toLowerCase().includes(q) || p.customer_name?.toLowerCase().includes(q)
+        );
+        this.renderTable(filtered);
+      }, 300)
+    );
 
     document.getElementById('proj-open-form-btn')?.addEventListener('click', () => this.openForm());
     document.getElementById('proj-copy-btn')?.addEventListener('click', () => this.copySelected());
-    document.getElementById('proj-clear-sel-btn')?.addEventListener('click', () => this._clearSelection());
-    document.getElementById('proj-paste-modal-btn')?.addEventListener('click', () => this.openPasteModal());
-    document.getElementById('proj-export-btn')?.addEventListener('click', (e) => this._openExportMenu(e.currentTarget));
-    document.getElementById('proj-import-input')?.addEventListener('change', (e) => this.importExcel(e.target));
+    document
+      .getElementById('proj-clear-sel-btn')
+      ?.addEventListener('click', () => this._clearSelection());
+    document
+      .getElementById('proj-paste-modal-btn')
+      ?.addEventListener('click', () => this.openPasteModal());
+    document
+      .getElementById('proj-export-btn')
+      ?.addEventListener('click', e => this._openExportMenu(e.currentTarget));
+    document
+      .getElementById('proj-import-input')
+      ?.addEventListener('change', e => this.importExcel(e.target));
 
     this._bindPasteShortcut();
     await this.loadData();
@@ -67,10 +78,13 @@ const ProjectsPage = {
 
   _bindPasteShortcut() {
     if (this._pasteHandler) document.removeEventListener('keydown', this._pasteHandler);
-    this._pasteHandler = (e) => {
+    this._pasteHandler = e => {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v') { e.preventDefault(); this.openPasteModal(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault();
+        this.openPasteModal();
+      }
     };
     document.addEventListener('keydown', this._pasteHandler);
   },
@@ -80,7 +94,9 @@ const ProjectsPage = {
       const result = await API.projects.list();
       this._allProjects = result.data;
       this.renderTable(result.data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   renderTable(projects) {
@@ -90,17 +106,25 @@ const ProjectsPage = {
     if (!projects.length) {
       const hasFilter = !!document.getElementById('proj-search')?.value;
       const presetKey = hasFilter ? 'filter' : 'projects';
-      const html = (typeof EmptyState !== 'undefined')
-        ? EmptyState.preset(presetKey)
-        : '<div class="empty"><div class="empty-icon">📁</div>등록된 프로젝트가 없습니다</div>';
+      const html =
+        typeof EmptyState !== 'undefined'
+          ? EmptyState.preset(presetKey)
+          : '<div class="empty"><div class="empty-icon">📁</div>등록된 프로젝트가 없습니다</div>';
       document.getElementById('projects-table-wrap').innerHTML = html;
       if (!hasFilter) {
-        document.getElementById('empty-projects-new')?.addEventListener('click', () =>
-          this.openForm?.());
+        document
+          .getElementById('empty-projects-new')
+          ?.addEventListener('click', () => this.openForm?.());
       }
       return;
     }
-    const statusBadge = { '진행중':'blue', '제조중':'blue', '납기지연':'amber', '완료':'green', '취소':'gray' };
+    const statusBadge = {
+      진행중: 'blue',
+      제조중: 'blue',
+      납기지연: 'amber',
+      완료: 'green',
+      취소: 'gray',
+    };
     const html = `
       <table class="data-table">
         <thead>
@@ -121,10 +145,12 @@ const ProjectsPage = {
           </tr>
         </thead>
         <tbody>
-          ${projects.map(p => {
-            const margin = parseFloat(p.margin_pct);
-            const marginColor = margin >= 20 ? 'var(--green)' : margin >= 15 ? 'var(--amber)' : 'var(--red)';
-            return `
+          ${projects
+            .map(p => {
+              const margin = parseFloat(p.margin_pct);
+              const marginColor =
+                margin >= 20 ? 'var(--green)' : margin >= 15 ? 'var(--amber)' : 'var(--red)';
+              return `
               <tr data-proj-id="${p.id}" class="${this._selectedIds.has(p.id) ? 'cp-selected' : ''}">
                 <td class="cp-check-col" data-stop-propagation="1">
                   <input type="checkbox" class="cp-checkbox" data-id="${p.id}"
@@ -141,7 +167,8 @@ const ProjectsPage = {
                 <td>${esc(p.assigned_name || '-')}</td>
                 <td><button class="btn btn-ghost btn-sm" data-action="edit-proj" data-pid="${p.id}">편집</button></td>
               </tr>`;
-          }).join('')}
+            })
+            .join('')}
         </tbody>
       </table>
     `;
@@ -149,41 +176,64 @@ const ProjectsPage = {
     wrap.innerHTML = html;
     this._updateSelectionUI();
 
-    wrap.addEventListener('click', (e) => {
+    wrap.addEventListener('click', e => {
       const stopEl = e.target.closest('[data-stop-propagation]');
-      if (stopEl) { e.stopPropagation(); }
+      if (stopEl) {
+        e.stopPropagation();
+      }
 
       const actionBtn = e.target.closest('[data-action="edit-proj"]');
-      if (actionBtn) { this.openForm(parseInt(actionBtn.dataset.pid)); return; }
+      if (actionBtn) {
+        this.openForm(parseInt(actionBtn.dataset.pid));
+        return;
+      }
 
       const cb = e.target.closest('.cp-checkbox[data-id]');
-      if (cb) { this._toggleRow(parseInt(cb.dataset.id), cb.checked); return; }
+      if (cb) {
+        this._toggleRow(parseInt(cb.dataset.id), cb.checked);
+        return;
+      }
 
       const hdrCb = e.target.closest('#cp-check-all-proj');
-      if (hdrCb) { this._toggleAll(hdrCb.checked); return; }
+      if (hdrCb) {
+        this._toggleAll(hdrCb.checked);
+        return;
+      }
     });
   },
 
   // ── 체크박스 선택 ────────────────────────────────────────────
   _toggleAll(checked) {
-    this._allProjects.forEach(p => { if (checked) this._selectedIds.add(p.id); else this._selectedIds.delete(p.id); });
-    document.querySelectorAll('.cp-checkbox[data-id]').forEach(cb => cb.checked = checked);
-    document.querySelectorAll('tr[data-proj-id]').forEach(tr => tr.classList.toggle('cp-selected', checked));
+    this._allProjects.forEach(p => {
+      if (checked) this._selectedIds.add(p.id);
+      else this._selectedIds.delete(p.id);
+    });
+    document.querySelectorAll('.cp-checkbox[data-id]').forEach(cb => (cb.checked = checked));
+    document
+      .querySelectorAll('tr[data-proj-id]')
+      .forEach(tr => tr.classList.toggle('cp-selected', checked));
     this._updateSelectionUI();
   },
 
   _toggleRow(id, checked) {
-    if (checked) this._selectedIds.add(id); else this._selectedIds.delete(id);
+    if (checked) this._selectedIds.add(id);
+    else this._selectedIds.delete(id);
     const tr = document.querySelector(`tr[data-proj-id="${id}"]`);
-    if (tr) { tr.classList.toggle('cp-selected', checked); const cb = tr.querySelector('.cp-checkbox[data-id]'); if (cb) cb.checked = checked; }
+    if (tr) {
+      tr.classList.toggle('cp-selected', checked);
+      const cb = tr.querySelector('.cp-checkbox[data-id]');
+      if (cb) cb.checked = checked;
+    }
     const all = document.getElementById('cp-check-all-proj');
-    if (all) all.checked = this._selectedIds.size === this._allProjects.length && this._allProjects.length > 0;
+    if (all)
+      all.checked =
+        this._selectedIds.size === this._allProjects.length && this._allProjects.length > 0;
     this._updateSelectionUI();
   },
 
   _clearSelection() {
     this._selectedIds.clear();
-    document.querySelectorAll('.cp-checkbox').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.cp-checkbox').forEach(cb => (cb.checked = false));
     document.querySelectorAll('tr[data-proj-id]').forEach(tr => tr.classList.remove('cp-selected'));
     this._updateSelectionUI();
   },
@@ -191,30 +241,61 @@ const ProjectsPage = {
   _updateSelectionUI() {
     const n = this._selectedIds.size;
     const toolbar = document.getElementById('cp-toolbar-proj');
-    const count   = document.getElementById('cp-sel-count-proj');
+    const count = document.getElementById('cp-sel-count-proj');
     if (toolbar) toolbar.style.display = n > 0 ? 'flex' : 'none';
-    if (count)   count.textContent = `${n}건 선택`;
+    if (count) count.textContent = `${n}건 선택`;
   },
 
   // ── 복사 ────────────────────────────────────────────────────
   copySelected() {
     const selected = this._allProjects.filter(p => this._selectedIds.has(p.id));
-    if (!selected.length) { Toast.info('복사할 항목을 선택하세요'); return; }
-    const headers = ['프로젝트명','고객사','유형','계약금액(억)','산정원가(억)','마진율(%)','상태','납기일','담당자','메모'];
-    const rows = selected.map(p => [
-      p.name || '', p.customer_name || '', p.project_type || '',
-      (p.contract_amount !== null && p.contract_amount !== undefined) ? p.contract_amount : '',
-      (p.estimated_cost !== null && p.estimated_cost !== undefined) ? p.estimated_cost : '',
-      (p.margin_pct !== null && p.margin_pct !== undefined) ? parseFloat(p.margin_pct).toFixed(2) : '',
-      p.status || '', p.due_date ? String(p.due_date).slice(0,10) : '',
-      p.assigned_name || '', p.notes || '',
-    ].map(v => String(v).replace(/\t/g, ' ')));
+    if (!selected.length) {
+      Toast.info('복사할 항목을 선택하세요');
+      return;
+    }
+    const headers = [
+      '프로젝트명',
+      '고객사',
+      '유형',
+      '계약금액(억)',
+      '산정원가(억)',
+      '마진율(%)',
+      '상태',
+      '납기일',
+      '담당자',
+      '메모',
+    ];
+    const rows = selected.map(p =>
+      [
+        p.name || '',
+        p.customer_name || '',
+        p.project_type || '',
+        p.contract_amount !== null && p.contract_amount !== undefined ? p.contract_amount : '',
+        p.estimated_cost !== null && p.estimated_cost !== undefined ? p.estimated_cost : '',
+        p.margin_pct !== null && p.margin_pct !== undefined
+          ? parseFloat(p.margin_pct).toFixed(2)
+          : '',
+        p.status || '',
+        p.due_date ? String(p.due_date).slice(0, 10) : '',
+        p.assigned_name || '',
+        p.notes || '',
+      ].map(v => String(v).replace(/\t/g, ' '))
+    );
     const tsv = [headers, ...rows].map(r => r.join('\t')).join('\n');
-    navigator.clipboard.writeText(tsv)
-      .then(() => Toast.success(`${selected.length}건 복사 완료 — Excel·Word에 Ctrl+V로 붙여넣기 하세요`))
+    navigator.clipboard
+      .writeText(tsv)
+      .then(() =>
+        Toast.success(`${selected.length}건 복사 완료 — Excel·Word에 Ctrl+V로 붙여넣기 하세요`)
+      )
       .catch(() => {
-        const ta = Object.assign(document.createElement('textarea'), { value: tsv, style: 'position:fixed;opacity:0' });
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+        const ta = Object.assign(document.createElement('textarea'), {
+          value: tsv,
+          style: 'position:fixed;opacity:0',
+        });
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
         Toast.success(`${selected.length}건 복사 완료`);
       });
   },
@@ -240,78 +321,153 @@ const ProjectsPage = {
         <button class="btn btn-primary" id="cp-import-btn" style="display:none">등록하기</button>
       `,
       bind: {
-        '#proj-paste-cancel-btn':  () => Modal.close(),
+        '#proj-paste-cancel-btn': () => Modal.close(),
         '#proj-paste-preview-btn': () => this._parsePasteInput(),
-        '#cp-import-btn':          () => this._importParsed()
-      }
+        '#cp-import-btn': () => this._importParsed(),
+      },
     });
     const ta = document.getElementById('cp-paste-input');
-    if (ta) { ta.focus(); ta.addEventListener('paste', () => setTimeout(() => this._parsePasteInput(), 50)); }
+    if (ta) {
+      ta.focus();
+      ta.addEventListener('paste', () => setTimeout(() => this._parsePasteInput(), 50));
+    }
   },
 
   // ── 파싱 ─────────────────────────────────────────────────────
   _parsePasteInput() {
     const raw = document.getElementById('cp-paste-input')?.value?.trim();
-    if (!raw) { document.getElementById('cp-parse-result').innerHTML = '<p style="color:var(--text-3);font-size:12px">데이터를 먼저 붙여넣기 해주세요.</p>'; return; }
+    if (!raw) {
+      document.getElementById('cp-parse-result').innerHTML =
+        '<p style="color:var(--text-3);font-size:12px">데이터를 먼저 붙여넣기 해주세요.</p>';
+      return;
+    }
 
     const firstLine = raw.split('\n')[0];
     const sep = firstLine.includes('\t') ? '\t' : ',';
-    const lines = raw.split('\n').map(l => l.split(sep).map(v => v.trim().replace(/^["']|["']$/g, '')));
+    const lines = raw
+      .split('\n')
+      .map(l => l.split(sep).map(v => v.trim().replace(/^["']|["']$/g, '')));
 
     const HEADER_MAP = {
-      '프로젝트명':true, '프로젝트':true, 'project':true, 'name':true,
-      '고객사':true, 'customer':true,
-      '유형':true, '사업유형':true, 'type':true,
-      '계약금액':true, '금액':true, 'amount':true, 'contract':true,
-      '원가':true, '산정원가':true, 'cost':true,
-      '마진':true, 'margin':true,
-      '상태':true, 'status':true,
-      '납기일':true, '납기':true, 'due':true, 'due_date':true,
-      '담당자':true, '담당':true, 'assigned':true,
-      '메모':true, '비고':true, 'notes':true,
+      프로젝트명: true,
+      프로젝트: true,
+      project: true,
+      name: true,
+      고객사: true,
+      customer: true,
+      유형: true,
+      사업유형: true,
+      type: true,
+      계약금액: true,
+      금액: true,
+      amount: true,
+      contract: true,
+      원가: true,
+      산정원가: true,
+      cost: true,
+      마진: true,
+      margin: true,
+      상태: true,
+      status: true,
+      납기일: true,
+      납기: true,
+      due: true,
+      due_date: true,
+      담당자: true,
+      담당: true,
+      assigned: true,
+      메모: true,
+      비고: true,
+      notes: true,
     };
     const COL_FIELD = {
-      '프로젝트명':'name', '프로젝트':'name', 'project':'name', 'project_name':'name', 'name':'name',
-      '고객사':'customer_name', 'customer':'customer_name', 'customer_name':'customer_name',
-      '유형':'project_type', '사업유형':'project_type', 'type':'project_type', 'project_type':'project_type',
-      '계약금액':'contract_amount', '계약금액(억)':'contract_amount', '금액':'contract_amount', 'contract_amount':'contract_amount',
-      '원가':'estimated_cost', '산정원가':'estimated_cost', '산정원가(억)':'estimated_cost', 'cost':'estimated_cost', 'estimated_cost':'estimated_cost',
-      '마진율(%)':'margin_pct_raw', '마진율':'margin_pct_raw', 'margin':'margin_pct_raw',
-      '상태':'status', 'status':'status',
-      '납기일':'due_date', '납기':'due_date', 'due':'due_date', 'due_date':'due_date',
-      '담당자':'assigned_name_raw', '담당':'assigned_name_raw', 'assigned':'assigned_name_raw',
-      '메모':'notes', '비고':'notes', 'notes':'notes',
+      프로젝트명: 'name',
+      프로젝트: 'name',
+      project: 'name',
+      project_name: 'name',
+      name: 'name',
+      고객사: 'customer_name',
+      customer: 'customer_name',
+      customer_name: 'customer_name',
+      유형: 'project_type',
+      사업유형: 'project_type',
+      type: 'project_type',
+      project_type: 'project_type',
+      계약금액: 'contract_amount',
+      '계약금액(억)': 'contract_amount',
+      금액: 'contract_amount',
+      contract_amount: 'contract_amount',
+      원가: 'estimated_cost',
+      산정원가: 'estimated_cost',
+      '산정원가(억)': 'estimated_cost',
+      cost: 'estimated_cost',
+      estimated_cost: 'estimated_cost',
+      '마진율(%)': 'margin_pct_raw',
+      마진율: 'margin_pct_raw',
+      margin: 'margin_pct_raw',
+      상태: 'status',
+      status: 'status',
+      납기일: 'due_date',
+      납기: 'due_date',
+      due: 'due_date',
+      due_date: 'due_date',
+      담당자: 'assigned_name_raw',
+      담당: 'assigned_name_raw',
+      assigned: 'assigned_name_raw',
+      메모: 'notes',
+      비고: 'notes',
+      notes: 'notes',
     };
 
     const firstRow = lines[0].map(v => v.toLowerCase().trim());
     const hasHeader = firstRow.some(v => HEADER_MAP[v]);
     let headers, dataRows;
-    if (hasHeader) { headers = lines[0]; dataRows = lines.slice(1).filter(r => r.some(v => v)); }
-    else { headers = ['프로젝트명','고객사','유형','계약금액','산정원가','상태','납기일','담당자','메모']; dataRows = lines.filter(r => r.some(v => v)); }
+    if (hasHeader) {
+      headers = lines[0];
+      dataRows = lines.slice(1).filter(r => r.some(v => v));
+    } else {
+      headers = [
+        '프로젝트명',
+        '고객사',
+        '유형',
+        '계약금액',
+        '산정원가',
+        '상태',
+        '납기일',
+        '담당자',
+        '메모',
+      ];
+      dataRows = lines.filter(r => r.some(v => v));
+    }
 
     const fieldCols = headers.map(h => COL_FIELD[h.toLowerCase().trim()] || null);
     // 헤더에 "(억)" 또는 "억" 표기가 있으면 입력값을 *1e8 변환 (UX 호환)
     const eokFields = new Set();
     headers.forEach((h, i) => {
       const hh = String(h).toLowerCase().trim();
-      const f = COL_FIELD[hh]; if (!f) return;
+      const f = COL_FIELD[hh];
+      if (!f) return;
       if ((f === 'contract_amount' || f === 'estimated_cost') && /억/.test(hh)) eokFields.add(i);
     });
-    const parsed = dataRows.map(row => {
-      const obj = {};
-      row.forEach((val, i) => {
-        const f = fieldCols[i]; if (!f || !val) return;
-        if (f === 'contract_amount' || f === 'estimated_cost') {
-          const n = parseFloat(String(val).replace(/[,₩$¥억]/g,''));
-          if (!isNaN(n)) obj[f] = eokFields.has(i) ? Math.round(n * 1e8) : n;
-        } else obj[f] = val;
-      });
-      return obj;
-    }).filter(o => o.name);
+    const parsed = dataRows
+      .map(row => {
+        const obj = {};
+        row.forEach((val, i) => {
+          const f = fieldCols[i];
+          if (!f || !val) return;
+          if (f === 'contract_amount' || f === 'estimated_cost') {
+            const n = parseFloat(String(val).replace(/[,₩$¥억]/g, ''));
+            if (!isNaN(n)) obj[f] = eokFields.has(i) ? Math.round(n * 1e8) : n;
+          } else obj[f] = val;
+        });
+        return obj;
+      })
+      .filter(o => o.name);
 
     this._parsedProjects = parsed;
     if (!parsed.length) {
-      document.getElementById('cp-parse-result').innerHTML = '<p style="color:#E63329;font-size:12px">⚠ 인식된 데이터가 없습니다. 형식을 확인해주세요.</p>';
+      document.getElementById('cp-parse-result').innerHTML =
+        '<p style="color:#E63329;font-size:12px">⚠ 인식된 데이터가 없습니다. 형식을 확인해주세요.</p>';
       document.getElementById('cp-import-btn').style.display = 'none';
       return;
     }
@@ -324,17 +480,21 @@ const ProjectsPage = {
         <table class="data-table" style="font-size:11px;min-width:600px">
           <thead><tr><th>#</th><th>프로젝트명</th><th>고객사</th><th>유형</th><th>계약금액</th><th>산정원가</th><th>상태</th><th>납기일</th></tr></thead>
           <tbody>
-            ${parsed.map((r,i) => `
+            ${parsed
+              .map(
+                (r, i) => `
               <tr>
-                <td class="text-muted">${i+1}</td>
+                <td class="text-muted">${i + 1}</td>
                 <td><strong>${esc(r.name || '')}</strong></td>
                 <td>${esc(r.customer_name || '-')}</td>
                 <td>${esc(r.project_type || '태양광')}</td>
-                <td class="text-right">${(r.contract_amount !== null && r.contract_amount !== undefined) ? Fmt.amount(r.contract_amount, 'KRW') : '-'}</td>
-                <td class="text-right">${(r.estimated_cost !== null && r.estimated_cost !== undefined) ? Fmt.amount(r.estimated_cost, 'KRW') : '-'}</td>
+                <td class="text-right">${r.contract_amount !== null && r.contract_amount !== undefined ? Fmt.amount(r.contract_amount, 'KRW') : '-'}</td>
+                <td class="text-right">${r.estimated_cost !== null && r.estimated_cost !== undefined ? Fmt.amount(r.estimated_cost, 'KRW') : '-'}</td>
                 <td>${esc(r.status || '진행중')}</td>
                 <td>${esc(r.due_date || '-')}</td>
-              </tr>`).join('')}
+              </tr>`
+              )
+              .join('')}
           </tbody>
         </table>
       </div>
@@ -345,7 +505,10 @@ const ProjectsPage = {
   async _importParsed() {
     if (!this._parsedProjects?.length) return;
     const btn = document.getElementById('cp-import-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '등록 중...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '등록 중...';
+    }
     try {
       const res = await API.post('/projects/bulk', { projects: this._parsedProjects });
       Modal.close();
@@ -353,17 +516,22 @@ const ProjectsPage = {
         const errMsg = res.errors?.length ? ` (${res.errors.length}건 오류)` : '';
         Toast.success(`${res.inserted}건 등록 완료${errMsg}`);
         await this.loadData();
-      } else { Toast.error('등록 중 오류가 발생했습니다.'); }
+      } else {
+        Toast.error('등록 중 오류가 발생했습니다.');
+      }
     } catch (e) {
       Toast.error('서버 오류: ' + (e.message || ''));
-      if (btn) { btn.disabled = false; btn.textContent = '등록하기'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '등록하기';
+      }
     }
   },
 
   // ── 엑셀 내보내기 ────────────────────────────────────────────
   exportExcel() {
     const path = this._buildExportPath();
-    API.downloadExport(path, '프로젝트_' + new Date().toISOString().slice(0,10), 'xlsx');
+    API.downloadExport(path, '프로젝트_' + new Date().toISOString().slice(0, 10), 'xlsx');
   },
 
   _buildExportPath() {
@@ -375,7 +543,11 @@ const ProjectsPage = {
 
   _openExportMenu(triggerEl) {
     if (typeof ExportMenu === 'undefined') return this.exportExcel();
-    ExportMenu.open(triggerEl, this._buildExportPath(), '프로젝트_' + new Date().toISOString().slice(0,10));
+    ExportMenu.open(
+      triggerEl,
+      this._buildExportPath(),
+      '프로젝트_' + new Date().toISOString().slice(0, 10)
+    );
   },
 
   // ── 엑셀 가져오기 ────────────────────────────────────────────
@@ -388,7 +560,7 @@ const ProjectsPage = {
     const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
     const headers = {};
     const uid = localStorage.getItem('current_user_id');
-    if (uid)   headers['X-User-Id'] = uid;
+    if (uid) headers['X-User-Id'] = uid;
     if (token) headers['Authorization'] = `Bearer ${token}`;
     try {
       const res = await fetch('/api/projects/import', { method: 'POST', headers, body: fd });
@@ -397,8 +569,12 @@ const ProjectsPage = {
         const errMsg = data.errors?.length ? ` (${data.errors.length}건 오류)` : '';
         Toast.success(`${data.inserted}건 등록 완료${errMsg}`);
         await this.loadData();
-      } else { Toast.error(data.message || '가져오기 실패'); }
-    } catch (e) { Toast.error('서버 오류: ' + (e.message || '')); }
+      } else {
+        Toast.error(data.message || '가져오기 실패');
+      }
+    } catch (e) {
+      Toast.error('서버 오류: ' + (e.message || ''));
+    }
   },
 
   // ── 기존 편집/저장/삭제 ──────────────────────────────────────
@@ -426,11 +602,11 @@ const ProjectsPage = {
           <div class="form-field">
             <label class="form-label">유형</label>
             <select class="form-control" id="p-type">
-              <option ${project.project_type==='태양광'?'selected':''}>태양광</option>
-              <option ${project.project_type==='ESS'?'selected':''}>ESS</option>
-              <option ${project.project_type==='모듈'?'selected':''}>모듈</option>
-              <option ${project.project_type==='EPC'?'selected':''}>EPC</option>
-              <option ${project.project_type==='전기'?'selected':''}>전기</option>
+              <option ${project.project_type === '태양광' ? 'selected' : ''}>태양광</option>
+              <option ${project.project_type === 'ESS' ? 'selected' : ''}>ESS</option>
+              <option ${project.project_type === '모듈' ? 'selected' : ''}>모듈</option>
+              <option ${project.project_type === 'EPC' ? 'selected' : ''}>EPC</option>
+              <option ${project.project_type === '전기' ? 'selected' : ''}>전기</option>
             </select>
           </div>
           <div class="form-field">
@@ -448,11 +624,11 @@ const ProjectsPage = {
           <div class="form-field">
             <label class="form-label">상태</label>
             <select class="form-control" id="p-status">
-              <option ${project.status==='진행중'?'selected':''}>진행중</option>
-              <option ${project.status==='제조중'?'selected':''}>제조중</option>
-              <option ${project.status==='납기지연'?'selected':''}>납기지연</option>
-              <option ${project.status==='완료'?'selected':''}>완료</option>
-              <option ${project.status==='취소'?'selected':''}>취소</option>
+              <option ${project.status === '진행중' ? 'selected' : ''}>진행중</option>
+              <option ${project.status === '제조중' ? 'selected' : ''}>제조중</option>
+              <option ${project.status === '납기지연' ? 'selected' : ''}>납기지연</option>
+              <option ${project.status === '완료' ? 'selected' : ''}>완료</option>
+              <option ${project.status === '취소' ? 'selected' : ''}>취소</option>
             </select>
           </div>
           <div class="form-field">
@@ -463,7 +639,7 @@ const ProjectsPage = {
             <label class="form-label">담당자</label>
             <select class="form-control" id="p-assigned">
               <option value="">선택</option>
-              ${team.data.map(t => `<option value="${t.id}" ${project.assigned_to===t.id?'selected':''}>${esc(t.name)} (${t.role})</option>`).join('')}
+              ${team.data.map(t => `<option value="${t.id}" ${project.assigned_to === t.id ? 'selected' : ''}>${esc(t.name)} (${t.role})</option>`).join('')}
             </select>
           </div>
           <div class="form-field full">
@@ -480,7 +656,7 @@ const ProjectsPage = {
       bind: {
         ...(id ? { '#proj-delete-btn': () => this.deleteProject(id) } : {}),
         '#proj-form-cancel-btn': () => Modal.close(),
-        '#proj-form-save-btn':   () => this.save(id || null)
+        '#proj-form-save-btn': () => this.save(id || null),
       },
       onOpen: () => {
         // 입력값 → KRW 단위 변환 미리보기 실시간 업데이트
@@ -496,7 +672,7 @@ const ProjectsPage = {
           update();
         };
         setupPreview('p-amount', 'p-amount-preview');
-        setupPreview('p-cost',   'p-cost-preview');
+        setupPreview('p-cost', 'p-cost-preview');
 
         // ─── 고객사 자동완성 (Combobox) ─────────────────
         // 사이드이펙 방지:
@@ -512,18 +688,22 @@ const ProjectsPage = {
           });
           Combobox.attach({
             inputEl: custInput,
-            fetchFn: async (q) => {
+            fetchFn: async q => {
               try {
                 const r = await API.customers.autocomplete(q, 10);
                 return r.data || [];
-              } catch (_) { return []; }
+              } catch (_) {
+                return [];
+              }
             },
             renderItem: (item, q, { highlightMatch }) => {
               const meta = [];
               if (item.industry) meta.push(esc(item.industry));
               if (item.region) meta.push(esc(item.region));
               if (item.active_deals_count > 0) {
-                meta.push(`<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`);
+                meta.push(
+                  `<span style="color:var(--oci-red);font-weight:600">진행 ${item.active_deals_count}건</span>`
+                );
               }
               const myBadge = item.is_my_customer
                 ? `<span style="font-size:9px;background:var(--oci-red-light);color:var(--oci-red);padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px">본인담당</span>`
@@ -535,11 +715,11 @@ const ProjectsPage = {
                 </div>
               `;
             },
-            onSelect: (item) => {
+            onSelect: item => {
               custInput.value = item.name;
               if (custHidden) custHidden.value = item.id;
             },
-            onCustomCreate: (query) => {
+            onCustomCreate: query => {
               custInput.value = query;
               if (custHidden) custHidden.value = '';
             },
@@ -549,7 +729,7 @@ const ProjectsPage = {
             customLabel: '+ "X" 그대로 등록 (신규 고객사)',
           });
         }
-      }
+      },
     });
   },
 
@@ -563,12 +743,12 @@ const ProjectsPage = {
       status: document.getElementById('p-status').value,
       due_date: document.getElementById('p-due').value || null,
       assigned_to: document.getElementById('p-assigned').value || null,
-      notes: document.getElementById('p-notes').value
+      notes: document.getElementById('p-notes').value,
     };
     if (!body.name) return Toast.error('프로젝트명을 입력해주세요');
     try {
       if (id) await API.projects.update(id, body);
-      else    await API.projects.create(body);
+      else await API.projects.create(body);
       Toast.success(id ? '프로젝트가 수정되었습니다' : '프로젝트가 등록되었습니다');
       Modal.close();
       this.loadData();
@@ -581,5 +761,5 @@ const ProjectsPage = {
       Toast.success('삭제되었습니다');
       this.loadData();
     });
-  }
+  },
 };

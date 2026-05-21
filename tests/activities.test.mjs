@@ -23,8 +23,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (createdActIds.length) {
-    await pool.query(`DELETE FROM activities WHERE id IN (${createdActIds.map(() => '?').join(',')})`,
-      createdActIds);
+    await pool.query(
+      `DELETE FROM activities WHERE id IN (${createdActIds.map(() => '?').join(',')})`,
+      createdActIds
+    );
   }
   if (leadId) {
     await pool.query('DELETE FROM activities WHERE lead_id = ?', [leadId]);
@@ -35,33 +37,32 @@ afterAll(async () => {
 describe('Activities API — activity_type 정규화', () => {
   // 영문 → 한글 매핑 케이스
   const cases = [
-    { input: 'meeting',    expected: '미팅' },
-    { input: 'call',       expected: '전화' },
-    { input: 'email',      expected: '이메일' },
+    { input: 'meeting', expected: '미팅' },
+    { input: 'call', expected: '전화' },
+    { input: 'email', expected: '이메일' },
     { input: 'site_visit', expected: '현장방문' },
-    { input: 'proposal',   expected: '제안' },
-    { input: 'note',       expected: '메모' },
+    { input: 'proposal', expected: '제안' },
+    { input: 'note', expected: '메모' },
   ];
 
   for (const { input, expected } of cases) {
     it(`POST — '${input}' → '${expected}' 매핑되어 저장`, async () => {
-      const res = await api().post('/api/activities').send({
-        lead_id: leadId,
-        activity_type: input,
-        title: `__TEST_ACT__ ${input}`,
-        content: 'regression check',
-        status: 'planned',
-      });
+      const res = await api()
+        .post('/api/activities')
+        .send({
+          lead_id: leadId,
+          activity_type: input,
+          title: `__TEST_ACT__ ${input}`,
+          content: 'regression check',
+          status: 'planned',
+        });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
 
       const id = res.body.id;
       createdActIds.push(id);
 
-      const [rows] = await pool.query(
-        'SELECT activity_type FROM activities WHERE id = ?',
-        [id]
-      );
+      const [rows] = await pool.query('SELECT activity_type FROM activities WHERE id = ?', [id]);
       expect(rows[0].activity_type).toBe(expected);
     });
   }
@@ -76,10 +77,9 @@ describe('Activities API — activity_type 정규화', () => {
     expect(res.status).toBe(200);
     createdActIds.push(res.body.id);
 
-    const [rows] = await pool.query(
-      'SELECT activity_type FROM activities WHERE id = ?',
-      [res.body.id]
-    );
+    const [rows] = await pool.query('SELECT activity_type FROM activities WHERE id = ?', [
+      res.body.id,
+    ]);
     expect(rows[0].activity_type).toBe('입찰');
   });
 
@@ -91,10 +91,9 @@ describe('Activities API — activity_type 정규화', () => {
     expect(res.status).toBe(200);
     createdActIds.push(res.body.id);
 
-    const [rows] = await pool.query(
-      'SELECT activity_type FROM activities WHERE id = ?',
-      [res.body.id]
-    );
+    const [rows] = await pool.query('SELECT activity_type FROM activities WHERE id = ?', [
+      res.body.id,
+    ]);
     expect(rows[0].activity_type).toBe('기타');
   });
 
@@ -114,10 +113,7 @@ describe('Activities API — activity_type 정규화', () => {
     });
     expect(res.status).toBe(200);
 
-    const [rows] = await pool.query(
-      'SELECT activity_type FROM activities WHERE id = ?',
-      [id]
-    );
+    const [rows] = await pool.query('SELECT activity_type FROM activities WHERE id = ?', [id]);
     expect(rows[0].activity_type).toBe('전화');
   });
 });

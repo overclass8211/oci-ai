@@ -204,8 +204,10 @@ const SettingsPage = {
     `;
     document.getElementById('content').innerHTML = html;
 
-    document.getElementById('settings-checkdb-btn')?.addEventListener('click', () => this.checkDb());
-    document.getElementById('content').addEventListener('click', (e) => {
+    document
+      .getElementById('settings-checkdb-btn')
+      ?.addEventListener('click', () => this.checkDb());
+    document.getElementById('content').addEventListener('click', e => {
       const btn = e.target.closest('[data-integration]');
       if (btn) this.openIntegration(btn.dataset.integration);
     });
@@ -214,11 +216,15 @@ const SettingsPage = {
     this._initLogoManager();
 
     // 이메일 템플릿
-    document.getElementById('email-tpl-new-btn')?.addEventListener('click', () => this.openTemplateForm());
+    document
+      .getElementById('email-tpl-new-btn')
+      ?.addEventListener('click', () => this.openTemplateForm());
     this.loadEmailTemplates();
 
     // Webhook
-    document.getElementById('webhook-new-btn')?.addEventListener('click', () => this.openWebhookForm());
+    document
+      .getElementById('webhook-new-btn')
+      ?.addEventListener('click', () => this.openWebhookForm());
     this.loadWebhooks();
 
     this.checkDb();
@@ -252,23 +258,32 @@ const SettingsPage = {
             </tr>
           </thead>
           <tbody>
-            ${hooks.map(h => {
-              const events = Array.isArray(h.event_types) ? h.event_types : [];
-              const lastStatusBadge = !h.last_sent_at
-                ? '<span class="badge badge-gray" style="font-size:10px">미발송</span>'
-                : h.last_status === 'success'
-                  ? '<span class="badge badge-green" style="font-size:10px">✓ 성공</span>'
-                  : `<span class="badge badge-red" style="font-size:10px" title="${esc(h.last_status || 'failed')}">✕ 실패</span>`;
-              return `
+            ${hooks
+              .map(h => {
+                const events = Array.isArray(h.event_types) ? h.event_types : [];
+                const lastStatusBadge = !h.last_sent_at
+                  ? '<span class="badge badge-gray" style="font-size:10px">미발송</span>'
+                  : h.last_status === 'success'
+                    ? '<span class="badge badge-green" style="font-size:10px">✓ 성공</span>'
+                    : `<span class="badge badge-red" style="font-size:10px" title="${esc(h.last_status || 'failed')}">✕ 실패</span>`;
+                return `
                 <tr data-wh-id="${h.id}">
-                  <td>${h.is_active
+                  <td>${
+                    h.is_active
                       ? '<span class="badge badge-green" style="font-size:10px">활성</span>'
-                      : '<span class="badge badge-gray" style="font-size:10px">비활성</span>'}
+                      : '<span class="badge badge-gray" style="font-size:10px">비활성</span>'
+                  }
                   </td>
                   <td><strong>${esc(h.name)}</strong></td>
                   <td><code style="font-size:11px;color:var(--text-2)">${esc(h.url.slice(0, 60))}${h.url.length > 60 ? '…' : ''}</code></td>
                   <td>
-                    ${events.slice(0, 3).map(e => `<span class="badge badge-blue" style="font-size:10px;margin-right:3px">${esc(e)}</span>`).join('')}
+                    ${events
+                      .slice(0, 3)
+                      .map(
+                        e =>
+                          `<span class="badge badge-blue" style="font-size:10px;margin-right:3px">${esc(e)}</span>`
+                      )
+                      .join('')}
                     ${events.length > 3 ? `<span class="badge badge-gray" style="font-size:10px">+${events.length - 3}</span>` : ''}
                   </td>
                   <td>${lastStatusBadge}</td>
@@ -280,18 +295,19 @@ const SettingsPage = {
                   </td>
                 </tr>
               `;
-            }).join('')}
+              })
+              .join('')}
           </tbody>
         </table>
       `;
       el.querySelectorAll('[data-wh-action]').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = parseInt(btn.dataset.id, 10);
-          const a  = btn.dataset.whAction;
-          if (a === 'edit')   this.openWebhookForm(id);
+          const a = btn.dataset.whAction;
+          if (a === 'edit') this.openWebhookForm(id);
           if (a === 'delete') this.deleteWebhook(id);
-          if (a === 'test')   this.testWebhook(id);
-          if (a === 'logs')   this.showWebhookLogs(id);
+          if (a === 'test') this.testWebhook(id);
+          if (a === 'logs') this.showWebhookLogs(id);
         });
       });
     } catch (e) {
@@ -301,14 +317,20 @@ const SettingsPage = {
 
   async openWebhookForm(id = null) {
     let hook = {
-      id: null, name: '', url: '', event_types: [],
-      is_active: 1, has_secret: 0,
+      id: null,
+      name: '',
+      url: '',
+      event_types: [],
+      is_active: 1,
+      has_secret: 0,
     };
     let events = [];
     try {
       const evRes = await API.get('/webhooks/events');
       events = evRes.data || [];
-    } catch (_) { /* fallback */ }
+    } catch (_) {
+      /* fallback */
+    }
     if (id) {
       try {
         const r = await API.get(`/webhooks/${id}`);
@@ -336,13 +358,17 @@ const SettingsPage = {
 
           <label class="form-label" style="align-self:flex-start;padding-top:6px">이벤트 *</label>
           <div id="wh-events-list" style="display:flex;flex-direction:column;gap:6px">
-            ${events.map(ev => `
+            ${events
+              .map(
+                ev => `
               <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
                 <input type="checkbox" name="wh-event" value="${esc(ev)}"
                        ${hook.event_types?.includes(ev) ? 'checked' : ''}>
                 <code style="font-size:11px;background:var(--surface-3);padding:2px 6px;border-radius:4px">${esc(ev)}</code>
               </label>
-            `).join('')}
+            `
+              )
+              .join('')}
           </div>
 
           <label class="form-label">활성 상태</label>
@@ -351,20 +377,24 @@ const SettingsPage = {
             <span>활성화 (이벤트 발생 시 발송)</span>
           </label>
 
-          ${isEdit ? `
+          ${
+            isEdit
+              ? `
             <label class="form-label">시크릿</label>
             <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3)">
               ${hook.has_secret ? '🔒 설정됨' : '⚠️ 없음'}
               <button type="button" class="btn btn-ghost btn-sm" id="wh-regen-secret"
                       style="font-size:11px" title="시크릿을 새로 발급합니다">🔄 시크릿 재발급</button>
             </div>
-          ` : `
+          `
+              : `
             <label class="form-label">시크릿</label>
             <div style="font-size:11px;color:var(--text-3)">
               저장 시 자동 발급됩니다 (32 byte hex).<br>
               수신 측에서 X-OCI-Signature 헤더의 HMAC-SHA256 서명 검증에 사용.
             </div>
-          `}
+          `
+          }
         </div>
         <div style="margin-top:14px;font-size:11px;color:var(--text-3);line-height:1.7">
           💡 Webhook URL 은 http:// 또는 https:// 만 허용 (운영 환경은 https 강제).<br>
@@ -379,7 +409,8 @@ const SettingsPage = {
       bind: {
         '#wh-cancel': () => Modal.close(),
         '#wh-regen-secret': async () => {
-          if (!confirm('새 시크릿을 발급하시겠습니까? 수신 측 설정도 동시에 업데이트해야 합니다.')) return;
+          if (!confirm('새 시크릿을 발급하시겠습니까? 수신 측 설정도 동시에 업데이트해야 합니다.'))
+            return;
           try {
             await API.put(`/webhooks/${id}`, { secret: '' }); // 빈 문자열 → 서버에서 자동 재발급
             Toast.success('시크릿이 재발급되었습니다.');
@@ -391,7 +422,7 @@ const SettingsPage = {
         },
         '#wh-save': async () => {
           const name = document.getElementById('wh-name').value.trim();
-          const url  = document.getElementById('wh-url').value.trim();
+          const url = document.getElementById('wh-url').value.trim();
           const active = document.getElementById('wh-active').checked;
           const selectedEvents = [];
           document.querySelectorAll('input[name="wh-event"]:checked').forEach(c => {
@@ -410,12 +441,17 @@ const SettingsPage = {
           try {
             if (isEdit) {
               await API.put(`/webhooks/${id}`, {
-                name, url, event_types: selectedEvents, is_active: active,
+                name,
+                url,
+                event_types: selectedEvents,
+                is_active: active,
               });
               Toast.success('Webhook 이 수정되었습니다.');
             } else {
               const r = await API.post('/webhooks', {
-                name, url, event_types: selectedEvents,
+                name,
+                url,
+                event_types: selectedEvents,
               });
               if (r.secret) {
                 // 신규 시크릿 — 한 번만 노출
@@ -444,9 +480,14 @@ const SettingsPage = {
                       try {
                         document.execCommand('copy');
                         Toast.success('클립보드에 복사되었습니다.');
-                      } catch (_) { /* ignore */ }
+                      } catch (_) {
+                        /* ignore */
+                      }
                     },
-                    '#wh-secret-ok': () => { Modal.close(); this.loadWebhooks(); },
+                    '#wh-secret-ok': () => {
+                      Modal.close();
+                      this.loadWebhooks();
+                    },
                   },
                 });
                 return;
@@ -494,11 +535,14 @@ const SettingsPage = {
     try {
       const r = await API.get(`/webhooks/${id}/deliveries?limit=20`);
       const logs = r.data || [];
-      const body = logs.length === 0 ? `
+      const body =
+        logs.length === 0
+          ? `
         <div class="empty" style="padding:30px;text-align:center;color:var(--text-3)">
           아직 발송 이력이 없습니다.
         </div>
-      ` : `
+      `
+          : `
         <table class="data-table" style="font-size:12px">
           <thead>
             <tr>
@@ -511,11 +555,17 @@ const SettingsPage = {
             </tr>
           </thead>
           <tbody>
-            ${logs.map(l => `
+            ${logs
+              .map(
+                l => `
               <tr>
-                <td>${l.status === 'success'
+                <td>${
+                  l.status === 'success'
                     ? '<span class="badge badge-green" style="font-size:10px">✓</span>'
-                    : '<span class="badge badge-red" style="font-size:10px" title="' + esc(l.error_message || '') + '">✕</span>'}
+                    : '<span class="badge badge-red" style="font-size:10px" title="' +
+                      esc(l.error_message || '') +
+                      '">✕</span>'
+                }
                 </td>
                 <td><code style="font-size:11px">${esc(l.event_type)}</code></td>
                 <td style="font-variant-numeric:tabular-nums">${l.http_status || '-'}</td>
@@ -523,7 +573,9 @@ const SettingsPage = {
                 <td style="text-align:center">${l.attempt}</td>
                 <td style="font-size:11px">${esc(new Date(l.created_at).toLocaleString('ko-KR'))}</td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
       `;
@@ -563,7 +615,9 @@ const SettingsPage = {
         // 사이드바 로고도 즉시 동기화
         const sidebarImg = document.getElementById('sidebar-logo-img');
         if (sidebarImg) sidebarImg.src = url + (isCustom ? '?t=' + Date.now() : '');
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
     };
     await refreshPreview();
 
@@ -598,12 +652,17 @@ const SettingsPage = {
         // 최적화 결과 표시 (Sharp + svgo)
         const opt = data.data?.optimization;
         if (opt) {
-          const fmt = b => b < 1024 ? `${b}B` : b < 1024 * 1024 ? `${(b/1024).toFixed(1)}KB` : `${(b/1024/1024).toFixed(2)}MB`;
-          const savings = opt.savings_percent > 0
-            ? ` (${opt.savings_percent}% 절감)`
-            : '';
+          const fmt = b =>
+            b < 1024
+              ? `${b}B`
+              : b < 1024 * 1024
+                ? `${(b / 1024).toFixed(1)}KB`
+                : `${(b / 1024 / 1024).toFixed(2)}MB`;
+          const savings = opt.savings_percent > 0 ? ` (${opt.savings_percent}% 절감)` : '';
           const dims = opt.width && opt.height ? ` · ${opt.width}×${opt.height}` : '';
-          Toast.success(`✅ 로고 변경 완료 — ${fmt(opt.original_size)} → ${fmt(opt.optimized_size)}${savings}${dims}`);
+          Toast.success(
+            `✅ 로고 변경 완료 — ${fmt(opt.original_size)} → ${fmt(opt.optimized_size)}${savings}${dims}`
+          );
         } else {
           Toast.success('✅ 로고가 변경되었습니다');
         }
@@ -619,7 +678,8 @@ const SettingsPage = {
 
     // 복원 버튼
     restoreBtn.onclick = async () => {
-      if (!confirm('기본 로고로 복원하시겠습니까?\n(업로드된 커스텀 로고 파일이 삭제됩니다)')) return;
+      if (!confirm('기본 로고로 복원하시겠습니까?\n(업로드된 커스텀 로고 파일이 삭제됩니다)'))
+        return;
       try {
         await API.logo.restore();
         Toast.success('🔄 기본 로고로 복원되었습니다');
@@ -638,17 +698,21 @@ const SettingsPage = {
       const r = await API.get('/email-templates');
       const tpls = r.data || [];
       if (!tpls.length) {
-        el.innerHTML = '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">템플릿이 없습니다.</div>';
+        el.innerHTML =
+          '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3)">템플릿이 없습니다.</div>';
         return;
       }
-      const catLabel = { lead:'영업', customer:'고객사', project:'프로젝트', general:'일반' };
+      const catLabel = { lead: '영업', customer: '고객사', project: '프로젝트', general: '일반' };
       const userCount = tpls.filter(t => !t.is_system).length;
-      const helpBanner = userCount === 0 ? `
+      const helpBanner =
+        userCount === 0
+          ? `
         <div class="alert alert-info" style="margin-bottom:12px;padding:10px 14px;font-size:12px;line-height:1.6">
           💡 시스템 템플릿(🔒)은 수정·삭제할 수 없습니다.
           오른쪽 <strong>📋 복제</strong> 버튼으로 사용자 템플릿을 만들면 자유롭게 편집할 수 있습니다.
         </div>
-      ` : '';
+      `
+          : '';
       el.innerHTML = `
         ${helpBanner}
         <table class="data-table">
@@ -662,26 +726,36 @@ const SettingsPage = {
             </tr>
           </thead>
           <tbody>
-            ${tpls.map(t => `
+            ${tpls
+              .map(
+                t => `
               <tr data-tpl-id="${t.id}">
                 <td><span class="badge badge-blue">${esc(catLabel[t.category] || t.category)}</span></td>
                 <td><strong>${esc(t.name)}</strong></td>
                 <td style="font-size:12px;color:var(--text-2)">${this._renderTplVars(t.subject)}</td>
-                <td>${t.is_system
-                  ? '<span class="badge badge-gray" title="시스템 시드 — 복제 후 편집 가능">🔒 시스템</span>'
-                  : '<span class="badge badge-green">사용자</span>'}</td>
+                <td>${
+                  t.is_system
+                    ? '<span class="badge badge-gray" title="시스템 시드 — 복제 후 편집 가능">🔒 시스템</span>'
+                    : '<span class="badge badge-green">사용자</span>'
+                }</td>
                 <td style="text-align:right;white-space:nowrap">
-                  ${t.is_system ? `
+                  ${
+                    t.is_system
+                      ? `
                     <button class="btn btn-ghost btn-sm" data-tpl-action="clone" data-id="${t.id}"
                             title="이 템플릿을 사용자 템플릿으로 복제 → 편집 가능">📋 복제</button>
-                  ` : `
+                  `
+                      : `
                     <button class="btn btn-ghost btn-sm" data-tpl-action="edit" data-id="${t.id}">편집</button>
                     <button class="btn btn-ghost btn-sm" data-tpl-action="delete" data-id="${t.id}"
                             style="color:var(--oci-red)">삭제</button>
-                  `}
+                  `
+                  }
                 </td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
       `;
@@ -690,9 +764,9 @@ const SettingsPage = {
         btn.addEventListener('click', () => {
           const id = parseInt(btn.dataset.id, 10);
           const action = btn.dataset.tplAction;
-          if (action === 'edit')   this.openTemplateForm(id);
+          if (action === 'edit') this.openTemplateForm(id);
           if (action === 'delete') this.deleteTemplate(id);
-          if (action === 'clone')  this.cloneTemplate(id);
+          if (action === 'clone') this.cloneTemplate(id);
         });
       });
     } catch (e) {
@@ -704,13 +778,13 @@ const SettingsPage = {
   // {{my_company}} → <span class="tpl-var" title="회사명 — 발송 시 'OCI' 같은 값으로 치환">my_company</span>
   // 알 수 없는 변수는 warning 스타일 (.tpl-var-unknown)
   _TPL_VARS: {
-    customer_name:    { label: '고객사명',          sample: '한국동서발전' },
-    contact_person:   { label: '고객사 담당자',     sample: '박팀장' },
-    project_name:     { label: '프로젝트명',        sample: '30MW EPC 입찰' },
-    my_name:          { label: '내 이름',           sample: '김영업' },
-    my_company:       { label: '회사명',            sample: 'OCI' },
-    today:            { label: '오늘 날짜',         sample: '2026-05-17' },
-    bidding_deadline: { label: '입찰 마감일',       sample: '2026-05-31' },
+    customer_name: { label: '고객사명', sample: '한국동서발전' },
+    contact_person: { label: '고객사 담당자', sample: '박팀장' },
+    project_name: { label: '프로젝트명', sample: '30MW EPC 입찰' },
+    my_name: { label: '내 이름', sample: '김영업' },
+    my_company: { label: '회사명', sample: 'OCI' },
+    today: { label: '오늘 날짜', sample: '2026-05-17' },
+    bidding_deadline: { label: '입찰 마감일', sample: '2026-05-31' },
   },
   _renderTplVars(text) {
     if (!text) return '';
@@ -762,10 +836,10 @@ const SettingsPage = {
 
           <label class="form-label">카테고리</label>
           <select class="form-input" id="tpl-category">
-            <option value="lead"     ${tpl.category==='lead'?'selected':''}>영업 리드</option>
-            <option value="customer" ${tpl.category==='customer'?'selected':''}>고객사</option>
-            <option value="project"  ${tpl.category==='project'?'selected':''}>프로젝트</option>
-            <option value="general"  ${tpl.category==='general'?'selected':''}>일반</option>
+            <option value="lead"     ${tpl.category === 'lead' ? 'selected' : ''}>영업 리드</option>
+            <option value="customer" ${tpl.category === 'customer' ? 'selected' : ''}>고객사</option>
+            <option value="project"  ${tpl.category === 'project' ? 'selected' : ''}>프로젝트</option>
+            <option value="general"  ${tpl.category === 'general' ? 'selected' : ''}>일반</option>
           </select>
 
           <label class="form-label">제목 *</label>
@@ -790,10 +864,10 @@ const SettingsPage = {
         '#tpl-cancel': () => Modal.close(),
         '#tpl-save': async () => {
           const data = {
-            name:     document.getElementById('tpl-name').value.trim(),
+            name: document.getElementById('tpl-name').value.trim(),
             category: document.getElementById('tpl-category').value,
-            subject:  document.getElementById('tpl-subject').value.trim(),
-            body:     document.getElementById('tpl-body').value,
+            subject: document.getElementById('tpl-subject').value.trim(),
+            body: document.getElementById('tpl-body').value,
           };
           if (!data.name || !data.subject || !data.body) {
             Toast.warn('이름·제목·본문은 필수입니다.');
@@ -838,7 +912,7 @@ const SettingsPage = {
       const [team, leads, products] = await Promise.all([
         API.team.list(),
         API.leads.list(),
-        API.products.list()
+        API.products.list(),
       ]);
       el.innerHTML = `
         <div class="grid-3">
@@ -902,8 +976,11 @@ const SettingsPage = {
       `,
       bind: {
         '#settings-int-cancel-btn': () => Modal.close(),
-        '#settings-int-save-btn': () => { Toast.success(`${name} 연동 설정이 저장되었습니다`); Modal.close(); }
-      }
+        '#settings-int-save-btn': () => {
+          Toast.success(`${name} 연동 설정이 저장되었습니다`);
+          Modal.close();
+        },
+      },
     });
-  }
+  },
 };

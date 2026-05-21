@@ -37,11 +37,16 @@ describe('PWA 자원 서빙', () => {
   });
 
   it('GET /assets/pwa-icon.svg — 200 + SVG', async () => {
-    const res = await api().get('/assets/pwa-icon.svg').buffer(true).parse((res, cb) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => cb(null, data));
-    });
+    const res = await api()
+      .get('/assets/pwa-icon.svg')
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        res.on('data', chunk => {
+          data += chunk;
+        });
+        res.on('end', () => cb(null, data));
+      });
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/svg/);
     expect(res.body).toContain('<svg');

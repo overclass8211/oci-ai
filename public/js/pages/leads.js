@@ -2,11 +2,20 @@
 // Leads Page (테이블 + CRUD + Copy & Paste)
 // ============================================================
 const LeadsPage = {
-  filters: { search: '', stage: '', region: '', assigned_to: '', business_type: '', date_from: '', date_to: '', date_field: 'close' },
+  filters: {
+    search: '',
+    stage: '',
+    region: '',
+    assigned_to: '',
+    business_type: '',
+    date_from: '',
+    date_to: '',
+    date_field: 'close',
+  },
   team: [],
-  _selectedIds: new Set(),   // 체크박스 선택된 리드 ID
-  _allLeads: [],             // 현재 렌더링된 리드 목록 (복사용)
-  _pasteHandler: null,       // Ctrl+V 핸들러 (페이지 언마운트 시 제거)
+  _selectedIds: new Set(), // 체크박스 선택된 리드 ID
+  _allLeads: [], // 현재 렌더링된 리드 목록 (복사용)
+  _pasteHandler: null, // Ctrl+V 핸들러 (페이지 언마운트 시 제거)
 
   async render() {
     const html = `
@@ -101,47 +110,61 @@ const LeadsPage = {
     const team = await API.team.list();
     this.team = team.data;
     const sel = document.getElementById('leads-assigned');
-    sel.innerHTML = '<option value="">전체 담당자</option>' +
+    sel.innerHTML =
+      '<option value="">전체 담당자</option>' +
       this.team.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
 
     // toolbar / header buttons
-    document.getElementById('leads-open-form-btn')?.addEventListener('click', () => App.openLeadForm());
+    document
+      .getElementById('leads-open-form-btn')
+      ?.addEventListener('click', () => App.openLeadForm());
     document.getElementById('cp-copy-btn')?.addEventListener('click', () => this.copySelected());
-    document.getElementById('leads-clear-sel-btn')?.addEventListener('click', () => this._clearSelection());
+    document
+      .getElementById('leads-clear-sel-btn')
+      ?.addEventListener('click', () => this._clearSelection());
     document.getElementById('cp-paste-btn')?.addEventListener('click', () => this.openPasteModal());
-    document.getElementById('leads-export-btn')?.addEventListener('click', (e) => this._openExportMenu(e.currentTarget));
-    document.getElementById('leads-import-input')?.addEventListener('change', (e) => this.importExcel(e.target));
+    document
+      .getElementById('leads-export-btn')
+      ?.addEventListener('click', e => this._openExportMenu(e.currentTarget));
+    document
+      .getElementById('leads-import-input')
+      ?.addEventListener('change', e => this.importExcel(e.target));
 
     // 검색어
-    document.getElementById('leads-search').addEventListener('input', debounce((e) => {
-      this.filters.search = e.target.value;
-      this.loadData();
-    }, 300));
+    document.getElementById('leads-search').addEventListener(
+      'input',
+      debounce(e => {
+        this.filters.search = e.target.value;
+        this.loadData();
+      }, 300)
+    );
 
     // 드롭다운 필터들
     const selectMap = {
-      'leads-stage':          'stage',
-      'leads-business-type':  'business_type',
-      'leads-region':         'region',
-      'leads-assigned':       'assigned_to',
-      'leads-date-field':     'date_field',
+      'leads-stage': 'stage',
+      'leads-business-type': 'business_type',
+      'leads-region': 'region',
+      'leads-assigned': 'assigned_to',
+      'leads-date-field': 'date_field',
     };
     Object.entries(selectMap).forEach(([id, key]) => {
-      document.getElementById(id).addEventListener('change', (e) => {
+      document.getElementById(id).addEventListener('change', e => {
         this.filters[key] = e.target.value;
         this.loadData();
       });
     });
 
     // 날짜 range
-    document.getElementById('leads-date-from').addEventListener('change', (e) => {
+    document.getElementById('leads-date-from').addEventListener('change', e => {
       this.filters.date_from = e.target.value;
-      document.getElementById('leads-date-clear').style.display = (this.filters.date_from || this.filters.date_to) ? '' : 'none';
+      document.getElementById('leads-date-clear').style.display =
+        this.filters.date_from || this.filters.date_to ? '' : 'none';
       this.loadData();
     });
-    document.getElementById('leads-date-to').addEventListener('change', (e) => {
+    document.getElementById('leads-date-to').addEventListener('change', e => {
       this.filters.date_to = e.target.value;
-      document.getElementById('leads-date-clear').style.display = (this.filters.date_from || this.filters.date_to) ? '' : 'none';
+      document.getElementById('leads-date-clear').style.display =
+        this.filters.date_from || this.filters.date_to ? '' : 'none';
       this.loadData();
     });
     document.getElementById('leads-date-clear').addEventListener('click', () => {
@@ -162,7 +185,7 @@ const LeadsPage = {
   // ── Ctrl+V 단축키 등록 ──────────────────────────────────────
   _bindPasteShortcut() {
     if (this._pasteHandler) document.removeEventListener('keydown', this._pasteHandler);
-    this._pasteHandler = (e) => {
+    this._pasteHandler = e => {
       // 입력 필드에 포커스된 경우는 무시
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -180,41 +203,97 @@ const LeadsPage = {
       this._allLeads = result.data;
       this.renderTable(result.data);
       this.renderActiveFilters();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   renderActiveFilters() {
     const wrap = document.getElementById('leads-active-filters');
     if (!wrap) return;
     const chips = [];
-    const dateFieldLabel = { close:'마감일', updated:'수정일', created:'등록일' };
-    if (this.filters.search)        chips.push(['검색', this.filters.search, () => { this.filters.search = ''; document.getElementById('leads-search').value = ''; }]);
-    if (this.filters.stage)         chips.push(['단계', STAGES[this.filters.stage]?.label || this.filters.stage, () => { this.filters.stage = ''; document.getElementById('leads-stage').value = ''; }]);
-    if (this.filters.business_type) chips.push(['유형', this.filters.business_type, () => { this.filters.business_type = ''; document.getElementById('leads-business-type').value = ''; }]);
-    if (this.filters.region)        chips.push(['구분', this.filters.region, () => { this.filters.region = ''; document.getElementById('leads-region').value = ''; }]);
+    const dateFieldLabel = { close: '마감일', updated: '수정일', created: '등록일' };
+    if (this.filters.search)
+      chips.push([
+        '검색',
+        this.filters.search,
+        () => {
+          this.filters.search = '';
+          document.getElementById('leads-search').value = '';
+        },
+      ]);
+    if (this.filters.stage)
+      chips.push([
+        '단계',
+        STAGES[this.filters.stage]?.label || this.filters.stage,
+        () => {
+          this.filters.stage = '';
+          document.getElementById('leads-stage').value = '';
+        },
+      ]);
+    if (this.filters.business_type)
+      chips.push([
+        '유형',
+        this.filters.business_type,
+        () => {
+          this.filters.business_type = '';
+          document.getElementById('leads-business-type').value = '';
+        },
+      ]);
+    if (this.filters.region)
+      chips.push([
+        '구분',
+        this.filters.region,
+        () => {
+          this.filters.region = '';
+          document.getElementById('leads-region').value = '';
+        },
+      ]);
     if (this.filters.assigned_to) {
       const member = this.team.find(t => String(t.id) === String(this.filters.assigned_to));
-      chips.push(['담당자', member?.name || this.filters.assigned_to, () => { this.filters.assigned_to = ''; document.getElementById('leads-assigned').value = ''; }]);
+      chips.push([
+        '담당자',
+        member?.name || this.filters.assigned_to,
+        () => {
+          this.filters.assigned_to = '';
+          document.getElementById('leads-assigned').value = '';
+        },
+      ]);
     }
     if (this.filters.date_from || this.filters.date_to) {
       const label = `${dateFieldLabel[this.filters.date_field]}: ${this.filters.date_from || '∞'} ~ ${this.filters.date_to || '∞'}`;
-      chips.push(['기간', label, () => {
-        this.filters.date_from = ''; this.filters.date_to = '';
-        document.getElementById('leads-date-from').value = '';
-        document.getElementById('leads-date-to').value = '';
-        document.getElementById('leads-date-clear').style.display = 'none';
-      }]);
+      chips.push([
+        '기간',
+        label,
+        () => {
+          this.filters.date_from = '';
+          this.filters.date_to = '';
+          document.getElementById('leads-date-from').value = '';
+          document.getElementById('leads-date-to').value = '';
+          document.getElementById('leads-date-clear').style.display = 'none';
+        },
+      ]);
     }
-    if (!chips.length) { wrap.innerHTML = ''; return; }
-    wrap.innerHTML = chips.map((c, i) =>
-      `<span class="filter-chip" data-filter-idx="${i}">${c[0]}: <strong>${esc(c[1])}</strong> ✕</span>`
-    ).join('');
+    if (!chips.length) {
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.innerHTML = chips
+      .map(
+        (c, i) =>
+          `<span class="filter-chip" data-filter-idx="${i}">${c[0]}: <strong>${esc(c[1])}</strong> ✕</span>`
+      )
+      .join('');
     this._filterChipCallbacks = chips.map(c => c[2]);
 
-    wrap.addEventListener('click', (e) => {
-      const chip = e.target.closest('.filter-chip[data-filter-idx]');
-      if (chip) this._removeFilter(parseInt(chip.dataset.filterIdx));
-    }, { once: true });
+    wrap.addEventListener(
+      'click',
+      e => {
+        const chip = e.target.closest('.filter-chip[data-filter-idx]');
+        if (chip) this._removeFilter(parseInt(chip.dataset.filterIdx));
+      },
+      { once: true }
+    );
   },
 
   _removeFilter(idx) {
@@ -233,23 +312,30 @@ const LeadsPage = {
       const f = this.filters || {};
       const hasFilter = f.stage || f.region || f.assigned_to || f.business_type || f.search;
       const presetKey = hasFilter ? 'filter' : 'leads';
-      const html = (typeof EmptyState !== 'undefined')
-        ? EmptyState.preset(presetKey)
-        : '<div class="empty"><div class="empty-icon">📋</div>등록된 리드가 없습니다</div>';
+      const html =
+        typeof EmptyState !== 'undefined'
+          ? EmptyState.preset(presetKey)
+          : '<div class="empty"><div class="empty-icon">📋</div>등록된 리드가 없습니다</div>';
       document.getElementById('leads-table-wrap').innerHTML = html;
       // primary 버튼 클릭 핸들러 (preset='leads' 일 때만)
       if (!hasFilter) {
-        document.getElementById('empty-leads-new')?.addEventListener('click', () =>
-          App.openLeadForm?.());
+        document
+          .getElementById('empty-leads-new')
+          ?.addEventListener('click', () => App.openLeadForm?.());
       }
       return;
     }
 
-    const stageBadge = (stage) => {
+    const stageBadge = stage => {
       const map = {
-        lead: 'gray', review: 'gray', proposal: 'blue',
-        bidding: 'amber', negotiation: 'green',
-        won: 'green', lost: 'gray', dropped: 'red'
+        lead: 'gray',
+        review: 'gray',
+        proposal: 'blue',
+        bidding: 'amber',
+        negotiation: 'green',
+        won: 'green',
+        lost: 'gray',
+        dropped: 'red',
       };
       return `<span class="badge badge-${map[stage]}">${STAGES[stage].label}</span>`;
     };
@@ -275,7 +361,9 @@ const LeadsPage = {
           </tr>
         </thead>
         <tbody>
-          ${leads.map(l => `
+          ${leads
+            .map(
+              l => `
             <tr class="clickable${this._selectedIds.has(l.id) ? ' cp-selected' : ''}"
                 data-lead-id="${l.id}">
               <td class="cp-check-col" data-stop-propagation="1">
@@ -296,7 +384,9 @@ const LeadsPage = {
                 <button class="btn btn-ghost btn-sm" data-action="edit-lead" data-lid="${l.id}">편집</button>
               </td>
             </tr>
-          `).join('')}
+          `
+            )
+            .join('')}
         </tbody>
       </table>
     `;
@@ -304,18 +394,29 @@ const LeadsPage = {
     wrap.innerHTML = html;
     this._updateSelectionUI();
 
-    wrap.addEventListener('click', (e) => {
+    wrap.addEventListener('click', e => {
       const stopEl = e.target.closest('[data-stop-propagation]');
-      if (stopEl) { e.stopPropagation(); }
+      if (stopEl) {
+        e.stopPropagation();
+      }
 
       const actionBtn = e.target.closest('[data-action="edit-lead"]');
-      if (actionBtn) { this.editLead(parseInt(actionBtn.dataset.lid)); return; }
+      if (actionBtn) {
+        this.editLead(parseInt(actionBtn.dataset.lid));
+        return;
+      }
 
       const cb = e.target.closest('.cp-checkbox[data-id]');
-      if (cb) { this._toggleRow(parseInt(cb.dataset.id), cb.checked); return; }
+      if (cb) {
+        this._toggleRow(parseInt(cb.dataset.id), cb.checked);
+        return;
+      }
 
       const hdrCb = e.target.closest('#cp-check-all');
-      if (hdrCb) { this._toggleAll(hdrCb.checked); return; }
+      if (hdrCb) {
+        this._toggleAll(hdrCb.checked);
+        return;
+      }
 
       if (!stopEl) {
         const tr = e.target.closest('tr[data-lead-id]');
@@ -328,16 +429,18 @@ const LeadsPage = {
   _toggleAll(checked) {
     this._allLeads.forEach(l => {
       if (checked) this._selectedIds.add(l.id);
-      else         this._selectedIds.delete(l.id);
+      else this._selectedIds.delete(l.id);
     });
-    document.querySelectorAll('.cp-checkbox[data-id]').forEach(cb => cb.checked = checked);
-    document.querySelectorAll('tr[data-lead-id]').forEach(tr => tr.classList.toggle('cp-selected', checked));
+    document.querySelectorAll('.cp-checkbox[data-id]').forEach(cb => (cb.checked = checked));
+    document
+      .querySelectorAll('tr[data-lead-id]')
+      .forEach(tr => tr.classList.toggle('cp-selected', checked));
     this._updateSelectionUI();
   },
 
   _toggleRow(id, checked) {
     if (checked) this._selectedIds.add(id);
-    else         this._selectedIds.delete(id);
+    else this._selectedIds.delete(id);
     const tr = document.querySelector(`tr[data-lead-id="${id}"]`);
     if (tr) tr.classList.toggle('cp-selected', checked);
     // 전체 선택 체크박스 상태 동기화
@@ -348,7 +451,7 @@ const LeadsPage = {
 
   _clearSelection() {
     this._selectedIds.clear();
-    document.querySelectorAll('.cp-checkbox').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.cp-checkbox').forEach(cb => (cb.checked = false));
     document.querySelectorAll('tr[data-lead-id]').forEach(tr => tr.classList.remove('cp-selected'));
     this._updateSelectionUI();
   },
@@ -356,50 +459,77 @@ const LeadsPage = {
   _updateSelectionUI() {
     const n = this._selectedIds.size;
     const toolbar = document.getElementById('cp-toolbar');
-    const count   = document.getElementById('cp-sel-count');
+    const count = document.getElementById('cp-sel-count');
     if (toolbar) toolbar.style.display = n > 0 ? 'flex' : 'none';
-    if (count)   count.textContent = `${n}건 선택`;
+    if (count) count.textContent = `${n}건 선택`;
   },
 
   // ── 복사(Copy) ───────────────────────────────────────────────
   // 선택된 행을 TSV 형식으로 클립보드에 복사 (Excel·Word·이메일에 바로 붙여넣기 가능)
   copySelected() {
     const selected = this._allLeads.filter(l => this._selectedIds.has(l.id));
-    if (!selected.length) { Toast.info('복사할 항목을 선택하세요'); return; }
+    if (!selected.length) {
+      Toast.info('복사할 항목을 선택하세요');
+      return;
+    }
 
     const STAGE_LABELS = {
-      lead:'리드발굴', review:'검토/미팅', proposal:'제안/견적',
-      bidding:'입찰', negotiation:'협상/계약', won:'수주완료', lost:'실주', dropped:'드롭'
+      lead: '리드발굴',
+      review: '검토/미팅',
+      proposal: '제안/견적',
+      bidding: '입찰',
+      negotiation: '협상/계약',
+      won: '수주완료',
+      lost: '실주',
+      dropped: '드롭',
     };
-    const headers = ['고객사','프로젝트명','사업유형','규모(MW)','예상금액','통화','단계','구분','담당자','예상마감일','메모'];
-    const rows = selected.map(l => [
-      l.customer_name || '',
-      l.project_name  || '',
-      l.business_type || '',
-      (l.capacity_mw !== null && l.capacity_mw !== undefined) ? l.capacity_mw : '',
-      (l.expected_amount !== null && l.expected_amount !== undefined) ? l.expected_amount : '',
-      l.currency      || 'KRW',
-      STAGE_LABELS[l.stage] || l.stage || '',
-      l.region        || '',
-      l.assigned_name || '',
-      l.expected_close_date ? String(l.expected_close_date).slice(0,10) : '',
-      l.notes         || '',
-    ].map(v => String(v).replace(/\t/g, ' ')));  // 탭 문자 이스케이프
+    const headers = [
+      '고객사',
+      '프로젝트명',
+      '사업유형',
+      '규모(MW)',
+      '예상금액',
+      '통화',
+      '단계',
+      '구분',
+      '담당자',
+      '예상마감일',
+      '메모',
+    ];
+    const rows = selected.map(l =>
+      [
+        l.customer_name || '',
+        l.project_name || '',
+        l.business_type || '',
+        l.capacity_mw !== null && l.capacity_mw !== undefined ? l.capacity_mw : '',
+        l.expected_amount !== null && l.expected_amount !== undefined ? l.expected_amount : '',
+        l.currency || 'KRW',
+        STAGE_LABELS[l.stage] || l.stage || '',
+        l.region || '',
+        l.assigned_name || '',
+        l.expected_close_date ? String(l.expected_close_date).slice(0, 10) : '',
+        l.notes || '',
+      ].map(v => String(v).replace(/\t/g, ' '))
+    ); // 탭 문자 이스케이프
 
     const tsv = [headers, ...rows].map(r => r.join('\t')).join('\n');
-    navigator.clipboard.writeText(tsv).then(() => {
-      Toast.success(`${selected.length}건 복사 완료 — Excel·Word에 Ctrl+V로 붙여넣기 하세요`);
-    }).catch(() => {
-      // clipboard API 실패 시 textarea 방법으로 대체
-      const ta = document.createElement('textarea');
-      ta.value = tsv;
-      ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      ta.remove();
-      Toast.success(`${selected.length}건 복사 완료`);
-    });
+    navigator.clipboard
+      .writeText(tsv)
+      .then(() => {
+        Toast.success(`${selected.length}건 복사 완료 — Excel·Word에 Ctrl+V로 붙여넣기 하세요`);
+      })
+      .catch(() => {
+        // clipboard API 실패 시 textarea 방법으로 대체
+        const ta = document.createElement('textarea');
+        ta.value = tsv;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        Toast.success(`${selected.length}건 복사 완료`);
+      });
   },
 
   // ── 붙여넣기(Paste) 모달 ────────────────────────────────────
@@ -423,10 +553,10 @@ const LeadsPage = {
         <button class="btn btn-primary" id="cp-import-btn" style="display:none">등록하기</button>
       `,
       bind: {
-        '#leads-paste-cancel-btn':  () => Modal.close(),
+        '#leads-paste-cancel-btn': () => Modal.close(),
         '#leads-paste-preview-btn': () => this._parsePasteInput(),
-        '#cp-import-btn':           () => this._importParsed()
-      }
+        '#cp-import-btn': () => this._importParsed(),
+      },
     });
 
     // 붙여넣기 시 자동 파싱
@@ -440,83 +570,170 @@ const LeadsPage = {
   // ── 클립보드 데이터 파싱 ────────────────────────────────────
   _parsePasteInput() {
     const raw = document.getElementById('cp-paste-input')?.value?.trim();
-    if (!raw) { document.getElementById('cp-parse-result').innerHTML = '<p style="color:var(--text-3);font-size:12px">데이터를 먼저 붙여넣기 해주세요.</p>'; return; }
+    if (!raw) {
+      document.getElementById('cp-parse-result').innerHTML =
+        '<p style="color:var(--text-3);font-size:12px">데이터를 먼저 붙여넣기 해주세요.</p>';
+      return;
+    }
 
     // 구분자 감지 (탭 vs 쉼표)
     const firstLine = raw.split('\n')[0];
     const sep = firstLine.includes('\t') ? '\t' : ',';
 
-    const lines = raw.split('\n').map(l => l.split(sep).map(v => v.trim().replace(/^["']|["']$/g, '')));
+    const lines = raw
+      .split('\n')
+      .map(l => l.split(sep).map(v => v.trim().replace(/^["']|["']$/g, '')));
     if (!lines.length) return;
 
     // 헤더 행 감지
     const HEADER_MAP = {
-      '고객사':true, '고객':true, 'customer':true, 'customer_name':true,
-      '프로젝트':true, '프로젝트명':true, 'project':true, 'project_name':true,
-      '사업유형':true, '유형':true, 'type':true, 'business_type':true,
-      '규모':true, 'mw':true, 'capacity':true, '용량':true,
-      '금액':true, '예상금액':true, 'amount':true, 'expected_amount':true,
-      '단계':true, 'stage':true, '상태':true,
-      '구분':true, '지역':true, 'region':true,
-      '담당자':true, '담당':true, 'assigned':true,
-      '마감일':true, '예상마감':true, '마감':true, 'close_date':true,
-      '메모':true, '비고':true, 'notes':true,
+      고객사: true,
+      고객: true,
+      customer: true,
+      customer_name: true,
+      프로젝트: true,
+      프로젝트명: true,
+      project: true,
+      project_name: true,
+      사업유형: true,
+      유형: true,
+      type: true,
+      business_type: true,
+      규모: true,
+      mw: true,
+      capacity: true,
+      용량: true,
+      금액: true,
+      예상금액: true,
+      amount: true,
+      expected_amount: true,
+      단계: true,
+      stage: true,
+      상태: true,
+      구분: true,
+      지역: true,
+      region: true,
+      담당자: true,
+      담당: true,
+      assigned: true,
+      마감일: true,
+      예상마감: true,
+      마감: true,
+      close_date: true,
+      메모: true,
+      비고: true,
+      notes: true,
     };
     const firstRow = lines[0].map(v => v.toLowerCase().trim());
     const hasHeader = firstRow.some(v => HEADER_MAP[v]);
 
     let headers, dataRows;
     if (hasHeader) {
-      headers  = lines[0];
+      headers = lines[0];
       dataRows = lines.slice(1).filter(r => r.some(v => v));
     } else {
       // 기본 컬럼 순서: 고객사, 프로젝트명, 사업유형, 규모, 예상금액, 단계, 구분, 담당자, 마감일, 메모
-      headers  = ['고객사','프로젝트명','사업유형','규모(MW)','예상금액','단계','구분','담당자','마감일','메모'];
+      headers = [
+        '고객사',
+        '프로젝트명',
+        '사업유형',
+        '규모(MW)',
+        '예상금액',
+        '단계',
+        '구분',
+        '담당자',
+        '마감일',
+        '메모',
+      ];
       dataRows = lines.filter(r => r.some(v => v));
     }
 
     // 컬럼 → 필드 매핑
     const COL_FIELD = {
-      '고객사':'customer_name', '고객':'customer_name', 'customer':'customer_name', 'customer_name':'customer_name',
-      '프로젝트명':'project_name', '프로젝트':'project_name', 'project':'project_name', 'project_name':'project_name',
-      '사업유형':'business_type', '유형':'business_type', 'type':'business_type', 'business_type':'business_type',
-      '규모(mw)':'capacity_mw', '규모':'capacity_mw', 'mw':'capacity_mw', 'capacity':'capacity_mw', '용량':'capacity_mw',
-      '예상금액':'expected_amount', '금액':'expected_amount', 'amount':'expected_amount', 'expected_amount':'expected_amount',
-      '통화':'currency', 'currency':'currency',
-      '단계':'stage', 'stage':'stage', '상태':'stage',
-      '구분':'region', '지역':'region', 'region':'region',
-      '담당자':'assigned_name_raw', '담당':'assigned_name_raw', 'assigned':'assigned_name_raw',
-      '마감일':'expected_close_date', '예상마감일':'expected_close_date', '마감':'expected_close_date', 'close_date':'expected_close_date',
-      '메모':'notes', '비고':'notes', 'notes':'notes',
+      고객사: 'customer_name',
+      고객: 'customer_name',
+      customer: 'customer_name',
+      customer_name: 'customer_name',
+      프로젝트명: 'project_name',
+      프로젝트: 'project_name',
+      project: 'project_name',
+      project_name: 'project_name',
+      사업유형: 'business_type',
+      유형: 'business_type',
+      type: 'business_type',
+      business_type: 'business_type',
+      '규모(mw)': 'capacity_mw',
+      규모: 'capacity_mw',
+      mw: 'capacity_mw',
+      capacity: 'capacity_mw',
+      용량: 'capacity_mw',
+      예상금액: 'expected_amount',
+      금액: 'expected_amount',
+      amount: 'expected_amount',
+      expected_amount: 'expected_amount',
+      통화: 'currency',
+      currency: 'currency',
+      단계: 'stage',
+      stage: 'stage',
+      상태: 'stage',
+      구분: 'region',
+      지역: 'region',
+      region: 'region',
+      담당자: 'assigned_name_raw',
+      담당: 'assigned_name_raw',
+      assigned: 'assigned_name_raw',
+      마감일: 'expected_close_date',
+      예상마감일: 'expected_close_date',
+      마감: 'expected_close_date',
+      close_date: 'expected_close_date',
+      메모: 'notes',
+      비고: 'notes',
+      notes: 'notes',
     };
 
     const STAGE_REVERSE = {
-      '리드발굴':'lead', '리드 발굴':'lead', 'lead':'lead',
-      '검토':'review', '검토/미팅':'review', 'review':'review',
-      '제안':'proposal', '제안/견적':'proposal', 'proposal':'proposal',
-      '입찰':'bidding', 'bidding':'bidding',
-      '협상':'negotiation', '협상/계약':'negotiation', 'negotiation':'negotiation',
-      '수주':'won', '수주완료':'won', 'won':'won',
-      '실주':'lost', 'lost':'lost',
-      '드롭':'dropped', 'dropped':'dropped',
+      리드발굴: 'lead',
+      '리드 발굴': 'lead',
+      lead: 'lead',
+      검토: 'review',
+      '검토/미팅': 'review',
+      review: 'review',
+      제안: 'proposal',
+      '제안/견적': 'proposal',
+      proposal: 'proposal',
+      입찰: 'bidding',
+      bidding: 'bidding',
+      협상: 'negotiation',
+      '협상/계약': 'negotiation',
+      negotiation: 'negotiation',
+      수주: 'won',
+      수주완료: 'won',
+      won: 'won',
+      실주: 'lost',
+      lost: 'lost',
+      드롭: 'dropped',
+      dropped: 'dropped',
     };
 
     const fieldCols = headers.map(h => COL_FIELD[h.toLowerCase().trim()] || null);
 
-    const parsed = dataRows.map(row => {
-      const obj = {};
-      row.forEach((val, i) => {
-        const field = fieldCols[i];
-        if (!field || !val) return;
-        if (field === 'stage') obj[field] = STAGE_REVERSE[val.toLowerCase()] || 'lead';
-        else if (field === 'capacity_mw' || field === 'expected_amount') {
-          const num = parseFloat(val.replace(/[,₩$¥]/g, ''));
-          if (!isNaN(num)) obj[field] = num;
-        } else if (field === 'assigned_name_raw') obj[field] = val;  // 이름→ID 매핑은 나중에
-        else obj[field] = val;
-      });
-      return obj;
-    }).filter(o => o.customer_name || o.project_name);
+    const parsed = dataRows
+      .map(row => {
+        const obj = {};
+        row.forEach((val, i) => {
+          const field = fieldCols[i];
+          if (!field || !val) return;
+          if (field === 'stage') obj[field] = STAGE_REVERSE[val.toLowerCase()] || 'lead';
+          else if (field === 'capacity_mw' || field === 'expected_amount') {
+            const num = parseFloat(val.replace(/[,₩$¥]/g, ''));
+            if (!isNaN(num)) obj[field] = num;
+          } else if (field === 'assigned_name_raw')
+            obj[field] = val; // 이름→ID 매핑은 나중에
+          else obj[field] = val;
+        });
+        return obj;
+      })
+      .filter(o => o.customer_name || o.project_name);
 
     this._parsedLeads = parsed;
 
@@ -541,24 +758,31 @@ const LeadsPage = {
             </tr>
           </thead>
           <tbody>
-            ${parsed.map((r, i) => `
+            ${parsed
+              .map(
+                (r, i) => `
               <tr class="${!r.customer_name || !r.project_name ? 'cp-row-warn' : ''}">
-                <td class="text-muted">${i+1}</td>
+                <td class="text-muted">${i + 1}</td>
                 <td>${r.customer_name ? `<strong>${esc(r.customer_name)}</strong>` : '<span style="color:#E63329">필수</span>'}</td>
-                <td>${r.project_name  ? esc(r.project_name)  : '<span style="color:#E63329">필수</span>'}</td>
+                <td>${r.project_name ? esc(r.project_name) : '<span style="color:#E63329">필수</span>'}</td>
                 <td>${esc(r.business_type || '태양광')}</td>
-                <td class="text-right">${(r.capacity_mw !== null && r.capacity_mw !== undefined) ? r.capacity_mw : '-'}</td>
-                <td>${esc(STAGE_REVERSE[r.stage] ? (r.stage) : 'lead')}</td>
+                <td class="text-right">${r.capacity_mw !== null && r.capacity_mw !== undefined ? r.capacity_mw : '-'}</td>
+                <td>${esc(STAGE_REVERSE[r.stage] ? r.stage : 'lead')}</td>
                 <td>${esc(r.region || '국내')}</td>
                 <td>${esc(r.assigned_name_raw || '-')}</td>
                 <td>${esc(r.expected_close_date || '-')}</td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join('')}
           </tbody>
         </table>
       </div>
-      ${parsed.some(r => !r.customer_name || !r.project_name)
-        ? '<p style="color:#F59C00;font-size:11px;margin-top:6px">⚠ 빨간색 행은 필수값 누락으로 건너뜁니다.</p>' : ''}
+      ${
+        parsed.some(r => !r.customer_name || !r.project_name)
+          ? '<p style="color:#F59C00;font-size:11px;margin-top:6px">⚠ 빨간색 행은 필수값 누락으로 건너뜁니다.</p>'
+          : ''
+      }
     `;
     document.getElementById('cp-parse-result').innerHTML = previewHtml;
     document.getElementById('cp-import-btn').style.display = '';
@@ -579,7 +803,10 @@ const LeadsPage = {
       });
 
     const btn = document.getElementById('cp-import-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '등록 중...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '등록 중...';
+    }
 
     try {
       const res = await API.post('/leads/bulk', { leads: leadsToSend });
@@ -593,7 +820,10 @@ const LeadsPage = {
       }
     } catch (e) {
       Toast.error('서버 오류: ' + (e.message || ''));
-      if (btn) { btn.disabled = false; btn.textContent = '등록하기'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '등록하기';
+      }
     }
   },
 
@@ -605,23 +835,27 @@ const LeadsPage = {
   exportExcel() {
     // 레거시 호환 — 기본 xlsx
     const path = this._buildExportPath();
-    API.downloadExport(path, '영업리드_' + new Date().toISOString().slice(0,10), 'xlsx');
+    API.downloadExport(path, '영업리드_' + new Date().toISOString().slice(0, 10), 'xlsx');
   },
 
   _buildExportPath() {
     const f = this.filters;
     const qs = new URLSearchParams();
-    if (f.stage)         qs.set('stage', f.stage);
-    if (f.region)        qs.set('region', f.region);
-    if (f.assigned_to)   qs.set('assigned_to', f.assigned_to);
+    if (f.stage) qs.set('stage', f.stage);
+    if (f.region) qs.set('region', f.region);
+    if (f.assigned_to) qs.set('assigned_to', f.assigned_to);
     if (f.business_type) qs.set('business_type', f.business_type);
-    if (f.search)        qs.set('search', f.search);
+    if (f.search) qs.set('search', f.search);
     return '/leads/export' + (qs.toString() ? '?' + qs.toString() : '');
   },
 
   _openExportMenu(triggerEl) {
     if (typeof ExportMenu === 'undefined') return this.exportExcel();
-    ExportMenu.open(triggerEl, this._buildExportPath(), '영업리드_' + new Date().toISOString().slice(0,10));
+    ExportMenu.open(
+      triggerEl,
+      this._buildExportPath(),
+      '영업리드_' + new Date().toISOString().slice(0, 10)
+    );
   },
 
   // ── 엑셀 가져오기 ────────────────────────────────────────────
@@ -634,7 +868,7 @@ const LeadsPage = {
     const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
     const headers = {};
     const uid = localStorage.getItem('current_user_id');
-    if (uid)   headers['X-User-Id'] = uid;
+    if (uid) headers['X-User-Id'] = uid;
     if (token) headers['Authorization'] = `Bearer ${token}`;
     try {
       const res = await fetch('/api/leads/import', { method: 'POST', headers, body: fd });
@@ -643,7 +877,11 @@ const LeadsPage = {
         const errMsg = data.errors?.length ? ` (${data.errors.length}건 오류)` : '';
         Toast.success(`${data.inserted}건 등록 완료${errMsg}`);
         await this.loadData();
-      } else { Toast.error(data.message || '가져오기 실패'); }
-    } catch (e) { Toast.error('서버 오류: ' + (e.message || '')); }
-  }
+      } else {
+        Toast.error(data.message || '가져오기 실패');
+      }
+    } catch (e) {
+      Toast.error('서버 오류: ' + (e.message || ''));
+    }
+  },
 };

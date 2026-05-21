@@ -4,7 +4,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { api } from './helpers.mjs';
 
-
 describe('Admin & AI Usage API', () => {
   it('GET /api/admin/settings — idle/token 정책 키 존재', async () => {
     const res = await api().get('/api/admin/settings');

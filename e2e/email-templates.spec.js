@@ -42,7 +42,9 @@ test.afterAll(async () => {
       await pool.query(`DELETE FROM activities WHERE title LIKE ?`, [`${PREFIX}%`]);
       await pool.query(`DELETE FROM leads WHERE project_name LIKE ?`, [`${PREFIX}%`]);
       await pool.query(`DELETE FROM customers WHERE id = ?`, [custId]);
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      /* ignore */
+    }
     await pool.end();
   }
 });
@@ -51,10 +53,14 @@ test.beforeEach(async ({ page }) => {
   // mailto: hook — Email._openMailto 가 호출하는 함수를 Node 쪽으로 노출
   // (page.exposeFunction 은 page 객체 lifetime 동안 영속)
   const capturedMailtos = [];
-  await page.exposeFunction('__e2eRecvMailto', (url) => { capturedMailtos.push(url); });
+  await page.exposeFunction('__e2eRecvMailto', url => {
+    capturedMailtos.push(url);
+  });
   // 각 페이지 로드 시 hook 설치 — Email._openMailto 가 이것을 호출
   await page.addInitScript(() => {
-    window.__e2eOpenMailto = (url) => { window.__e2eRecvMailto(url); };
+    window.__e2eOpenMailto = url => {
+      window.__e2eRecvMailto(url);
+    };
   });
   // 테스트에서 캡처 배열 접근 가능하도록
   page._capturedMailtos = capturedMailtos;
@@ -77,7 +83,7 @@ test('시나리오 1 — 고객사 모달 → 이메일 모달 + 변수 치환',
   // 검증 — 변수 치환이 정상 동작 (placeholder 가 사라짐)
   // 시드 템플릿에 정의된 모든 변수가 치환되어 {{...}} 형식이 남아있으면 안 됨
   const subject = await page.locator('#email-subject').inputValue();
-  const body    = await page.locator('#email-body').inputValue();
+  const body = await page.locator('#email-body').inputValue();
   const full = subject + '\n' + body;
   expect(full).not.toContain('{{customer_name}}');
   expect(full).not.toContain('{{contact_person}}');
@@ -124,7 +130,7 @@ test('시나리오 3 — 발송 → mailto: URL 생성 + 활동 기록', async (
     await page.waitForLoadState('networkidle');
 
     // App.openLeadDetail 직접 호출 (테이블 클릭은 환경 따라 변동성 높아)
-    await page.evaluate((id) => App.openLeadDetail(id), leadId);
+    await page.evaluate(id => App.openLeadDetail(id), leadId);
     await expect(page.locator('#ld-email')).toBeVisible({ timeout: 5000 });
 
     // ✉️ 이메일 클릭
@@ -180,10 +186,11 @@ test('시나리오 4 — 설정 페이지에서 새 템플릿 추가', async ({ 
 
   // 모달이 닫히고 목록이 다시 로드될 때까지 폴링
   await expect(page.locator('#tpl-name')).toBeHidden({ timeout: 5000 });
-  await expect.poll(
-    async () => (await page.locator(`#email-tpl-list tr:has-text("${tplName}")`).count()),
-    { timeout: 5000 }
-  ).toBeGreaterThan(0);
+  await expect
+    .poll(async () => await page.locator(`#email-tpl-list tr:has-text("${tplName}")`).count(), {
+      timeout: 5000,
+    })
+    .toBeGreaterThan(0);
 
   // 정리는 afterAll
 });
@@ -193,9 +200,12 @@ test('시나리오 5 — 시스템 템플릿에는 복제 버튼만 표시', asy
   await page.goto('/#settings');
   await page.waitForSelector('#email-tpl-list table', { timeout: 10000 });
 
-  const sysRow = page.locator('#email-tpl-list tbody tr').filter({
-    has: page.locator('.badge', { hasText: '시스템' })
-  }).first();
+  const sysRow = page
+    .locator('#email-tpl-list tbody tr')
+    .filter({
+      has: page.locator('.badge', { hasText: '시스템' }),
+    })
+    .first();
   await expect(sysRow).toBeVisible();
   // 복제 버튼은 존재
   await expect(sysRow.locator('[data-tpl-action="clone"]')).toBeVisible();
@@ -269,9 +279,9 @@ test('시나리오 7 — 사용자 템플릿 편집 → 목록 반영', async ({
     await expect(row).toContainText(newSubject, { timeout: 5000 });
 
     // DB 직접 검증
-    const [[updated]] = await pool.query(
-      `SELECT subject, body FROM email_templates WHERE id = ?`, [tplId]
-    );
+    const [[updated]] = await pool.query(`SELECT subject, body FROM email_templates WHERE id = ?`, [
+      tplId,
+    ]);
     expect(updated.subject).toBe(newSubject);
     expect(updated.body).toBe('편집 후 본문');
   } finally {
@@ -305,9 +315,7 @@ test('시나리오 8 — 사용자 템플릿 삭제 → 목록에서 사라짐',
     await expect(row).toBeHidden({ timeout: 5000 });
 
     // DB 에서도 삭제 확인
-    const [rows] = await pool.query(
-      `SELECT id FROM email_templates WHERE id = ?`, [tplId]
-    );
+    const [rows] = await pool.query(`SELECT id FROM email_templates WHERE id = ?`, [tplId]);
     expect(rows.length).toBe(0);
   } finally {
     // 만약 삭제 실패 시 정리

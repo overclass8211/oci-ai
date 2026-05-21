@@ -12,19 +12,18 @@ const XLSX = require('xlsx');
 function toExcelBuffer(columns, rows, sheetName = 'Sheet1') {
   // 헤더 행 + 데이터 행
   const header = columns.map(c => c.label);
-  const data   = rows.map(row => columns.map(c => {
-    const v = row[c.key];
-    return (v === null || v === undefined) ? '' : v;
-  }));
+  const data = rows.map(row =>
+    columns.map(c => {
+      const v = row[c.key];
+      return v === null || v === undefined ? '' : v;
+    })
+  );
 
   const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
 
   // 컬럼 너비 자동 조정 (최대 50자)
   ws['!cols'] = columns.map((c, ci) => {
-    const maxLen = Math.max(
-      c.label.length,
-      ...data.map(r => String(r[ci] ?? '').length)
-    );
+    const maxLen = Math.max(c.label.length, ...data.map(r => String(r[ci] ?? '').length));
     return { wch: Math.min(maxLen + 2, 50) };
   });
 
@@ -46,8 +45,14 @@ function fromExcelBuffer(buffer) {
  * res 에 Excel 파일 응답 전송
  */
 function sendExcel(res, buffer, filename) {
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}.xlsx`);
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename*=UTF-8''${encodeURIComponent(filename)}.xlsx`
+  );
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
   res.setHeader('Content-Length', buffer.length);
   res.send(buffer);
 }

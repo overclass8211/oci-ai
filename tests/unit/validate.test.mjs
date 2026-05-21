@@ -11,7 +11,7 @@ const next = vi.fn();
 const makeRes = () => {
   const res = {};
   res.status = vi.fn().mockReturnValue(res);
-  res.json   = vi.fn().mockReturnValue(res);
+  res.json = vi.fn().mockReturnValue(res);
   return res;
 };
 
@@ -29,11 +29,13 @@ describe('requireFields', () => {
     const req = { body: { name: 'OCI' } };
     requireFields(['name', 'email'])(req, res, next);
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      success: false,
-      code: 'VALIDATION_ERROR',
-      field: 'email',
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        field: 'email',
+      })
+    );
   });
 
   it('빈 문자열도 누락으로 처리', () => {

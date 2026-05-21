@@ -6,10 +6,16 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const {
-  hashPassword, verifyPassword,
-  signToken, verifyToken,
-  generateOtpSecret, generateOtpUri, verifyOtp,
-  getRoleInfo, canAccessPage, getRequiredLevel,
+  hashPassword,
+  verifyPassword,
+  signToken,
+  verifyToken,
+  generateOtpSecret,
+  generateOtpUri,
+  verifyOtp,
+  getRoleInfo,
+  canAccessPage,
+  getRequiredLevel,
   ROLES,
 } = require('../../src/services/authService.js');
 
@@ -29,7 +35,13 @@ describe('hashPassword / verifyPassword', () => {
 
 // ── JWT ───────────────────────────────────────────────────────
 describe('signToken / verifyToken', () => {
-  const user = { id: 1, username: 'alice', full_name: '앨리스', role: 'manager', email: 'a@test.com' };
+  const user = {
+    id: 1,
+    username: 'alice',
+    full_name: '앨리스',
+    role: 'manager',
+    email: 'a@test.com',
+  };
 
   it('토큰 생성 후 검증 성공', () => {
     const { token, jti } = signToken(user);

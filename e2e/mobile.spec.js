@@ -14,7 +14,7 @@
 const { test, expect } = require('@playwright/test');
 const { loginAsAdmin } = require('./helpers/auth');
 
-const VP = { width: 375, height: 667 };  // iPhone SE 2020 (가장 좁은 주류 뷰포트)
+const VP = { width: 375, height: 667 }; // iPhone SE 2020 (가장 좁은 주류 뷰포트)
 
 test.use({ viewport: VP });
 
@@ -40,7 +40,9 @@ async function expectNoHorizontalScroll(page) {
 
 // 페이지 이동 헬퍼 (hashchange race 회피)
 async function gotoPage(page, pageId, waitSelector) {
-  await page.evaluate(id => { location.hash = '#' + id; }, pageId);
+  await page.evaluate(id => {
+    location.hash = '#' + id;
+  }, pageId);
   if (waitSelector) await page.waitForSelector(waitSelector, { timeout: 10000 });
 }
 
@@ -52,8 +54,8 @@ test('시나리오 1 — 햄버거 메뉴 동작 + 사이드바 오버레이', a
   await expect(hamburger).toBeVisible();
 
   // 사이드바는 초기에 숨김 (transform: translateX(-100%))
-  const sidebarTransform = await page.evaluate(() =>
-    window.getComputedStyle(document.querySelector('.sidebar')).transform
+  const sidebarTransform = await page.evaluate(
+    () => window.getComputedStyle(document.querySelector('.sidebar')).transform
   );
   expect(sidebarTransform).not.toBe('none');
 
@@ -103,7 +105,9 @@ test('시나리오 5 — 프로젝트: 등록 버튼 가시', async ({ page }) =
 test('시나리오 6 — 회의록 AI: 단일 컬럼 레이아웃', async ({ page }) => {
   await gotoPage(page, 'meeting');
   // 회의록 페이지 핵심 요소 (녹음 시작 버튼 또는 폼)
-  await page.waitForSelector('#meeting-customer, #rec-start-btn, .meeting-layout', { timeout: 10000 });
+  await page.waitForSelector('#meeting-customer, #rec-start-btn, .meeting-layout', {
+    timeout: 10000,
+  });
   await expectNoHorizontalScroll(page);
 });
 
@@ -135,7 +139,7 @@ test('시나리오 8 — AI 어시스턴트 패널: 슬라이드업 (하단)', a
   // 모바일에서는 하단 고정 + 100% 폭
   const panelBox = await aiPanel.boundingBox();
   expect(panelBox).not.toBeNull();
-  expect(panelBox.width).toBeGreaterThanOrEqual(VP.width - 20);  // 거의 100%
+  expect(panelBox.width).toBeGreaterThanOrEqual(VP.width - 20); // 거의 100%
   // 패널 하단이 화면 하단에 닿아 있음
   expect(panelBox.y + panelBox.height).toBeGreaterThanOrEqual(VP.height - 5);
 });

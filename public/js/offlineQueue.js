@@ -27,7 +27,7 @@
 
 const OfflineQueue = {
   DB_NAME: 'oci_meeting_offline',
-  STORE:   'recordings',
+  STORE: 'recordings',
   VERSION: 1,
   _db: null,
   _processing: false,
@@ -44,7 +44,10 @@ const OfflineQueue = {
           db.createObjectStore(this.STORE, { keyPath: 'id', autoIncrement: true });
         }
       };
-      req.onsuccess = () => { this._db = req.result; resolve(this._db); };
+      req.onsuccess = () => {
+        this._db = req.result;
+        resolve(this._db);
+      };
       req.onerror = () => reject(req.error);
     });
   },
@@ -62,13 +65,13 @@ const OfflineQueue = {
       filename: (meta && meta.filename) || `recording-${Date.now()}.webm`,
       mimetype: blob.type || 'audio/webm',
       customer_name: (meta && meta.customer_name) || '',
-      meeting_date:  (meta && meta.meeting_date) || '',
+      meeting_date: (meta && meta.meeting_date) || '',
       meeting_title: (meta && meta.meeting_title) || '',
       created_at: Date.now(),
-      status: 'pending',            // pending | uploading | transcribing | done | error
+      status: 'pending', // pending | uploading | transcribing | done | error
       progress_msg: '',
       job_id: null,
-      result: null,                 // { transcript, speakers, durationSec, sizeKB }
+      result: null, // { transcript, speakers, durationSec, sizeKB }
       error: null,
     };
     return new Promise((resolve, reject) => {
@@ -109,8 +112,11 @@ const OfflineQueue = {
         if (!item) return reject(new Error('queue item not found: ' + id));
         Object.assign(item, patch);
         const putReq = store.put(item);
-        putReq.onsuccess = () => { this._notify(); resolve(item); };
-        putReq.onerror   = () => reject(putReq.error);
+        putReq.onsuccess = () => {
+          this._notify();
+          resolve(item);
+        };
+        putReq.onerror = () => reject(putReq.error);
       };
       getReq.onerror = () => reject(getReq.error);
     });
@@ -120,8 +126,11 @@ const OfflineQueue = {
     const store = await this._tx('readwrite');
     return new Promise((resolve, reject) => {
       const req = store.delete(id);
-      req.onsuccess = () => { this._notify(); resolve(); };
-      req.onerror   = () => reject(req.error);
+      req.onsuccess = () => {
+        this._notify();
+        resolve();
+      };
+      req.onerror = () => reject(req.error);
     });
   },
 
@@ -131,9 +140,16 @@ const OfflineQueue = {
   },
 
   // ── 리스너 (UI 갱신용) ──────────────────────────────────
-  subscribe(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); },
+  subscribe(fn) {
+    this._listeners.add(fn);
+    return () => this._listeners.delete(fn);
+  },
   _notify() {
-    this._listeners.forEach(fn => { try { fn(); } catch (_) {} });
+    this._listeners.forEach(fn => {
+      try {
+        fn();
+      } catch (_) {}
+    });
   },
 
   // ── 동기화 ───────────────────────────────────────────────
@@ -163,28 +179,38 @@ const OfflineQueue = {
 
   async _processOne(item) {
     // 1) 업로드
-    await this.update(item.id, { status: 'uploading', progress_msg: '📤 업로드 중...', error: null });
+    await this.update(item.id, {
+      status: 'uploading',
+      progress_msg: '📤 업로드 중...',
+      error: null,
+    });
 
     const fd = new FormData();
     fd.append('audio', item.blob, item.filename);
     const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
-    const uid   = localStorage.getItem('current_user_id');
+    const uid = localStorage.getItem('current_user_id');
     const headers = {};
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    if (uid)   headers['X-User-Id']     = uid;
+    if (uid) headers['X-User-Id'] = uid;
 
     const uploadAborter = new AbortController();
     const uploadTimer = setTimeout(() => uploadAborter.abort(), 5 * 60 * 1000);
     let uploadRes;
     try {
       uploadRes = await fetch('/api/meeting/transcribe-async', {
-        method: 'POST', body: fd, headers, signal: uploadAborter.signal,
+        method: 'POST',
+        body: fd,
+        headers,
+        signal: uploadAborter.signal,
       });
-    } finally { clearTimeout(uploadTimer); }
+    } finally {
+      clearTimeout(uploadTimer);
+    }
 
     let uploadJson;
-    try { uploadJson = await uploadRes.json(); }
-    catch (_) {
+    try {
+      uploadJson = await uploadRes.json();
+    } catch (_) {
       throw new Error(`업로드 응답 해석 실패 (HTTP ${uploadRes.status})`);
     }
     if (!uploadJson.success || !uploadJson.job_id) {
@@ -210,14 +236,18 @@ const OfflineQueue = {
       await new Promise(r => setTimeout(r, POLL_MS));
       let statRes;
       try {
-        statRes = await fetch('/api/meeting/transcribe-status/' + encodeURIComponent(uploadJson.job_id), { headers });
+        statRes = await fetch(
+          '/api/meeting/transcribe-status/' + encodeURIComponent(uploadJson.job_id),
+          { headers }
+        );
       } catch (_) {
         if (++consecErrors >= 3) throw new Error('서버 상태 폴링 실패');
         continue;
       }
       let stat;
-      try { stat = await statRes.json(); }
-      catch (_) {
+      try {
+        stat = await statRes.json();
+      } catch (_) {
         if (++consecErrors >= 3) throw new Error(`서버 응답 해석 실패 (HTTP ${statRes.status})`);
         continue;
       }

@@ -34,6 +34,8 @@
 
   // 1.5초 후 자동 닫힘 (사용자가 결과 메시지 읽을 시간)
   setTimeout(function () {
-    try { window.close(); } catch (_) {}
+    try {
+      window.close();
+    } catch (_) {}
   }, 1500);
 })();

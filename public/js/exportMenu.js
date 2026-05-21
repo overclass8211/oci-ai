@@ -28,7 +28,7 @@ const ExportMenu = {
     if (this._initialized) return;
     this._initialized = true;
     // 전역 이벤트 위임 — data-action="export-menu" 가진 버튼
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', e => {
       const btn = e.target.closest('[data-action="export-menu"]');
       if (btn) {
         e.preventDefault();
@@ -57,7 +57,7 @@ const ExportMenu = {
     });
 
     // Esc → 닫기
-    document.addEventListener('keydown', (e) => {
+    document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && this._menuEl) this.close();
     });
   },
@@ -115,7 +115,7 @@ const ExportMenu = {
       left = Math.max(12, rect.right - menuWidth);
     }
     menu.style.left = left + 'px';
-    menu.style.top  = (rect.bottom + 4) + 'px';
+    menu.style.top = rect.bottom + 4 + 'px';
 
     // 다음 프레임에 visible 전환 (transition)
     requestAnimationFrame(() => menu.classList.add('is-open'));

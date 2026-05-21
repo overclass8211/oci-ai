@@ -18,7 +18,10 @@ const PREFIX = '__WEBHOOK_TEST__';
 const createdIds = [];
 
 beforeAll(async () => {
-  await pool.query(`DELETE FROM webhook_deliveries WHERE webhook_id IN (SELECT id FROM webhooks WHERE name LIKE ?)`, [`${PREFIX}%`]);
+  await pool.query(
+    `DELETE FROM webhook_deliveries WHERE webhook_id IN (SELECT id FROM webhooks WHERE name LIKE ?)`,
+    [`${PREFIX}%`]
+  );
   await pool.query(`DELETE FROM webhooks WHERE name LIKE ?`, [`${PREFIX}%`]);
 });
 
@@ -27,7 +30,9 @@ afterAll(async () => {
     try {
       await pool.query('DELETE FROM webhook_deliveries WHERE webhook_id = ?', [id]);
       await pool.query('DELETE FROM webhooks WHERE id = ?', [id]);
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+      /* ignore */
+    }
   }
   await pool.query(`DELETE FROM webhooks WHERE name LIKE ?`, [`${PREFIX}%`]);
 });
@@ -46,11 +51,13 @@ describe('Webhooks API — 이벤트 목록', () => {
 
 describe('Webhooks API — CRUD', () => {
   it('POST — 신규 webhook 생성 (시크릿 자동 생성)', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}slack-test`,
-      url: 'https://hooks.slack.com/services/TEST/TEST/TEST',
-      event_types: ['lead.won', 'project.completed'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}slack-test`,
+        url: 'https://hooks.slack.com/services/TEST/TEST/TEST',
+        event_types: ['lead.won', 'project.completed'],
+      });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.id).toBeGreaterThan(0);
@@ -78,9 +85,11 @@ describe('Webhooks API — CRUD', () => {
 
   it('PUT — name 수정', async () => {
     const id = createdIds[0];
-    const res = await api().put(`/api/webhooks/${id}`).send({
-      name: `${PREFIX}slack-renamed`,
-    });
+    const res = await api()
+      .put(`/api/webhooks/${id}`)
+      .send({
+        name: `${PREFIX}slack-renamed`,
+      });
     expect(res.status).toBe(200);
     const check = await api().get(`/api/webhooks/${id}`);
     expect(check.body.data.name).toBe(`${PREFIX}slack-renamed`);
@@ -94,11 +103,13 @@ describe('Webhooks API — CRUD', () => {
   });
 
   it('DELETE — 삭제', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}toDelete`,
-      url: 'https://example.com/hook',
-      event_types: ['lead.won'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}toDelete`,
+        url: 'https://example.com/hook',
+        event_types: ['lead.won'],
+      });
     const id = res.body.id;
     const del = await api().delete(`/api/webhooks/${id}`);
     expect(del.status).toBe(200);
@@ -109,64 +120,78 @@ describe('Webhooks API — CRUD', () => {
 
 describe('Webhooks API — 입력 검증', () => {
   it('POST — name 누락 → 400', async () => {
-    const res = await api().post('/api/webhooks').send({
-      url: 'https://example.com/hook',
-      event_types: ['lead.won'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        url: 'https://example.com/hook',
+        event_types: ['lead.won'],
+      });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('VALIDATION_ERROR');
   });
 
   it('POST — url 누락 → 400', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}noUrl`,
-      event_types: ['lead.won'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}noUrl`,
+        event_types: ['lead.won'],
+      });
     expect(res.status).toBe(400);
   });
 
   it('POST — 잘못된 URL → 400', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}badUrl`,
-      url: 'not-a-url',
-      event_types: ['lead.won'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}badUrl`,
+        url: 'not-a-url',
+        event_types: ['lead.won'],
+      });
     expect(res.status).toBe(400);
   });
 
   it('POST — ftp:// → 400 (http/https 만 허용)', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}ftpUrl`,
-      url: 'ftp://example.com/hook',
-      event_types: ['lead.won'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}ftpUrl`,
+        url: 'ftp://example.com/hook',
+        event_types: ['lead.won'],
+      });
     expect(res.status).toBe(400);
   });
 
   it('POST — event_types 빈 배열 → 400', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}noEvents`,
-      url: 'https://example.com/hook',
-      event_types: [],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}noEvents`,
+        url: 'https://example.com/hook',
+        event_types: [],
+      });
     expect(res.status).toBe(400);
   });
 
   it('POST — 알 수 없는 event 만 → 400', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}badEvents`,
-      url: 'https://example.com/hook',
-      event_types: ['foo.bar', 'baz.qux'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}badEvents`,
+        url: 'https://example.com/hook',
+        event_types: ['foo.bar', 'baz.qux'],
+      });
     expect(res.status).toBe(400);
   });
 
   it('POST — 일부 알 수 없는 event 는 필터링 후 통과', async () => {
-    const res = await api().post('/api/webhooks').send({
-      name: `${PREFIX}mixed`,
-      url: 'https://example.com/hook',
-      event_types: ['lead.won', 'foo.bar'],
-    });
+    const res = await api()
+      .post('/api/webhooks')
+      .send({
+        name: `${PREFIX}mixed`,
+        url: 'https://example.com/hook',
+        event_types: ['lead.won', 'foo.bar'],
+      });
     expect(res.status).toBe(200);
     createdIds.push(res.body.id);
 

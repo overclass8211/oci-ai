@@ -25,7 +25,7 @@ describe('Auth — 로그인', () => {
   it('잘못된 비밀번호 → 401', async () => {
     const res = await api().post('/api/auth/login').send({
       username: 'admin',
-      password: 'wrongpassword_xyz_12345'
+      password: 'wrongpassword_xyz_12345',
     });
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
@@ -34,7 +34,7 @@ describe('Auth — 로그인', () => {
   it('존재하지 않는 계정 → 401', async () => {
     const res = await api().post('/api/auth/login').send({
       username: '__nonexistent_user__',
-      password: 'anything'
+      password: 'anything',
     });
     expect(res.status).toBe(401);
   });
@@ -55,11 +55,11 @@ describe('Auth — 사용자 관리 (GET /users)', () => {
     const tmId = tm.insertId;
 
     const res = await api().post('/api/auth/users').send({
-      username:   '__test_auth_hong',
-      password:   'TestPass!1234',
-      full_name:  '__TEST_AUTH_홍길동',
-      role:       'manager',
-      email:      '__test_auth_hong@oci.com',
+      username: '__test_auth_hong',
+      password: 'TestPass!1234',
+      full_name: '__TEST_AUTH_홍길동',
+      role: 'manager',
+      email: '__test_auth_hong@oci.com',
       team_member_id: tmId,
     });
     expect(res.status).toBe(200);

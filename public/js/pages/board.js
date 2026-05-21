@@ -4,7 +4,6 @@
    ============================================================ */
 
 const BoardPage = (() => {
-
   /* ──────────────────────────────────────────────
      State
   ────────────────────────────────────────────── */
@@ -35,7 +34,7 @@ const BoardPage = (() => {
     try {
       _quillInstance = new Quill(selector, {
         theme: 'snow',
-        placeholder: '내용을 입력하세요...'
+        placeholder: '내용을 입력하세요...',
       });
     } catch (e) {
       console.error('Quill init failed:', e);
@@ -49,12 +48,14 @@ const BoardPage = (() => {
   function _renderTabBar() {
     const tabs = [
       { id: 'announcements', label: '공지사항' },
-      { id: 'faq',           label: 'FAQ' },
-      { id: 'comments',      label: '댓글/알림' }
+      { id: 'faq', label: 'FAQ' },
+      { id: 'comments', label: '댓글/알림' },
     ];
     return `
       <div class="tab-bar" style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--border,#e5e7eb);">
-        ${tabs.map(t => `
+        ${tabs
+          .map(
+            t => `
           <button
             class="tab-btn${_activeTab === t.id ? ' active' : ''}"
             data-tab="${t.id}"
@@ -64,7 +65,9 @@ const BoardPage = (() => {
                    margin-bottom:-2px;transition:color .15s,border-color .15s;">
             ${esc(t.label)}
           </button>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>`;
   }
 
@@ -72,9 +75,9 @@ const BoardPage = (() => {
      공지사항 Tab
   ────────────────────────────────────────────── */
   function _renderAnnouncements() {
-    const pinned   = _announcements.filter(a => a.is_pinned);
+    const pinned = _announcements.filter(a => a.is_pinned);
     const unpinned = _announcements.filter(a => !a.is_pinned);
-    const sorted   = [...pinned, ...unpinned];
+    const sorted = [...pinned, ...unpinned];
 
     return `
       <div class="card">
@@ -94,9 +97,14 @@ const BoardPage = (() => {
               </tr>
             </thead>
             <tbody id="announcements-tbody">
-              ${sorted.length === 0 ? `
+              ${
+                sorted.length === 0
+                  ? `
                 <tr><td colspan="5" style="padding:32px;text-align:center;color:var(--text-muted,#6b7280);">등록된 공지사항이 없습니다.</td></tr>
-              ` : sorted.map(a => `
+              `
+                  : sorted
+                      .map(
+                        a => `
                 <tr data-ann-id="${a.id}" style="border-bottom:1px solid var(--border,#e5e7eb);transition:background .1s;" onmouseover="this.style.background='var(--surface-hover,#f9fafb)'" onmouseout="this.style.background=''">
                   <td style="padding:12px 12px;">
                     ${a.is_pinned ? '<span class="badge" style="background:#fef3c7;color:#92400e;margin-right:6px;font-size:11px;padding:2px 6px;border-radius:4px;">📌 고정</span>' : ''}
@@ -105,13 +113,16 @@ const BoardPage = (() => {
                   <td style="padding:12px 12px;color:var(--text-muted,#6b7280);">${esc(a.created_by_name || '-')}</td>
                   <td style="padding:12px 12px;color:var(--text-muted,#6b7280);">${Fmt.date(a.created_at)}</td>
                   <td style="padding:12px 12px;text-align:center;">
-                    ${(a.comment_count > 0) ? `<span class="badge" style="background:var(--primary-light,#ede9fe);color:var(--primary,#4f46e5);font-size:12px;padding:2px 8px;border-radius:10px;">${a.comment_count}</span>` : '<span style="color:var(--text-muted,#6b7280);">-</span>'}
+                    ${a.comment_count > 0 ? `<span class="badge" style="background:var(--primary-light,#ede9fe);color:var(--primary,#4f46e5);font-size:12px;padding:2px 8px;border-radius:10px;">${a.comment_count}</span>` : '<span style="color:var(--text-muted,#6b7280);">-</span>'}
                   </td>
                   <td style="padding:12px 12px;">
                     <button class="btn btn-ghost btn-detail-ann" data-id="${a.id}" style="font-size:12px;padding:4px 10px;">상세보기</button>
                   </td>
                 </tr>
-              `).join('')}
+              `
+                      )
+                      .join('')
+              }
             </tbody>
           </table>
         </div>
@@ -150,13 +161,19 @@ const BoardPage = (() => {
       });
 
       document.getElementById('ann-save-btn').addEventListener('click', async () => {
-        const title   = (document.getElementById('ann-title').value || '').trim();
+        const title = (document.getElementById('ann-title').value || '').trim();
         const content = _quillInstance ? _quillInstance.root.innerHTML : '';
         const isPinned = document.getElementById('ann-pinned').checked;
 
-        if (!title) { Toast.error('제목을 입력해주세요.'); return; }
+        if (!title) {
+          Toast.error('제목을 입력해주세요.');
+          return;
+        }
         const textContent = _quillInstance ? _quillInstance.getText().trim() : '';
-        if (!textContent) { Toast.error('내용을 입력해주세요.'); return; }
+        if (!textContent) {
+          Toast.error('내용을 입력해주세요.');
+          return;
+        }
 
         try {
           document.getElementById('ann-save-btn').disabled = true;
@@ -188,11 +205,16 @@ const BoardPage = (() => {
     try {
       const res = await API.get(`/board/comments?ref_type=announcement&ref_id=${id}`);
       comments = res.data || [];
-    } catch (_) { comments = []; }
+    } catch (_) {
+      comments = [];
+    }
 
     function buildCommentList(list) {
-      if (!list.length) return '<p style="color:var(--text-muted,#6b7280);font-size:13px;padding:8px 0;">아직 댓글이 없습니다.</p>';
-      return list.map(c => `
+      if (!list.length)
+        return '<p style="color:var(--text-muted,#6b7280);font-size:13px;padding:8px 0;">아직 댓글이 없습니다.</p>';
+      return list
+        .map(
+          c => `
         <div class="comment-item" data-cid="${c.id}" style="border-bottom:1px solid var(--border,#e5e7eb);padding:10px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div style="flex:1;">
             <div style="font-size:13px;font-weight:600;color:var(--text,#111827);">${esc(c.author_name || '익명')}</div>
@@ -200,7 +222,9 @@ const BoardPage = (() => {
             <div style="font-size:11px;color:var(--text-muted,#9ca3af);margin-top:4px;">${Fmt.relTime(c.created_at)}</div>
           </div>
           <button class="btn btn-ghost btn-del-comment" data-cid="${c.id}" style="font-size:11px;padding:2px 8px;color:#ef4444;white-space:nowrap;">삭제</button>
-        </div>`).join('');
+        </div>`
+        )
+        .join('');
     }
 
     const body = `
@@ -233,7 +257,9 @@ const BoardPage = (() => {
 
     setTimeout(() => {
       // Close
-      document.getElementById('ann-detail-close-btn').addEventListener('click', () => Modal.close());
+      document
+        .getElementById('ann-detail-close-btn')
+        .addEventListener('click', () => Modal.close());
 
       // Delete announcement
       document.getElementById('ann-detail-delete-btn').addEventListener('click', async () => {
@@ -244,11 +270,13 @@ const BoardPage = (() => {
           Modal.close();
           await _loadAnnouncements();
           _rerenderTab();
-        } catch (_) { Toast.error('삭제에 실패했습니다.'); }
+        } catch (_) {
+          Toast.error('삭제에 실패했습니다.');
+        }
       });
 
       // Delete comment
-      document.getElementById('comment-list').addEventListener('click', async (e) => {
+      document.getElementById('comment-list').addEventListener('click', async e => {
         const btn = e.target.closest('.btn-del-comment');
         if (!btn) return;
         const cid = btn.dataset.cid;
@@ -259,19 +287,26 @@ const BoardPage = (() => {
           comments = comments.filter(c => c.id !== cid);
           document.getElementById('comment-count-badge').textContent = `(${comments.length})`;
           Toast.success('댓글이 삭제되었습니다.');
-        } catch (_) { Toast.error('삭제에 실패했습니다.'); }
+        } catch (_) {
+          Toast.error('삭제에 실패했습니다.');
+        }
       });
 
       // Submit comment
       document.getElementById('btn-submit-comment').addEventListener('click', async () => {
         const content = (document.getElementById('new-comment-input').value || '').trim();
-        if (!content) { Toast.error('댓글 내용을 입력해주세요.'); return; }
-        const authorName = (App.team && App.team[0]) ? App.team[0].name : '관리자';
+        if (!content) {
+          Toast.error('댓글 내용을 입력해주세요.');
+          return;
+        }
+        const authorName = App.team && App.team[0] ? App.team[0].name : '관리자';
         try {
           document.getElementById('btn-submit-comment').disabled = true;
           await API.post('/board/comments', {
-            ref_type: 'announcement', ref_id: id,
-            content, author_name: authorName
+            ref_type: 'announcement',
+            ref_id: id,
+            content,
+            author_name: authorName,
           });
           const res2 = await API.get(`/board/comments?ref_type=announcement&ref_id=${id}`);
           comments = res2.data || [];
@@ -280,7 +315,9 @@ const BoardPage = (() => {
           document.getElementById('new-comment-input').value = '';
           Toast.success('댓글이 등록되었습니다.');
           await _loadAnnouncements();
-        } catch (_) { Toast.error('댓글 등록에 실패했습니다.'); }
+        } catch (_) {
+          Toast.error('댓글 등록에 실패했습니다.');
+        }
         document.getElementById('btn-submit-comment').disabled = false;
       });
     }, 80);
@@ -290,7 +327,9 @@ const BoardPage = (() => {
     try {
       const res = await API.get('/board/announcements');
       _announcements = res.data || [];
-    } catch (_) { _announcements = []; }
+    } catch (_) {
+      _announcements = [];
+    }
   }
 
   /* ──────────────────────────────────────────────
@@ -300,7 +339,7 @@ const BoardPage = (() => {
 
   function _renderFAQ() {
     const grouped = _groupBy(_faqs, 'category');
-    const cats    = Object.keys(grouped).sort();
+    const cats = Object.keys(grouped).sort();
 
     return `
       <div class="card">
@@ -309,14 +348,20 @@ const BoardPage = (() => {
           <button class="btn btn-primary" id="btn-new-faq">+ FAQ 등록</button>
         </div>
         <div id="faq-body" style="padding:4px 0;">
-          ${_faqs.length === 0 ? '<p style="text-align:center;padding:40px;color:var(--text-muted,#6b7280);">등록된 FAQ가 없습니다.</p>' :
-            cats.map(cat => `
+          ${
+            _faqs.length === 0
+              ? '<p style="text-align:center;padding:40px;color:var(--text-muted,#6b7280);">등록된 FAQ가 없습니다.</p>'
+              : cats
+                  .map(
+                    cat => `
               <div style="margin-bottom:20px;">
                 <div style="font-size:13px;font-weight:700;color:var(--primary,#4f46e5);padding:8px 16px;background:var(--surface,#f3f4f6);border-radius:6px;margin-bottom:6px;letter-spacing:.5px;">
                   ${esc(cat)}
                 </div>
                 <div class="faq-accordion">
-                  ${grouped[cat].map(f => `
+                  ${grouped[cat]
+                    .map(
+                      f => `
                     <div class="faq-item" style="border:1px solid var(--border);border-radius:8px;margin-bottom:6px;overflow:hidden;">
                       <button class="faq-q-btn faq-question-btn" data-faq-id="${f.id}"
                         style="width:100%;text-align:left;background:var(--surface);border:none;padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:600;color:var(--text-1);">
@@ -325,10 +370,15 @@ const BoardPage = (() => {
                       </button>
                       <div class="faq-answer faq-answer-area" data-faq-id="${f.id}" style="display:none;padding:12px 16px 16px;background:var(--surface-2);border-top:1px solid var(--border);font-size:14px;color:var(--text-2);line-height:1.7;white-space:pre-wrap;">${esc(f.answer)}<div style="margin-top:10px;display:flex;justify-content:flex-end;"><button class="btn btn-ghost btn-del-faq" data-id="${f.id}" style="font-size:12px;padding:3px 10px;color:#ef4444;">삭제</button></div></div>
                     </div>
-                  `).join('')}
+                  `
+                    )
+                    .join('')}
                 </div>
               </div>
-            `).join('')}
+            `
+                  )
+                  .join('')
+          }
         </div>
       </div>`;
   }
@@ -337,16 +387,16 @@ const BoardPage = (() => {
     container.querySelectorAll('.faq-q-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const faqId = btn.dataset.faqId;
-        const answer  = container.querySelector(`.faq-answer[data-faq-id="${faqId}"]`);
+        const answer = container.querySelector(`.faq-answer[data-faq-id="${faqId}"]`);
         const chevron = btn.querySelector('.faq-chevron');
-        const isOpen  = answer.style.display !== 'none';
+        const isOpen = answer.style.display !== 'none';
         answer.style.display = isOpen ? 'none' : 'block';
         chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
       });
     });
 
     container.querySelectorAll('.btn-del-faq').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', async e => {
         e.stopPropagation();
         if (!confirm('이 FAQ를 삭제하시겠습니까?')) return;
         const id = btn.dataset.id;
@@ -355,7 +405,9 @@ const BoardPage = (() => {
           Toast.success('FAQ가 삭제되었습니다.');
           await _loadFAQ();
           _rerenderTab();
-        } catch (_) { Toast.error('삭제에 실패했습니다.'); }
+        } catch (_) {
+          Toast.error('삭제에 실패했습니다.');
+        }
       });
     });
   }
@@ -390,9 +442,15 @@ const BoardPage = (() => {
       document.getElementById('faq-save-btn').addEventListener('click', async () => {
         const category = document.getElementById('faq-category').value;
         const question = (document.getElementById('faq-question').value || '').trim();
-        const answer   = (document.getElementById('faq-answer').value || '').trim();
-        if (!question) { Toast.error('질문을 입력해주세요.'); return; }
-        if (!answer)   { Toast.error('답변을 입력해주세요.'); return; }
+        const answer = (document.getElementById('faq-answer').value || '').trim();
+        if (!question) {
+          Toast.error('질문을 입력해주세요.');
+          return;
+        }
+        if (!answer) {
+          Toast.error('답변을 입력해주세요.');
+          return;
+        }
         try {
           document.getElementById('faq-save-btn').disabled = true;
           await API.post('/board/faq', { question, answer, category });
@@ -412,7 +470,9 @@ const BoardPage = (() => {
     try {
       const res = await API.get('/board/faq');
       _faqs = res.data || [];
-    } catch (_) { _faqs = []; }
+    } catch (_) {
+      _faqs = [];
+    }
   }
 
   /* ──────────────────────────────────────────────
@@ -420,10 +480,10 @@ const BoardPage = (() => {
   ────────────────────────────────────────────── */
   const REF_TYPE_LABELS = {
     announcement: '공지사항',
-    lead:         '리드',
-    customer:     '고객',
-    deal:         '딜',
-    task:         '태스크'
+    lead: '리드',
+    customer: '고객',
+    deal: '딜',
+    task: '태스크',
   };
 
   function _renderComments() {
@@ -443,9 +503,14 @@ const BoardPage = (() => {
               </tr>
             </thead>
             <tbody>
-              ${_recentComments.length === 0 ? `
+              ${
+                _recentComments.length === 0
+                  ? `
                 <tr><td colspan="4" style="padding:32px;text-align:center;color:var(--text-muted,#6b7280);">최근 댓글이 없습니다.</td></tr>
-              ` : _recentComments.map(c => `
+              `
+                  : _recentComments
+                      .map(
+                        c => `
                 <tr style="border-bottom:1px solid var(--border,#e5e7eb);">
                   <td style="padding:12px 12px;">
                     <span class="badge" style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface,#f3f4f6);color:var(--text-muted,#374151);">
@@ -456,7 +521,10 @@ const BoardPage = (() => {
                   <td style="padding:12px 12px;color:var(--text-muted,#6b7280);">${esc(c.author_name || '-')}</td>
                   <td style="padding:12px 12px;color:var(--text-muted,#6b7280);font-size:12px;">${Fmt.relTime(c.created_at)}</td>
                 </tr>
-              `).join('')}
+              `
+                      )
+                      .join('')
+              }
             </tbody>
           </table>
         </div>
@@ -467,7 +535,9 @@ const BoardPage = (() => {
     try {
       const res = await API.get('/board/comments');
       _recentComments = res.data || [];
-    } catch (_) { _recentComments = []; }
+    } catch (_) {
+      _recentComments = [];
+    }
   }
 
   /* ──────────────────────────────────────────────
@@ -475,10 +545,14 @@ const BoardPage = (() => {
   ────────────────────────────────────────────── */
   function _renderTabContent() {
     switch (_activeTab) {
-      case 'announcements': return _renderAnnouncements();
-      case 'faq':           return _renderFAQ();
-      case 'comments':      return _renderComments();
-      default:              return '';
+      case 'announcements':
+        return _renderAnnouncements();
+      case 'faq':
+        return _renderFAQ();
+      case 'comments':
+        return _renderComments();
+      default:
+        return '';
     }
   }
 
@@ -503,15 +577,17 @@ const BoardPage = (() => {
         // Update tab button styles
         root.querySelectorAll('.tab-btn').forEach(b => {
           const active = b.dataset.tab === _activeTab;
-          b.style.color        = active ? 'var(--primary,#4f46e5)' : 'var(--text-muted,#6b7280)';
-          b.style.borderBottom = active ? '2px solid var(--primary,#4f46e5)' : '2px solid transparent';
-          b.style.fontWeight   = active ? '600' : '600';
+          b.style.color = active ? 'var(--primary,#4f46e5)' : 'var(--text-muted,#6b7280)';
+          b.style.borderBottom = active
+            ? '2px solid var(--primary,#4f46e5)'
+            : '2px solid transparent';
+          b.style.fontWeight = active ? '600' : '600';
         });
 
         // Load data for newly active tab if needed
         if (tab === 'announcements') await _loadAnnouncements();
-        if (tab === 'faq')           await _loadFAQ();
-        if (tab === 'comments')      await _loadRecentComments();
+        if (tab === 'faq') await _loadFAQ();
+        if (tab === 'comments') await _loadRecentComments();
 
         _rerenderTab();
       });
@@ -520,9 +596,14 @@ const BoardPage = (() => {
 
   function _bindTabContent(container) {
     switch (_activeTab) {
-      case 'announcements': _bindAnnouncementsContent(container); break;
-      case 'faq':           _bindFAQContent(container); break;
-      case 'comments':      /* read-only */ break;
+      case 'announcements':
+        _bindAnnouncementsContent(container);
+        break;
+      case 'faq':
+        _bindFAQContent(container);
+        break;
+      case 'comments':
+        /* read-only */ break;
     }
   }
 
@@ -583,5 +664,4 @@ const BoardPage = (() => {
      Public API
   ────────────────────────────────────────────── */
   return { render };
-
 })();

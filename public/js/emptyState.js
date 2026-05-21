@@ -37,13 +37,15 @@ const EmptyState = {
     leads: {
       icon: '🎯',
       title: '아직 영업 리드가 없어요',
-      message: '첫 영업 기회를 추가해서 파이프라인을 시작하세요. 단축키 <kbd>N</kbd> 으로도 빠르게 추가할 수 있어요.',
+      message:
+        '첫 영업 기회를 추가해서 파이프라인을 시작하세요. 단축키 <kbd>N</kbd> 으로도 빠르게 추가할 수 있어요.',
       primary: { label: '+ 첫 리드 추가', id: 'empty-leads-new' },
     },
     customers: {
       icon: '🏢',
       title: '등록된 고객사가 없어요',
-      message: '고객사를 추가하면 영업 활동의 기반이 됩니다. 명함을 스캔하면 AI 가 자동으로 정보를 추출해요.',
+      message:
+        '고객사를 추가하면 영업 활동의 기반이 됩니다. 명함을 스캔하면 AI 가 자동으로 정보를 추출해요.',
       primary: { label: '+ 고객사 추가', id: 'empty-customers-new' },
     },
     projects: {
@@ -107,7 +109,7 @@ const EmptyState = {
     const hint = o.hint;
 
     // 액션 버튼 dataAttr 우선, 없으면 id, 없으면 둘 다 X
-    const actionAttr = (a) => {
+    const actionAttr = a => {
       if (!a) return '';
       if (a.dataAttr) return a.dataAttr;
       if (a.id) return `id="${this._esc(a.id)}"`;
@@ -119,20 +121,32 @@ const EmptyState = {
         <div class="empty-state-icon">${this._esc(icon)}</div>
         <div class="empty-state-title">${this._esc(title)}</div>
         ${message ? `<div class="empty-state-message">${message}</div>` : ''}
-        ${(primary || secondary) ? `
+        ${
+          primary || secondary
+            ? `
           <div class="empty-state-actions">
-            ${primary ? `
+            ${
+              primary
+                ? `
               <button class="btn btn-primary" ${actionAttr(primary)}>
                 ${this._esc(primary.label)}
               </button>
-            ` : ''}
-            ${secondary ? `
+            `
+                : ''
+            }
+            ${
+              secondary
+                ? `
               <button class="btn btn-ghost" ${actionAttr(secondary)}>
                 ${this._esc(secondary.label)}
               </button>
-            ` : ''}
+            `
+                : ''
+            }
           </div>
-        ` : ''}
+        `
+            : ''
+        }
         ${hint ? `<div class="empty-state-hint">${this._esc(hint)}</div>` : ''}
       </div>
     `;
@@ -147,7 +161,10 @@ const EmptyState = {
   // ─── 유틸 ──────────────────────────────────────────────
   _esc(s) {
     return String(s === null || s === undefined ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   },
 };

@@ -36,10 +36,10 @@ const MeetingListPage = {
     `;
     document.getElementById('ml-search')?.addEventListener('input', () => this.applyFilter());
     document.getElementById('ml-new-btn')?.addEventListener('click', () => App.navigate('meeting'));
-    document.getElementById('ml-export-btn')?.addEventListener('click', (e) => {
+    document.getElementById('ml-export-btn')?.addEventListener('click', e => {
       const search = document.getElementById('ml-search')?.value?.trim();
       const path = '/meetings/export' + (search ? '?search=' + encodeURIComponent(search) : '');
-      const name = '회의록_' + new Date().toISOString().slice(0,10);
+      const name = '회의록_' + new Date().toISOString().slice(0, 10);
       if (typeof ExportMenu !== 'undefined') ExportMenu.open(e.currentTarget, path, name);
       else API.downloadExport(path, name, 'xlsx');
     });
@@ -65,10 +65,11 @@ const MeetingListPage = {
 
   applyFilter() {
     const q = (document.getElementById('ml-search')?.value || '').toLowerCase();
-    const filtered = this.data.filter(m =>
-      !q ||
-      (m.title || '').toLowerCase().includes(q) ||
-      (m.customer_name || '').toLowerCase().includes(q)
+    const filtered = this.data.filter(
+      m =>
+        !q ||
+        (m.title || '').toLowerCase().includes(q) ||
+        (m.customer_name || '').toLowerCase().includes(q)
     );
     this.renderList(filtered);
   },
@@ -78,16 +79,20 @@ const MeetingListPage = {
     if (!items.length) {
       const hasFilter = !!document.getElementById('ml-search')?.value?.trim();
       const presetKey = hasFilter ? 'filter' : 'meetings';
-      el.innerHTML = (typeof EmptyState !== 'undefined')
-        ? EmptyState.preset(presetKey)
-        : '<div class="empty">저장된 회의록이 없습니다</div>';
+      el.innerHTML =
+        typeof EmptyState !== 'undefined'
+          ? EmptyState.preset(presetKey)
+          : '<div class="empty">저장된 회의록이 없습니다</div>';
       if (!hasFilter) {
-        document.getElementById('empty-meetings-new')?.addEventListener('click', () =>
-          App.navigate('meeting'));
+        document
+          .getElementById('empty-meetings-new')
+          ?.addEventListener('click', () => App.navigate('meeting'));
       }
       return;
     }
-    el.innerHTML = items.map(m => `
+    el.innerHTML = items
+      .map(
+        m => `
       <div class="ml-item ${this.selectedId === m.id ? 'active' : ''}"
            data-meet-id="${m.id}" style="cursor:pointer">
         <div class="ml-item-title">${esc(m.title)}</div>
@@ -100,8 +105,10 @@ const MeetingListPage = {
           ${esc(Fmt.date(m.meeting_date))} · 작성: ${esc(m.created_by_name || '시스템')} · ${esc(Fmt.relTime(m.created_at))}
         </div>
       </div>
-    `).join('');
-    el.addEventListener('click', (e) => {
+    `
+      )
+      .join('');
+    el.addEventListener('click', e => {
       const item = e.target.closest('[data-meet-id]');
       if (item) this.showDetail(parseInt(item.dataset.meetId));
     });
@@ -109,7 +116,7 @@ const MeetingListPage = {
 
   async showDetail(id) {
     this.selectedId = id;
-    this.renderList(this.data);  // active 표시 갱신
+    this.renderList(this.data); // active 표시 갱신
     const detail = document.getElementById('ml-detail');
     detail.innerHTML = '<div class="loading">로딩...</div>';
 
@@ -128,9 +135,10 @@ const MeetingListPage = {
             </div>
           </div>
           <div style="display:flex;gap:6px">
-            ${m.calendar_event_id
-              ? '<span class="badge badge-green">📅 캘린더 등록됨</span>'
-              : `<button class="btn btn-ghost btn-sm" id="ml-reg-cal-btn">📅 캘린더 등록</button>`
+            ${
+              m.calendar_event_id
+                ? '<span class="badge badge-green">📅 캘린더 등록됨</span>'
+                : `<button class="btn btn-ghost btn-sm" id="ml-reg-cal-btn">📅 캘린더 등록</button>`
             }
             <button class="btn btn-ghost btn-sm text-danger" id="ml-delete-meeting-btn">삭제</button>
           </div>
@@ -158,8 +166,12 @@ const MeetingListPage = {
       `;
 
       // 버튼 이벤트 바인딩
-      document.getElementById('ml-reg-cal-btn')?.addEventListener('click', () => this.registerCalendar(m.id));
-      document.getElementById('ml-delete-meeting-btn')?.addEventListener('click', () => this.deleteMeeting(m.id));
+      document
+        .getElementById('ml-reg-cal-btn')
+        ?.addEventListener('click', () => this.registerCalendar(m.id));
+      document
+        .getElementById('ml-delete-meeting-btn')
+        ?.addEventListener('click', () => this.deleteMeeting(m.id));
 
       // 화자 렌더링
       try {
@@ -167,37 +179,47 @@ const MeetingListPage = {
         const colors = ['#1664E5', '#00A86B', '#F59C00', '#7C4DFF', '#E63329', '#0EA5E9'];
         const sEl = document.getElementById('ml-speakers');
         if (speakers.length) {
-          sEl.innerHTML = speakers.map(s => {
-            const c = colors[(s.speaker - 1) % colors.length];
-            return `
+          sEl.innerHTML = speakers
+            .map(s => {
+              const c = colors[(s.speaker - 1) % colors.length];
+              return `
               <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
                 <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;background:${c};color:#fff;
                             display:flex;align-items:center;justify-content:center;font-weight:600;font-size:11px">${s.speaker}</div>
                 <div style="flex:1;font-size:12px;line-height:1.6">${esc(s.text)}</div>
               </div>`;
-          }).join('');
+            })
+            .join('');
         } else sEl.innerHTML = '<div class="empty">화자 분리 데이터 없음</div>';
-      } catch (_) { /* speaker data parse failed, section stays empty */ }
-
+      } catch (_) {
+        /* speaker data parse failed, section stays empty */
+      }
     } catch (err) {
       detail.innerHTML = `<div class="empty" style="color:var(--oci-red)">${esc(err.message)}</div>`;
     }
   },
 
   async registerCalendar(id) {
-    try { const r = await API.leads.list(); this._leads = r.data || []; } catch (_) { this._leads = []; }
+    try {
+      const r = await API.leads.list();
+      this._leads = r.data || [];
+    } catch (_) {
+      this._leads = [];
+    }
 
     const cached = this.data.find(m => m.id === id);
     const pre = (cached?.customer_name || '').trim();
 
     const crmNames = (App.customers || []).map(c => c.name || c.company_name || '').filter(Boolean);
     const leadNames = this._leads.map(l => l.customer_name || '').filter(Boolean);
-    const allCustomers = [...new Set([...crmNames, ...leadNames])].sort((a, b) => a.localeCompare(b));
+    const allCustomers = [...new Set([...crmNames, ...leadNames])].sort((a, b) =>
+      a.localeCompare(b)
+    );
     const preInList = allCustomers.includes(pre);
 
-    const customerOpts = allCustomers.map(c =>
-      `<option value="${esc(c)}" ${c === pre ? 'selected' : ''}>${esc(c)}</option>`
-    ).join('');
+    const customerOpts = allCustomers
+      .map(c => `<option value="${esc(c)}" ${c === pre ? 'selected' : ''}>${esc(c)}</option>`)
+      .join('');
 
     const initMatched = pre
       ? this._leads.filter(l => (l.customer_name || '').toLowerCase() === pre.toLowerCase())
@@ -233,23 +255,32 @@ const MeetingListPage = {
         <button class="btn btn-primary" id="ml-cal-register-btn">캘린더에 등록</button>`,
       bind: {
         '#ml-cal-cancel-btn': () => Modal.close(),
-        '#ml-cal-register-btn': () => this._doRegisterCalendar(id)
-      }
+        '#ml-cal-register-btn': () => this._doRegisterCalendar(id),
+      },
     });
 
     // bind modal body inputs after modal renders
     setTimeout(() => {
-      document.getElementById('ml-reg-customer-select')?.addEventListener('change', (e) => this._onCustomerChange(e.target.value));
-      document.getElementById('ml-reg-customer-direct')?.addEventListener('input', (e) => this._onCustomerDirectInput(e.target.value));
+      document
+        .getElementById('ml-reg-customer-select')
+        ?.addEventListener('change', e => this._onCustomerChange(e.target.value));
+      document
+        .getElementById('ml-reg-customer-direct')
+        ?.addEventListener('input', e => this._onCustomerDirectInput(e.target.value));
       if (pre) this._applyDealHint(initMatched);
     }, 0);
   },
 
   _buildDealOptions(matchedLeads) {
-    return `<option value="">-- 없음 --</option>` +
-      matchedLeads.map(l =>
-        `<option value="${l.id}">${esc(l.customer_name || '')}${l.project_name ? ' · ' + esc(l.project_name) : ''}${l.stage ? ' [' + esc(l.stage) + ']' : ''}</option>`
-      ).join('');
+    return (
+      `<option value="">-- 없음 --</option>` +
+      matchedLeads
+        .map(
+          l =>
+            `<option value="${l.id}">${esc(l.customer_name || '')}${l.project_name ? ' · ' + esc(l.project_name) : ''}${l.stage ? ' [' + esc(l.stage) + ']' : ''}</option>`
+        )
+        .join('')
+    );
   },
 
   _applyDealHint(matched) {
@@ -268,12 +299,15 @@ const MeetingListPage = {
 
   _onCustomerChange(value) {
     const directEl = document.getElementById('ml-reg-customer-direct');
-    const dealEl   = document.getElementById('ml-reg-lead');
-    const hintEl   = document.getElementById('ml-reg-deal-hint');
+    const dealEl = document.getElementById('ml-reg-lead');
+    const hintEl = document.getElementById('ml-reg-deal-hint');
     if (!dealEl) return;
 
     if (value === '__direct__') {
-      if (directEl) { directEl.style.display = ''; directEl.focus(); }
+      if (directEl) {
+        directEl.style.display = '';
+        directEl.focus();
+      }
       dealEl.innerHTML = this._buildDealOptions(this._leads);
       if (hintEl) hintEl.textContent = '고객사명을 입력하면 딜이 자동 필터링됩니다';
       return;
@@ -286,8 +320,8 @@ const MeetingListPage = {
       return;
     }
 
-    const matched = this._leads.filter(l =>
-      (l.customer_name || '').toLowerCase() === value.toLowerCase()
+    const matched = this._leads.filter(
+      l => (l.customer_name || '').toLowerCase() === value.toLowerCase()
     );
     dealEl.innerHTML = this._buildDealOptions(matched);
     this._applyDealHint(matched);
@@ -313,7 +347,7 @@ const MeetingListPage = {
   async _doRegisterCalendar(id) {
     const selectEl = document.getElementById('ml-reg-customer-select');
     const directEl = document.getElementById('ml-reg-customer-direct');
-    const dealEl   = document.getElementById('ml-reg-lead');
+    const dealEl = document.getElementById('ml-reg-lead');
 
     let customer = '';
     if (selectEl && selectEl.value === '__direct__') {
@@ -330,12 +364,15 @@ const MeetingListPage = {
 
     const leadId = dealEl?.value || null;
     const btn = document.querySelector('#modal-box .btn-primary');
-    if (btn) { btn.disabled = true; btn.textContent = '등록 중...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '등록 중...';
+    }
 
     try {
       const r = await API.meetings.registerCalendar(id, {
         customer_name: customer,
-        lead_id: leadId
+        lead_id: leadId,
       });
       if (r.success) {
         Modal.close();
@@ -344,11 +381,17 @@ const MeetingListPage = {
         this.showDetail(id);
       } else {
         Toast.error(r.error || '등록 실패');
-        if (btn) { btn.disabled = false; btn.textContent = '캘린더에 등록'; }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '캘린더에 등록';
+        }
       }
     } catch (err) {
       Toast.error('등록 실패: ' + err.message);
-      if (btn) { btn.disabled = false; btn.textContent = '캘린더에 등록'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '캘린더에 등록';
+      }
     }
   },
 
@@ -358,9 +401,12 @@ const MeetingListPage = {
         await API.meetings.delete(id);
         Toast.success('삭제되었습니다');
         this.selectedId = null;
-        document.getElementById('ml-detail').innerHTML = '<div class="empty">왼쪽 목록에서 회의록을 선택하세요</div>';
+        document.getElementById('ml-detail').innerHTML =
+          '<div class="empty">왼쪽 목록에서 회의록을 선택하세요</div>';
         await this.loadList();
-      } catch (err) { Toast.error(err.message); }
+      } catch (err) {
+        Toast.error(err.message);
+      }
     });
-  }
+  },
 };

@@ -14,23 +14,34 @@ const Fmt = {
     const abs = Math.abs(n);
 
     if (currency === 'KRW' || !currency) {
-      if (abs >= 1e12) return `₩${(n/1e12).toFixed(2)}조`;
-      if (abs >= 1e8)  return `₩${(n/1e8).toFixed(1)}억`;
-      if (abs >= 1e4)  return `₩${(n/1e4).toFixed(0)}만`;
+      if (abs >= 1e12) return `₩${(n / 1e12).toFixed(2)}조`;
+      if (abs >= 1e8) return `₩${(n / 1e8).toFixed(1)}억`;
+      if (abs >= 1e4) return `₩${(n / 1e4).toFixed(0)}만`;
       return `₩${Math.round(n).toLocaleString()}`;
     }
 
-    const symbols = { USD:'$', JPY:'¥', AUD:'A$', CNY:'¥', VND:'₫',
-                      EUR:'€', GBP:'£', SGD:'S$', HKD:'HK$' };
+    const symbols = {
+      USD: '$',
+      JPY: '¥',
+      AUD: 'A$',
+      CNY: '¥',
+      VND: '₫',
+      EUR: '€',
+      GBP: '£',
+      SGD: 'S$',
+      HKD: 'HK$',
+    };
     const sym = symbols[currency] || '';
-    if (abs >= 1e9) return `${sym}${(n/1e9).toFixed(2)}B`;
-    if (abs >= 1e6) return `${sym}${(n/1e6).toFixed(1)}M`;
-    if (abs >= 1e3) return `${sym}${(n/1e3).toFixed(1)}K`;
+    if (abs >= 1e9) return `${sym}${(n / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `${sym}${(n / 1e6).toFixed(1)}M`;
+    if (abs >= 1e3) return `${sym}${(n / 1e3).toFixed(1)}K`;
     return `${sym}${n.toLocaleString()}`;
   },
 
   // 원 단위 금액 포맷 — Fmt.amount(_, 'KRW') 와 동일 (호환성 별칭)
-  krw(value) { return Fmt.amount(value, 'KRW'); },
+  krw(value) {
+    return Fmt.amount(value, 'KRW');
+  },
 
   number(value) {
     if (value === null || value === undefined) return '-';
@@ -84,21 +95,21 @@ const Fmt = {
     today.setHours(0, 0, 0, 0);
     const diff = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
     return diff;
-  }
+  },
 };
 
 // ----------- 단계 메타 정보 -----------
 // 초기값(fallback) — 서버 부팅 직후 fetch 실패 또는 응답 전 화면용
 // 실제 정의는 GET /api/pipeline/stages 에서 동적으로 갱신됨
 const STAGES = {
-  lead:        { label: '리드 발굴',  color: '#93B4F9', role: 'active',  sort_order: 10 },
-  review:      { label: '검토/미팅',  color: '#5585F5', role: 'active',  sort_order: 20 },
-  proposal:    { label: '제안/견적',  color: '#2357E8', role: 'active',  sort_order: 30 },
-  bidding:     { label: '입찰',       color: '#F59C00', role: 'active',  sort_order: 40 },
-  negotiation: { label: '협상/계약',  color: '#17A85A', role: 'active',  sort_order: 50 },
-  won:         { label: '수주 완료',  color: '#0F7A3F', role: 'won',     sort_order: 90 },
-  lost:        { label: '실주',       color: '#6B7280', role: 'lost',    sort_order: 95 },
-  dropped:     { label: '드롭',       color: '#E63329', role: 'dropped', sort_order: 99 }
+  lead: { label: '리드 발굴', color: '#93B4F9', role: 'active', sort_order: 10 },
+  review: { label: '검토/미팅', color: '#5585F5', role: 'active', sort_order: 20 },
+  proposal: { label: '제안/견적', color: '#2357E8', role: 'active', sort_order: 30 },
+  bidding: { label: '입찰', color: '#F59C00', role: 'active', sort_order: 40 },
+  negotiation: { label: '협상/계약', color: '#17A85A', role: 'active', sort_order: 50 },
+  won: { label: '수주 완료', color: '#0F7A3F', role: 'won', sort_order: 90 },
+  lost: { label: '실주', color: '#6B7280', role: 'lost', sort_order: 95 },
+  dropped: { label: '드롭', color: '#E63329', role: 'dropped', sort_order: 99 },
 };
 
 // ── 단계 메타 동적 로더 ──────────────────────────────────────
@@ -108,7 +119,7 @@ async function loadStages() {
   try {
     const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
     const r = await fetch('/api/pipeline/stages?include=all', {
-      headers: token ? { Authorization: 'Bearer ' + token } : {}
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
@@ -120,7 +131,7 @@ async function loadStages() {
       STAGES[s.stage_key] = {
         label: s.label,
         color: s.color || '#93B4F9',
-        role:  s.role  || 'active',
+        role: s.role || 'active',
         sort_order: s.sort_order || 0,
         is_active: s.is_active !== 0,
         id: s.id,
@@ -150,7 +161,7 @@ const BUSINESS_COLORS = {
   EPC: 'badge-blue',
   ESS: 'badge-blue',
   전기: 'badge-purple',
-  설치: 'badge-purple'
+  설치: 'badge-purple',
 };
 
 // ----------- 모달 -----------
@@ -192,7 +203,7 @@ const Modal = {
     const overlay = document.getElementById('modal-overlay');
     const box = document.getElementById('modal-box');
     // compact=true 면 인자 width 우선, 아니면 시스템 표준 강제
-    const finalWidth = compact ? (width || 480) : MODAL_STANDARD_WIDTH;
+    const finalWidth = compact ? width || 480 : MODAL_STANDARD_WIDTH;
     box.style.maxWidth = finalWidth + 'px';
     box.innerHTML = `
       <div class="modal-header">
@@ -207,7 +218,9 @@ const Modal = {
     Modal._confirmOnClose = confirmOnClose;
     // 입력 감지: input/textarea/select 가 변경되면 dirty 표시
     // (input 이벤트 = 글자 입력, change 이벤트 = select/checkbox/radio 변경)
-    const markDirty = () => { Modal._isDirty = true; };
+    const markDirty = () => {
+      Modal._isDirty = true;
+    };
     box.addEventListener('input', markDirty);
     box.addEventListener('change', markDirty);
     // × 버튼 — inline onclick 제거 (CSP 대응) + dirty 시 컨펌
@@ -220,7 +233,7 @@ const Modal = {
     // 바깥 영역 클릭 — 옵션에 따라 동작
     //   disableOverlayClose=true  → 무시 (× 버튼/취소 버튼만 허용)
     //   기본                       → dirty 시 컨펌, 아니면 즉시 닫힘
-    overlay.onclick = (e) => {
+    overlay.onclick = e => {
       if (e.target !== overlay) return;
       if (disableOverlayClose) return;
       Modal._tryClose();
@@ -268,7 +281,9 @@ const Modal = {
       onDiscard();
     });
     // 오버레이 바깥 클릭 = "계속 편집" 과 동일 (실수 방지)
-    wrap.addEventListener('click', (e) => { if (e.target === wrap) cleanup(); });
+    wrap.addEventListener('click', e => {
+      if (e.target === wrap) cleanup();
+    });
     // 포커스를 "계속 편집" 에 둠 (실수로 Enter 눌렀을 때 안전한 쪽으로)
     setTimeout(() => document.getElementById('__modal-discard-stay')?.focus(), 50);
   },
@@ -280,9 +295,9 @@ const Modal = {
   confirm(message, onConfirm) {
     Modal.open({
       title: '확인',
-      compact: true,           // 확인 다이얼로그는 작게 유지
+      compact: true, // 확인 다이얼로그는 작게 유지
       width: 440,
-      confirmOnClose: false,   // 확인 다이얼로그 자체엔 컨펌 불필요
+      confirmOnClose: false, // 확인 다이얼로그 자체엔 컨펌 불필요
       body: `<p style="font-size:13px;color:var(--text-2);line-height:1.6">${message}</p>`,
       footer: `
         <button class="btn btn-ghost" id="modal-cfm-cancel">취소</button>
@@ -290,10 +305,13 @@ const Modal = {
       `,
       bind: {
         '#modal-cfm-cancel': () => Modal.close(),
-        '#modal-cfm-ok':     () => { Modal.close(); onConfirm(); }
-      }
+        '#modal-cfm-ok': () => {
+          Modal.close();
+          onConfirm();
+        },
+      },
     });
-  }
+  },
 };
 
 // ----------- 토스트 -----------
@@ -308,7 +326,14 @@ const Toast = {
       el.textContent = message;
     }
     if (onClick) {
-      el.addEventListener('click', () => { onClick(); el.remove(); }, { once: true });
+      el.addEventListener(
+        'click',
+        () => {
+          onClick();
+          el.remove();
+        },
+        { once: true }
+      );
     }
     c.appendChild(el);
     const delay = onClick ? 5000 : 2800; // 클릭 가능 토스트는 조금 더 오래
@@ -318,9 +343,15 @@ const Toast = {
       setTimeout(() => el.remove(), 300);
     }, delay);
   },
-  success(msg, onClick) { Toast.show(msg, 'success', onClick); },
-  error(msg)            { Toast.show(msg, 'error'); },
-  info(msg, onClick)    { Toast.show(msg, 'info', onClick); }
+  success(msg, onClick) {
+    Toast.show(msg, 'success', onClick);
+  },
+  error(msg) {
+    Toast.show(msg, 'error');
+  },
+  info(msg, onClick) {
+    Toast.show(msg, 'info', onClick);
+  },
 };
 
 // ----------- HTML 이스케이프 -----------
@@ -342,7 +373,7 @@ const FONT_STEPS = [0.9, 1.0, 1.1, 1.2, 1.3];
 const UserPrefs = {
   sessionStart: Date.now(),
   lastActivity: Date.now(),
-  idleLimitMin: 0,        // 0 = 비활성화
+  idleLimitMin: 0, // 0 = 비활성화
   warningShownAt: 0,
   _sessionTimer: null,
   _tokenTimer: null,
@@ -361,11 +392,11 @@ const UserPrefs = {
 
   bindControls() {
     const $theme = document.getElementById('theme-toggle');
-    const $dec   = document.getElementById('font-decrease');
-    const $inc   = document.getElementById('font-increase');
+    const $dec = document.getElementById('font-decrease');
+    const $inc = document.getElementById('font-increase');
     if ($theme) $theme.addEventListener('click', () => this.toggleTheme());
-    if ($dec)   $dec.addEventListener('click', () => this.adjustFont(-1));
-    if ($inc)   $inc.addEventListener('click', () => this.adjustFont(+1));
+    if ($dec) $dec.addEventListener('click', () => this.adjustFont(-1));
+    if ($inc) $inc.addEventListener('click', () => this.adjustFont(+1));
   },
 
   // ── 세션 타이머 ────────────────────────────────────────────
@@ -396,7 +427,9 @@ const UserPrefs = {
         const wrap = document.getElementById('token-widget');
         if (wrap) wrap.title = `오늘 사용 토큰: ${t.toLocaleString()} (요청 ${r.data.calls}회)`;
       }
-    } catch (_) { /* token widget is non-critical */ }
+    } catch (_) {
+      /* token widget is non-critical */
+    }
   },
 
   startTokenPolling() {
@@ -405,7 +438,9 @@ const UserPrefs = {
     this._tokenTimer = setInterval(() => this.fetchTokenUsage(), 30000);
   },
 
-  refreshTokens() { this.fetchTokenUsage(); },
+  refreshTokens() {
+    this.fetchTokenUsage();
+  },
 
   // ── 테마 ────────────────────────────────────────────────
   toggleTheme() {
@@ -418,9 +453,10 @@ const UserPrefs = {
     localStorage.setItem('theme', theme);
     const icon = document.getElementById('theme-icon');
     if (icon) {
-      icon.innerHTML = theme === 'dark'
-        ? '<path d="M12 2.5A6.5 6.5 0 0 0 7 14a6.5 6.5 0 0 1-1-3.5A6.5 6.5 0 0 1 12.5 4 6.5 6.5 0 0 0 12 2.5z" fill="currentColor"/>'
-        : '<circle cx="8" cy="8" r="3" fill="currentColor"/><path d="M8 1v2M8 13v2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M1 8h2M13 8h2M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>';
+      icon.innerHTML =
+        theme === 'dark'
+          ? '<path d="M12 2.5A6.5 6.5 0 0 0 7 14a6.5 6.5 0 0 1-1-3.5A6.5 6.5 0 0 1 12.5 4 6.5 6.5 0 0 0 12 2.5z" fill="currentColor"/>'
+          : '<circle cx="8" cy="8" r="3" fill="currentColor"/><path d="M8 1v2M8 13v2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M1 8h2M13 8h2M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>';
     }
   },
 
@@ -440,7 +476,7 @@ const UserPrefs = {
     const dec = document.getElementById('font-decrease');
     const inc = document.getElementById('font-increase');
     if (dec) dec.disabled = Math.abs(next - FONT_STEPS[0]) < 0.001;
-    if (inc) inc.disabled = Math.abs(next - FONT_STEPS[FONT_STEPS.length-1]) < 0.001;
+    if (inc) inc.disabled = Math.abs(next - FONT_STEPS[FONT_STEPS.length - 1]) < 0.001;
   },
 
   applyFontScale(scale) {
@@ -455,7 +491,10 @@ const UserPrefs = {
 
   // ── 활동 추적 ────────────────────────────────────────────
   bindActivityTracking() {
-    const reset = () => { this.lastActivity = Date.now(); this.warningShownAt = 0; };
+    const reset = () => {
+      this.lastActivity = Date.now();
+      this.warningShownAt = 0;
+    };
     ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
       document.addEventListener(evt, reset, { passive: true });
     });
@@ -468,7 +507,9 @@ const UserPrefs = {
       if (r.success && r.data) {
         this.idleLimitMin = parseInt(r.data.idle_timeout_min || 0);
       }
-    } catch (_) { this.idleLimitMin = 0; }
+    } catch (_) {
+      this.idleLimitMin = 0;
+    }
   },
 
   // ── Idle 감지 — 매 5초 확인 ─────────────────────────────
@@ -510,11 +551,15 @@ const UserPrefs = {
         <button class="btn btn-primary" id="session-reload-btn">다시 시작</button>
       </div>`;
     document.body.appendChild(overlay);
-    document.getElementById('session-reload-btn')?.addEventListener('click', () => location.reload());
+    document
+      .getElementById('session-reload-btn')
+      ?.addEventListener('click', () => location.reload());
   },
 
   // 관리자 설정 변경 시 호출
-  reloadIdlePolicy() { this.loadIdlePolicy(); }
+  reloadIdlePolicy() {
+    this.loadIdlePolicy();
+  },
 };
 
 // ----------- 디바운스 -----------

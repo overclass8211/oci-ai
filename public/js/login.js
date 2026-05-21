@@ -3,11 +3,13 @@
 // ============================================================
 
 const Login = {
-  otpUserId: null,  // OTP 2단계 인증 시 임시 저장
+  otpUserId: null, // OTP 2단계 인증 시 임시 저장
 
   /* ── 탭 전환 ── */
   switchTab(tab) {
-    document.querySelectorAll('.ltab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document
+      .querySelectorAll('.ltab')
+      .forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tab-panel').forEach(p => {
       p.classList.toggle('active', p.id === `panel-${tab}`);
     });
@@ -45,7 +47,10 @@ const Login = {
       });
       const data = await res.json();
 
-      if (!data.success) { this.showError(data.error); return; }
+      if (!data.success) {
+        this.showError(data.error);
+        return;
+      }
 
       if (data.requireOtp) {
         // OTP 추가 인증 필요
@@ -68,7 +73,10 @@ const Login = {
   /* ── OTP Step1: 아이디 확인 ── */
   otpRequest() {
     const val = document.getElementById('inp-otp-user').value.trim();
-    if (!val) { this.showError('아이디를 입력하세요.'); return; }
+    if (!val) {
+      this.showError('아이디를 입력하세요.');
+      return;
+    }
 
     // 먼저 계정 확인 (비밀번호 없이는 계정 찾기만)
     document.getElementById('otp-step1').style.display = 'none';
@@ -79,10 +87,16 @@ const Login = {
 
   /* ── OTP Step2: 코드 검증 ── */
   async submitOtp() {
-    const digits  = [...document.querySelectorAll('.otp-digit')].map(i => i.value).join('');
-    if (digits.length < 6) { this.showError('6자리 코드를 입력하세요.'); return; }
+    const digits = [...document.querySelectorAll('.otp-digit')].map(i => i.value).join('');
+    if (digits.length < 6) {
+      this.showError('6자리 코드를 입력하세요.');
+      return;
+    }
 
-    if (!this.otpUserId) { this.showError('다시 처음부터 시도해 주세요.'); return; }
+    if (!this.otpUserId) {
+      this.showError('다시 처음부터 시도해 주세요.');
+      return;
+    }
 
     this.clearError();
     try {
@@ -92,7 +106,10 @@ const Login = {
         body: JSON.stringify({ userId: this.otpUserId, otpToken: digits }),
       });
       const data = await res.json();
-      if (!data.success) { this.showError(data.error); return; }
+      if (!data.success) {
+        this.showError(data.error);
+        return;
+      }
       this.onLoginSuccess(data, false);
     } catch (_) {
       this.showError('서버 오류가 발생했습니다.');
@@ -103,7 +120,9 @@ const Login = {
     this.otpUserId = null;
     document.getElementById('otp-step1').style.display = '';
     document.getElementById('otp-step2').style.display = 'none';
-    document.querySelectorAll('.otp-digit').forEach(i => { i.value = ''; });
+    document.querySelectorAll('.otp-digit').forEach(i => {
+      i.value = '';
+    });
     this.clearError();
   },
 
@@ -115,10 +134,12 @@ const Login = {
     }
 
     // ① 등록 여부를 먼저 확인 — 미등록 시 WebAuthn 호출하지 않음
-    const savedCred  = localStorage.getItem('oci_webauthn_id');
+    const savedCred = localStorage.getItem('oci_webauthn_id');
     const savedToken = localStorage.getItem('oci_webauthn_token');
     if (!savedCred || !savedToken) {
-      this.showError('등록된 생체인식 정보가 없습니다. 계정 로그인 후 설정 메뉴에서 먼저 등록하세요.');
+      this.showError(
+        '등록된 생체인식 정보가 없습니다. 계정 로그인 후 설정 메뉴에서 먼저 등록하세요.'
+      );
       return;
     }
 
@@ -131,22 +152,26 @@ const Login = {
     try {
       const credential = await navigator.credentials.get({
         publicKey: {
-          challenge:          crypto.getRandomValues(new Uint8Array(32)),
-          timeout:            60000,
-          userVerification:   'required',   // 반드시 생체 인증 사용
-          allowCredentials: [{
-            id:         Uint8Array.from(atob(savedCred), c => c.charCodeAt(0)),
-            type:       'public-key',
-            transports: ['internal'],       // 플랫폼 인증기(Windows Hello/Touch ID)만 허용
-                                            // ← 이 설정이 없으면 외부 기기/보안키 팝업 노출
-          }],
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          timeout: 60000,
+          userVerification: 'required', // 반드시 생체 인증 사용
+          allowCredentials: [
+            {
+              id: Uint8Array.from(atob(savedCred), c => c.charCodeAt(0)),
+              type: 'public-key',
+              transports: ['internal'], // 플랫폼 인증기(Windows Hello/Touch ID)만 허용
+              // ← 이 설정이 없으면 외부 기기/보안키 팝업 노출
+            },
+          ],
         },
       });
 
       if (credential) {
         const user = JSON.parse(localStorage.getItem('oci_user') || '{}');
         hint.textContent = `${user.full_name || user.username || '사용자'}님, 인증 성공!`;
-        setTimeout(() => { window.location.href = '/'; }, 800);
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 800);
       }
     } catch (err) {
       if (err.name === 'NotAllowedError') {
@@ -175,7 +200,7 @@ const Login = {
 
   /* ── UI 헬퍼 ── */
   setLoading(on) {
-    const btn  = document.getElementById('btn-login');
+    const btn = document.getElementById('btn-login');
     const text = btn?.querySelector('.btn-text');
     const load = btn?.querySelector('.btn-loading');
     if (!btn) return;
@@ -202,7 +227,7 @@ async function applyLoginFeatureFlags() {
       console.warn('[FeatureFlag] HTTP', res.status, '— 모든 탭 표시 유지');
       return;
     }
-    const json  = await res.json();
+    const json = await res.json();
     const flags = json.data || {};
 
     // auth.biometric OFF → 생체인식 탭 + 패널 완전 제거
@@ -232,13 +257,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 계정 로그인 폼 submit
-  document.getElementById('form-account')?.addEventListener('submit', (e) => {
+  document.getElementById('form-account')?.addEventListener('submit', e => {
     e.preventDefault();
     Login.submitAccount(e);
   });
 
   // 비밀번호 보기/숨김
-  document.getElementById('btn-toggle-pw')?.addEventListener('click', function() {
+  document.getElementById('btn-toggle-pw')?.addEventListener('click', function () {
     Login.togglePw(this);
   });
 
@@ -261,13 +286,15 @@ document.addEventListener('DOMContentLoaded', () => {
       inp.value = inp.value.replace(/\D/g, '').slice(-1);
       if (inp.value && idx < arr.length - 1) arr[idx + 1].focus();
     });
-    inp.addEventListener('keydown', (e) => {
+    inp.addEventListener('keydown', e => {
       if (e.key === 'Backspace' && !inp.value && idx > 0) arr[idx - 1].focus();
     });
-    inp.addEventListener('paste', (e) => {
+    inp.addEventListener('paste', e => {
       e.preventDefault();
       const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
-      [...text.slice(0, 6)].forEach((ch, i) => { if (arr[idx + i]) arr[idx + i].value = ch; });
+      [...text.slice(0, 6)].forEach((ch, i) => {
+        if (arr[idx + i]) arr[idx + i].value = ch;
+      });
       const next = Math.min(idx + text.length, arr.length - 1);
       arr[next].focus();
     });
@@ -278,7 +305,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (token) {
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(d => { if (d.success) window.location.href = '/'; })
+      .then(d => {
+        if (d.success) window.location.href = '/';
+      })
       .catch(() => {});
   }
 });

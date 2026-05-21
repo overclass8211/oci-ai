@@ -48,8 +48,13 @@ test('시나리오 2 — 드롭다운 바깥 클릭 시 닫힘', async ({ page }
 test('시나리오 3 — CSV 다운로드 응답 헤더', async ({ page }) => {
   // 인증된 page.request 사용 (browser context 가 token 보유)
   const resp = await page.request.get('/api/leads/export?format=csv', {
-    headers: { 'Authorization': 'Bearer ' + await page.evaluate(() =>
-      localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '') },
+    headers: {
+      Authorization:
+        'Bearer ' +
+        (await page.evaluate(
+          () => localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || ''
+        )),
+    },
   });
   expect(resp.status()).toBe(200);
   expect(resp.headers()['content-type']).toMatch(/text\/csv/);
@@ -58,8 +63,13 @@ test('시나리오 3 — CSV 다운로드 응답 헤더', async ({ page }) => {
 
 test('시나리오 4 — JSON 다운로드 응답 형식', async ({ page }) => {
   const resp = await page.request.get('/api/customers/export?format=json', {
-    headers: { 'Authorization': 'Bearer ' + await page.evaluate(() =>
-      localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '') },
+    headers: {
+      Authorization:
+        'Bearer ' +
+        (await page.evaluate(
+          () => localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || ''
+        )),
+    },
   });
   expect(resp.status()).toBe(200);
   expect(resp.headers()['content-type']).toMatch(/application\/json/);
@@ -96,8 +106,13 @@ test('시나리오 7 — 팀 페이지 익스포트 버튼 표시', async ({ pag
 // ─── 안전성 ───────────────────────────────────────────────
 test('시나리오 8 — 잘못된 format → xlsx fallback', async ({ page }) => {
   const resp = await page.request.get('/api/projects/export?format=pdf', {
-    headers: { 'Authorization': 'Bearer ' + await page.evaluate(() =>
-      localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '') },
+    headers: {
+      Authorization:
+        'Bearer ' +
+        (await page.evaluate(
+          () => localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || ''
+        )),
+    },
   });
   expect(resp.status()).toBe(200);
   expect(resp.headers()['content-type']).toMatch(/spreadsheetml/);

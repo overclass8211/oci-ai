@@ -7,7 +7,9 @@ import { api } from './helpers.mjs';
 /** SSE 스트림을 버퍼링해 문자열로 반환하는 supertest 커스텀 파서 */
 function sseBuffer(res, callback) {
   let buf = '';
-  res.on('data', chunk => { buf += chunk.toString(); });
+  res.on('data', chunk => {
+    buf += chunk.toString();
+  });
   res.on('end', () => callback(null, buf));
   res.on('error', err => callback(err));
 }
@@ -27,11 +29,7 @@ describe('AI Chat 엔드포인트', () => {
   });
 
   it('POST /api/ai/chat — messages 없이 전송 → 200 + [DONE]', async () => {
-    const res = await api()
-      .post('/api/ai/chat')
-      .send({})
-      .buffer(true)
-      .parse(sseBuffer);
+    const res = await api().post('/api/ai/chat').send({}).buffer(true).parse(sseBuffer);
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('[DONE]');

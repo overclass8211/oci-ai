@@ -15,7 +15,6 @@ afterAll(async () => {
     await pool.query('DELETE FROM activities WHERE lead_id = ?', [createdLeadId]);
     await pool.query('DELETE FROM leads WHERE id = ?', [createdLeadId]);
   }
-  
 });
 
 describe('Leads API', () => {
@@ -33,14 +32,14 @@ describe('Leads API', () => {
 
   it('POST — 신규 등록', async () => {
     const res = await api().post('/api/leads').send({
-      customer_name:   '__TEST__고객사',
-      project_name:    '__TEST__테스트 프로젝트',
-      business_type:   '태양광',
-      region:          '국내',
-      capacity_mw:     10,
+      customer_name: '__TEST__고객사',
+      project_name: '__TEST__테스트 프로젝트',
+      business_type: '태양광',
+      region: '국내',
+      capacity_mw: 10,
       expected_amount: 5,
-      currency:        'KRW',
-      stage:           'lead'
+      currency: 'KRW',
+      stage: 'lead',
     });
     expect(res.status).toBe(200);
     expect(res.body.id).toBeGreaterThan(0);
@@ -48,9 +47,7 @@ describe('Leads API', () => {
   });
 
   it('PATCH /:id/stage — 단계 변경 + 활동 자동 기록', async () => {
-    const res = await api()
-      .patch(`/api/leads/${createdLeadId}/stage`)
-      .send({ stage: 'review' });
+    const res = await api().patch(`/api/leads/${createdLeadId}/stage`).send({ stage: 'review' });
     expect(res.status).toBe(200);
 
     const [acts] = await pool.query(

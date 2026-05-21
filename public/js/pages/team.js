@@ -30,9 +30,9 @@ const TeamPage = {
     `;
     document.getElementById('content').innerHTML = html;
     document.getElementById('team-add-btn')?.addEventListener('click', () => this.openForm());
-    document.getElementById('team-export-btn')?.addEventListener('click', (e) => {
+    document.getElementById('team-export-btn')?.addEventListener('click', e => {
       const path = '/team/export';
-      const name = '팀원_' + new Date().toISOString().slice(0,10);
+      const name = '팀원_' + new Date().toISOString().slice(0, 10);
       if (typeof ExportMenu !== 'undefined') ExportMenu.open(e.currentTarget, path, name);
       else API.downloadExport(path, name, 'xlsx');
     });
@@ -46,7 +46,9 @@ const TeamPage = {
       this.renderSummary();
       this.renderDivisions();
       this.renderTable();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   renderSummary() {
@@ -93,15 +95,17 @@ const TeamPage = {
     // 주요 사업영역 카드
     const order = ['태양광', '전기/ESS', '해외영업', 'CS팀', '미배정'];
     const sortedKeys = Object.keys(groups).sort((a, b) => {
-      const ai = order.indexOf(a); const bi = order.indexOf(b);
+      const ai = order.indexOf(a);
+      const bi = order.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     });
 
-    document.getElementById('team-divisions').innerHTML = sortedKeys.map(key => {
-      const arr = groups[key];
-      const activeLeads = arr.reduce((s, m) => s + (parseInt(m.active_leads) || 0), 0);
-      const wonAmount = arr.reduce((s, m) => s + (parseFloat(m.won_amount) || 0), 0);
-      return `
+    document.getElementById('team-divisions').innerHTML = sortedKeys
+      .map(key => {
+        const arr = groups[key];
+        const activeLeads = arr.reduce((s, m) => s + (parseInt(m.active_leads) || 0), 0);
+        const wonAmount = arr.reduce((s, m) => s + (parseFloat(m.won_amount) || 0), 0);
+        return `
         <div class="card">
           <div class="card-header">
             <div class="card-title">${esc(key)}</div>
@@ -110,7 +114,9 @@ const TeamPage = {
           <div class="card-body">
             <div class="text-muted fs-12 mb-2">진행중 ${activeLeads}건 · 올해수주 ${Fmt.amount(wonAmount)}</div>
             <div class="team-member-list">
-              ${arr.map(m => `
+              ${arr
+                .map(
+                  m => `
                 <div class="member-row">
                   <div class="member-avatar" style="background:${this.roleColor(m.role)}">
                     ${esc(m.name.charAt(0))}
@@ -121,12 +127,15 @@ const TeamPage = {
                   </div>
                   <span class="badge badge-gray">${m.active_leads || 0}</span>
                 </div>
-              `).join('')}
+              `
+                )
+                .join('')}
             </div>
           </div>
         </div>
       `;
-    }).join('');
+      })
+      .join('');
   },
 
   renderTable() {
@@ -153,7 +162,9 @@ const TeamPage = {
           </tr>
         </thead>
         <tbody>
-          ${this.members.map(m => `
+          ${this.members
+            .map(
+              m => `
             <tr>
               <td>
                 <div class="flex gap-2 ai-center">
@@ -172,12 +183,14 @@ const TeamPage = {
                 <button class="btn btn-ghost btn-sm" data-action="edit-member" data-mid="${m.id}">편집</button>
               </td>
             </tr>
-          `).join('')}
+          `
+            )
+            .join('')}
         </tbody>
       </table>
     `;
     document.getElementById('team-table-wrap').innerHTML = html;
-    document.getElementById('team-table-wrap').addEventListener('click', (e) => {
+    document.getElementById('team-table-wrap').addEventListener('click', e => {
       const btn = e.target.closest('[data-action]');
       if (!btn) return;
       const mid = parseInt(btn.dataset.mid);
@@ -233,8 +246,8 @@ const TeamPage = {
       bind: {
         ...(m ? { '#team-deactivate-btn': () => this.deactivate(m.id) } : {}),
         '#team-cancel-btn': () => Modal.close(),
-        '#team-save-btn': () => this.save(m?.id || null)
-      }
+        '#team-save-btn': () => this.save(m?.id || null),
+      },
     });
   },
 
@@ -242,7 +255,7 @@ const TeamPage = {
     const form = document.getElementById('team-form');
     const fd = new FormData(form);
     const body = {};
-    fd.forEach((v, k) => body[k] = v);
+    fd.forEach((v, k) => (body[k] = v));
     if (!body.name) return Toast.error('이름을 입력하세요');
     try {
       if (id) {
@@ -254,7 +267,9 @@ const TeamPage = {
       }
       Modal.close();
       this.loadData();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   deactivate(id) {
@@ -263,7 +278,9 @@ const TeamPage = {
         await API.team.delete(id);
         Toast.success('비활성화되었습니다');
         this.loadData();
-      } catch (err) { console.error(err); }
+      } catch (err) {
+        console.error(err);
+      }
     });
-  }
+  },
 };

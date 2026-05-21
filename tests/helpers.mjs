@@ -14,6 +14,10 @@ export { pool };
 
 /** 모든 테스트 종료 시 호출 — DB/WebSocket 연결 정리 */
 export async function teardown() {
-  try { await pool.end(); } catch (_) {}
-  try { server.close(); } catch (_) {}
+  try {
+    await pool.end();
+  } catch (_) {}
+  try {
+    server.close();
+  } catch (_) {}
 }

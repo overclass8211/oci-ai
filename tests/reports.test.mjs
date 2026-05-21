@@ -53,9 +53,7 @@ afterAll(async () => {
 
 describe('Reports Widgets API', () => {
   it('GET /api/reports/widgets — 빈 목록 (초기)', async () => {
-    const res = await api()
-      .get('/api/reports/widgets')
-      .set('X-User-Id', String(testUserId));
+    const res = await api().get('/api/reports/widgets').set('X-User-Id', String(testUserId));
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
@@ -80,7 +78,7 @@ describe('Reports Widgets API', () => {
       .send({ report_id: testReportId });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data.length).toBe(0);   // 추가 안 됨
+    expect(res.body.data.length).toBe(0); // 추가 안 됨
     expect(res.body.skipped).toBeGreaterThan(0);
   });
 
@@ -93,9 +91,7 @@ describe('Reports Widgets API', () => {
   });
 
   it('GET — 위젯 + report config_json 함께 반환', async () => {
-    const res = await api()
-      .get('/api/reports/widgets')
-      .set('X-User-Id', String(testUserId));
+    const res = await api().get('/api/reports/widgets').set('X-User-Id', String(testUserId));
     expect(res.status).toBe(200);
     const widget = res.body.data.find(w => w.report_id === testReportId);
     expect(widget).toBeDefined();

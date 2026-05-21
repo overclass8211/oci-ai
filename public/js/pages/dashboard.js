@@ -17,7 +17,9 @@ const DashboardPage = {
         <div class="year-selector" style="display:flex;align-items:center;gap:6px">
           <span style="font-size:12px;color:var(--text-3)" data-label="dashboard.year_filter">기준 연도</span>
           <div style="display:flex;gap:4px">
-            ${years.map(y => `
+            ${years
+              .map(
+                y => `
               <button class="year-btn ${y === this.selectedYear ? 'active' : ''}"
                 data-year="${y}"
                 style="padding:4px 10px;border-radius:var(--radius);border:1px solid var(--border-2);
@@ -25,7 +27,9 @@ const DashboardPage = {
                        color:${y === this.selectedYear ? '#fff' : 'var(--text-2)'};
                        font-size:12px;cursor:pointer;font-weight:${y === this.selectedYear ? '600' : '400'}">
                 ${y}
-              </button>`).join('')}
+              </button>`
+              )
+              .join('')}
           </div>
         </div>
       </div>
@@ -40,19 +44,23 @@ const DashboardPage = {
             <div class="card-title" id="monthly-chart-title" style="margin-right:auto" data-label="dashboard.monthly_chart_title">월별 영업기회 추이</div>
             <div style="display:flex;gap:3px;align-items:center">
               ${[
-                {key:'annual',   label:'연간'},
-                {key:'quarterly',label:'분기'},
-                {key:'monthly',  label:'월간'},
-                {key:'recent6',  label:'최근 6개월'}
-              ].map(p => `
+                { key: 'annual', label: '연간' },
+                { key: 'quarterly', label: '분기' },
+                { key: 'monthly', label: '월간' },
+                { key: 'recent6', label: '최근 6개월' },
+              ]
+                .map(
+                  p => `
                 <button id="period-btn-${p.key}" data-period="${p.key}"
                   style="padding:3px 9px;border-radius:var(--radius);border:1px solid var(--border-2);
-                         background:${p.key==='recent6'?'var(--blue)':'var(--bg-2)'};
-                         color:${p.key==='recent6'?'#fff':'var(--text-2)'};
-                         font-size:11px;cursor:pointer;font-weight:${p.key==='recent6'?'600':'400'};
+                         background:${p.key === 'recent6' ? 'var(--blue)' : 'var(--bg-2)'};
+                         color:${p.key === 'recent6' ? '#fff' : 'var(--text-2)'};
+                         font-size:11px;cursor:pointer;font-weight:${p.key === 'recent6' ? '600' : '400'};
                          white-space:nowrap">
                   ${p.label}
-                </button>`).join('')}
+                </button>`
+                )
+                .join('')}
             </div>
             <div style="display:flex;gap:6px;align-items:center">
               <span class="badge badge-amber">● <span data-label="business.solar">태양광</span></span>
@@ -92,17 +100,21 @@ const DashboardPage = {
     document.getElementById('content').innerHTML = html;
 
     // year buttons delegation
-    document.querySelector('.year-selector')?.addEventListener('click', (e) => {
+    document.querySelector('.year-selector')?.addEventListener('click', e => {
       const btn = e.target.closest('.year-btn[data-year]');
       if (btn) this.changeYear(parseInt(btn.dataset.year));
     });
     // period buttons delegation
-    document.querySelector('.card-header')?.addEventListener('click', (e) => {
+    document.querySelector('.card-header')?.addEventListener('click', e => {
       const btn = e.target.closest('[data-period]');
       if (btn) this.changePeriod(btn.dataset.period);
     });
-    document.getElementById('dash-pipeline-btn')?.addEventListener('click', () => App.navigate('pipeline'));
-    document.getElementById('dash-ai-refresh-btn')?.addEventListener('click', () => this.refreshAIInsights());
+    document
+      .getElementById('dash-pipeline-btn')
+      ?.addEventListener('click', () => App.navigate('pipeline'));
+    document
+      .getElementById('dash-ai-refresh-btn')
+      ?.addEventListener('click', () => this.refreshAIInsights());
 
     await this.loadData();
   },
@@ -124,7 +136,12 @@ const DashboardPage = {
 
   async changePeriod(period) {
     this.selectedPeriod = period;
-    const periodMeta = {annual:'연간',quarterly:'분기별',monthly:'월간',recent6:'최근 6개월'};
+    const periodMeta = {
+      annual: '연간',
+      quarterly: '분기별',
+      monthly: '월간',
+      recent6: '최근 6개월',
+    };
     // 버튼 스타일 업데이트
     Object.keys(periodMeta).forEach(k => {
       const btn = document.getElementById('period-btn-' + k);
@@ -137,7 +154,9 @@ const DashboardPage = {
     try {
       const res = await API.dashboard.monthly(this.selectedYear, period);
       this.renderMonthlyChart(res.data, this.selectedYear, period);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   },
 
   async loadData() {
@@ -148,14 +167,16 @@ const DashboardPage = {
         API.dashboard.stats(y),
         API.dashboard.funnel(y),
         API.dashboard.monthly(y, p),
-        API.dashboard.activities(y)
+        API.dashboard.activities(y),
       ]);
       this.renderMetrics(stats.data);
       this.renderFunnel(funnel.data);
       this.renderMonthlyChart(monthly.data, y, p);
       this.renderActivities(activities.data);
       this.loadAIInsights();
-    } catch (err) { console.error('Dashboard load error:', err); }
+    } catch (err) {
+      console.error('Dashboard load error:', err);
+    }
   },
 
   // sessionStorage 캐시 — 30분 유효 (AI 토큰 절약 + 429 회피)
@@ -169,12 +190,16 @@ const DashboardPage = {
       const parsed = JSON.parse(raw);
       if (!parsed?.at || Date.now() - parsed.at > this.AI_INSIGHTS_CACHE_TTL) return null;
       return parsed;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   },
   _writeAIInsightsCache(text) {
     try {
       sessionStorage.setItem(this.AI_INSIGHTS_CACHE_KEY, JSON.stringify({ at: Date.now(), text }));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   },
 
   async loadAIInsights(forceRefresh = false) {
@@ -207,7 +232,11 @@ const DashboardPage = {
       if (cached) {
         this.renderAIInsights(cached.text, { cached: true, at: cached.at, fallback: true });
       } else {
-        this.renderStaticInsights(isQuota ? '🔋 AI 토큰 한도 초과 — 캐시된 분석이 없습니다. 잠시 후 새로고침해 주세요.' : null);
+        this.renderStaticInsights(
+          isQuota
+            ? '🔋 AI 토큰 한도 초과 — 캐시된 분석이 없습니다. 잠시 후 새로고침해 주세요.'
+            : null
+        );
       }
     }
   },
@@ -215,29 +244,44 @@ const DashboardPage = {
   async refreshAIInsights() {
     const el = document.getElementById('insights-body');
     if (el) el.innerHTML = '<div class="loading">AI 분석 중...</div>';
-    await this.loadAIInsights(true);  // 강제 새로고침
+    await this.loadAIInsights(true); // 강제 새로고침
   },
 
   renderAIInsights(text, opts = {}) {
     const el = document.getElementById('insights-body');
     if (!el) return;
-    if (!text) { this.renderStaticInsights(); return; }
+    if (!text) {
+      this.renderStaticInsights();
+      return;
+    }
 
     const lines = text.split('\n').filter(l => l.trim());
-    const icons = { '긴급': { ico: '🚨', cls: 'urgent' }, '주의': { ico: '⚠️', cls: 'warning' }, '정보': { ico: 'ℹ️', cls: 'info' } };
+    const icons = {
+      긴급: { ico: '🚨', cls: 'urgent' },
+      주의: { ico: '⚠️', cls: 'warning' },
+      정보: { ico: 'ℹ️', cls: 'info' },
+    };
 
     // 캐시 표시 배너 (옵션)
-    const cacheBanner = opts.cached ? `
+    const cacheBanner = opts.cached
+      ? `
       <div style="padding:6px 14px;font-size:11px;color:var(--text-3);background:var(--surface-2);border-bottom:1px solid var(--border)">
         ⚡ 캐시된 분석 · ${Math.round((Date.now() - opts.at) / 60000)}분 전
         ${opts.fallback ? '<span style="color:var(--oci-red)">(API 한도 초과로 fallback)</span>' : ''}
-      </div>` : '';
+      </div>`
+      : '';
 
-    const items = lines.map(line => {
-      let tag = 'info', ico = '📊'; const content = line.replace(/^\[.*?\]\s*/, '');
-      const m = line.match(/^\[(긴급|주의|정보)\]/);
-      if (m && icons[m[1]]) { tag = icons[m[1]].cls; ico = icons[m[1]].ico; }
-      return `
+    const items = lines
+      .map(line => {
+        let tag = 'info',
+          ico = '📊';
+        const content = line.replace(/^\[.*?\]\s*/, '');
+        const m = line.match(/^\[(긴급|주의|정보)\]/);
+        if (m && icons[m[1]]) {
+          tag = icons[m[1]].cls;
+          ico = icons[m[1]].ico;
+        }
+        return `
         <div class="ai-insight-item">
           <div class="insight-icon">${ico}</div>
           <div class="ai-insight-body">
@@ -245,25 +289,36 @@ const DashboardPage = {
             <div class="ai-insight-text">${esc(content)}</div>
           </div>
         </div>`;
-    }).join('');
+      })
+      .join('');
 
-    el.innerHTML = cacheBanner + items + `
+    el.innerHTML =
+      cacheBanner +
+      items +
+      `
       <div style="padding:10px 14px;border-top:1px solid var(--border)">
         <button class="ai-gen-btn" id="dash-weekly-report-btn" style="width:100%;justify-content:center">
           📊 주간 보고서 생성하기
         </button>
       </div>`;
-    document.getElementById('dash-weekly-report-btn')?.addEventListener('click', () => { AI.open(); AI.streamReport('weekly'); });
+    document.getElementById('dash-weekly-report-btn')?.addEventListener('click', () => {
+      AI.open();
+      AI.streamReport('weekly');
+    });
   },
 
   renderStaticInsights(banner) {
     const el = document.getElementById('insights-body');
     if (!el) return;
-    const bannerHtml = banner ? `
+    const bannerHtml = banner
+      ? `
       <div style="padding:8px 14px;font-size:11px;color:var(--text-3);background:var(--surface-2);border-bottom:1px solid var(--border)">
         ${esc(banner)}
-      </div>` : '';
-    el.innerHTML = bannerHtml + `
+      </div>`
+      : '';
+    el.innerHTML =
+      bannerHtml +
+      `
       <div class="ai-insight-item">
         <div class="insight-icon">⚠️</div>
         <div class="ai-insight-body">
@@ -337,29 +392,31 @@ const DashboardPage = {
   },
 
   renderFunnel(data) {
-    const stageOrder = ['lead','review','proposal','bidding','negotiation','won'];
+    const stageOrder = ['lead', 'review', 'proposal', 'bidding', 'negotiation', 'won'];
     const max = Math.max(...data.map(d => d.count), 1);
     const L = (k, fb) => (typeof Labels !== 'undefined' ? Labels.get(k, fb) : fb);
     const unitCount = L('units.count', '건');
-    document.getElementById('funnel-body').innerHTML = stageOrder.map(stage => {
-      const item = data.find(d => d.stage === stage) || { count: 0, amount: 0 };
-      const meta = STAGES[stage] || { label: stage, color: '#ccc' };
-      const stageLabel = L('stages.' + stage, meta.label);
-      return `
+    document.getElementById('funnel-body').innerHTML = stageOrder
+      .map(stage => {
+        const item = data.find(d => d.stage === stage) || { count: 0, amount: 0 };
+        const meta = STAGES[stage] || { label: stage, color: '#ccc' };
+        const stageLabel = L('stages.' + stage, meta.label);
+        return `
         <div class="funnel-row">
           <div class="funnel-label">
             <span>${stageLabel}</span><strong>${item.count}${unitCount}</strong>
           </div>
           <div class="progress-bar">
-            <div class="progress-fill" style="width:${(item.count/max)*100}%;background:${meta.color}"></div>
+            <div class="progress-fill" style="width:${(item.count / max) * 100}%;background:${meta.color}"></div>
           </div>
         </div>`;
-    }).join('');
+      })
+      .join('');
   },
 
   renderMonthlyChart(data, year, period) {
-    const SOLAR = ['태양광','모듈','EPC'];
-    const ELEC  = ['ESS','전기','설치'];
+    const SOLAR = ['태양광', '모듈', 'EPC'];
+    const ELEC = ['ESS', '전기', '설치'];
     const titleEl = document.getElementById('monthly-chart-title');
     let labels, solarData, elecData;
 
@@ -367,37 +424,70 @@ const DashboardPage = {
       // 연도별: x축 = 연도 목록
       const years = [...new Set(data.map(d => d.yr))].sort();
       labels = years.map(y => `${y}년`);
-      solarData = years.map(y => data.filter(d => d.yr === y && SOLAR.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
-      elecData  = years.map(y => data.filter(d => d.yr === y && ELEC.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
+      solarData = years.map(y =>
+        data
+          .filter(d => d.yr === y && SOLAR.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
+      elecData = years.map(y =>
+        data
+          .filter(d => d.yr === y && ELEC.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
       if (titleEl) titleEl.textContent = '연도별 영업기회 추이';
-
     } else if (period === 'quarterly') {
       // 분기별: x축 = Q1~Q4
-      labels = ['Q1','Q2','Q3','Q4'];
-      solarData = labels.map(q => data.filter(d => d.qtr===q && SOLAR.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
-      elecData  = labels.map(q => data.filter(d => d.qtr===q && ELEC.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
+      labels = ['Q1', 'Q2', 'Q3', 'Q4'];
+      solarData = labels.map(q =>
+        data
+          .filter(d => d.qtr === q && SOLAR.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
+      elecData = labels.map(q =>
+        data
+          .filter(d => d.qtr === q && ELEC.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
       if (titleEl) titleEl.textContent = `${year}년 분기별 영업기회 추이`;
-
     } else if (period === 'monthly') {
       // 월간: 선택 연도 12개월
-      const months = Array.from({length:12}, (_,i) => ({
-        key: `${year}-${String(i+1).padStart(2,'0')}`, label:`${i+1}월`
+      const months = Array.from({ length: 12 }, (_, i) => ({
+        key: `${year}-${String(i + 1).padStart(2, '0')}`,
+        label: `${i + 1}월`,
       }));
       labels = months.map(m => m.label);
-      solarData = months.map(m => data.filter(d => d.month===m.key && SOLAR.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
-      elecData  = months.map(m => data.filter(d => d.month===m.key && ELEC.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
+      solarData = months.map(m =>
+        data
+          .filter(d => d.month === m.key && SOLAR.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
+      elecData = months.map(m =>
+        data
+          .filter(d => d.month === m.key && ELEC.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
       if (titleEl) titleEl.textContent = `${year}년 월간 영업기회 추이`;
-
     } else {
       // recent6: 현재 기준 최근 6개월
       const now = new Date();
-      const months = Array.from({length:6}, (_,i) => {
-        const d = new Date(now.getFullYear(), now.getMonth() - (5-i), 1);
-        return { key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, label:`${d.getMonth()+1}월` };
+      const months = Array.from({ length: 6 }, (_, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+        return {
+          key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+          label: `${d.getMonth() + 1}월`,
+        };
       });
       labels = months.map(m => m.label);
-      solarData = months.map(m => data.filter(d => d.month===m.key && SOLAR.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
-      elecData  = months.map(m => data.filter(d => d.month===m.key && ELEC.includes(d.business_type)).reduce((s,d)=>s+d.count,0));
+      solarData = months.map(m =>
+        data
+          .filter(d => d.month === m.key && SOLAR.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
+      elecData = months.map(m =>
+        data
+          .filter(d => d.month === m.key && ELEC.includes(d.business_type))
+          .reduce((s, d) => s + d.count, 0)
+      );
       if (titleEl) titleEl.textContent = '영업기회 추이 (최근 6개월)';
     }
 
@@ -409,46 +499,81 @@ const DashboardPage = {
         labels,
         datasets: [
           { label: '태양광/EPC', data: solarData, backgroundColor: '#F59C00', borderRadius: 4 },
-          { label: '전기/ESS',   data: elecData,  backgroundColor: '#1664E5', borderRadius: 4 }
-        ]
+          { label: '전기/ESS', data: elecData, backgroundColor: '#1664E5', borderRadius: 4 },
+        ],
       },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true,
+        maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
           tooltip: {
             callbacks: {
-              footer: (items) => {
-                const total = items.reduce((s,i)=>s+i.raw,0);
+              footer: items => {
+                const total = items.reduce((s, i) => s + i.raw, 0);
                 return `합계: ${total}건`;
-              }
-            }
-          }
+              },
+            },
+          },
         },
         scales: {
           x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-          y: { grid: { color: '#E8EAED' }, ticks: { font: { size: 11 }, stepSize: 1 }, beginAtZero: true }
-        }
-      }
+          y: {
+            grid: { color: '#E8EAED' },
+            ticks: { font: { size: 11 }, stepSize: 1 },
+            beginAtZero: true,
+          },
+        },
+      },
     });
   },
 
   renderActivities(activities) {
     const el = document.getElementById('activities-body');
     if (!activities.length) {
-      const emptyMsg = (typeof Labels !== 'undefined' ? Labels.get('dashboard.no_activities', '최근 활동 없음') : '최근 활동 없음');
+      const emptyMsg =
+        typeof Labels !== 'undefined'
+          ? Labels.get('dashboard.no_activities', '최근 활동 없음')
+          : '최근 활동 없음';
       el.innerHTML = `<div class="empty" data-label="dashboard.no_activities">${emptyMsg}</div>`;
       return;
     }
-    const iconMap = { 미팅:'🤝', 전화:'📞', 이메일:'✉️', 제안서:'📋', 입찰:'📑', 수주:'🏆', 드롭:'❌', 기타:'📌', note:'📝', meeting:'🤝', call:'📞', email:'✉️', proposal:'📋', site_visit:'🏗' };
-    const bgMap = { 미팅:'var(--blue-light)', 전화:'var(--amber-light)', 이메일:'var(--blue-light)', 수주:'var(--green-light)', 드롭:'var(--red-light)', 기타:'var(--gray-light)' };
-    el.innerHTML = activities.slice(0,6).map(a => `
+    const iconMap = {
+      미팅: '🤝',
+      전화: '📞',
+      이메일: '✉️',
+      제안서: '📋',
+      입찰: '📑',
+      수주: '🏆',
+      드롭: '❌',
+      기타: '📌',
+      note: '📝',
+      meeting: '🤝',
+      call: '📞',
+      email: '✉️',
+      proposal: '📋',
+      site_visit: '🏗',
+    };
+    const bgMap = {
+      미팅: 'var(--blue-light)',
+      전화: 'var(--amber-light)',
+      이메일: 'var(--blue-light)',
+      수주: 'var(--green-light)',
+      드롭: 'var(--red-light)',
+      기타: 'var(--gray-light)',
+    };
+    el.innerHTML = activities
+      .slice(0, 6)
+      .map(
+        a => `
       <div class="insight-item">
-        <div class="insight-icon" style="background:${bgMap[a.activity_type]||'var(--gray-light)'}">${iconMap[a.activity_type]||'📌'}</div>
+        <div class="insight-icon" style="background:${bgMap[a.activity_type] || 'var(--gray-light)'}">${iconMap[a.activity_type] || '📌'}</div>
         <div style="flex:1">
           <div class="insight-title">${esc(a.title)}</div>
-          <div class="insight-text">${a.customer_name ? esc(a.customer_name)+' · ' : ''}담당: ${esc(a.performer_name||'-')} · ${Fmt.relTime(a.performed_at)}</div>
+          <div class="insight-text">${a.customer_name ? esc(a.customer_name) + ' · ' : ''}담당: ${esc(a.performer_name || '-')} · ${Fmt.relTime(a.performed_at)}</div>
         </div>
-      </div>`).join('');
-  }
+      </div>`
+      )
+      .join('');
+  },
 };
