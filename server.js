@@ -289,6 +289,10 @@ app.get('/api/config/public', (_req, res) => {
   });
 });
 
+// 제안 공유 링크 — 인증 불필요 (외부 접근, share_token 기반 보안)
+// ※ authenticate 미들웨어보다 먼저 등록 (Phase 5-C)
+app.use('/api/proposals/share', require('./src/routes/proposalShare'));
+
 // 공개 기능 플래그 — 인증 불필요 (로그인 페이지에서 토큰 없이 사용)
 // ※ authenticate 미들웨어보다 먼저 등록해야 로그인 전에도 접근 가능
 app.get('/api/admin/dev/features/public', async (_req, res) => {

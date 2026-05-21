@@ -798,6 +798,216 @@ describe('Proposals API — Phase 1', () => {
     } catch (_) {}
   });
 
+  // ── Phase 5-C: 공유 링크 ───────────────────────────────────
+  it('POST /:id/share — 토큰 발급 + shared_until + history', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__공유발급',
+        customer_name: '__TEST__고객',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/share`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ expires_days: 7 });
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(r.body.data.share_token).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+    expect(r.body.data.expires_days).toBe(7);
+    expect(r.body.data.shared_until).not.toBeNull();
+
+    // DB 반영 확인
+    const [[row]] = await pool.query(
+      'SELECT share_token, shared_until FROM proposals WHERE id = ?',
+      [propId]
+    );
+    expect(row.share_token).toBe(r.body.data.share_token);
+
+    // history 'share_create' 기록
+    await new Promise(r => setTimeout(r, 200));
+    const [hist] = await pool.query(
+      `SELECT action_type FROM proposal_history
+        WHERE proposal_id = ? AND action_type = 'share_create'`,
+      [propId]
+    );
+    expect(hist.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('POST /:id/share — expires_days=0 = 무제한 (shared_until NULL)', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__무제한공유',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/share`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ expires_days: 0 });
+    expect(r.status).toBe(200);
+    expect(r.body.data.expires_days).toBeNull();
+    expect(r.body.data.shared_until).toBeNull();
+  });
+
+  it('GET /api/proposals/share/:token — 공유 페이지 데이터 (최소 정보 + include_in_email)', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__공유조회',
+        customer_name: '__TEST__외부고객',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    // RFP 메타 + 파일 2건 (1건 include_in_email=1, 1건 =0)
+    await api()
+      .put(`/api/proposals/${propId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        rfp_title: '공유 RFP 제목',
+        rfp_summary: '공유 RFP 요약',
+        ai_strategy_md: '## 비공개 AI 전략',
+      });
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const f1 = path.join(os.tmpdir(), `__share_pub_${propId}.pdf`);
+    const f2 = path.join(os.tmpdir(), `__share_priv_${propId}.pdf`);
+    fs.writeFileSync(f1, Buffer.from('%PDF public'));
+    fs.writeFileSync(f2, Buffer.from('%PDF private'));
+    const up1 = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .field('include_in_email', '1')
+      .attach('file', f1);
+    const pubFileId = up1.body.data.uploaded[0].id;
+    await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .field('include_in_email', '0')
+      .attach('file', f2);
+
+    const sh = await api()
+      .post(`/api/proposals/${propId}/share`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ expires_days: 7 });
+    const token = sh.body.data.share_token;
+
+    // 인증 없이 접근 가능해야 함 — X-User-Id 헤더 X
+    const view = await api().get(`/api/proposals/share/${token}`);
+    expect(view.status).toBe(200);
+    expect(view.body.success).toBe(true);
+    expect(view.body.data.proposal_title).toBe('__TEST__공유조회');
+    expect(view.body.data.customer_name).toBe('__TEST__외부고객');
+    expect(view.body.data.rfp_title).toBe('공유 RFP 제목');
+    expect(view.body.data.rfp_summary).toBe('공유 RFP 요약');
+    // AI 전략 미노출
+    expect(view.body.data.ai_strategy_md).toBeUndefined();
+    expect(view.body.data.expected_amount).toBeUndefined();
+    // include_in_email = 1 파일만 노출
+    expect(view.body.data.files.length).toBe(1);
+    expect(view.body.data.files[0].id).toBe(pubFileId);
+    expect(view.body.data.files[0].download_url).toContain(`/api/proposals/share/${token}`);
+
+    [f1, f2].forEach(f => {
+      try {
+        fs.unlinkSync(f);
+      } catch (_) {}
+    });
+  });
+
+  it('GET /api/proposals/share/:token — 잘못된 토큰 → 404', async () => {
+    const r = await api().get('/api/proposals/share/INVALID_TOKEN_THAT_DOES_NOT_EXIST_123456789');
+    expect(r.status).toBe(404);
+    expect(r.body.error).toMatch(/유효하지 않/);
+  });
+
+  it('DELETE /:id/share — 무효화 후 외부 접근 시 404', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__공유무효화',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const sh = await api()
+      .post(`/api/proposals/${propId}/share`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ expires_days: 7 });
+    const token = sh.body.data.share_token;
+
+    // 외부 접근 — 가능
+    const v1 = await api().get(`/api/proposals/share/${token}`);
+    expect(v1.status).toBe(200);
+
+    // 무효화
+    const del = await api()
+      .delete(`/api/proposals/${propId}/share`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(del.status).toBe(200);
+
+    // 외부 접근 — 더이상 불가
+    const v2 = await api().get(`/api/proposals/share/${token}`);
+    expect(v2.status).toBe(404);
+
+    // history 'share_revoke' 기록
+    await new Promise(r => setTimeout(r, 200));
+    const [hist] = await pool.query(
+      `SELECT action_type FROM proposal_history
+        WHERE proposal_id = ? AND action_type = 'share_revoke'`,
+      [propId]
+    );
+    expect(hist.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('GET /share/:token — 만료된 토큰 → 410', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__만료',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const sh = await api()
+      .post(`/api/proposals/${propId}/share`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ expires_days: 7 });
+    const token = sh.body.data.share_token;
+
+    // shared_until 을 강제로 과거로 변경
+    await pool.query(
+      `UPDATE proposals SET shared_until = DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE id = ?`,
+      [propId]
+    );
+
+    const v = await api().get(`/api/proposals/share/${token}`);
+    expect(v.status).toBe(410);
+    expect(v.body.error).toMatch(/만료/);
+  });
+
   // ── 회귀 방지 (Bug fix 2026-05-21) ─────────────────────────
   it('🐛 회귀: PUT /:id — proposal_date 가 ISO 8601 ("...T15:00:00.000Z") 이어도 저장 성공', async () => {
     const create = await api()

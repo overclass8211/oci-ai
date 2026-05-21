@@ -25,6 +25,7 @@
 const router = require('express').Router();
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
@@ -1411,6 +1412,106 @@ router.post('/:id/email/send', async (req, res) => {
       } catch (_) {}
     }
     res.status(500).json({ success: false, error: err?.message || '이메일 발송 실패' });
+  }
+});
+
+// ── Phase 5-C: 공유 링크 토큰 발급/무효화 ─────────────────────
+// 발급: 기존 토큰이 있어도 새로 생성 (재발급 시 이전 링크 무효화)
+// 토큰 형식: crypto.randomBytes(32) → base64url (43자)
+function _generateShareToken() {
+  return crypto
+    .randomBytes(32)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+// POST /:id/share — 공유 링크 발급 / 재발급
+// body: { expires_days?: number } — 기본 7일, 0/음수 = 무제한(NULL)
+router.post('/:id/share', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+
+    const [[prop]] = await pool.query(
+      `SELECT id, share_token, shared_until FROM proposals WHERE id = ?`,
+      [id]
+    );
+    if (!prop) return res.status(404).json({ success: false, error: '제안을 찾을 수 없음' });
+
+    const expiresDays = parseInt(req.body?.expires_days, 10);
+    const days = Number.isFinite(expiresDays) ? expiresDays : 7; // 기본 7일
+    const token = _generateShareToken();
+    let sharedUntilSql;
+    let sharedUntilValue = null;
+    if (days > 0) {
+      sharedUntilSql = 'DATE_ADD(NOW(), INTERVAL ? DAY)';
+      sharedUntilValue = days;
+    } else {
+      sharedUntilSql = 'NULL'; // 무제한
+    }
+
+    if (sharedUntilValue !== null) {
+      await pool.query(
+        `UPDATE proposals SET share_token = ?, shared_until = ${sharedUntilSql} WHERE id = ?`,
+        [token, sharedUntilValue, id]
+      );
+    } else {
+      await pool.query(`UPDATE proposals SET share_token = ?, shared_until = NULL WHERE id = ?`, [
+        token,
+        id,
+      ]);
+    }
+
+    // 갱신된 shared_until 조회
+    const [[updated]] = await pool.query(`SELECT shared_until FROM proposals WHERE id = ?`, [id]);
+
+    logHistory(null, id, userId, 'share_create', {
+      description: `공유 링크 ${prop.share_token ? '재' : ''}발급 (만료: ${days > 0 ? days + '일' : '무제한'})`,
+      newValue: token,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        share_token: token,
+        shared_until: updated.shared_until,
+        expires_days: days > 0 ? days : null,
+      },
+    });
+  } catch (err) {
+    console.error('[proposals:share create] failed:', err?.message || err);
+    res.status(500).json({ success: false, error: err?.message || '공유 링크 발급 실패' });
+  }
+});
+
+// DELETE /:id/share — 공유 링크 무효화
+router.delete('/:id/share', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+
+    const [[prop]] = await pool.query(`SELECT id, share_token FROM proposals WHERE id = ?`, [id]);
+    if (!prop) return res.status(404).json({ success: false, error: '제안을 찾을 수 없음' });
+
+    await pool.query(`UPDATE proposals SET share_token = NULL, shared_until = NULL WHERE id = ?`, [
+      id,
+    ]);
+
+    if (prop.share_token) {
+      logHistory(null, id, userId, 'share_revoke', {
+        description: '공유 링크 무효화',
+        oldValue: prop.share_token,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[proposals:share revoke] failed:', err?.message || err);
+    res.status(500).json({ success: false, error: err?.message || '공유 링크 무효화 실패' });
   }
 });
 
