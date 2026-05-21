@@ -201,6 +201,41 @@ describe('Proposals API — Phase 1', () => {
     await pool.query('DELETE FROM quotes WHERE id = ?', [quoteId]);
   });
 
+  // Phase 2: RFP 메타정보 저장/조회
+  it('PUT /:id — RFP 메타정보 저장 (title/received_date/due_date/summary)', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__RFP메타',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const rfpId = create.body.id;
+    createdIds.push(rfpId);
+
+    const summary = 'RFP 요약:\n- 핵심 요구사항\n- 평가 기준\n- 예산 100억';
+    await api()
+      .put(`/api/proposals/${rfpId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        rfp_title: '2026년 클라우드 인프라 구축 RFP',
+        rfp_received_date: '2026-05-15',
+        rfp_due_date: '2026-06-15',
+        rfp_summary: summary,
+      });
+
+    const detail = await api().get(`/api/proposals/${rfpId}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.rfp_title).toBe('2026년 클라우드 인프라 구축 RFP');
+    expect(detail.body.data.rfp_summary).toBe(summary);
+    // 날짜는 DATE 타입 — DB 가 ISO 로 반환 + TZ 변환 가능 (KST → UTC -9h)
+    // 입력값 ± 1일 범위만 확인 (TZ 무관 round-trip)
+    const rcv = new Date(detail.body.data.rfp_received_date).getTime();
+    const due = new Date(detail.body.data.rfp_due_date).getTime();
+    expect(Math.abs(rcv - new Date('2026-05-15').getTime())).toBeLessThanOrEqual(24 * 3600 * 1000);
+    expect(Math.abs(due - new Date('2026-06-15').getTime())).toBeLessThanOrEqual(24 * 3600 * 1000);
+  });
+
   it('DELETE /:id — 삭제 (CASCADE 로 children)', async () => {
     const create = await api()
       .post('/api/proposals')
