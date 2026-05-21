@@ -632,6 +632,247 @@ describe('Proposals API — Phase 1', () => {
     });
   });
 
+  // ── Phase 6-B: AI 제안서 평가 ───────────────────────────────
+  it('POST /:id/evaluate — RFP + 제안서 mock 평가 + DB 저장 + history', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__AI평가',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    // RFP 파일 업로드
+    const rfpFile = path.join(os.tmpdir(), `__eval_rfp_${propId}.pdf`);
+    fs.writeFileSync(rfpFile, Buffer.from('%PDF-1.4 evaluation rfp test content'));
+    const rfpUp = await api()
+      .post(`/api/proposals/${propId}/rfp`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .attach('file', rfpFile);
+    expect(rfpUp.body.data.uploaded.length).toBe(1);
+
+    // 제안서 파일 업로드
+    const propFile = path.join(os.tmpdir(), `__eval_prop_${propId}.pdf`);
+    fs.writeFileSync(propFile, Buffer.from('%PDF-1.4 evaluation proposal test content'));
+    const propUp = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .attach('file', propFile);
+    const targetFileId = propUp.body.data.uploaded[0].id;
+
+    // 평가 호출 (mock)
+    const evalRes = await api()
+      .post(`/api/proposals/${propId}/evaluate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ proposal_file_id: targetFileId });
+    expect(evalRes.status).toBe(200);
+    expect(evalRes.body.success).toBe(true);
+    expect(evalRes.body.data.coverage_score).toBe(78);
+    expect(evalRes.body.data.covered_count).toBe(12);
+    expect(evalRes.body.data.missing_count).toBe(3);
+    expect(evalRes.body.data.missing_items[0].severity).toBe('high');
+    expect(evalRes.body.data.target_filename).toContain('__eval_prop');
+    expect(evalRes.body.data.rfp_filename).toContain('__eval_rfp');
+
+    // DB 저장 확인
+    const [[row]] = await pool.query(
+      `SELECT coverage_score, covered_count, missing_count
+         FROM proposal_evaluations WHERE id = ?`,
+      [evalRes.body.data.id]
+    );
+    expect(row.coverage_score).toBe(78);
+    expect(row.covered_count).toBe(12);
+
+    // history 'evaluate' 기록
+    await new Promise(r => setTimeout(r, 200));
+    const [hist] = await pool.query(
+      `SELECT action_type, description FROM proposal_history
+        WHERE proposal_id = ? AND action_type = 'evaluate'`,
+      [propId]
+    );
+    expect(hist.length).toBeGreaterThanOrEqual(1);
+    expect(hist[0].description).toMatch(/커버율 78%/);
+
+    [rfpFile, propFile].forEach(f => {
+      try {
+        fs.unlinkSync(f);
+      } catch (_) {}
+    });
+  });
+
+  it('GET /:id/evaluations — 평가 이력 조회 (다중 버전)', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__평가이력',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const rfpFile = path.join(os.tmpdir(), `__hist_rfp_${propId}.pdf`);
+    const propFile = path.join(os.tmpdir(), `__hist_prop_${propId}.pdf`);
+    fs.writeFileSync(rfpFile, Buffer.from('%PDF rfp'));
+    fs.writeFileSync(propFile, Buffer.from('%PDF prop'));
+    await api()
+      .post(`/api/proposals/${propId}/rfp`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .attach('file', rfpFile);
+    const propUp = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .attach('file', propFile);
+    const targetFileId = propUp.body.data.uploaded[0].id;
+
+    // 2회 평가 (동일 파일이라도 mock 응답은 같지만 이력은 2개)
+    await api()
+      .post(`/api/proposals/${propId}/evaluate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ proposal_file_id: targetFileId });
+    await api()
+      .post(`/api/proposals/${propId}/evaluate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ proposal_file_id: targetFileId });
+
+    const list = await api()
+      .get(`/api/proposals/${propId}/evaluations`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(list.status).toBe(200);
+    expect(list.body.data.length).toBe(2);
+    // 최신 → 과거 순
+    expect(list.body.data[0].coverage_score).toBe(78);
+    expect(list.body.data[0].target_filename).toContain('__hist_prop');
+    expect(list.body.data[0].rfp_filename).toContain('__hist_rfp');
+    expect(list.body.data[0].evaluation_json).toBeTruthy();
+    expect(list.body.data[0].evaluation_json.covered_items.length).toBeGreaterThan(0);
+
+    [rfpFile, propFile].forEach(f => {
+      try {
+        fs.unlinkSync(f);
+      } catch (_) {}
+    });
+  });
+
+  it('POST /:id/evaluate — RFP 파일 없으면 400 + 명확한 안내', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__RFP없음',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    // 제안서만 업로드 (RFP 없음)
+    const propFile = path.join(os.tmpdir(), `__no_rfp_${propId}.pdf`);
+    fs.writeFileSync(propFile, Buffer.from('%PDF prop only'));
+    const propUp = await api()
+      .post(`/api/proposals/${propId}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .attach('file', propFile);
+    const targetFileId = propUp.body.data.uploaded[0].id;
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/evaluate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ proposal_file_id: targetFileId });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/RFP 파일이 없|분석 불가/);
+
+    try {
+      fs.unlinkSync(propFile);
+    } catch (_) {}
+  });
+
+  it('POST /:id/evaluate — proposal_file_id 누락 시 400', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__400_no_target',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/evaluate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({});
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/proposal_file_id/);
+  });
+
+  it('POST /:id/evaluate — 다른 제안의 file_id 시 404 (소유 검증)', async () => {
+    // 제안 A
+    const cA = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__평가소유A',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propA = cA.body.id;
+    createdIds.push(propA);
+
+    // 제안 B + 파일
+    const cB = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__평가소유B',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propB = cB.body.id;
+    createdIds.push(propB);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmp = path.join(os.tmpdir(), `__eval_owner_${propB}.pdf`);
+    fs.writeFileSync(tmp, Buffer.from('%PDF B'));
+    const up = await api()
+      .post(`/api/proposals/${propB}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'proposal')
+      .attach('file', tmp);
+    const fileIdOfB = up.body.data.uploaded[0].id;
+
+    // 제안 A 에서 제안 B 의 파일로 평가
+    const r = await api()
+      .post(`/api/proposals/${propA}/evaluate`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ proposal_file_id: fileIdOfB });
+    expect(r.status).toBe(404);
+    expect(r.body.error).toMatch(/찾을 수 없/);
+
+    try {
+      fs.unlinkSync(tmp);
+    } catch (_) {}
+  });
+
   // ── Phase 5-B: 이메일 발송 ──────────────────────────────────
   it('POST /:id/email/send — mock Gmail 발송 + email_logs + history 기록', async () => {
     const create = await api()

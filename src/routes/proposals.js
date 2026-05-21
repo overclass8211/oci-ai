@@ -32,7 +32,7 @@ const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
-const { analyzeProposalRFP } = require('../services/gemini');
+const { analyzeProposalRFP, evaluateProposalAgainstRFP } = require('../services/gemini');
 const {
   sendMessageWithAttachments,
   classifyError: gmailClassifyError,
@@ -259,6 +259,26 @@ async function ensureSchema() {
           REFERENCES proposals(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // Phase 6-B: AI 평가 결과 (RFP 대비 제안서 커버율 + 누락/보완 코칭)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS proposal_evaluations (
+        id                  INT AUTO_INCREMENT PRIMARY KEY,
+        proposal_id         INT NOT NULL,
+        target_file_id      INT NOT NULL,
+        rfp_file_id         INT NOT NULL,
+        coverage_score      INT NOT NULL,
+        covered_count       INT DEFAULT 0,
+        missing_count       INT DEFAULT 0,
+        evaluation_md       MEDIUMTEXT NULL,
+        evaluation_json     MEDIUMTEXT NULL,
+        generated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by          INT NULL,
+        INDEX idx_proposal_eval (proposal_id, generated_at),
+        INDEX idx_target_file   (target_file_id),
+        CONSTRAINT fk_pev_proposal FOREIGN KEY (proposal_id)
+          REFERENCES proposals(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
   } catch (e) {
     // 외래키 실패 시 fallback — FK 없이 재시도 (예: proposals 부재 등)
     console.warn('[proposals:migration] FK 생성 실패 → fallback (FK 없이 재생성):', e.message);
@@ -301,6 +321,18 @@ async function ensureSchema() {
           sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           send_status VARCHAR(30) DEFAULT 'sent', error_message TEXT NULL,
           INDEX idx_proposal_sent (proposal_id, sent_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      // Phase 6-B: AI 평가 (FK 없이)
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS proposal_evaluations (
+          id INT AUTO_INCREMENT PRIMARY KEY, proposal_id INT NOT NULL,
+          target_file_id INT NOT NULL, rfp_file_id INT NOT NULL,
+          coverage_score INT NOT NULL, covered_count INT DEFAULT 0, missing_count INT DEFAULT 0,
+          evaluation_md MEDIUMTEXT NULL, evaluation_json MEDIUMTEXT NULL,
+          generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_by INT NULL,
+          INDEX idx_proposal_eval (proposal_id, generated_at),
+          INDEX idx_target_file (target_file_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
     } catch (_) {
@@ -1412,6 +1444,187 @@ router.post('/:id/email/send', async (req, res) => {
       } catch (_) {}
     }
     res.status(500).json({ success: false, error: err?.message || '이메일 발송 실패' });
+  }
+});
+
+// ── Phase 6-B: AI 제안서 평가 (RFP 대비 커버율 + 코칭) ─────────
+// 입력: { proposal_file_id }  — 평가 대상 제안서 파일 (file_type 무관)
+// 자동: RFP 파일 = proposal_files 중 file_type='rfp' AND PDF/이미지/텍스트 형식의 첫 파일
+// 출력: { id, coverage_score, covered_count, missing_count, ... } + DB 저장
+router.post('/:id/evaluate', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+    const targetFileId = parseInt(req.body?.proposal_file_id, 10);
+    if (!targetFileId) {
+      return res
+        .status(400)
+        .json({ success: false, error: '평가 대상 proposal_file_id 가 필요합니다' });
+    }
+
+    // 대상 제안서 파일 조회 + 소유 검증
+    const [[targetFile]] = await pool.query(
+      `SELECT id, file_path, mime_type, original_filename
+         FROM proposal_files
+        WHERE id = ? AND proposal_id = ?`,
+      [targetFileId, id]
+    );
+    if (!targetFile) {
+      return res.status(404).json({ success: false, error: '대상 파일을 찾을 수 없음' });
+    }
+
+    // RFP 파일 자동 선택 — file_type='rfp' 의 첫 파일 (PDF/이미지/텍스트만)
+    const [rfpFiles] = await pool.query(
+      `SELECT id, file_path, mime_type, original_filename
+         FROM proposal_files
+        WHERE proposal_id = ? AND file_type = 'rfp'
+        ORDER BY created_at ASC`,
+      [id]
+    );
+    const ANALYZABLE_RE = /\.(pdf|png|jpe?g|webp|txt)$/i;
+    const rfpFile = (rfpFiles || []).find(f => ANALYZABLE_RE.test(f.original_filename));
+    if (!rfpFile) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'RFP 파일이 없거나 분석 불가 형식입니다. 기본 탭의 RFP 영역에 PDF/이미지/텍스트 파일을 먼저 업로드하세요',
+      });
+    }
+
+    // 두 파일 디스크 존재 확인
+    const rfpAbsPath = path.join(__dirname, '..', '..', 'public', rfpFile.file_path);
+    const targetAbsPath = path.join(__dirname, '..', '..', 'public', targetFile.file_path);
+    if (!fs.existsSync(rfpAbsPath)) {
+      return res
+        .status(404)
+        .json({ success: false, error: `RFP 파일이 디스크에 없음: ${rfpFile.original_filename}` });
+    }
+    if (!fs.existsSync(targetAbsPath)) {
+      return res.status(404).json({
+        success: false,
+        error: `제안서 파일이 디스크에 없음: ${targetFile.original_filename}`,
+      });
+    }
+
+    console.log(
+      `[proposals:evaluate] start proposal=${id} rfp=${rfpFile.id} target=${targetFile.id}`
+    );
+
+    // Gemini 평가 호출
+    const evaluation = await evaluateProposalAgainstRFP({
+      rfpPath: rfpAbsPath,
+      rfpMime: rfpFile.mime_type || 'application/pdf',
+      proposalPath: targetAbsPath,
+      proposalMime: targetFile.mime_type || 'application/pdf',
+      userId,
+      endpoint: 'proposal_evaluate',
+    });
+
+    const elapsed = Date.now() - startedAt;
+    console.log(
+      `[proposals:evaluate] done proposal=${id} score=${evaluation.coverage_score} elapsed=${elapsed}ms`
+    );
+
+    // DB 저장
+    const [ins] = await pool.query(
+      `INSERT INTO proposal_evaluations
+        (proposal_id, target_file_id, rfp_file_id, coverage_score,
+         covered_count, missing_count, evaluation_md, evaluation_json, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        targetFileId,
+        rfpFile.id,
+        evaluation.coverage_score,
+        evaluation.covered_count,
+        evaluation.missing_count,
+        evaluation.overall_assessment || null,
+        JSON.stringify(evaluation),
+        userId || null,
+      ]
+    );
+
+    // history 기록
+    logHistory(null, id, userId, 'evaluate', {
+      description: `AI 평가 — ${targetFile.original_filename} vs ${rfpFile.original_filename} (커버율 ${evaluation.coverage_score}%, ${elapsed}ms)`,
+      newValue: String(evaluation.coverage_score),
+    });
+
+    res.json({
+      success: true,
+      data: {
+        id: ins.insertId,
+        proposal_id: id,
+        target_file_id: targetFileId,
+        rfp_file_id: rfpFile.id,
+        target_filename: targetFile.original_filename,
+        rfp_filename: rfpFile.original_filename,
+        ...evaluation,
+      },
+    });
+  } catch (err) {
+    const elapsed = Date.now() - startedAt;
+    console.error(`[proposals:evaluate] failed after ${elapsed}ms:`, err?.message || err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'AI 평가 실패',
+    });
+  }
+});
+
+// ── GET /:id/evaluations — 평가 이력 조회 (다중 버전 비교) ─────
+router.get('/:id/evaluations', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+
+    const [rows] = await pool.query(
+      `SELECT pe.id, pe.proposal_id, pe.target_file_id, pe.rfp_file_id,
+              pe.coverage_score, pe.covered_count, pe.missing_count,
+              pe.evaluation_md, pe.evaluation_json, pe.generated_at,
+              tf.original_filename AS target_filename,
+              rf.original_filename AS rfp_filename,
+              tm.name AS created_by_name
+         FROM proposal_evaluations pe
+         LEFT JOIN proposal_files tf ON tf.id = pe.target_file_id
+         LEFT JOIN proposal_files rf ON rf.id = pe.rfp_file_id
+         LEFT JOIN team_members tm ON tm.id = pe.created_by
+        WHERE pe.proposal_id = ?
+        ORDER BY pe.generated_at DESC
+        LIMIT 50`,
+      [id]
+    );
+
+    const data = (rows || []).map(r => {
+      let detail = null;
+      try {
+        detail = r.evaluation_json ? JSON.parse(r.evaluation_json) : null;
+      } catch (_) {
+        /* ignore parse error */
+      }
+      return {
+        id: r.id,
+        proposal_id: r.proposal_id,
+        target_file_id: r.target_file_id,
+        target_filename: r.target_filename,
+        rfp_file_id: r.rfp_file_id,
+        rfp_filename: r.rfp_filename,
+        coverage_score: r.coverage_score,
+        covered_count: r.covered_count,
+        missing_count: r.missing_count,
+        evaluation_md: r.evaluation_md,
+        evaluation_json: detail,
+        generated_at: r.generated_at,
+        created_by_name: r.created_by_name,
+      };
+    });
+
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[proposals:evaluations list] failed:', err?.message || err);
+    res.status(500).json({ success: false, error: err?.message || '평가 이력 조회 실패' });
   }
 });
 

@@ -368,6 +368,254 @@ async function analyzeProposalRFP({ filePath, mimeType, userId, endpoint }) {
   };
 }
 
+// ── 제안서 RFP 대비 평가 (Phase 6-B) ───────────────────────────
+// RFP 와 제안서 파일을 동시에 Gemini Multimodal 로 전달 → 평가위원 입장에서
+// 커버율(0-100) + 충족 항목 + 누락/부족 + 개선 제안 + 전체 평가를 JSON 으로 반환.
+// 기존 analyzeProposalRFP 와 동일한 보안 검증 패턴 재사용 (호환 형식 / API 키 / 크기).
+const PROPOSAL_EVAL_PROMPT = `당신은 발주처 평가위원입니다. 두 개의 첨부 파일을 받게 됩니다:
+1) 첫 번째 파일: RFP (제안요청서)
+2) 두 번째 파일: 제안서
+
+RFP의 요구사항·평가기준·필수항목을 기준으로 제안서가 얼마나 충실히 응답했는지 객관적으로 평가하세요.
+
+규칙:
+1. RFP 에 명시된 요구사항만을 평가 기준으로 사용 (RFP에 없는 항목 만들지 마세요).
+2. 모든 점수는 RFP 의 명시된 평가 항목에 근거.
+3. 확실하지 않은 항목은 missing_items 에 분류 ("애매함 → 누락"으로 안전하게).
+4. 평가는 한국어로.
+
+반환 필드 (JSON):
+- coverage_score: 0~100 정수 — RFP 요구사항 대비 제안서 커버율
+- covered_count: 충족된 항목 개수
+- missing_count: 누락된 항목 개수
+- covered_items: 배열 [{ requirement, evidence }] — 최대 15개
+   · requirement: RFP의 요구사항 (50자 이내)
+   · evidence: 제안서의 응답 근거 (100자 이내)
+- missing_items: 배열 [{ requirement, severity, suggestion }] — 최대 10개
+   · requirement: 누락/부족한 RFP 요구사항
+   · severity: 'high' | 'medium' | 'low'
+   · suggestion: 보완 제안 (구체적, 100자 이내)
+- improvement_suggestions: 배열 [{ section, suggestion }] — 최대 5개
+   · section: 제안서의 어느 절/섹션 (예: '5장 가격')
+   · suggestion: 개선 방향 (100자 이내)
+- overall_assessment: 한국어 마크다운 종합 평가 (500자 이내)
+   포함:
+   ## 1. 종합 평가
+   ## 2. 강점
+   ## 3. 보완 필요
+   ## 4. 권장 액션`;
+
+async function evaluateProposalAgainstRFP({
+  rfpPath,
+  rfpMime,
+  proposalPath,
+  proposalMime,
+  userId,
+  endpoint,
+}) {
+  // 테스트 환경 — Gemini API 호출 없이 mock 응답
+  if (process.env.NODE_ENV === 'test') {
+    return {
+      coverage_score: 78,
+      covered_count: 12,
+      missing_count: 3,
+      covered_items: [
+        { requirement: '__MOCK__ 클라우드 인프라', evidence: '__MOCK__ 제안서 3.1절' },
+      ],
+      missing_items: [
+        {
+          requirement: '__MOCK__ 보안 인증 (ISMS-P)',
+          severity: 'high',
+          suggestion: '__MOCK__ 인증 보유 현황 명시 필요',
+        },
+      ],
+      improvement_suggestions: [
+        { section: '__MOCK__ 5장 가격', suggestion: '__MOCK__ 경쟁사 비교표 추가 권장' },
+      ],
+      overall_assessment:
+        '## 1. 종합 평가\n- 테스트\n\n## 2. 강점\n- 테스트\n\n## 3. 보완 필요\n- 테스트\n\n## 4. 권장 액션\n- 테스트',
+      _mock: true,
+    };
+  }
+
+  // 사전 검증 — API 키
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.length < 10) {
+    throw new Error(
+      'AI 평가 서비스가 설정되지 않았습니다 (GEMINI_API_KEY 누락) — 관리자에게 문의하세요'
+    );
+  }
+
+  const fs = require('fs');
+  if (!rfpPath || !fs.existsSync(rfpPath)) {
+    throw new Error('RFP 파일이 디스크에 없습니다 (삭제됨)');
+  }
+  if (!proposalPath || !fs.existsSync(proposalPath)) {
+    throw new Error('제안서 파일이 디스크에 없습니다 (삭제됨)');
+  }
+
+  // 호환 형식 검증 (두 파일 모두)
+  const rfpResolvedMime = _resolveAnalyzableMime(rfpPath, rfpMime);
+  if (!rfpResolvedMime) {
+    throw new Error('RFP 파일이 분석 불가 형식입니다. PDF / 이미지 (PNG·JPG·WEBP) / 텍스트만 지원');
+  }
+  const propResolvedMime = _resolveAnalyzableMime(proposalPath, proposalMime);
+  if (!propResolvedMime) {
+    throw new Error(
+      '제안서 파일이 분석 불가 형식입니다. PDF / 이미지 (PNG·JPG·WEBP) / 텍스트만 지원'
+    );
+  }
+
+  const rfpBuffer = fs.readFileSync(rfpPath);
+  const propBuffer = fs.readFileSync(proposalPath);
+  const totalBytes = rfpBuffer.length + propBuffer.length;
+  // 합계 30MB 한도 (Gemini inlineData 한계 + 안전마진)
+  if (totalBytes > 30 * 1024 * 1024) {
+    throw new Error(
+      `두 파일 합계 ${(totalBytes / 1024 / 1024).toFixed(1)}MB 가 30MB 초과 — 파일을 압축/요약하여 재시도`
+    );
+  }
+  if (rfpBuffer.length < 64 || propBuffer.length < 64) {
+    throw new Error('파일이 너무 작거나 손상되었습니다');
+  }
+
+  console.log(
+    `[gemini:evaluateProposalAgainstRFP] rfp=${(rfpBuffer.length / 1024).toFixed(1)}KB prop=${(propBuffer.length / 1024).toFixed(1)}KB`
+  );
+
+  const rfpB64 = rfpBuffer.toString('base64');
+  const propB64 = propBuffer.toString('base64');
+
+  const model = genAI.getGenerativeModel({
+    model: MODEL_PRO,
+    safetySettings: SAFETY_SETTINGS,
+  });
+
+  let result;
+  try {
+    result = await model.generateContent({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: '[첫 번째 파일 — RFP 제안요청서]' },
+            { inlineData: { mimeType: rfpResolvedMime, data: rfpB64 } },
+            { text: '[두 번째 파일 — 제안서]' },
+            { inlineData: { mimeType: propResolvedMime, data: propB64 } },
+            { text: PROPOSAL_EVAL_PROMPT },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2, // 평가는 결정적이어야 함 (재현 가능)
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'object',
+          properties: {
+            coverage_score: { type: 'integer' },
+            covered_count: { type: 'integer' },
+            missing_count: { type: 'integer' },
+            covered_items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  requirement: { type: 'string' },
+                  evidence: { type: 'string' },
+                },
+                required: ['requirement', 'evidence'],
+              },
+            },
+            missing_items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  requirement: { type: 'string' },
+                  severity: { type: 'string' },
+                  suggestion: { type: 'string' },
+                },
+                required: ['requirement', 'severity', 'suggestion'],
+              },
+            },
+            improvement_suggestions: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  section: { type: 'string' },
+                  suggestion: { type: 'string' },
+                },
+                required: ['section', 'suggestion'],
+              },
+            },
+            overall_assessment: { type: 'string' },
+          },
+          required: [
+            'coverage_score',
+            'covered_count',
+            'missing_count',
+            'covered_items',
+            'missing_items',
+            'improvement_suggestions',
+            'overall_assessment',
+          ],
+        },
+      },
+    });
+  } catch (e) {
+    console.error('[gemini:evaluateProposalAgainstRFP] generateContent failed:', e?.message || e);
+    const friendly = friendlyError(e) || e?.message || 'Gemini API 호출 실패';
+    throw new Error(`AI 평가 호출 실패: ${friendly}`);
+  }
+
+  const response = result.response;
+  await logTokenUsage(endpoint || 'proposal_evaluate', response.usageMetadata, MODEL_PRO, userId);
+
+  if (response.promptFeedback?.blockReason) {
+    throw new Error(`AI 평가 거부됨: ${response.promptFeedback.blockReason}`);
+  }
+
+  const text = response.text();
+  if (!text || !text.trim()) {
+    throw new Error('AI 평가 응답이 비어있습니다');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (_) {
+    console.error(
+      '[gemini:evaluateProposalAgainstRFP] JSON parse failed. raw:',
+      text.slice(0, 500)
+    );
+    throw new Error('AI 평가 응답을 JSON 으로 파싱할 수 없습니다');
+  }
+
+  // 사후 정규화 + 길이 제한
+  const clip = (s, n) => (typeof s === 'string' ? s.slice(0, n) : '');
+  const clipObj = arr =>
+    (Array.isArray(arr) ? arr : []).slice(0, 20).map(o => ({
+      ...o,
+      requirement: clip(o.requirement, 150),
+      evidence: clip(o.evidence, 200),
+      suggestion: clip(o.suggestion, 200),
+      section: clip(o.section, 100),
+      severity: ['high', 'medium', 'low'].includes(o.severity) ? o.severity : 'medium',
+    }));
+
+  const score = Math.max(0, Math.min(100, parseInt(parsed.coverage_score, 10) || 0));
+  return {
+    coverage_score: score,
+    covered_count: parseInt(parsed.covered_count, 10) || 0,
+    missing_count: parseInt(parsed.missing_count, 10) || 0,
+    covered_items: clipObj(parsed.covered_items),
+    missing_items: clipObj(parsed.missing_items),
+    improvement_suggestions: clipObj(parsed.improvement_suggestions),
+    overall_assessment: clip(parsed.overall_assessment, 5000),
+  };
+}
+
 async function runStream(res, params) {
   if (process.env.NODE_ENV === 'test') {
     res.write('data: {"text":"[TEST] mock AI response"}\n\n');
@@ -459,5 +707,6 @@ module.exports = {
   getCrmContext,
   runStream,
   analyzeProposalRFP,
+  evaluateProposalAgainstRFP,
   friendlyError,
 };
