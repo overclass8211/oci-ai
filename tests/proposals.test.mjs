@@ -412,6 +412,105 @@ describe('Proposals API — Phase 1', () => {
     expect(detail.body.data.history.filter(h => h.action_type === 'revision_create').length).toBe(2);
   });
 
+  // ── Phase 4-A: AI 제안전략 분석 ─────────────────────────────
+  it('POST /:id/rfp/analyze — mock Gemini 응답 + 5필드 반환 + history 기록', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__AI분석',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    // RFP 파일 업로드
+    const path = await import('path');
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpFile = path.join(os.tmpdir(), `__test_ai_${propId}.pdf`);
+    fs.writeFileSync(tmpFile, Buffer.from('%PDF-1.4 AI test'));
+    const up = await api()
+      .post(`/api/proposals/${propId}/rfp`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .attach('file', tmpFile);
+    const fileId = up.body.data.id;
+
+    // AI 분석 호출 (NODE_ENV=test → mock 응답)
+    const ana = await api()
+      .post(`/api/proposals/${propId}/rfp/analyze`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ file_id: fileId });
+    expect(ana.status).toBe(200);
+    expect(ana.body.success).toBe(true);
+    expect(ana.body.data.rfp_title).toBe('__MOCK__ RFP 제목');
+    expect(ana.body.data.rfp_received_date).toBe('2026-05-15');
+    expect(ana.body.data.rfp_due_date).toBe('2026-06-15');
+    expect(ana.body.data.rfp_summary).toMatch(/__MOCK__/);
+    expect(ana.body.data.ai_strategy_md).toMatch(/RFP 핵심 요약/);
+
+    // DB 자동 저장 X — proposals.rfp_title 은 아직 비어있어야 함
+    const [[prop]] = await pool.query(
+      'SELECT rfp_title, rfp_summary, ai_strategy_md FROM proposals WHERE id = ?',
+      [propId]
+    );
+    expect(prop.rfp_title).toBeNull();
+    expect(prop.rfp_summary).toBeNull();
+    expect(prop.ai_strategy_md).toBeNull();
+
+    // history 에 ai_analyze 기록 (best-effort, 비동기이므로 약간 대기)
+    await new Promise(r => setTimeout(r, 200));
+    const [hist] = await pool.query(
+      `SELECT action_type FROM proposal_history WHERE proposal_id = ? AND action_type = 'ai_analyze'`,
+      [propId]
+    );
+    expect(hist.length).toBeGreaterThanOrEqual(1);
+
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch (_) {}
+  });
+
+  it('POST /:id/rfp/analyze — file_id 누락 시 400', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__AI_400',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/rfp/analyze`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({});
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/file_id/);
+  });
+
+  it('POST /:id/rfp/analyze — 존재하지 않는 file_id 시 404', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__AI_404',
+        customer_name: '__TEST__',
+        proposal_date: '2026-05-21',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    const r = await api()
+      .post(`/api/proposals/${propId}/rfp/analyze`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ file_id: 99999999 });
+    expect(r.status).toBe(404);
+  });
+
   // ── 회귀 방지 (Bug fix 2026-05-21) ─────────────────────────
   it('🐛 회귀: PUT /:id — proposal_date 가 ISO 8601 ("...T15:00:00.000Z") 이어도 저장 성공', async () => {
     const create = await api()

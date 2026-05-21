@@ -31,6 +31,7 @@ const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
+const { analyzeProposalRFP } = require('../services/gemini');
 
 router.use(requireFeature('crm.proposals'));
 
@@ -1100,6 +1101,57 @@ router.delete('/:id/files/:fileId', async (req, res) => {
     handleError(res, err);
   } finally {
     conn.release();
+  }
+});
+
+// ── POST /:id/rfp/analyze — AI 제안전략 분석 (Phase 4-A) ─────
+// 입력: { file_id }  — proposal_files 중 분석 대상 파일
+// 처리: Gemini Multimodal 로 파일 내용 분석 → 5필드 JSON 응답
+// 출력: 분석 결과만 반환 (DB 자동 저장 X — 사용자가 검토 후 [저장] 누르면 PUT /:id 로 별도 반영)
+// 부가: proposal_history 에 'ai_analyze' 기록 (사용 로그 추적)
+router.post('/:id/rfp/analyze', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+    const fileId = parseInt(req.body?.file_id, 10);
+    if (!fileId) {
+      return res.status(400).json({ success: false, error: '분석 대상 file_id 가 필요합니다' });
+    }
+
+    // 파일 조회 + 소유 검증
+    const [[file]] = await pool.query(
+      `SELECT id, file_path, mime_type, original_filename, file_size
+         FROM proposal_files
+        WHERE id = ? AND proposal_id = ?`,
+      [fileId, id]
+    );
+    if (!file) {
+      return res.status(404).json({ success: false, error: '파일을 찾을 수 없음' });
+    }
+
+    const absPath = path.join(__dirname, '..', '..', 'public', file.file_path);
+    if (!fs.existsSync(absPath)) {
+      return res.status(404).json({ success: false, error: '파일이 디스크에 없습니다 (삭제됨)' });
+    }
+
+    // Gemini Multimodal 호출
+    const analysis = await analyzeProposalRFP({
+      filePath: absPath,
+      mimeType: file.mime_type || 'application/pdf',
+      userId,
+      endpoint: 'proposal_rfp_analyze',
+    });
+
+    // history 기록 (best-effort, 트랜잭션 없이)
+    logHistory(null, id, userId, 'ai_analyze', {
+      description: `AI 분석: ${file.original_filename}`,
+      newValue: file.original_filename,
+    });
+
+    res.json({ success: true, data: analysis });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 
