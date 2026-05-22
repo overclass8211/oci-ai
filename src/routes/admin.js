@@ -152,6 +152,113 @@ router.put('/settings', async (req, res) => {
   }
 });
 
+// ── Phase 7: 공급사 기본 정보 (관리자 페이지) ─────────────────
+// 견적서/제안서 PDF 출력 시 자동 표시되는 회사 정보.
+// system_settings 의 quote_supplier_* 키 8개를 묶어서 관리.
+// 권한: GET 은 인증 사용자 모두 (모듈에서 fetch 필요), PUT 은 admin+ (rbac autoLevel 자동)
+const SUPPLIER_FIELD_KEYS = [
+  'supplier_company_name', // 회사명 (필수)
+  'supplier_address', // 주소
+  'supplier_business_no', // 사업자등록번호
+  'supplier_ceo', // 대표자
+  'sales_rep_name', // 영업 담당자 이름
+  'sales_rep_contact', // 영업 담당자 연락처
+  'sales_rep_email', // 영업 담당자 이메일
+];
+const SUPPLIER_META_KEYS = [
+  'supplier_updated_by_name', // 마지막 수정자 이름
+  'supplier_updated_by_id', // 마지막 수정자 ID
+];
+
+function _isValidEmail(s) {
+  if (!s) return true; // 빈 값 허용
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s).trim());
+}
+
+// GET /api/admin/supplier-info — 공급사 정보 조회 (인증 사용자 모두)
+router.get('/supplier-info', async (req, res) => {
+  try {
+    const allKeys = SUPPLIER_FIELD_KEYS.concat(SUPPLIER_META_KEYS).map(k => 'quote_' + k);
+    const placeholders = allKeys.map(() => '?').join(',');
+    const [rows] = await pool.query(
+      `SELECT setting_key, setting_value, updated_at
+         FROM system_settings WHERE setting_key IN (${placeholders})`,
+      allKeys
+    );
+    const data = {};
+    let lastUpdatedAt = null;
+    rows.forEach(r => {
+      const shortKey = r.setting_key.replace(/^quote_/, '');
+      data[shortKey] = r.setting_value;
+      // 가장 최근 updated_at 추적 (모든 키 중)
+      if (!lastUpdatedAt || new Date(r.updated_at) > new Date(lastUpdatedAt)) {
+        lastUpdatedAt = r.updated_at;
+      }
+    });
+    // 빈 키도 명시적으로 (UI 가 동일 구조로 받을 수 있도록)
+    SUPPLIER_FIELD_KEYS.concat(SUPPLIER_META_KEYS).forEach(k => {
+      if (data[k] === undefined) data[k] = '';
+    });
+    data._updated_at = lastUpdatedAt;
+    res.json({ success: true, data });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// PUT /api/admin/supplier-info — 공급사 정보 저장 (admin+ 권한 — autoLevel 자동)
+router.put('/supplier-info', async (req, res) => {
+  try {
+    const body = req.body || {};
+    // 화이트리스트 — 허용된 필드만 (악의적 키 차단)
+    const validUpdates = {};
+    for (const k of SUPPLIER_FIELD_KEYS) {
+      if (body[k] !== undefined) {
+        validUpdates[k] = String(body[k] || '').slice(0, 255);
+      }
+    }
+    if (Object.keys(validUpdates).length === 0) {
+      return res.status(400).json({ success: false, error: '저장할 항목이 없습니다' });
+    }
+    // 검증
+    if (
+      validUpdates.supplier_company_name !== undefined &&
+      !validUpdates.supplier_company_name.trim()
+    ) {
+      return res.status(400).json({ success: false, error: '회사명은 필수 입력입니다' });
+    }
+    if (validUpdates.sales_rep_email && !_isValidEmail(validUpdates.sales_rep_email)) {
+      return res.status(400).json({ success: false, error: '이메일 형식이 유효하지 않습니다' });
+    }
+
+    // 마지막 수정자 메타 (req.user 가 NODE_ENV=test 면 null)
+    const userId = req.user?.id || null;
+    let userName = '시스템';
+    if (userId) {
+      try {
+        const [[u]] = await pool.query(`SELECT name FROM team_members WHERE id = ?`, [userId]);
+        userName = u?.name || `사용자 #${userId}`;
+      } catch (_) {}
+    }
+    validUpdates.supplier_updated_by_id = String(userId || '');
+    validUpdates.supplier_updated_by_name = userName;
+
+    // 배치 INSERT...ON DUPLICATE
+    for (const [shortKey, value] of Object.entries(validUpdates)) {
+      const fullKey = 'quote_' + shortKey;
+      await pool.query(
+        `INSERT INTO system_settings (setting_key, setting_value) VALUES (?,?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+        [fullKey, value]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/token-usage-by-user', async (req, res) => {
   try {
     const [[def]] = await pool.query(

@@ -28,6 +28,7 @@ const AdminPage = {
         <button class="tab-btn"        data-tab="pipeline">🔀 파이프라인 설정</button>
         <button class="tab-btn"        data-tab="menu-config">🧭 메뉴 구조</button>
         <button class="tab-btn"        data-tab="word-repo">🗂 워드 사전</button>
+        <button class="tab-btn"        data-tab="supplier-info">📑 공급사 기본 정보</button>
         ${
           App.currentUser?.role === 'superadmin'
             ? `
@@ -50,6 +51,7 @@ const AdminPage = {
       <div id="admin-tab-pipeline"      class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-menu-config"   class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-word-repo"     class="admin-tab-panel" style="display:none"></div>
+      <div id="admin-tab-supplier-info" class="admin-tab-panel" style="display:none"></div>
       <div id="admin-tab-token-monitor" class="admin-tab-panel" style="display:none"></div>
     `;
     document.getElementById('content').innerHTML = html;
@@ -189,6 +191,7 @@ const AdminPage = {
       else if (tab === 'pipeline') this.loadPipelineStages();
       else if (tab === 'menu-config') this.loadMenuConfig();
       else if (tab === 'word-repo') this.loadWordRepo();
+      else if (tab === 'supplier-info') this.loadSupplierInfo();
       else if (tab === 'token-monitor') this.loadTokenMonitor();
     }
   },
@@ -3045,5 +3048,250 @@ const AdminPage = {
     } catch (e) {
       Toast.error('이력 조회 실패: ' + (e.message || ''));
     }
+  },
+
+  // ============================================================
+  // Tab — Phase 7: 공급사 기본 정보
+  // 견적서/제안서 PDF 출력 시 자동 표시되는 회사 정보 관리.
+  // 권한: admin(level 4) 이상만 수정 가능. 그 외는 읽기 전용.
+  // ============================================================
+  _supplierInfo: null,
+
+  async loadSupplierInfo() {
+    const panel = document.getElementById('admin-tab-supplier-info');
+    panel.dataset.loaded = '1';
+    panel.innerHTML =
+      '<div class="loading" style="padding:40px;text-align:center">로딩 중...</div>';
+    try {
+      const r = await API.request('GET', '/admin/supplier-info');
+      this._supplierInfo = r.data || {};
+      this._renderSupplierInfo();
+    } catch (e) {
+      panel.innerHTML = `<div class="empty-state" style="padding:60px;text-align:center;color:#d93025">불러오기 실패: ${esc(e.message || e)}</div>`;
+    }
+  },
+
+  _renderSupplierInfo() {
+    const panel = document.getElementById('admin-tab-supplier-info');
+    const d = this._supplierInfo || {};
+    const role = App.currentUser?.role || 'manager';
+    const ROLE_LEVEL = { manager: 1, team_lead: 2, executive: 3, admin: 4, superadmin: 5 };
+    const canEdit = (ROLE_LEVEL[role] || 0) >= 4;
+    const readonlyAttr = canEdit ? '' : 'readonly disabled';
+
+    const upd =
+      d._updated_at && d.supplier_updated_by_name
+        ? `<span style="color:var(--text-3);font-size:12px">최종 수정: ${new Date(d._updated_at).toLocaleString('ko-KR')} · ${esc(d.supplier_updated_by_name)}</span>`
+        : `<span style="color:var(--text-3);font-size:12px">아직 입력된 정보 없음</span>`;
+
+    panel.innerHTML = `
+      <div style="max-width:1100px">
+        <!-- 헤더 -->
+        <div style="margin-bottom:18px;padding:14px 18px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">
+          <div style="font-size:15px;font-weight:700;color:#92400e;margin-bottom:4px">📑 공급사 기본 정보</div>
+          <div style="font-size:12px;color:#92400e;line-height:1.6">
+            모든 <strong>견적서 / 제안서 PDF</strong> 의 공급사 영역에 자동 표시됩니다.
+            ${canEdit ? '' : '<br>⚠️ <strong>수정 권한이 없습니다</strong> — admin 이상만 변경 가능합니다.'}
+          </div>
+          <div style="margin-top:6px">${upd}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+          <!-- 좌측: 입력 폼 -->
+          <div>
+            <!-- 회사 정보 섹션 -->
+            <div class="si-section">
+              <div class="si-section-title">🏢 회사 정보</div>
+              <div class="form-row">
+                <label class="form-label">회사명 <span style="color:#d93025">*</span></label>
+                <input class="form-input si-input" id="si-supplier_company_name" value="${esc(d.supplier_company_name || '')}" placeholder="예: OCI Holdings Co., Ltd." ${readonlyAttr}>
+              </div>
+              <div class="form-row" style="margin-top:8px">
+                <label class="form-label">주소</label>
+                <input class="form-input si-input" id="si-supplier_address" value="${esc(d.supplier_address || '')}" placeholder="예: 서울특별시 강남구 ..." ${readonlyAttr}>
+              </div>
+              <div class="form-row" style="margin-top:8px">
+                <label class="form-label">사업자등록번호</label>
+                <input class="form-input si-input" id="si-supplier_business_no" value="${esc(d.supplier_business_no || '')}" placeholder="예: 123-45-67890" ${readonlyAttr}>
+              </div>
+              <div class="form-row" style="margin-top:8px">
+                <label class="form-label">대표자</label>
+                <input class="form-input si-input" id="si-supplier_ceo" value="${esc(d.supplier_ceo || '')}" placeholder="예: 홍길동" ${readonlyAttr}>
+              </div>
+            </div>
+
+            <!-- 영업 담당자 섹션 -->
+            <div class="si-section">
+              <div class="si-section-title">👤 영업 담당자</div>
+              <div class="form-row">
+                <label class="form-label">담당자 이름</label>
+                <input class="form-input si-input" id="si-sales_rep_name" value="${esc(d.sales_rep_name || '')}" placeholder="예: 김영업" ${readonlyAttr}>
+              </div>
+              <div class="form-row" style="margin-top:8px">
+                <label class="form-label">연락처</label>
+                <input class="form-input si-input" id="si-sales_rep_contact" value="${esc(d.sales_rep_contact || '')}" placeholder="예: 02-1234-5678 / 010-1234-5678" ${readonlyAttr}>
+              </div>
+              <div class="form-row" style="margin-top:8px">
+                <label class="form-label">이메일</label>
+                <input class="form-input si-input" id="si-sales_rep_email" type="email" value="${esc(d.sales_rep_email || '')}" placeholder="예: sales@oci.com" ${readonlyAttr}>
+              </div>
+            </div>
+
+            ${
+              canEdit
+                ? `<div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">
+                  <div style="font-size:11px;color:var(--text-3)">⚠️ 변경 후 다음에 작성하는 견적서/제안서부터 적용됩니다 (기존 견적서는 유지)</div>
+                  <button class="btn btn-primary" id="si-save-btn">💾 저장</button>
+                </div>`
+                : ''
+            }
+          </div>
+
+          <!-- 우측: PDF 미리보기 -->
+          <div>
+            <div class="si-section-title" style="margin-bottom:12px">📄 PDF 미리보기 (실시간)</div>
+            <div id="si-preview" class="si-preview">
+              ${this._renderSupplierPreview(d)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        .si-section {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 14px 18px;
+          margin-bottom: 12px;
+        }
+        .si-section-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--text-1);
+          margin-bottom: 10px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid var(--border);
+        }
+        .si-preview {
+          background: #fff;
+          border: 2px dashed var(--border-2);
+          border-radius: 8px;
+          padding: 20px 24px;
+          font-family: 'Malgun Gothic', sans-serif;
+          font-size: 12px;
+          line-height: 1.6;
+          color: var(--text-1);
+          position: sticky;
+          top: 20px;
+        }
+        .si-preview-header {
+          font-size: 11px;
+          font-weight: 700;
+          color: #E63329;
+          letter-spacing: 0.04em;
+          margin-bottom: 8px;
+          padding-bottom: 4px;
+          border-bottom: 1px solid #E63329;
+        }
+        .si-preview-empty {
+          color: var(--text-3);
+          font-style: italic;
+          font-size: 11px;
+        }
+      </style>
+    `;
+    this._bindSupplierInfo(canEdit);
+  },
+
+  _renderSupplierPreview(d) {
+    d = d || {};
+    const f = k => esc((d[k] || '').trim());
+    const company = f('supplier_company_name');
+    const address = f('supplier_address');
+    const bizNo = f('supplier_business_no');
+    const ceo = f('supplier_ceo');
+    const repName = f('sales_rep_name');
+    const repContact = f('sales_rep_contact');
+    const repEmail = f('sales_rep_email');
+    const hasAny =
+      company || address || bizNo || ceo || repName || repContact || repEmail;
+    if (!hasAny) {
+      return `<div class="si-preview-empty">⚠️ 정보를 입력하면 여기에 PDF 출력 모습이 표시됩니다</div>`;
+    }
+    return `
+      <div class="si-preview-header">공급사 (Supplier)</div>
+      ${company ? `<div style="font-weight:700;font-size:13px;color:#1F2329">${company}</div>` : ''}
+      ${address ? `<div style="color:#555;margin-top:2px">${address}</div>` : ''}
+      ${bizNo ? `<div style="color:#555;margin-top:2px">사업자등록번호: ${bizNo}</div>` : ''}
+      ${ceo ? `<div style="color:#555;margin-top:2px">대표: ${ceo}</div>` : ''}
+      ${
+        repName || repContact || repEmail
+          ? `<div style="margin-top:10px;padding-top:8px;border-top:1px dashed #E4E7EB">
+            <div style="font-size:10px;font-weight:600;color:#86909C;margin-bottom:3px">담당자</div>
+            ${repName ? `<div style="color:#1F2329">${repName}</div>` : ''}
+            ${repContact ? `<div style="color:#555">${repContact}</div>` : ''}
+            ${repEmail ? `<div style="color:#555">${repEmail}</div>` : ''}
+          </div>`
+          : ''
+      }
+    `;
+  },
+
+  _bindSupplierInfo(canEdit) {
+    // 실시간 미리보기 — 입력 변경 시 우측 영역 재렌더
+    const updatePreview = () => {
+      const d = {};
+      document.querySelectorAll('.si-input').forEach(el => {
+        const key = el.id.replace(/^si-/, '');
+        d[key] = el.value || '';
+      });
+      const preview = document.getElementById('si-preview');
+      if (preview) preview.innerHTML = this._renderSupplierPreview(d);
+    };
+    document.querySelectorAll('.si-input').forEach(el => {
+      el.addEventListener('input', updatePreview);
+    });
+
+    if (!canEdit) return;
+
+    // 저장 버튼
+    const saveBtn = document.getElementById('si-save-btn');
+    if (!saveBtn) return;
+    saveBtn.addEventListener('click', async () => {
+      const body = {};
+      document.querySelectorAll('.si-input').forEach(el => {
+        const key = el.id.replace(/^si-/, '');
+        body[key] = (el.value || '').trim();
+      });
+      // 클라이언트 사전 검증
+      if (!body.supplier_company_name) {
+        Toast.error('회사명은 필수 입력입니다');
+        document.getElementById('si-supplier_company_name')?.focus();
+        return;
+      }
+      if (
+        body.sales_rep_email &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.sales_rep_email)
+      ) {
+        Toast.error('이메일 형식이 유효하지 않습니다');
+        document.getElementById('si-sales_rep_email')?.focus();
+        return;
+      }
+
+      const orig = saveBtn.innerHTML;
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '⏳ 저장 중...';
+      try {
+        await API.request('PUT', '/admin/supplier-info', body);
+        Toast.success('공급사 기본 정보 저장됨');
+        // 갱신 — 마지막 수정 정보 반영
+        await this.loadSupplierInfo();
+      } catch (e) {
+        Toast.error('저장 실패: ' + (e.error || e.message || e));
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = orig;
+      }
+    });
   },
 };
