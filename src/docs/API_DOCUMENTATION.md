@@ -1208,7 +1208,141 @@ DELETE /api/admin/logo
 
 ---
 
-## 20. 클라이언트 가드 (Circuit Breaker)
+## 20. 견적서 API (`/quotes`)
+
+> 자동 채번 (`Q-YYYY-NNNN`), Combobox 영업리드 연결, 부가세 토글, PDF 미리보기/다운로드, 리비전 트리 지원.
+
+### 20.1 목록 / 생성 / 수정 / 삭제
+- `GET    /api/quotes?status=&search=&page=&pageSize=`
+- `POST   /api/quotes` — body: `{ name, customer_name, lead_id?, quote_items[], vat_included, supplier_info?, customer_info?, ... }`
+- `PUT    /api/quotes/:id`
+- `DELETE /api/quotes/:id`
+
+### 20.2 채번 + 리비전 + 상태
+- `GET   /api/quotes/next-quote-no?year=YYYY` — 다음 자동 채번 미리보기
+- `POST  /api/quotes/:id/revisions` — 리비전 생성
+- `GET   /api/quotes/:id/revisions` — 리비전 트리 조회
+- `PATCH /api/quotes/:id/status` — 상태 전환 (draft/review/sent/accepted/rejected)
+
+---
+
+## 21. 제안 API (`/proposals`)
+
+> 자동 채번 (`P-YYYY-NNNN`), 4-탭 모달 (기본+RFP / AI / 자료+견적 / 발송+이력), AI 제안전략 + 평가 + Gmail 발송 + 공유 링크 통합.
+
+### 21.1 CRUD + 채번 + 상태
+- `GET    /api/proposals?status=&search=&page=&pageSize=&due_soon=`
+- `GET    /api/proposals/:id` — 상세 (files, revisions, history, email_logs 포함)
+- `POST   /api/proposals` — `{ proposal_title, customer_name, proposal_date, lead_id?, quote_id?, ... }`
+- `PUT    /api/proposals/:id` — `ai_strategy_md` 저장 시 `ai_strategy_generated_at` 자동 갱신
+- `PATCH  /api/proposals/:id/status` — draft/review/ready/sent/accepted/rejected/expired
+- `DELETE /api/proposals/:id` — CASCADE (files/revisions/history/email_logs/evaluations 자동 삭제)
+- `GET    /api/proposals/next-proposal-no?year=YYYY`
+
+### 21.2 파일 업로드 (다중 + 드롭존)
+
+`multipart/fields` — `file` (단일, 호환) 또는 `files[]` (다중, Phase 4-B).
+
+- `POST   /api/proposals/:id/rfp` — RFP 파일 + 메타 (rfp_title/rfp_received_date/rfp_due_date)
+- `POST   /api/proposals/:id/files` — 일반 자료 (file_type/revision_no/is_final/include_in_email)
+- `GET    /api/proposals/:id/files/:fileId/download`
+- `DELETE /api/proposals/:id/files/:fileId`
+
+**응답 형식 (다중 지원):**
+```json
+{
+  "success": true,
+  "data": {
+    "uploaded": [{ "id": 1, "original_filename": "...", "file_size": 1024 }],
+    "failed": [{ "original_filename": "x.exe", "error": "허용되지 않은 확장자" }]
+  }
+}
+```
+
+**허용 형식:** pdf, ppt, pptx, doc, docx, xls, xlsx, png, jpg, jpeg, hwp, hwpx (파일당 100MB)
+
+### 21.3 리비전
+- `POST  /api/proposals/:id/revisions` — `{ title, description }` → version_no 자동 증가
+
+### 21.4 🤖 AI RFP 분석 (Phase 4-A)
+- `POST  /api/proposals/:id/rfp/analyze` — `{ file_id }`
+
+Gemini 2.5 Pro Multimodal — 호환 형식 (PDF/이미지/텍스트) 만 분석.
+
+**응답:**
+```json
+{
+  "success": true,
+  "data": {
+    "rfp_title": "...",
+    "rfp_received_date": "YYYY-MM-DD",
+    "rfp_due_date": "YYYY-MM-DD",
+    "rfp_summary": "...",
+    "ai_strategy_md": "## 1. RFP 핵심 요약..."
+  }
+}
+```
+
+⚠️ DB 자동 저장 X — 클라이언트가 검토 후 `PUT /:id` 로 별도 반영.
+
+### 21.5 📊 AI 제안서 평가 (Phase 6-B)
+- `POST  /api/proposals/:id/evaluate` — `{ proposal_file_id }`
+- `GET   /api/proposals/:id/evaluations` — 평가 이력 50건
+
+RFP 자동 선택 (`file_type='rfp'` + 호환 형식 첫 파일). Gemini Pro 가 RFP + 제안서 동시 분석.
+
+**응답:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "coverage_score": 78,
+    "covered_count": 12,
+    "missing_count": 3,
+    "covered_items": [{ "requirement": "...", "evidence": "..." }],
+    "missing_items": [
+      { "requirement": "...", "severity": "high|medium|low", "suggestion": "..." }
+    ],
+    "improvement_suggestions": [{ "section": "...", "suggestion": "..." }],
+    "overall_assessment": "## 1. 종합 평가...",
+    "target_filename": "proposal_v1.pdf",
+    "rfp_filename": "rfp_doc.pdf"
+  }
+}
+```
+
+### 21.6 📨 이메일 발송 (Phase 5-B, Gmail OAuth 필요)
+- `POST  /api/proposals/:id/email/send`
+- body: `{ to, cc?, subject, body, file_ids?: number[] }`
+- 첨부 합계 25MB 한도 + 파일 소유 검증
+- `proposal_email_logs` 자동 기록 (sent/failed 상태)
+
+### 21.7 🔗 공유 링크 (Phase 5-C)
+- `POST  /api/proposals/:id/share` — `{ expires_days? = 7 }` (0/음수 = 무제한)
+- `DELETE /api/proposals/:id/share` — 무효화
+
+**외부 접근 (인증 우회):**
+- `GET   /api/proposals/share/:token` — 최소 정보 노출 (제목/고객/RFP 요약/`include_in_email=1` 파일만)
+- `GET   /api/proposals/share/:token/files/:fileId/download`
+- 만료 시 410 Gone
+
+### 21.8 응답 / 에러 코드
+| 코드 | 의미 |
+|------|------|
+| 400 | 필수값 누락 / 비호환 파일 형식 / 25MB 초과 / 잘못된 file_id |
+| 401 | 인증 필요 |
+| 403 | Gmail 권한 부족 (OAuth scope 미보유) |
+| 404 | 제안/파일/토큰 없음 |
+| 410 | 공유 링크 만료 (Gone) |
+| 500 | Gemini API 호출 실패 / 서버 오류 |
+
+### 21.9 history action_types
+`create` / `update` / `status_change` / `rfp_upload` / `file_upload` / `file_download` / `file_delete` / `revision_create` / `ai_analyze` / `evaluate` / `email_send` / `share_create` / `share_revoke` / `share_view` / `share_download`
+
+---
+
+## 22. 클라이언트 가드 (Circuit Breaker)
 
 `API.gmail.send()` 등 11개 메서드 호출 시 토글 OFF면 즉시 throw:
 ```javascript

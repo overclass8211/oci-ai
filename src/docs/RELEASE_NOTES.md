@@ -4,7 +4,109 @@
 
 ---
 
-## v5.0 (2026.05) — 현재 ⭐
+## v5.2 (2026.05.21~22) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 (Proposals) 완성 + AI 평가 신기능**
+
+영업 워크플로우의 마지막 퍼즐 — RFP 분석부터 평가/발송까지 통합.
+
+#### 1. 📝 제안 모듈 (Phase 1-3) — 기본 인프라
+- `proposals` 메인 + `proposal_files / revisions / history / email_logs` 신규 테이블
+- 자동 채번 `P-YYYY-NNNN` (트랜잭션 보호)
+- 상태 워크플로우 (draft / review / ready / sent / accepted / rejected / expired)
+- 영업리드 / 견적 Combobox 자동 연결
+- 파일 업로드/다운로드/삭제 + 리비전 + 감사 추적
+
+#### 2. 🤖 AI RFP 분석 (Phase 4)
+- **Gemini 2.5 Pro Multimodal** — PDF/이미지/텍스트 직접 분석
+- 자동 추출: 제목 / 접수일 / 제출마감일 / RFP 요약
+- B2B 제안 전략 마크다운 자동 생성 (5섹션)
+- 드롭존 + 다중 파일 업로드 (drag & drop)
+- 결과 검토 후 명시적 [저장] (자동 저장 X — 환각 방지)
+- 비호환 형식 (PPT/DOC/HWP) 명확한 안내
+
+#### 3. 📨 이메일 발송 (Phase 5-A/B) — Gmail OAuth
+- 기존 `sendMessage` 영향 없이 `sendMessageWithAttachments` 신규
+- multipart/mixed + RFC 2047 한글 안전
+- 합계 25MB 한도 + 파일 소유 검증
+- `proposal_email_logs` 자동 기록 (sending → sent / failed)
+- 자동 템플릿 (고객/제안명/번호 자동 채움)
+
+#### 4. 🔗 외부 공유 링크 (Phase 5-C/E)
+- `crypto.randomBytes(32)` → base64url 토큰 (43자)
+- 만료일 선택 (7/14/30일/무제한) + 재발급 + 무효화
+- 외부 페이지 `proposal-share.html` — 단독 디자인 (사이드바/로그인 없음)
+- **최소 정보 노출** — 가격/AI 전략/리드/이메일 이력 미노출
+- `include_in_email=1` 파일만 다운로드 가능
+- 인쇄 친화 (`@media print`)
+
+#### 5. 🎨 4-탭 UI 통합 (Phase 6-A)
+- 7-탭 → 4-탭으로 인지 부하 감소
+- 📋 기본+RFP / 🤖 AI / 📦 자료+견적 / 📤 발송+이력
+- 기존 렌더 함수 그대로 보존 (롤백 가능)
+- 백엔드 / API / DB 변경 없음
+
+#### 6. 📊 🆕 **AI 제안서 평가** (Phase 6-B/C) — 핵심 신기능
+**RFP 와 제안서를 Gemini 가 동시 분석** → 평가위원 입장에서:
+- **RFP 커버율** (0-100점, 정량 평가)
+- **충족 요구사항** — RFP 의 어떤 요구사항이 제안서 어디에 응답됐는지
+- **누락/부족 항목** — severity (high/medium/low) + 보완 제안
+- **개선 제안** — 섹션별 구체 코칭
+- **종합 평가** — 마크다운 (강점/보완/권장 액션)
+
+신규 테이블 `proposal_evaluations` (다중 버전 비교 가능).
+
+#### 7. 🐛 버그 fix (작업 중 발견 + 해결)
+- proposal_date ISO 8601 SQL 오류 (탭 전환 시)
+- RFP 한글 파일명 깨짐 (latin1 → utf8)
+- AI 분석 비호환 형식 명확한 안내
+
+### 🛠 기술 변경
+- **신규 npm 의존성 0개** — Gemini SDK / HTML5 native API / Node crypto 만 사용
+- **신규 테이블 6개**: `proposals`, `proposal_files`, `proposal_revisions`, `proposal_history`, `proposal_email_logs`, `proposal_evaluations`
+- **신규 API endpoint** (15+건):
+  - `/api/proposals` CRUD + 채번 + 상태
+  - `/api/proposals/:id/rfp` `/files` `/revisions` (업로드/관리)
+  - `/api/proposals/:id/rfp/analyze` `/evaluate` `/evaluations` (AI)
+  - `/api/proposals/:id/email/send` (Gmail 발송)
+  - `/api/proposals/:id/share` (공유 토큰)
+  - `/api/proposals/share/:token` (인증 우회, 외부 접근)
+- **신규 파일**: `src/services/gemini.js` (helper 2개 추가) / `src/routes/proposalShare.js` / `public/proposal-share.html` / `public/js/pages/proposal-share.js`
+
+### 📊 회귀 테스트
+- vitest: **368 테스트 / 32 파일 모두 통과** (Phase 6 전체 +10 신규)
+- e2e: `e2e/proposals.spec.js` **12/12 통과** (Phase 6 +4 신규)
+- lint: 0 errors / 0 warnings
+- npm audit: critical/high 0건 (moderate 7건 — exceljs 의존성, 영향 미미)
+
+### 🔒 보안
+- AI 호출 — 호환 형식 화이트리스트 + 30MB 한도 + API 키 검증
+- 공유 링크 — 토큰 길이 검증 + 만료 + `include_in_email` 화이트리스트
+- 파일 업로드 — 다른 제안 file_id 첨부 차단 (소유 검증)
+- 자동 채번 / 트랜잭션 보호 / FK CASCADE
+
+### 💰 비용 통제
+- AI 호출 — confirm 다이얼로그 2종 (첫 호출 / 덮어쓰기) + 비용 안내
+- `ai_usage` 테이블 — endpoint 별 토큰 사용량 자동 기록
+  - `proposal_rfp_analyze`
+  - `proposal_evaluate`
+- 평균 1회 분석/평가: 300-500원 (Gemini Pro)
+
+### 📚 문서 갱신
+- `USER_MANUAL.md` — 제안 모듈 섹션 + FAQ Q11/Q12 추가
+- `API_DOCUMENTATION.md` — 견적 (§20) + 제안 (§21) 신규 섹션
+- `RELEASE_NOTES.md` (현재 파일)
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+- 신규 테이블 자가 마이그레이션 자동 실행
+- 별도 SQL 실행 불필요
+
+---
+
+## v5.0 (2026.05) — 이전
 
 ### 🎯 주요 변경
 
