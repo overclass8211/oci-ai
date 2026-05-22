@@ -9061,6 +9061,181 @@ body,
   opacity: 0.6;
 }
 
+/* Phase 6-C: AI 제안서 평가 결과 카드 */
+.pr-eval-card {
+  margin-top: 18px;
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #fff 0%, #fef9ff 100%);
+  border: 1px solid #d8b4fe;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.08);
+}
+.pr-eval-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #d8b4fe;
+}
+.pr-eval-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #6b21a8;
+}
+.pr-eval-subtitle {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+  font-family: 'Consolas', monospace;
+}
+.pr-eval-score {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+.pr-eval-score-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.pr-eval-score-bar {
+  background: var(--surface-3);
+  height: 18px;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+.pr-eval-score-fill {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.6s ease;
+}
+.pr-eval-score-num {
+  font-size: 28px;
+  font-weight: 800;
+  margin-top: 8px;
+  text-align: right;
+}
+.pr-eval-score-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+.pr-eval-section {
+  margin-bottom: 16px;
+}
+.pr-eval-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.pr-eval-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+.pr-eval-list li {
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.pr-eval-list.pr-eval-covered li {
+  border-left: 3px solid #16a34a;
+}
+.pr-eval-list.pr-eval-missing li {
+  border-left: 3px solid #dc2626;
+}
+.pr-eval-evidence {
+  color: var(--text-3);
+  font-size: 11px;
+  margin-left: 6px;
+}
+.pr-eval-sev {
+  display: inline-block;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.pr-eval-suggestion {
+  font-size: 11px;
+  color: var(--text-2);
+  background: #fef9c3;
+  padding: 6px 10px;
+  margin-top: 6px;
+  border-radius: 5px;
+  border-left: 2px solid #ca8a04;
+}
+.pr-eval-md {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.pr-eval-md .md-h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6b21a8;
+  margin: 10px 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+}
+.pr-eval-footer {
+  font-size: 10px;
+  color: var(--text-3);
+  text-align: right;
+  margin-top: 8px;
+}
+.pr-eval-loading {
+  margin-top: 18px;
+  padding: 30px;
+  text-align: center;
+  background: var(--surface-2);
+  border: 1px dashed #d8b4fe;
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.pr-eval-spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: #6b21a8;
+  border-radius: 50%;
+  animation: pr-eval-spin 0.9s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes pr-eval-spin {
+  to { transform: rotate(360deg); }
+}
+.pr-eval-error {
+  margin-top: 18px;
+  padding: 16px 20px;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 13px;
+}
+
 /* Phase 6-A: 4-탭 통합 — 섹션 구분선 */
 .pr-tab-divider {
   display: flex;

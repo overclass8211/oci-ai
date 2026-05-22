@@ -697,7 +697,119 @@ const ProposalsPage = (() => {
 
       <div style="font-size:12px;color:var(--text-3);margin:14px 0 8px">📂 등록된 파일 (${files.length}건)</div>
       ${_renderFileList(files, e.id, 'files')}
+
+      <!-- Phase 6-C: AI 평가 결과 영역 (자료 행에서 [📊] 클릭 시 채움) -->
+      <div id="pr-eval-result"></div>
     `;
+  }
+
+  // Phase 6-C: AI 평가 결과 카드 렌더링 (커버율 / 충족 / 누락 / 개선)
+  function _renderEvalResult(data) {
+    if (!data) return '';
+    const score = Math.max(0, Math.min(100, parseInt(data.coverage_score, 10) || 0));
+    const scoreColor = score >= 80 ? '#16a34a' : score >= 60 ? '#ca8a04' : '#dc2626';
+    const sevLabel = { high: '높음', medium: '중간', low: '낮음' };
+    const sevColor = { high: '#dc2626', medium: '#ca8a04', low: '#6b7280' };
+
+    const covered = Array.isArray(data.covered_items) ? data.covered_items : [];
+    const missing = Array.isArray(data.missing_items) ? data.missing_items : [];
+    const improve = Array.isArray(data.improvement_suggestions) ? data.improvement_suggestions : [];
+
+    return `<div class="pr-eval-card" id="pr-eval-card">
+      <div class="pr-eval-header">
+        <div>
+          <div class="pr-eval-title">📊 AI 평가 결과</div>
+          <div class="pr-eval-subtitle">
+            ${esc(data.target_filename || '')} <span style="opacity:0.6">vs</span> ${esc(data.rfp_filename || '')}
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="pr-eval-close-btn" type="button" title="닫기">✕</button>
+      </div>
+
+      <!-- 커버율 진행바 -->
+      <div class="pr-eval-score">
+        <div class="pr-eval-score-label">RFP 커버율</div>
+        <div class="pr-eval-score-bar">
+          <div class="pr-eval-score-fill" style="width:${score}%;background:${scoreColor}"></div>
+        </div>
+        <div class="pr-eval-score-num" style="color:${scoreColor}">${score}%</div>
+        <div class="pr-eval-score-meta">
+          <span>충족 ${data.covered_count || covered.length}건</span>
+          <span style="color:#dc2626">누락 ${data.missing_count || missing.length}건</span>
+        </div>
+      </div>
+
+      <!-- 충족 요구사항 -->
+      ${
+        covered.length > 0
+          ? `<div class="pr-eval-section">
+              <div class="pr-eval-section-title">✅ 충족 요구사항 (${covered.length}건)</div>
+              <ul class="pr-eval-list pr-eval-covered">
+                ${covered
+                  .map(
+                    c => `<li>
+                  <strong>${esc(c.requirement)}</strong>
+                  <span class="pr-eval-evidence">→ ${esc(c.evidence)}</span>
+                </li>`
+                  )
+                  .join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+
+      <!-- 누락/부족 항목 -->
+      ${
+        missing.length > 0
+          ? `<div class="pr-eval-section">
+              <div class="pr-eval-section-title" style="color:#dc2626">⚠️ 누락 / 부족 항목 (${missing.length}건)</div>
+              <ul class="pr-eval-list pr-eval-missing">
+                ${missing
+                  .map(
+                    m => `<li>
+                  <span class="pr-eval-sev" style="background:${sevColor[m.severity] || '#6b7280'}">${esc(sevLabel[m.severity] || m.severity)}</span>
+                  <strong>${esc(m.requirement)}</strong>
+                  <div class="pr-eval-suggestion">💡 ${esc(m.suggestion)}</div>
+                </li>`
+                  )
+                  .join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+
+      <!-- 개선 제안 -->
+      ${
+        improve.length > 0
+          ? `<div class="pr-eval-section">
+              <div class="pr-eval-section-title">💡 개선 제안 (${improve.length}건)</div>
+              <ul class="pr-eval-list">
+                ${improve
+                  .map(
+                    s => `<li>
+                  <strong>${esc(s.section)}</strong>: ${esc(s.suggestion)}
+                </li>`
+                  )
+                  .join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+
+      <!-- 종합 평가 (마크다운) -->
+      ${
+        data.overall_assessment
+          ? `<div class="pr-eval-section">
+              <div class="pr-eval-section-title">📝 종합 평가</div>
+              <div class="pr-eval-md">${_renderMarkdown(data.overall_assessment)}</div>
+            </div>`
+          : ''
+      }
+
+      <div class="pr-eval-footer">
+        ${data.generated_at ? `생성: ${_fmtDateTime(data.generated_at)}` : ''}
+      </div>
+    </div>`;
   }
 
   // 파일 목록 + 다운로드/삭제 버튼 (공통)
@@ -714,7 +826,7 @@ const ProposalsPage = (() => {
         <th style="width:80px;text-align:center">📧 첨부</th>
         <th style="width:110px">크기</th>
         <th style="width:130px">등록일</th>
-        <th style="width:${source === 'rfp' ? '180' : '140'}px;text-align:center">작업</th>
+        <th style="width:${source === 'rfp' || source === 'files' ? '180' : '140'}px;text-align:center">작업</th>
       </tr></thead>
       <tbody>
         ${files
@@ -733,6 +845,13 @@ const ProposalsPage = (() => {
                 ? _isAnalyzable(f.original_filename)
                   ? `<button class="btn btn-ghost btn-sm pr-file-ai" data-id="${f.id}" type="button" title="이 파일로 AI 분석 (Gemini)" style="color:#7c3aed">🤖</button>`
                   : `<span title="PDF / 이미지 / 텍스트만 분석 가능" style="font-size:11px;color:var(--text-3);padding:0 4px">—</span>`
+                : ''
+            }
+            ${
+              source === 'files'
+                ? _isAnalyzable(f.original_filename)
+                  ? `<button class="btn btn-ghost btn-sm pr-file-evaluate" data-id="${f.id}" type="button" title="RFP 대비 평가 (AI 코칭)" style="color:#0891b2">📊</button>`
+                  : `<span title="PDF / 이미지 / 텍스트만 평가 가능" style="font-size:11px;color:var(--text-3);padding:0 4px">—</span>`
                 : ''
             }
             <a class="btn btn-ghost btn-sm" href="${API.proposals.downloadFileUrl(proposalId, f.id)}" data-pr-file-download="${f.id}" title="다운로드">⬇️</a>
@@ -1356,7 +1475,80 @@ const ProposalsPage = (() => {
       });
     });
 
+    // (6) Phase 6-C — AI 평가 버튼 (자료 파일 행에서만 렌더링됨)
+    document.querySelectorAll('.pr-file-evaluate').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fileId = parseInt(btn.dataset.id, 10);
+        await _doEvaluateProposal(e.id, fileId, btn);
+      });
+    });
+
     // 다운로드는 href 직접 — history 기록은 백엔드 자동
+  }
+
+  // Phase 6-C: AI 제안서 평가 + 결과 카드 표시
+  async function _doEvaluateProposal(propId, fileId, btn) {
+    // 기존 평가 결과가 화면에 있으면 덮어쓰기 confirm
+    const existingCard = document.getElementById('pr-eval-card');
+    if (existingCard) {
+      const ok = confirm(
+        '기존 평가 결과를 새로운 평가로 교체하시겠습니까?\n(약 10-30초 소요, 비용 발생)'
+      );
+      if (!ok) return;
+    } else {
+      // 첫 평가도 비용 발생 confirm (사용자 의식적 클릭)
+      const ok = confirm(
+        'AI 평가를 진행하시겠습니까?\nGemini Pro 호출 — 약 10-30초 소요, 1회 약 300-500원 발생'
+      );
+      if (!ok) return;
+    }
+
+    const origText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '⏳';
+    }
+    const resultWrap = document.getElementById('pr-eval-result');
+    if (resultWrap) {
+      resultWrap.innerHTML = `<div class="pr-eval-loading">
+        <div class="pr-eval-spinner"></div>
+        <div>📊 AI 평가 진행 중... (RFP 와 제안서 비교, 최대 30초 소요)</div>
+      </div>`;
+      resultWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    try {
+      Toast.info?.('AI 평가 시작 — RFP 자동 선택 (file_type=rfp 첫 파일)');
+      const res = await API.proposals.evaluate(propId, fileId);
+      const data = res?.data || {};
+      if (resultWrap) {
+        resultWrap.innerHTML = _renderEvalResult(data);
+        // 닫기 버튼 바인딩
+        const closeBtn = document.getElementById('pr-eval-close-btn');
+        if (closeBtn) {
+          closeBtn.addEventListener('click', () => {
+            resultWrap.innerHTML = '';
+          });
+        }
+        resultWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      Toast.success(
+        `평가 완료 — 커버율 ${data.coverage_score}% (충족 ${data.covered_count} / 누락 ${data.missing_count})`
+      );
+    } catch (err) {
+      console.error('[proposals:evaluate] failed:', err);
+      const detail =
+        err?.error || err?.message || (err?.status ? `HTTP ${err.status}` : null) || String(err);
+      Toast.error('AI 평가 실패: ' + detail, { duration: 8000 });
+      if (resultWrap) {
+        resultWrap.innerHTML = `<div class="pr-eval-error">❌ ${esc(detail)}</div>`;
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+      }
+    }
   }
 
   // Phase 4-C — 다중 파일 업로드 (드롭존 / multi input 공통)

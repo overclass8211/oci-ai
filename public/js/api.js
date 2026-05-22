@@ -283,6 +283,10 @@ const API = {
     createShare: (id, expiresDays = 7) =>
       API.post(`/proposals/${id}/share`, { expires_days: expiresDays }),
     revokeShare: id => API.del(`/proposals/${id}/share`),
+    // Phase 6-B — AI 제안서 평가 (RFP 대비 커버율 + 코칭)
+    evaluate: (id, proposalFileId) =>
+      API.post(`/proposals/${id}/evaluate`, { proposal_file_id: proposalFileId }),
+    evaluations: id => API.get(`/proposals/${id}/evaluations`),
   },
 
   // 견적서 (crm.quotes)
