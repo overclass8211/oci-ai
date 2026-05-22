@@ -131,6 +131,10 @@ router.get('/', async (req, res) => {
     const locale = normalizeLocale(req.query.locale);
     const merged = await buildMergedLabels(null, locale);
     const systemLocale = await getSystemLocale();
+    // Fix 3: 브라우저 캐싱 — 라벨은 자주 변경되지 않음 (페이지 전환 시 재요청 부담 ↓)
+    // private = 공유 캐시(Nginx 등) 우회, 사용자별 브라우저만 캐싱
+    // max-age=300 = 5분간 캐시 (라벨 수정 후 최대 5분 지연 허용 — 운영 영향 미미)
+    res.set('Cache-Control', 'private, max-age=300');
     res.json({
       success: true,
       data: {

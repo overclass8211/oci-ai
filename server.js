@@ -84,6 +84,10 @@ app.use(
           "'self'",
           'wss:',
           'ws:',
+          // CDN 자원 (Service Worker / preload / fetch 호환) — scriptSrc/styleSrc 와 동일
+          'https://cdn.jsdelivr.net',
+          'https://cdnjs.cloudflare.com',
+          'https://unpkg.com',
           'https://*.daumcdn.net',
           'https://*.daum.net',
           'https://*.kakao.com',
@@ -127,9 +131,10 @@ app.use(
 // ── Rate Limiting ─────────────────────────────────────────────
 const skipInTest = () => config.rateLimit?.skip === true;
 // 환경별 한도 — 개발 환경은 통합 테스트·폴링·HMR 등으로 호출 빈도가 많음
+// 운영 한도는 .env 의 RATE_LIMIT_API_MAX / RATE_LIMIT_AI_MAX 로 조정 가능 (재시작 없이 변경)
 const isDev = config.env === 'development';
-const API_MAX = isDev ? 3000 : 300; // 15분
-const AI_MAX = isDev ? 100 : 20; // 1분
+const API_MAX = parseInt(process.env.RATE_LIMIT_API_MAX) || (isDev ? 3000 : 1000); // 15분
+const AI_MAX = parseInt(process.env.RATE_LIMIT_AI_MAX) || (isDev ? 100 : 60); // 1분
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
