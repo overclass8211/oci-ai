@@ -597,4 +597,54 @@ describe('Quotes API', () => {
     const res = await api().delete('/api/quotes/9999999').set('X-User-Id', String(TEST_USER_ID));
     expect(res.status).toBe(404);
   });
+
+  // ── Bug 1: 공급사 신규 컬럼 (사업자번호 + 이메일) ──────────
+  it('POST + GET — supplier_business_no + sales_rep_email 저장/조회', async () => {
+    const create = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__신규컬럼',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-22',
+        supplier_company_name: '__TEST__OCI',
+        supplier_business_no: '123-45-67890',
+        sales_rep_email: 'sales@oci-test.com',
+        items: [{ item_name: 'X', unit_price: 100, quantity: 1 }],
+      });
+    expect(create.status).toBe(200);
+    const id = create.body.id;
+    createdQuoteIds.push(id);
+
+    const get = await api().get(`/api/quotes/${id}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(get.body.data.supplier_business_no).toBe('123-45-67890');
+    expect(get.body.data.sales_rep_email).toBe('sales@oci-test.com');
+  });
+
+  it('PUT — supplier_business_no + sales_rep_email 수정', async () => {
+    const create = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__수정테스트',
+        customer_name: '__TEST__',
+        quote_date: '2026-05-22',
+        items: [{ item_name: 'Y', unit_price: 100, quantity: 1 }],
+      });
+    const id = create.body.id;
+    createdQuoteIds.push(id);
+
+    const upd = await api()
+      .put(`/api/quotes/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        supplier_business_no: '999-88-77777',
+        sales_rep_email: 'new@oci.com',
+      });
+    expect(upd.status).toBe(200);
+
+    const get = await api().get(`/api/quotes/${id}`).set('X-User-Id', String(TEST_USER_ID));
+    expect(get.body.data.supplier_business_no).toBe('999-88-77777');
+    expect(get.body.data.sales_rep_email).toBe('new@oci.com');
+  });
 });

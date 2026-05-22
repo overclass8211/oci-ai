@@ -87,12 +87,15 @@ const QuotesPage = (() => {
   // - localStorage: 사용자별 브라우저 캐시 (가장 신뢰)
   // - system_settings: 운영자가 한 번 입력하면 모든 사용자에게 자동 적용
   const SUPPLIER_LS_KEY = 'oci_quote_supplier_info';
+  // Bug 1 fix: 관리자 [공급사 기본 정보] 와 7개 키 통일
   const SUPPLIER_KEYS = [
     'supplier_company_name',
     'supplier_address',
+    'supplier_business_no', // 사업자등록번호
     'supplier_ceo',
     'sales_rep_name',
     'sales_rep_contact',
+    'sales_rep_email', // 영업담당자 이메일
   ];
   // system_settings 에 저장되는 키 (prefix: quote_)
   const SUPPLIER_SETTING_KEYS = SUPPLIER_KEYS.map(k => 'quote_' + k);
@@ -492,9 +495,11 @@ const QuotesPage = (() => {
       lead_id: null,
       supplier_company_name: supplierCache.supplier_company_name || '',
       supplier_address: supplierCache.supplier_address || '',
+      supplier_business_no: supplierCache.supplier_business_no || '', // Bug 1
       supplier_ceo: supplierCache.supplier_ceo || '',
       sales_rep_name: supplierCache.sales_rep_name || '',
       sales_rep_contact: supplierCache.sales_rep_contact || '',
+      sales_rep_email: supplierCache.sales_rep_email || '', // Bug 1
       terms_conditions: '',
     };
 
@@ -502,8 +507,10 @@ const QuotesPage = (() => {
       title: id ? `📝 견적서 편집 — ${esc(e.quote_no)}` : '✏️ 새 견적서',
       width: 1180,
       body: _renderModalBody(e),
+      // Bug 2: 편집 모드일 때만 [📨 이메일 보내기] 버튼 (저장된 견적이 있어야 발송 가능)
       footer: `
         <button class="btn btn-ghost" id="qt-cancel-btn">취소</button>
+        ${id ? `<button class="btn btn-ghost" id="qt-email-btn" type="button" title="저장 후 PDF 자동 다운로드 + 메일앱 열기" style="color:#1664E5">📨 이메일 보내기</button>` : ''}
         <button class="btn btn-primary" id="qt-save-btn">💾 저장</button>
       `,
       // 🛡 외부 클릭으로 닫히지 않음 — 폼 데이터 보호 (× 버튼/취소 버튼만 허용)
@@ -514,6 +521,21 @@ const QuotesPage = (() => {
           Modal.close();
         },
         '#qt-save-btn': () => _save(),
+        ...(id
+          ? {
+              '#qt-email-btn': async () => {
+                // 먼저 변경사항 저장 (사용자 편의) — 사용자가 폼 수정 후 발송하는 경우 안전
+                try {
+                  await _save();
+                } catch (_) {
+                  /* _save 자체에서 Toast 표시 — 발송 시도 안 함 */
+                  return;
+                }
+                // _save 가 모달을 닫으므로 setStatus 만 호출 (mailto 트리거 포함)
+                await _setStatus(id, 'sent');
+              },
+            }
+          : {}),
       },
       onOpen: () => {
         _bindModalEvents();
@@ -641,6 +663,10 @@ const QuotesPage = (() => {
                 <input class="form-input" id="qt-f-supplier_address" value="${esc(e.supplier_address || '')}" placeholder="공급사 주소">
               </div>
               <div class="form-row">
+                <label class="form-label">사업자등록번호</label>
+                <input class="form-input" id="qt-f-supplier_business_no" value="${esc(e.supplier_business_no || '')}" placeholder="123-45-67890">
+              </div>
+              <div class="form-row">
                 <label class="form-label">대표자</label>
                 <input class="form-input" id="qt-f-supplier_ceo" value="${esc(e.supplier_ceo || '')}" placeholder="대표자명">
               </div>
@@ -649,8 +675,12 @@ const QuotesPage = (() => {
                 <input class="form-input" id="qt-f-sales_rep_name" value="${esc(e.sales_rep_name || '')}" placeholder="영업담당자명">
               </div>
               <div class="form-row">
-                <label class="form-label">영업담당 연락처 / 이메일</label>
-                <input class="form-input" id="qt-f-sales_rep_contact" value="${esc(e.sales_rep_contact || '')}" placeholder="010-0000-0000 / sales@company.co.kr">
+                <label class="form-label">영업담당 연락처</label>
+                <input class="form-input" id="qt-f-sales_rep_contact" value="${esc(e.sales_rep_contact || '')}" placeholder="010-0000-0000">
+              </div>
+              <div class="form-row" style="grid-column:2 / span 2">
+                <label class="form-label">영업담당 이메일</label>
+                <input class="form-input" id="qt-f-sales_rep_email" type="email" value="${esc(e.sales_rep_email || '')}" placeholder="sales@company.co.kr">
               </div>
             </div>
           </div>
@@ -1097,13 +1127,16 @@ const QuotesPage = (() => {
     const leadId = document.getElementById('qt-f-lead_id').value.trim();
     const customerId = document.getElementById('qt-f-customer_id').value.trim();
     const quoteNo = document.getElementById('qt-f-quote_no').value.trim();
-    // Phase 4 보강: 공급사/고객사/조건사항
+    // Phase 4 보강 + Bug 1: 공급사/고객사/조건사항
     const supplierCompanyName =
       document.getElementById('qt-f-supplier_company_name')?.value.trim() || '';
     const supplierAddress = document.getElementById('qt-f-supplier_address')?.value.trim() || '';
+    const supplierBusinessNo =
+      document.getElementById('qt-f-supplier_business_no')?.value.trim() || '';
     const supplierCeo = document.getElementById('qt-f-supplier_ceo')?.value.trim() || '';
     const salesRepName = document.getElementById('qt-f-sales_rep_name')?.value.trim() || '';
     const salesRepContact = document.getElementById('qt-f-sales_rep_contact')?.value.trim() || '';
+    const salesRepEmail = document.getElementById('qt-f-sales_rep_email')?.value.trim() || '';
     const customerContact = document.getElementById('qt-f-customer_contact')?.value.trim() || '';
     const termsConditions = document.getElementById('qt-f-terms_conditions')?.value || '';
 
@@ -1139,24 +1172,36 @@ const QuotesPage = (() => {
       lead_id: leadId ? parseInt(leadId, 10) : null,
       customer_id: customerId ? parseInt(customerId, 10) : null, // Phase 3-B
       column_labels: _columnLabels || null, // Phase 3-A — 견적별 라벨 저장
-      // Phase 4 보강 — PDF 출력용 공급사/고객사/조건사항
+      // Phase 4 보강 + Bug 1: PDF 출력용 공급사/고객사/조건사항
       supplier_company_name: supplierCompanyName || null,
       supplier_address: supplierAddress || null,
+      supplier_business_no: supplierBusinessNo || null,
       supplier_ceo: supplierCeo || null,
       sales_rep_name: salesRepName || null,
       sales_rep_contact: salesRepContact || null,
+      sales_rep_email: salesRepEmail || null,
       customer_contact: customerContact || null,
       terms_conditions: termsConditions || null,
       items: valid,
     };
     // 공급사 정보 localStorage 저장 (다음 견적서 작성 시 자동 채움)
-    if (supplierCompanyName || supplierAddress || supplierCeo || salesRepName || salesRepContact) {
+    if (
+      supplierCompanyName ||
+      supplierAddress ||
+      supplierBusinessNo ||
+      supplierCeo ||
+      salesRepName ||
+      salesRepContact ||
+      salesRepEmail
+    ) {
       _saveSupplierInfo({
         supplier_company_name: supplierCompanyName,
         supplier_address: supplierAddress,
+        supplier_business_no: supplierBusinessNo,
         supplier_ceo: supplierCeo,
         sales_rep_name: salesRepName,
         sales_rep_contact: salesRepContact,
+        sales_rep_email: salesRepEmail,
       });
     }
     // Phase 5-C: 견적번호 모드 — auto 면 서버 채번에 위임, manual 이면 사용자 입력값 전송
@@ -1311,9 +1356,11 @@ const QuotesPage = (() => {
                 <div style="font-size:11px;color:#E63329;font-weight:700;margin-bottom:6px;letter-spacing:0.04em">${_ps('공급사 (Supplier)')}</div>
                 <div style="margin-bottom:4px"><strong style="font-size:14px">${_ps(q.supplier_company_name || '-')}</strong></div>
                 ${q.supplier_address ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps(q.supplier_address)}</div>` : ''}
+                ${q.supplier_business_no ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps('사업자등록번호:')} ${_ps(q.supplier_business_no)}</div>` : ''}
                 ${q.supplier_ceo ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps('대표자:')} ${_ps(q.supplier_ceo)}</div>` : ''}
                 ${q.sales_rep_name ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps('영업담당:')} ${_ps(q.sales_rep_name)}</div>` : ''}
-                ${q.sales_rep_contact ? `<div style="font-size:11px;color:#555">${_ps(q.sales_rep_contact)}</div>` : ''}
+                ${q.sales_rep_contact ? `<div style="font-size:11px;color:#555;margin-bottom:2px">${_ps(q.sales_rep_contact)}</div>` : ''}
+                ${q.sales_rep_email ? `<div style="font-size:11px;color:#555">${_ps(q.sales_rep_email)}</div>` : ''}
               </div>
             </td>
           </tr>

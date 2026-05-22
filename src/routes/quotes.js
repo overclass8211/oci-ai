@@ -107,9 +107,11 @@ async function ensureSchema() {
   const extraColumns = [
     { name: 'supplier_company_name', def: 'VARCHAR(200) NULL' },
     { name: 'supplier_address', def: 'VARCHAR(500) NULL' },
+    { name: 'supplier_business_no', def: 'VARCHAR(50) NULL' }, // Bug 1: 사업자등록번호
     { name: 'supplier_ceo', def: 'VARCHAR(100) NULL' },
     { name: 'sales_rep_name', def: 'VARCHAR(100) NULL' },
     { name: 'sales_rep_contact', def: 'VARCHAR(200) NULL' },
+    { name: 'sales_rep_email', def: 'VARCHAR(200) NULL' }, // Bug 1: 영업담당자 이메일
     { name: 'customer_contact', def: 'VARCHAR(100) NULL' },
     { name: 'terms_conditions', def: 'TEXT NULL' },
   ];
@@ -314,9 +316,10 @@ router.post('/', async (req, res) => {
         (quote_no, name, lead_id, customer_id, customer_name, quote_date,
          vat_included, column_labels, subtotal, vat_amount, total_amount,
          created_by, parent_quote_id, revision_no, status,
-         supplier_company_name, supplier_address, supplier_ceo,
-         sales_rep_name, sales_rep_contact, customer_contact, terms_conditions)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         supplier_company_name, supplier_address, supplier_business_no, supplier_ceo,
+         sales_rep_name, sales_rep_contact, sales_rep_email,
+         customer_contact, terms_conditions)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         quoteNo,
         String(body.name).slice(0, 200),
@@ -335,9 +338,11 @@ router.post('/', async (req, res) => {
         body.status || 'draft',
         body.supplier_company_name ? String(body.supplier_company_name).slice(0, 200) : null,
         body.supplier_address ? String(body.supplier_address).slice(0, 500) : null,
+        body.supplier_business_no ? String(body.supplier_business_no).slice(0, 50) : null,
         body.supplier_ceo ? String(body.supplier_ceo).slice(0, 100) : null,
         body.sales_rep_name ? String(body.sales_rep_name).slice(0, 100) : null,
         body.sales_rep_contact ? String(body.sales_rep_contact).slice(0, 200) : null,
+        body.sales_rep_email ? String(body.sales_rep_email).slice(0, 200) : null,
         body.customer_contact ? String(body.customer_contact).slice(0, 100) : null,
         body.terms_conditions ? String(body.terms_conditions) : null,
       ]
@@ -411,9 +416,11 @@ router.put('/:id', async (req, res) => {
       // Phase 4 PDF 개선 — 공급사/고객사/조건사항
       'supplier_company_name',
       'supplier_address',
+      'supplier_business_no', // Bug 1: 사업자등록번호
       'supplier_ceo',
       'sales_rep_name',
       'sales_rep_contact',
+      'sales_rep_email', // Bug 1: 영업담당자 이메일
       'customer_contact',
       'terms_conditions',
     ];
