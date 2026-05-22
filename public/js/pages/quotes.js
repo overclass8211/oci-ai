@@ -82,9 +82,21 @@ const QuotesPage = (() => {
     return Math.round(supply * qty * 100) / 100;
   }
 
-  // ── Phase 4 보강: 공급사 정보 localStorage 캐시 ──────────
-  // 매번 입력 부담을 줄이기 위해 마지막 입력값을 브라우저에 저장
+  // ── Phase 4 보강 + Step 2: 공급사 정보 자동 채움 ──────────
+  // 우선순위: ① localStorage (개인 마지막 입력) → ② system_settings (운영자 기본값)
+  // - localStorage: 사용자별 브라우저 캐시 (가장 신뢰)
+  // - system_settings: 운영자가 한 번 입력하면 모든 사용자에게 자동 적용
   const SUPPLIER_LS_KEY = 'oci_quote_supplier_info';
+  const SUPPLIER_KEYS = [
+    'supplier_company_name',
+    'supplier_address',
+    'supplier_ceo',
+    'sales_rep_name',
+    'sales_rep_contact',
+  ];
+  // system_settings 에 저장되는 키 (prefix: quote_)
+  const SUPPLIER_SETTING_KEYS = SUPPLIER_KEYS.map(k => 'quote_' + k);
+
   function _loadSupplierInfo() {
     try {
       const raw = localStorage.getItem(SUPPLIER_LS_KEY);
@@ -99,6 +111,35 @@ const QuotesPage = (() => {
     } catch (_) {
       /* quota 등 무시 */
     }
+  }
+
+  // Step 2: system_settings 에서 공급사 기본값 fetch — 모듈 시작 시 1회 (캐시)
+  let _settingsSupplierCache = null;
+  async function _fetchSupplierFromSettings() {
+    if (_settingsSupplierCache) return _settingsSupplierCache;
+    try {
+      const res = await API.get('/admin/settings');
+      const data = res?.data || {};
+      const supplier = {};
+      SUPPLIER_KEYS.forEach((k, i) => {
+        const settingKey = SUPPLIER_SETTING_KEYS[i];
+        if (data[settingKey]) supplier[k] = String(data[settingKey]);
+      });
+      _settingsSupplierCache = supplier;
+      return supplier;
+    } catch (_) {
+      _settingsSupplierCache = {};
+      return {};
+    }
+  }
+
+  // 우선순위 병합: localStorage → settings (LS 비어있는 키만 settings 로 보완)
+  function _mergeSupplierInfo(lsInfo, settingsInfo) {
+    const merged = {};
+    SUPPLIER_KEYS.forEach(k => {
+      merged[k] = (lsInfo && lsInfo[k]) || (settingsInfo && settingsInfo[k]) || '';
+    });
+    return merged;
   }
 
   // 인스턴스 정리 (모달 닫힘 시)
@@ -174,18 +215,19 @@ const QuotesPage = (() => {
       </div>`;
     }
     return `
-      <table class="data-table">
+      <div class="qt-table-scroll">
+      <table class="data-table qt-list-table">
         <thead>
           <tr>
             <th style="width:130px">견적번호</th>
-            <th>견적명</th>
+            <th style="min-width:240px;width:300px">견적명</th>
             <th style="width:160px">고객명</th>
             <th style="width:110px">견적일</th>
             <th style="width:60px;text-align:center">VAT</th>
             <th style="width:140px;text-align:right">총액</th>
             <th style="width:80px;text-align:center">Rev</th>
             <th style="width:160px;text-align:center">상태 / 워크플로우</th>
-            <th style="width:280px;text-align:center">작업</th>
+            <th style="width:320px;text-align:center">작업</th>
           </tr>
         </thead>
         <tbody>
@@ -194,7 +236,7 @@ const QuotesPage = (() => {
               r => `
             <tr data-id="${r.id}">
               <td style="font-family:monospace;font-size:12px">${esc(r.quote_no)}</td>
-              <td><a href="#" class="qt-link" data-id="${r.id}" style="color:var(--oci-red);font-weight:500">${esc(r.name)}</a></td>
+              <td class="qt-name-cell"><a href="#" class="qt-link qt-name-link" data-id="${r.id}" title="${esc(r.name)}">${esc(r.name)}</a></td>
               <td>${esc(r.customer_name || '')}</td>
               <td>${_fmtDate(r.quote_date)}</td>
               <td style="text-align:center">${r.vat_included ? '포함' : '별도'}</td>
@@ -212,18 +254,19 @@ const QuotesPage = (() => {
                   ${_renderStatusActions(r)}
                 </div>
               </td>
-              <td style="text-align:center">
-                <button class="btn btn-ghost btn-sm" data-act="edit" data-id="${r.id}">편집</button>
-                <button class="btn btn-ghost btn-sm" data-act="preview" data-id="${r.id}" title="미리보기">👁</button>
-                <button class="btn btn-ghost btn-sm" data-act="pdf" data-id="${r.id}" title="PDF 내보내기">📄</button>
-                <button class="btn btn-ghost btn-sm" data-act="duplicate" data-id="${r.id}" title="리비전 복사">📋</button>
-                <button class="btn btn-ghost btn-sm" data-act="delete" data-id="${r.id}" style="color:#d93025">삭제</button>
+              <td style="text-align:center;white-space:nowrap">
+                <button class="btn btn-ghost btn-sm" data-act="edit" data-id="${r.id}" title="편집">편집</button>
+                <button class="btn btn-ghost btn-sm" data-act="preview" data-id="${r.id}" title="견적서 미리보기">미리보기</button>
+                <button class="btn btn-ghost btn-sm" data-act="pdf" data-id="${r.id}" title="PDF 내보내기">PDF</button>
+                <button class="btn btn-ghost btn-sm" data-act="duplicate" data-id="${r.id}" title="새 리비전으로 복제">복제</button>
+                <button class="btn btn-ghost btn-sm" data-act="delete" data-id="${r.id}" title="삭제" style="color:#d93025">삭제</button>
               </td>
             </tr>`
             )
             .join('')}
         </tbody>
       </table>
+      </div>
     `;
   }
 
@@ -293,8 +336,75 @@ const QuotesPage = (() => {
   }
 
   // Phase 5-B: 상태 전환 (빠른 액션)
+  // Step 3: 'sent' 전환 시 mailto: 메일앱 열기 + PDF 자동 다운로드 + 안내
   async function _setStatus(id, status) {
     const labels = { sent: '발송됨', accepted: '수주', rejected: '실패' };
+
+    // 'sent' 전환 — 메일 발송 워크플로우
+    if (status === 'sent') {
+      const ok = confirm(
+        '발송 상태로 변경하고 메일 앱을 열까요?\n' +
+          '• PDF 가 자동 다운로드됩니다 (메일에 직접 첨부 필요)\n' +
+          '• 메일 제목/본문이 자동으로 채워집니다'
+      );
+      if (!ok) return;
+
+      try {
+        // (1) 견적 상세 fetch (제목/번호/고객명/총액 등)
+        const r = await API.quotes.get(id);
+        const q = r?.data || {};
+
+        // (2) PDF 자동 다운로드 (사용자가 메일에 직접 첨부)
+        try {
+          await _exportPdf(id);
+        } catch (e) {
+          console.warn('[quotes:sent] PDF 다운로드 실패:', e?.message || e);
+          Toast.error?.('PDF 자동 다운로드 실패 — 미리보기 → PDF 버튼으로 수동 다운로드하세요');
+        }
+
+        // (3) mailto: URL 생성
+        const subject = `[견적서] ${q.name || ''} (${q.quote_no || ''})`;
+        const totalKRW = q.total_amount ? '₩' + _fmtKRW(q.total_amount) : '';
+        const bodyLines = [
+          `${q.customer_name || '담당자'}님,`,
+          '',
+          `안녕하세요. 요청하신 견적서를 송부드립니다.`,
+          '',
+          `■ 견적번호: ${q.quote_no || '-'}`,
+          `■ 견적명: ${q.name || '-'}`,
+          q.quote_date ? `■ 견적일: ${_fmtDate(q.quote_date)}` : null,
+          totalKRW ? `■ 견적 총액: ${totalKRW} (${q.vat_included ? 'VAT 포함' : 'VAT 별도'})` : null,
+          '',
+          `※ 견적서 PDF 가 컴퓨터에 다운로드되었습니다. 메일에 직접 첨부해 주세요.`,
+          '',
+          `추가 문의사항은 회신 부탁드립니다.`,
+          '',
+          `감사합니다.`,
+        ].filter(Boolean);
+        const body = bodyLines.join('\n');
+        // mailto: to 비워둠 — 사용자가 메일앱에서 직접 입력 (quotes 에 customer_email 컬럼 없음)
+        const mailto =
+          `mailto:?subject=${encodeURIComponent(subject)}` +
+          `&body=${encodeURIComponent(body)}`;
+
+        // (4) status 'sent' 변경
+        await API.quotes.setStatus(id, 'sent');
+
+        // (5) mailto 열기 — 짧은 지연 (PDF 다운로드 안정화 위함)
+        setTimeout(() => {
+          window.location.href = mailto;
+        }, 500);
+
+        Toast.success('발송 처리 완료 — 메일 앱에서 PDF 첨부 후 전송하세요');
+        await _reload();
+      } catch (err) {
+        console.error('[quotes:sent] failed:', err);
+        Toast.error('발송 처리 실패: ' + (err.message || err));
+      }
+      return;
+    }
+
+    // 그 외 상태 (accepted / rejected) — 기존 단순 확인 + 변경
     if (!confirm(`이 견적의 상태를 "${labels[status] || status}" 로 변경하시겠습니까?`)) return;
     try {
       await API.quotes.setStatus(id, status);
@@ -362,8 +472,14 @@ const QuotesPage = (() => {
     }
     await leadsPromise;
 
-    // Phase 4 보강: 신규 작성 시 localStorage 의 공급사 정보 자동 채움 (편의)
-    const supplierCache = _editing ? {} : _loadSupplierInfo();
+    // Phase 4 보강 + Step 2: 신규 작성 시 공급사 정보 자동 채움
+    // 우선순위: localStorage (개인 마지막 입력) > system_settings (운영자 기본값)
+    let supplierCache = {};
+    if (!_editing) {
+      const lsInfo = _loadSupplierInfo();
+      const settingsInfo = await _fetchSupplierFromSettings();
+      supplierCache = _mergeSupplierInfo(lsInfo, settingsInfo);
+    }
     const e = _editing || {
       quote_no: '(저장 시 자동 생성)',
       name: '',

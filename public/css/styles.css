@@ -9061,6 +9061,45 @@ body,
   opacity: 0.6;
 }
 
+/* 견적 목록 — 좁은 화면 가독성 + 가로 스크롤 */
+.qt-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.qt-list-table {
+  /* 컬럼 합계 — 130 + 300 + 160 + 110 + 60 + 140 + 80 + 160 + 320 = ~1460px
+     좁은 화면에서도 컬럼 너비 유지되고, wrapper 가 가로 스크롤 제공 */
+  min-width: 1460px;
+  table-layout: fixed;
+}
+.qt-list-table th,
+.qt-list-table td {
+  vertical-align: middle;
+}
+/* 견적명 — 2줄 제한 + 말줄임 */
+.qt-name-cell {
+  /* 최소 240px, 기본 300px (위 th 의 width 와 일치) */
+  padding: 8px 10px;
+}
+.qt-name-link {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  /* 브랜드 색 + 가독성 */
+  color: var(--oci-red);
+  font-weight: 500;
+  line-height: 1.4;
+  max-height: 2.8em; /* 1.4 line-height × 2 lines */
+  text-decoration: none;
+}
+.qt-name-link:hover {
+  text-decoration: underline;
+}
+
 /* Phase 6-C: AI 제안서 평가 결과 카드 */
 .pr-eval-card {
   margin-top: 18px;
