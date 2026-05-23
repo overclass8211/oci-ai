@@ -456,6 +456,8 @@ describe('Proposals API — Phase 1', () => {
     expect(ana.body.data.proposal_title).toBe('__MOCK__ 제안서 제목');
     expect(ana.body.data.expected_amount).toBe(50000000);
     expect(ana.body.data.currency).toBe('KRW');
+    // Phase 9: 고객사명 자동 추출
+    expect(ana.body.data.customer_name).toBe('__MOCK__ 고객사');
 
     // DB 자동 저장 X — proposals.rfp_title 은 아직 비어있어야 함
     const [[prop]] = await pool.query(

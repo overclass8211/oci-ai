@@ -947,7 +947,7 @@ const ProposalsPage = (() => {
         <th style="width:80px;text-align:center">📧 첨부</th>
         <th style="width:110px">크기</th>
         <th style="width:130px">등록일</th>
-        <th style="width:${source === 'rfp' || source === 'files' ? '180' : '140'}px;text-align:center">작업</th>
+        <th style="width:${source === 'files' ? '140' : '100'}px;text-align:center">작업</th>
       </tr></thead>
       <tbody>
         ${files
@@ -961,13 +961,6 @@ const ProposalsPage = (() => {
           <td>${f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-'}</td>
           <td>${_fmtDateTime(f.created_at)}</td>
           <td style="text-align:center;white-space:nowrap">
-            ${
-              source === 'rfp'
-                ? _isAnalyzable(f.original_filename)
-                  ? `<button class="btn btn-ghost btn-sm pr-file-ai" data-id="${f.id}" type="button" title="이 파일로 AI 분석 (Gemini)" style="color:#7c3aed">🤖</button>`
-                  : `<span title="PDF / 이미지 / 텍스트만 분석 가능" style="font-size:11px;color:var(--text-3);padding:0 4px">—</span>`
-                : ''
-            }
             ${
               source === 'files'
                 ? _isAnalyzable(f.original_filename)
@@ -1440,22 +1433,29 @@ const ProposalsPage = (() => {
     // proposal_date — DOM 이 없으면 _editing 의 ISO/DateTime 을 'YYYY-MM-DD' 로 정규화
     const date = get('pr-f-proposal_date', '') || _toInputDate(e.proposal_date);
 
+    // 필수값 누락 시: 재렌더 금지 (사용자 입력 보존) — 해당 input 으로 포커스만 이동
+    const focusField = id => {
+      const el = document.getElementById(id);
+      if (el && typeof el.focus === 'function') {
+        try {
+          el.focus();
+          el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        } catch (_) {}
+      }
+    };
     if (!title) {
       Toast.error('제안명을 입력하세요 (기본정보 탭)');
-      _activeTab = 'basic';
-      _renderActiveTab(e);
+      focusField('pr-f-proposal_title');
       return;
     }
     if (!customer) {
       Toast.error('고객사명을 입력하세요 (기본정보 탭)');
-      _activeTab = 'basic';
-      _renderActiveTab(e);
+      focusField('pr-f-customer_name');
       return;
     }
     if (!date) {
       Toast.error('제안일을 입력하세요 (기본정보 탭)');
-      _activeTab = 'basic';
-      _renderActiveTab(e);
+      focusField('pr-f-proposal_date');
       return;
     }
 
@@ -1588,15 +1588,7 @@ const ProposalsPage = (() => {
       });
     });
 
-    // (5) Phase 4-C — AI 분석 버튼 (RFP 파일 행에서만 렌더링됨)
-    document.querySelectorAll('.pr-file-ai').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const fileId = parseInt(btn.dataset.id, 10);
-        await _doAnalyzeRfp(e.id, fileId, btn);
-      });
-    });
-
-    // (6) Phase 6-C — AI 평가 버튼 (자료 파일 행에서만 렌더링됨)
+    // (5) Phase 6-C — AI 평가 버튼 (자료 파일 행에서만 렌더링됨)
     document.querySelectorAll('.pr-file-evaluate').forEach(btn => {
       btn.addEventListener('click', async () => {
         const fileId = parseInt(btn.dataset.id, 10);
@@ -1758,14 +1750,9 @@ const ProposalsPage = (() => {
   }
 
   // 분석 결과를 기본정보 탭 폼에 미리채움 + _editing 캐시 동기화 (DB 미반영)
-  // Phase 8-C: ai_strategy_md textarea + 제안 기본정보 (제안명/예상금액/통화/일정) 자동 채움
+  // Phase 8-C + Phase 9: ai_strategy_md + 제안 기본정보 (고객사/제안명/예상금액/통화/일정) 자동 채움
+  // 사용자 워크플로우: [AI 분석] 클릭 = "AI 결과로 폼 채워줘" → 모두 force 덮어쓰기 (사용자가 다시 수정 가능)
   function _applyAnalysisToForm(d) {
-    // 비어있지 않을 때만 덮어쓰기 (사용자 입력값 보존)
-    const setIfEmpty = (id, v) => {
-      const el = document.getElementById(id);
-      if (el && v !== null && v !== undefined && v !== '' && !el.value) el.value = v;
-    };
-    // 무조건 덮어쓰기 (AI 분석 결과 우선 — RFP 메타 + ai_strategy_md)
     const setForce = (id, v) => {
       const el = document.getElementById(id);
       if (el && v !== null && v !== undefined && v !== '') el.value = v;
@@ -1777,9 +1764,11 @@ const ProposalsPage = (() => {
     if (d.rfp_summary) setForce('pr-f-rfp_summary', d.rfp_summary);
     // ── AI 제안전략 요약 (textarea 항상 덮어쓰기) ──
     if (d.ai_strategy_md) setForce('pr-f-ai_strategy_md', d.ai_strategy_md);
-    // ── Phase 8-A: 제안 기본정보 (사용자 입력값 보존 — empty 시만) ──
-    if (d.proposal_title) setIfEmpty('pr-f-proposal_title', d.proposal_title);
-    if (d.expected_amount) setIfEmpty('pr-f-expected_amount', d.expected_amount);
+    // ── Phase 8-A + Phase 9: 제안 기본정보 (AI 분석 결과 강제 채움 — 사용자 의도) ──
+    // 사용자 워크플로우상 [AI 분석] 클릭 = "AI 결과 우선" 의미. 빈 값 검증 없이 덮어쓰기.
+    if (d.customer_name) setForce('pr-f-customer_name', d.customer_name);
+    if (d.proposal_title) setForce('pr-f-proposal_title', d.proposal_title);
+    if (d.expected_amount) setForce('pr-f-expected_amount', d.expected_amount);
     // currency 는 select — 옵션이 일치하면 강제 (KRW 기본값 보호)
     if (d.currency) {
       const sel = document.getElementById('pr-f-currency');
@@ -1787,9 +1776,9 @@ const ProposalsPage = (() => {
         sel.value = d.currency;
       }
     }
-    // 제안일/제출기한 — 비어있을 때 RFP 일정으로 채움
-    if (d.rfp_received_date) setIfEmpty('pr-f-proposal_date', d.rfp_received_date);
-    if (d.rfp_due_date) setIfEmpty('pr-f-due_date', d.rfp_due_date);
+    // 제안일/제출기한 — RFP 일정 강제 채움 (사용자가 다시 수정 가능)
+    if (d.rfp_received_date) setForce('pr-f-proposal_date', d.rfp_received_date);
+    if (d.rfp_due_date) setForce('pr-f-due_date', d.rfp_due_date);
 
     // _editing 캐시도 동기화 — 탭 전환해도 결과 유지
     if (_editing) {
@@ -1798,10 +1787,9 @@ const ProposalsPage = (() => {
       if (d.rfp_due_date) _editing.rfp_due_date = d.rfp_due_date;
       if (d.rfp_summary) _editing.rfp_summary = d.rfp_summary;
       if (d.ai_strategy_md) _editing.ai_strategy_md = d.ai_strategy_md;
-      if (d.proposal_title && !_editing.proposal_title)
-        _editing.proposal_title = d.proposal_title;
-      if (d.expected_amount && !_editing.expected_amount)
-        _editing.expected_amount = d.expected_amount;
+      if (d.customer_name) _editing.customer_name = d.customer_name;
+      if (d.proposal_title) _editing.proposal_title = d.proposal_title;
+      if (d.expected_amount) _editing.expected_amount = d.expected_amount;
       if (d.currency) _editing.currency = d.currency;
     }
   }
