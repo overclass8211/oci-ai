@@ -4,7 +4,80 @@
 
 ---
 
-## v5.3 (2026.05.23) — 현재 ⭐
+## v5.4 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 Phase 9: UX 개선 + 임시 제안 + Word 다운로드**
+
+사용자 피드백 5건 반영 — 워크플로우 효율화 + 산출물 품질 개선.
+
+#### 1. 🐛 입력값 보존 버그 fix (Phase 9-1)
+**증상**: 필수값(제안명/고객사/제안일) 미입력 후 [저장] 시 그동안 입력한 다른 필드(예상금액/리드/견적 등)가 모두 초기화됨
+**원인**: `_save()` 검증 실패 시 `_renderActiveTab(e)` 호출 → DOM 전체 재렌더 → 사용자 입력 손실
+**Fix**: 재렌더 제거 + 해당 input 으로 포커스 + scrollIntoView 만 수행 → 입력값 100% 보존
+
+#### 2. 🤖 RFP 파일 행 [🤖] 아이콘 제거 (Phase 9-1)
+- 통합 [🤖 AI 분석] 버튼으로 일원화 (RFP 섹션 하단)
+- 파일 행 작업 컬럼 = 다운로드 + 삭제만 (단순화)
+
+#### 3. 📋 AI 분석 → 고객사명 자동 채움 (Phase 9-1)
+**기존**: 제안명/예상금액/통화만 자동 채움
+**개선**: + **고객사명 (Phase 9-1 신규)** + 제안일/제출기한 force 덮어쓰기
+- 백엔드: `analyzeProposalRFP` 응답에 `customer_name` 필드 추가 (Gemini 프롬프트 + responseSchema)
+- 프론트: AI 분석 클릭 = "AI 결과 우선" 의미 → 모든 항목 force 덮어쓰기 (사용자가 다시 수정 가능)
+
+#### 4. ✏️ [+제안등록] = 임시 제안 자동 생성 (Phase 9-2)
+**기존 흐름**: [+제안등록] → 빈 폼 → 사용자가 모든 정보 입력 후 [저장]
+**개선 흐름**: [+제안등록] → **임시 제안 자동 생성** (`P-YYYY-NNNN` 자동 채번) → 즉시 편집 모드 진입 → RFP 업로드 → [🤖 AI 분석] → 폼 자동 채움 → 검토 → [저장]
+
+- 모달 타이틀: `✏️ 새 제안 작성 — P-2026-NNNN`
+- 모든 탭 즉시 활성 (RFP 업로드 / AI 분석 / 평가 / 발송 모두 가능)
+- **[닫기]** 시 자동 정리:
+  - RFP/AI 자료 없으면 자동 DELETE (silent)
+  - 있으면 confirm: "업로드한 RFP 파일 및 AI 분석 결과가 함께 삭제됩니다"
+
+#### 5. 📄 미리보기 → Word(.docx) 다운로드 (Phase 9-3)
+**기존**: [👁️ 미리보기] — 단순 markdown → HTML 렌더 (사용자 가치 낮음)
+**개선**: **[📄 Word 다운로드]** — docx 파일 즉시 내려받기 (의미있는 산출물)
+
+- 신규 endpoint: `GET /api/proposals/:id/ai-strategy/word`
+- `docx@9.6.1` 사용 (npm 의존성 추가 없음)
+- 표지 (제안번호/제안명/고객사/분석 일시) + 본문 (헤딩/불릿/체크박스)
+- 폰트: 맑은 고딕 (한국어 안전)
+- 파일명: `P-YYYY-NNNN_AI제안전략요약_YYYYMMDD.docx`
+- Content-Disposition RFC 5987 한글 파일명 인코딩
+
+#### 6. 📚 문서 갱신 (Phase 9-4)
+- `USER_MANUAL.md` — 제안 모듈 신규 워크플로우 ([+제안등록] = 임시 제안)
+- `API_DOCUMENTATION.md` — §21.4 customer_name 신규 필드 + §21.6 Word 다운로드 endpoint 명세
+- `RELEASE_NOTES.md` (현재 파일)
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음** — `customer_name` 은 응답 schema 만 확장, Word 다운로드는 endpoint 추가만
+- **신규 npm 의존성 0개** — `docx@9.6.1` 이미 설치됨
+- **변경 파일**:
+  - `src/services/gemini.js` — customer_name 추가 (프롬프트 + responseSchema + post-normalize)
+  - `src/routes/proposals.js` — `GET /:id/ai-strategy/word` endpoint 신규
+  - `public/js/api.js` — `aiStrategyWordUrl(id)` helper
+  - `public/js/pages/proposals.js` — `_isTempProposal` 플래그 + `_closeAndCleanup()` + Word 다운로드 + customer_name 자동채움 + 입력값 보존 fix + [🤖] 버튼 제거
+  - `tests/proposals.test.mjs` — customer_name 어설션 + Word 다운로드 시나리오 (+1)
+  - `e2e/proposals.spec.js` — Phase 9-2 임시 제안 시나리오 갱신
+
+### 📊 회귀 테스트
+- vitest: **44/44 (proposals) 통과** (Word 다운로드 +1 신규)
+- e2e: Phase 9-2 임시 제안 시나리오 격리 통과 (10.4s)
+- lint: 0 errors / 0 warnings
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+- DB 스키마 변경 없음 — 마이그레이션 불필요
+- 기존 데이터 100% 호환
+
+---
+
+## v5.3 (2026.05.23) — 이전
 
 ### 🎯 메인 — **제안 모듈 Phase 8: 통합 워크플로우 + 수주확률 예측**
 

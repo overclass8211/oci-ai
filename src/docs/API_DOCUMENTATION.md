@@ -1264,12 +1264,12 @@ DELETE /api/admin/logo
 ### 21.3 리비전
 - `POST  /api/proposals/:id/revisions` — `{ title, description }` → version_no 자동 증가
 
-### 21.4 🤖 AI RFP 분석 (Phase 4-A → Phase 8-A 확장)
+### 21.4 🤖 AI RFP 분석 (Phase 4-A → Phase 8-A → Phase 9-1 확장)
 - `POST  /api/proposals/:id/rfp/analyze` — `{ file_id }`
 
 Gemini 2.5 Pro Multimodal — 호환 형식 (PDF/이미지/텍스트) 만 분석.
 
-**응답 (Phase 8-A — 제안 기본정보 + 6섹션 마크다운):**
+**응답 (Phase 9-1 — 고객사/제안 기본정보 + 6섹션 마크다운):**
 ```json
 {
   "success": true,
@@ -1278,7 +1278,8 @@ Gemini 2.5 Pro Multimodal — 호환 형식 (PDF/이미지/텍스트) 만 분석
     "rfp_received_date": "YYYY-MM-DD",
     "rfp_due_date": "YYYY-MM-DD",
     "rfp_summary": "...",
-    "proposal_title": "고객사명 + 프로젝트 표준 제안서",
+    "customer_name": "(주)NICE피앤아이",
+    "proposal_title": "(주)NICE피앤아이 CRM 솔루션 구축 제안서",
     "expected_amount": 50000000,
     "currency": "KRW",
     "ai_strategy_md": "## 제안 목표\n...\n## 제안 주요 일정\n...\n## 제안 핵심사항\n...\n## 제안 준비사항 (체크리스트)\n- [ ] ...\n## 예상 리스크\n...\n## 독소조항과 회피방안\n..."
@@ -1286,7 +1287,8 @@ Gemini 2.5 Pro Multimodal — 호환 형식 (PDF/이미지/텍스트) 만 분석
 }
 ```
 
-**Phase 8-A 신규 필드:**
+**Phase 8-A + Phase 9-1 신규 필드:**
+- `customer_name` (string, max 200자): 발주처/고객사명 자동 추출 (Phase 9-1 신규)
 - `proposal_title` (string, max 300자): 제안서 제목 자동 생성
 - `expected_amount` (number|null): RFP 예산/추정 금액 (0 이상)
 - `currency` (string): 'KRW' / 'USD' / 'EUR' / 'JPY' / 'CNY' — 기본 'KRW'
@@ -1339,13 +1341,36 @@ RFP 자동 선택 (`file_type='rfp'` + 호환 형식 첫 파일). Gemini Pro 가
 - `win_factors` (string[], 최대 5건): 승리 요인 (각 100자 이내)
 - `risk_factors` (string[], 최대 5건): 리스크 요인 (각 100자 이내)
 
-### 21.6 📨 이메일 발송 (Phase 5-B, Gmail OAuth 필요)
+### 21.6 📄 AI 제안전략 Word(.docx) 다운로드 (Phase 9-3)
+- `GET  /api/proposals/:id/ai-strategy/word`
+
+`ai_strategy_md` 의 6섹션 markdown 을 docx 파일로 변환해 다운로드.
+
+**응답:**
+- 정상 (200): docx 파일 binary stream
+  - `Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+  - `Content-Disposition: attachment; filename="..."; filename*=UTF-8''...` (한글 파일명 RFC 5987)
+  - 파일명 형식: `[proposal_no]_AI제안전략요약_YYYYMMDD.docx`
+- 400: `ai_strategy_md` 비어있음
+- 404: proposal 없음
+
+**docx 변환 규칙:**
+- 표지: 제안번호 / 제안명 / 고객사 / 최근 AI 분석 일시
+- `## 제목` → Heading 2 (bold, size 28pt)
+- `### 부제목` → Heading 3 (bold, size 24pt)
+- `- [ ]` / `- [x]` → 체크박스 (☐ / ☑)
+- `- 항목` → 불릿 리스트
+- `1. 항목` → 번호 리스트
+- 일반 텍스트 → 문단 (size 22pt)
+- 기본 폰트: 맑은 고딕 (한국어 안전)
+
+### 21.7 📨 이메일 발송 (Phase 5-B, Gmail OAuth 필요)
 - `POST  /api/proposals/:id/email/send`
 - body: `{ to, cc?, subject, body, file_ids?: number[] }`
 - 첨부 합계 25MB 한도 + 파일 소유 검증
 - `proposal_email_logs` 자동 기록 (sent/failed 상태)
 
-### 21.7 🔗 공유 링크 (Phase 5-C)
+### 21.8 🔗 공유 링크 (Phase 5-C)
 - `POST  /api/proposals/:id/share` — `{ expires_days? = 7 }` (0/음수 = 무제한)
 - `DELETE /api/proposals/:id/share` — 무효화
 
@@ -1354,7 +1379,7 @@ RFP 자동 선택 (`file_type='rfp'` + 호환 형식 첫 파일). Gemini Pro 가
 - `GET   /api/proposals/share/:token/files/:fileId/download`
 - 만료 시 410 Gone
 
-### 21.8 응답 / 에러 코드
+### 21.9 응답 / 에러 코드
 | 코드 | 의미 |
 |------|------|
 | 400 | 필수값 누락 / 비호환 파일 형식 / 25MB 초과 / 잘못된 file_id |
@@ -1364,7 +1389,7 @@ RFP 자동 선택 (`file_type='rfp'` + 호환 형식 첫 파일). Gemini Pro 가
 | 410 | 공유 링크 만료 (Gone) |
 | 500 | Gemini API 호출 실패 / 서버 오류 |
 
-### 21.9 history action_types
+### 21.10 history action_types
 `create` / `update` / `status_change` / `rfp_upload` / `file_upload` / `file_download` / `file_delete` / `revision_create` / `ai_analyze` / `evaluate` / `email_send` / `share_create` / `share_revoke` / `share_view` / `share_download`
 
 ---
