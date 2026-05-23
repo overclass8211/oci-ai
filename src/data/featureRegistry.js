@@ -289,6 +289,20 @@ const FEATURE_REGISTRY = [
     default_enabled: true,
   },
   {
+    key: 'crm.contracts',
+    name: '계약 (계약관리 + AI 법무 검토)',
+    description:
+      '계약 라이프사이클(CLM) + AI 법무 검토(독소조항/누락/한국법규) + 템플릿 + 만료 알림 + 전자서명',
+    category: 'crm',
+    risk_level: 'medium',
+    required_features: [],
+    affects_routes: '/api/contracts',
+    affects_tables:
+      'contracts,contract_files,contract_history,contract_templates,contract_legal_reviews,contract_alerts',
+    is_experimental: false,
+    default_enabled: true,
+  },
+  {
     key: 'crm.quotes',
     name: '견적서',
     description: '견적서 작성/편집/리비전 + 자동 채번 + PDF 내보내기',

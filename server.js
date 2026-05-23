@@ -331,6 +331,7 @@ app.use('/api/customers', require('./src/routes/customers'));
 app.use('/api/activities', require('./src/routes/activities'));
 app.use('/api/quotes', require('./src/routes/quotes'));
 app.use('/api/proposals', require('./src/routes/proposals'));
+app.use('/api/contracts', require('./src/routes/contracts'));
 app.use('/api/ai', require('./src/routes/ai'));
 app.use('/api/admin', require('./src/routes/admin'));
 app.use('/api/calendar', require('./src/routes/calendar'));
