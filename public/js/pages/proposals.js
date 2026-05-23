@@ -35,11 +35,13 @@ const ProposalsPage = (() => {
     rejected: 'red',
     expired: 'gray',
   };
-  // Phase 6-A: 4-탭 구조 (기본+RFP / AI / 자료+견적 / 발송+이력)
-  // 기존 7-탭 구조를 통합 — 백엔드/API 변경 없이 UI 만 재구성
+  // Phase 8-C: 3-탭 구조 — 새 워크플로우 (RFP 업로드→AI 분석→폼 자동채움)
+  //   1. 기본정보 (RFP 섹션 상단 + 제안 기본정보 + AI 제안전략 요약 [비고 자리])
+  //   2. 자료 & 견적 (파일 + AI 평가/수주확률)
+  //   3. 발송 & 이력 (이메일/공유 + 리비전/이력)
+  // 이전 4탭의 'ai' 탭은 기본정보 탭에 통합됨 (DB 컬럼/API 무변경)
   const TABS = [
-    { id: 'basic', label: '📋 기본 & RFP', alwaysOn: true },
-    { id: 'ai', label: '🤖 AI 제안전략', editOnly: true },
+    { id: 'basic', label: '📋 기본정보', alwaysOn: true },
     { id: 'content', label: '📦 자료 & 견적', editOnly: true },
     { id: 'send', label: '📤 발송 & 이력', editOnly: true },
   ];
@@ -361,31 +363,44 @@ const ProposalsPage = (() => {
     const wrap = document.getElementById('pr-tab-content');
     if (!wrap) return;
     switch (_activeTab) {
-      // ── 탭 1: 기본 & RFP ──────────────────────────────────
-      // 기존 _renderBasicTab + _renderRfpTab 조합 + 섹션 구분선
+      // ── 탭 1: 기본정보 ─────────────────────────────────────
+      // Phase 8-C 신규 워크플로우:
+      //   ① 상단: RFP 등록 (파일 + 메타 + AI 분석 버튼)
+      //   ② 중단: 제안 기본정보 (AI 자동채움 가능)
+      //   ③ 하단: AI 제안전략 요약 (6섹션, 비고 자리 통합)
       case 'basic':
         wrap.innerHTML =
+          (e && e.id
+            ? `<div class="pr-tab-divider">📑 RFP 등록 & AI 분석</div>` +
+              _renderRfpTab(e) +
+              `<div class="pr-tab-divider">📋 제안 기본정보</div>`
+            : '') +
           _renderBasicTab(e) +
-          (e && e.id ? `<div class="pr-tab-divider">📑 RFP 정보</div>` + _renderRfpTab(e) : '');
+          (e && e.id
+            ? `<div class="pr-tab-divider">🤖 AI 제안전략 요약 (6섹션)</div>` +
+              _renderAiStrategySection(e)
+            : '');
         _attachLeadCombobox();
         _attachQuoteCombobox(e.quote_id);
-        if (e && e.id) _bindFileEvents(e, 'rfp');
+        if (e && e.id) {
+          _bindFileEvents(e, 'rfp');
+          _bindAiTabEvents(e); // RFP 섹션의 AI 분석 버튼 + AI 요약 섹션의 복사
+        }
         break;
-      // ── 탭 2: AI 제안전략 (기존 그대로) ───────────────────
-      case 'ai':
-        wrap.innerHTML = _renderAiTab(e);
-        _bindAiTabEvents(e);
-        break;
-      // ── 탭 3: 자료 & 견적 ────────────────────────────────
-      // 자료 섹션 + 견적 정보 조회 섹션
+      // ── 탭 2: 자료 & 견적 (Phase 8-D: 3섹션 명확 분리) ──
+      //   ① 📦 제안 자료 (파일 업로드 + 목록)
+      //   ② 📊 AI 평가 (수주확률 + 정성 메트릭 + 승리/리스크 요인)
+      //   ③ 💰 연결 견적 (조회 전용)
       case 'content':
         wrap.innerHTML =
           _renderFilesTab(e) +
+          `<div class="pr-tab-divider">📊 AI 평가 (수주확률 + 정성 메트릭)</div>` +
+          _renderEvalSection() +
           `<div class="pr-tab-divider">💰 연결 견적</div>` +
           _renderQuoteTab(e);
         _bindFileEvents(e, 'files');
         break;
-      // ── 탭 4: 발송 & 이력 ────────────────────────────────
+      // ── 탭 3: 발송 & 이력 ────────────────────────────────
       // 이메일/공유 + 리비전/히스토리 통합
       case 'send':
         wrap.innerHTML =
@@ -401,6 +416,7 @@ const ProposalsPage = (() => {
   }
 
   // ── 탭 1: 기본정보 (Phase 1 폼 재사용) ───────────────────
+  // Phase 8-C: 비고 필드는 AI 제안전략 요약 섹션으로 통합 (별도 textarea)
   function _renderBasicTab(e) {
     return `
       <div class="form-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
@@ -452,7 +468,7 @@ const ProposalsPage = (() => {
 
         <div class="form-row" style="grid-column:1 / span 2">
           <label class="form-label required">제안명</label>
-          <input class="form-input" id="pr-f-proposal_title" value="${esc(e.proposal_title || '')}" placeholder="제안서 제목 입력">
+          <input class="form-input" id="pr-f-proposal_title" value="${esc(e.proposal_title || '')}" placeholder="제안서 제목 입력 (AI 분석 시 자동 채움)">
         </div>
         <div class="form-row">
           <label class="form-label required">고객사명</label>
@@ -460,9 +476,9 @@ const ProposalsPage = (() => {
         </div>
 
         <div class="form-row" style="grid-column:1 / span 2">
-          <label class="form-label">예상금액</label>
+          <label class="form-label">예상금액 <span style="font-size:11px;color:var(--text-3);font-weight:normal">(AI 분석 시 자동 채움)</span></label>
           <div style="display:flex;gap:4px">
-            <input class="form-input" id="pr-f-expected_amount" type="number" step="0.01" min="0" value="${e.expected_amount || ''}" placeholder="견적 연결 시 자동 반영" style="flex:1">
+            <input class="form-input" id="pr-f-expected_amount" type="number" step="0.01" min="0" value="${e.expected_amount || ''}" placeholder="견적 연결 / AI 분석 시 자동 반영" style="flex:1">
             <select class="form-input" id="pr-f-currency" style="width:90px;flex-shrink:0">
               ${['KRW', 'USD', 'EUR', 'JPY', 'CNY']
                 .map(c => `<option value="${c}" ${e.currency === c ? 'selected' : ''}>${c}</option>`)
@@ -476,24 +492,33 @@ const ProposalsPage = (() => {
         </div>
       </div>
 
-      <div class="form-row" style="margin-top:14px">
-        <label class="form-label">📝 비고</label>
-        <textarea class="form-input" id="pr-f-remark" rows="3" placeholder="제안 관련 메모 (선택)" style="resize:vertical;font-family:inherit;line-height:1.5">${esc(e.remark || '')}</textarea>
-      </div>
+      <!-- Phase 8-C: 비고 필드는 하단 AI 제안전략 요약 섹션으로 이동 (편집 모드 한정) -->
+      ${
+        !e || !e.id
+          ? `<div class="form-row" style="margin-top:14px">
+              <label class="form-label">📝 비고</label>
+              <textarea class="form-input" id="pr-f-remark" rows="3" placeholder="제안 관련 메모 (선택) — 저장 후 RFP 업로드 + AI 분석으로 전환됩니다" style="resize:vertical;font-family:inherit;line-height:1.5">${esc(e.remark || '')}</textarea>
+            </div>`
+          : `<input type="hidden" id="pr-f-remark" value="${esc(e.remark || '')}">`
+      }
     `;
   }
 
-  // ── 탭 2: RFP (메타정보 + Phase 3 파일 업로드 활성) ──────
+  // ── RFP 섹션 (Phase 8-C: 기본정보 탭 상단으로 이동) ───────
+  // 흐름: 메타 입력 → 파일 업로드 → [🤖 AI 분석] → 기본정보 + AI 제안전략 요약 자동 채움
   function _renderRfpTab(e) {
     const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
+    const analyzableFiles = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
+    const canAnalyze = analyzableFiles.length > 0;
+    const hasRfpButUnanalyzable = rfpFiles.length > 0 && analyzableFiles.length === 0;
     return `
       <div style="margin-bottom:16px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">
-        📑 <strong>RFP 메타정보 + 파일</strong> — 고객사가 보낸 RFP 문서의 핵심 정보 입력 + 파일 업로드.
+        📑 <strong>1단계 — RFP 등록 & AI 분석</strong> — RFP 파일을 업로드한 뒤 [🤖 AI 분석] 버튼을 누르면, 제안 기본정보 + AI 제안전략 요약(6섹션)이 자동으로 채워집니다.
       </div>
       <div class="form-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">
         <div class="form-row" style="grid-column:1 / span 2">
           <label class="form-label">RFP 제목</label>
-          <input class="form-input" id="pr-f-rfp_title" value="${esc(e.rfp_title || '')}" placeholder="고객사 RFP 문서 제목">
+          <input class="form-input" id="pr-f-rfp_title" value="${esc(e.rfp_title || '')}" placeholder="고객사 RFP 문서 제목 (AI 분석 시 자동 채움)">
         </div>
         <div class="form-row">
           <label class="form-label">RFP 접수일</label>
@@ -505,14 +530,14 @@ const ProposalsPage = (() => {
         </div>
       </div>
       <div class="form-row" style="margin-bottom:18px">
-        <label class="form-label">📝 RFP 요약 (AI 제안전략 분석의 입력 자료)</label>
-        <textarea class="form-input" id="pr-f-rfp_summary" rows="8" placeholder="RFP 핵심 요구사항·평가기준·예산·납기 등을 요약 입력 (AI 분석 시 활용됨)" style="resize:vertical;font-family:inherit;line-height:1.6">${esc(e.rfp_summary || '')}</textarea>
+        <label class="form-label">📝 RFP 요약 (AI 분석 보조 입력)</label>
+        <textarea class="form-input" id="pr-f-rfp_summary" rows="5" placeholder="RFP 핵심 요구사항·평가기준·예산·납기 등을 요약 입력 (AI 분석 결과로 자동 채움 가능)" style="resize:vertical;font-family:inherit;line-height:1.6">${esc(e.rfp_summary || '')}</textarea>
       </div>
 
       <!-- RFP 파일 업로드 — Phase 4-C 드롭존 (다중 + drag/drop) -->
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <strong style="font-size:13px">📎 RFP 파일 (${rfpFiles.length}건)</strong>
-        <span style="font-size:11px;color:var(--text-3)">여러 파일 동시 등록 가능 · drag &amp; drop 지원</span>
+        <span style="font-size:11px;color:var(--text-3)">여러 파일 동시 등록 · drag &amp; drop · AI 분석 가능 형식: PDF / 이미지 / 텍스트</span>
       </div>
       <div id="pr-rfp-dropzone" class="pr-dropzone" data-source="rfp" tabindex="0" role="button" aria-label="RFP 파일 추가">
         <div class="pr-dropzone-icon">📥</div>
@@ -522,6 +547,24 @@ const ProposalsPage = (() => {
       </div>
       <div style="margin-top:14px">
         ${_renderFileList(rfpFiles, e.id, 'rfp')}
+      </div>
+
+      <!-- Phase 8-C: 통합 AI 분석 트리거 (RFP → 기본정보 + AI 요약 자동 채움) -->
+      <div style="margin-top:14px;padding:12px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div style="flex:1;font-size:12px;color:#6b21a8">
+          🤖 <strong>RFP 자동 분석</strong> —
+          ${
+            canAnalyze
+              ? `${analyzableFiles.length}건의 분석 가능 파일 중 <strong>첫 번째 파일</strong>을 Gemini 2.5 Pro 로 분석합니다.`
+              : hasRfpButUnanalyzable
+                ? '⚠️ 등록된 RFP 파일이 분석 불가 형식입니다. PDF / 이미지(PNG·JPG·WEBP) / 텍스트 만 지원.'
+                : '⚠️ 분석 가능한 RFP 파일을 먼저 업로드하세요.'
+          }
+        </div>
+        <button class="btn btn-primary" id="pr-ai-analyze-btn" type="button"
+          ${canAnalyze ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"'}>
+          🤖 AI 분석 ${e.ai_strategy_md ? '(다시 생성)' : ''}
+        </button>
       </div>
     `;
   }
@@ -600,48 +643,48 @@ const ProposalsPage = (() => {
     return AI_ANALYZABLE_RE.test(String(filename || ''));
   }
 
-  // ── 탭 3: AI 제안전략 (Phase 4-D 활성) ───────────────────
-  function _renderAiTab(e) {
+  // ── AI 제안전략 요약 섹션 (Phase 8-C: 비고 자리에 통합) ───
+  // 편집 가능한 textarea (markdown) + 미리보기 토글 + 복사 버튼
+  // 6섹션 가이드: 제안목표 / 주요 일정 / 핵심사항 / 준비사항(체크리스트) / 예상 리스크 / 독소조항 회피방안
+  function _renderAiStrategySection(e) {
     const hasResult = e.ai_strategy_md && e.ai_strategy_md.trim();
-    const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
-    // 분석 가능한 RFP 파일만 (PDF/이미지/텍스트)
-    const analyzableFiles = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
-    const canAnalyze = analyzableFiles.length > 0;
-    const hasRfpButUnanalyzable = rfpFiles.length > 0 && analyzableFiles.length === 0;
+    const placeholder = [
+      '## 제안 목표',
+      '- (RFP 업로드 후 [🤖 AI 분석] 버튼을 누르면 자동 채움)',
+      '',
+      '## 제안 주요 일정',
+      '- ',
+      '',
+      '## 제안 핵심사항',
+      '- ',
+      '',
+      '## 제안 준비사항 (체크리스트)',
+      '- [ ] ',
+      '',
+      '## 예상 리스크',
+      '- ',
+      '',
+      '## 독소조항 회피방안',
+      '- ',
+    ].join('\n');
     return `
-      <div style="margin-bottom:16px;padding:10px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#6b21a8">
-        🤖 <strong>AI 제안 전략 분석</strong> — RFP 파일을 Gemini 2.5 Pro 로 분석해 한국어 B2B 제안 전략을 markdown 으로 생성합니다.
-        ${
-          canAnalyze
-            ? `<br>분석 가능한 RFP 파일 ${analyzableFiles.length}건 — 첫 번째 파일을 사용합니다.`
-            : hasRfpButUnanalyzable
-              ? '<br>⚠️ 등록된 RFP 파일이 분석 불가 형식입니다. <strong>PDF / 이미지(PNG·JPG·WEBP) / 텍스트</strong> 만 지원하며, PPT/DOC/HWP 는 PDF 로 변환 후 업로드하세요.'
-              : '<br>⚠️ 기본 탭의 RFP 영역에서 파일을 먼저 업로드하세요. (PDF / 이미지 / 텍스트)'
-        }
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
-        <button class="btn btn-primary" id="pr-ai-analyze-btn" type="button" ${canAnalyze ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"'}>
-          ${hasResult ? '🔁 다시 생성' : '🤖 AI 제안 전략 분석하기'}
-        </button>
-        ${
-          hasResult
-            ? '<button class="btn btn-ghost" id="pr-ai-copy-btn" type="button">📋 복사</button>'
-            : ''
-        }
-        <div style="margin-left:auto;font-size:11px;color:var(--text-3)">
-          ${e.ai_strategy_generated_at ? '최근 분석: ' + _fmtDateTime(e.ai_strategy_generated_at) : '아직 분석 결과 없음'}
+      <div style="margin-bottom:10px;padding:10px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#6b21a8;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div>
+          🧠 <strong>2단계 — AI 제안전략 요약</strong> — Markdown 으로 6섹션 작성. 직접 편집 가능. 상단 [🤖 AI 분석] 으로 자동 생성.
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" id="pr-ai-preview-btn" type="button" title="미리보기 토글">👁️ 미리보기</button>
+          ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-copy-btn" type="button" title="markdown 복사">📋 복사</button>' : ''}
         </div>
       </div>
-
-      ${
-        hasResult
-          ? `<div id="pr-ai-md-render" class="pr-ai-md">${_renderMarkdown(e.ai_strategy_md)}</div>`
-          : `<div style="padding:60px 20px;text-align:center;color:var(--text-3);background:#fafafa;border:1px dashed var(--border);border-radius:6px">
-              <div style="font-size:48px;margin-bottom:12px">🤖</div>
-              <div style="font-size:14px;margin-bottom:6px">아직 AI 분석 결과가 없습니다</div>
-              <div style="font-size:12px">${canAnalyze ? '위 [분석하기] 버튼을 눌러 RFP 파일을 분석하세요' : '기본 탭의 RFP 영역에서 파일을 먼저 업로드하세요'}</div>
-            </div>`
-      }
+      <div class="form-row" style="margin-bottom:6px">
+        <textarea class="form-input" id="pr-f-ai_strategy_md" rows="14" placeholder="${esc(placeholder)}" style="resize:vertical;font-family:'Consolas','Monaco',monospace;font-size:12px;line-height:1.6">${esc(e.ai_strategy_md || '')}</textarea>
+      </div>
+      <div style="font-size:11px;color:var(--text-3);text-align:right">
+        ${e.ai_strategy_generated_at ? '최근 AI 분석: ' + _fmtDateTime(e.ai_strategy_generated_at) : '아직 AI 분석 결과 없음 — 수동 입력 가능'}
+      </div>
+      <!-- 미리보기 영역 (토글 시 표시) -->
+      <div id="pr-ai-md-render" class="pr-ai-md" style="display:none;margin-top:12px;padding:14px 16px;background:#fafafa;border:1px solid var(--border);border-radius:6px"></div>
     `;
   }
 
@@ -697,13 +740,23 @@ const ProposalsPage = (() => {
 
       <div style="font-size:12px;color:var(--text-3);margin:14px 0 8px">📂 등록된 파일 (${files.length}건)</div>
       ${_renderFileList(files, e.id, 'files')}
+    `;
+  }
 
-      <!-- Phase 6-C: AI 평가 결과 영역 (자료 행에서 [📊] 클릭 시 채움) -->
+  // Phase 8-D: AI 평가 섹션 — 자료 행에서 [📊] 클릭 시 채워짐
+  // 빈 상태에서도 안내 표시 (수주확률/메트릭 등 신규 기능 노출)
+  function _renderEvalSection() {
+    return `
+      <div style="margin-bottom:10px;padding:10px 14px;background:#ecfeff;border:1px solid #67e8f9;border-radius:6px;font-size:12px;color:#155e75">
+        📊 <strong>AI 평가</strong> — 위 자료의 [📊] 버튼을 누르면 RFP 와 자동 비교하여 <strong>수주확률 + 정성 메트릭 + 승리/리스크 요인</strong>을 생성합니다. (Gemini Pro 호출 — 약 10-30초)
+      </div>
       <div id="pr-eval-result"></div>
     `;
   }
 
-  // Phase 6-C: AI 평가 결과 카드 렌더링 (커버율 / 충족 / 누락 / 개선)
+  // Phase 6-C + 8-D: AI 평가 결과 카드 렌더링
+  //   - 수주확률 + 정성 메트릭 (Phase 8-D 신규)
+  //   - 커버율 / 충족 / 누락 / 개선 / 승리요인 / 리스크요인
   function _renderEvalResult(data) {
     if (!data) return '';
     const score = Math.max(0, Math.min(100, parseInt(data.coverage_score, 10) || 0));
@@ -714,6 +767,21 @@ const ProposalsPage = (() => {
     const covered = Array.isArray(data.covered_items) ? data.covered_items : [];
     const missing = Array.isArray(data.missing_items) ? data.missing_items : [];
     const improve = Array.isArray(data.improvement_suggestions) ? data.improvement_suggestions : [];
+
+    // Phase 8-D: 수주확률 + 정성 메트릭 + 승리/리스크 요인
+    const winProb = Math.max(0, Math.min(100, parseInt(data.win_probability, 10) || 0));
+    const winColor = winProb >= 70 ? '#16a34a' : winProb >= 40 ? '#ca8a04' : '#dc2626';
+    const winLabel = winProb >= 70 ? '높음' : winProb >= 40 ? '보통' : '낮음';
+    const qm = data.quality_metrics || {};
+    const metrics = [
+      { key: 'clarity', label: '명확성', value: parseInt(qm.clarity, 10) || 0 },
+      { key: 'completeness', label: '완결성', value: parseInt(qm.completeness, 10) || 0 },
+      { key: 'differentiation', label: '차별성', value: parseInt(qm.differentiation, 10) || 0 },
+      { key: 'feasibility', label: '실현가능성', value: parseInt(qm.feasibility, 10) || 0 },
+      { key: 'price_competitiveness', label: '가격경쟁력', value: parseInt(qm.price_competitiveness, 10) || 0 },
+    ];
+    const winFactors = Array.isArray(data.win_factors) ? data.win_factors.filter(Boolean) : [];
+    const riskFactors = Array.isArray(data.risk_factors) ? data.risk_factors.filter(Boolean) : [];
 
     return `<div class="pr-eval-card" id="pr-eval-card">
       <div class="pr-eval-header">
@@ -726,7 +794,60 @@ const ProposalsPage = (() => {
         <button class="btn btn-ghost btn-sm" id="pr-eval-close-btn" type="button" title="닫기">✕</button>
       </div>
 
-      <!-- 커버율 진행바 -->
+      <!-- Phase 8-D: 수주확률 카드 (대형) + 정성 메트릭 (5바) -->
+      <div class="pr-eval-winprob-row">
+        <div class="pr-eval-winprob-card" style="border-color:${winColor}">
+          <div class="pr-eval-winprob-label">🎯 예상 수주확률</div>
+          <div class="pr-eval-winprob-num" style="color:${winColor}">${winProb}<span class="pr-eval-winprob-unit">%</span></div>
+          <div class="pr-eval-winprob-badge" style="background:${winColor}">${winLabel}</div>
+        </div>
+        <div class="pr-eval-metrics-card">
+          <div class="pr-eval-metrics-label">📈 정성 메트릭 (10점 만점)</div>
+          ${metrics
+            .map(m => {
+              const pct = (m.value / 10) * 100;
+              const col = m.value >= 7 ? '#16a34a' : m.value >= 4 ? '#ca8a04' : '#dc2626';
+              return `<div class="pr-eval-metric-row">
+                <div class="pr-eval-metric-name">${esc(m.label)}</div>
+                <div class="pr-eval-metric-bar">
+                  <div class="pr-eval-metric-fill" style="width:${pct}%;background:${col}"></div>
+                </div>
+                <div class="pr-eval-metric-val" style="color:${col}">${m.value}</div>
+              </div>`;
+            })
+            .join('')}
+        </div>
+      </div>
+
+      <!-- Phase 8-D: 승리 요인 + 리스크 요인 (좌우 2-칼럼) -->
+      ${
+        winFactors.length > 0 || riskFactors.length > 0
+          ? `<div class="pr-eval-factors-row">
+              ${
+                winFactors.length > 0
+                  ? `<div class="pr-eval-factor-card pr-eval-factor-win">
+                      <div class="pr-eval-factor-title">✅ 승리 요인 (${winFactors.length}건)</div>
+                      <ul class="pr-eval-factor-list">
+                        ${winFactors.map(f => `<li>${esc(f)}</li>`).join('')}
+                      </ul>
+                    </div>`
+                  : ''
+              }
+              ${
+                riskFactors.length > 0
+                  ? `<div class="pr-eval-factor-card pr-eval-factor-risk">
+                      <div class="pr-eval-factor-title">⚠️ 리스크 요인 (${riskFactors.length}건)</div>
+                      <ul class="pr-eval-factor-list">
+                        ${riskFactors.map(f => `<li>${esc(f)}</li>`).join('')}
+                      </ul>
+                    </div>`
+                  : ''
+              }
+            </div>`
+          : ''
+      }
+
+      <!-- 커버율 진행바 (기존) -->
       <div class="pr-eval-score">
         <div class="pr-eval-score-label">RFP 커버율</div>
         <div class="pr-eval-score-bar">
@@ -1373,16 +1494,16 @@ const ProposalsPage = (() => {
     const rfpDue =
       get('pr-f-rfp_due_date', '') || (e.rfp_due_date ? _toInputDate(e.rfp_due_date) : '');
     const rfpSummary = get('pr-f-rfp_summary', e.rfp_summary || '');
-    // 편집 모드만 RFP 필드 전송 (신규는 기본정보만)
+    // Phase 8-C: AI 제안전략 요약 textarea (편집 가능 — 비고 자리에 통합됨)
+    const aiStrategyMd = get('pr-f-ai_strategy_md', e.ai_strategy_md || '');
+    // 편집 모드만 RFP/AI 필드 전송 (신규는 기본정보만)
     if (_editing) {
       body.rfp_title = rfpTitle || null;
       body.rfp_received_date = rfpReceived || null;
       body.rfp_due_date = rfpDue || null;
       body.rfp_summary = rfpSummary || null;
-      // Phase 4-C: AI 분석 결과 (탭에서 미리채워진 후 [저장] 누르면 함께 반영)
-      if (e.ai_strategy_md !== undefined) {
-        body.ai_strategy_md = e.ai_strategy_md || null;
-      }
+      // Phase 8-C: textarea 에서 직접 읽음 (사용자 편집 + AI 결과 모두 반영)
+      body.ai_strategy_md = aiStrategyMd || null;
     }
 
     try {
@@ -1636,16 +1757,40 @@ const ProposalsPage = (() => {
     }
   }
 
-  // 분석 결과를 RFP 탭 폼에 미리채움 + _editing 캐시 동기화 (DB 미반영)
+  // 분석 결과를 기본정보 탭 폼에 미리채움 + _editing 캐시 동기화 (DB 미반영)
+  // Phase 8-C: ai_strategy_md textarea + 제안 기본정보 (제안명/예상금액/통화/일정) 자동 채움
   function _applyAnalysisToForm(d) {
-    const set = (id, v) => {
+    // 비어있지 않을 때만 덮어쓰기 (사용자 입력값 보존)
+    const setIfEmpty = (id, v) => {
+      const el = document.getElementById(id);
+      if (el && v !== null && v !== undefined && v !== '' && !el.value) el.value = v;
+    };
+    // 무조건 덮어쓰기 (AI 분석 결과 우선 — RFP 메타 + ai_strategy_md)
+    const setForce = (id, v) => {
       const el = document.getElementById(id);
       if (el && v !== null && v !== undefined && v !== '') el.value = v;
     };
-    if (d.rfp_title) set('pr-f-rfp_title', d.rfp_title);
-    if (d.rfp_received_date) set('pr-f-rfp_received_date', d.rfp_received_date);
-    if (d.rfp_due_date) set('pr-f-rfp_due_date', d.rfp_due_date);
-    if (d.rfp_summary) set('pr-f-rfp_summary', d.rfp_summary);
+    // ── RFP 메타 (항상 덮어쓰기 — AI 가 더 정확) ──
+    if (d.rfp_title) setForce('pr-f-rfp_title', d.rfp_title);
+    if (d.rfp_received_date) setForce('pr-f-rfp_received_date', d.rfp_received_date);
+    if (d.rfp_due_date) setForce('pr-f-rfp_due_date', d.rfp_due_date);
+    if (d.rfp_summary) setForce('pr-f-rfp_summary', d.rfp_summary);
+    // ── AI 제안전략 요약 (textarea 항상 덮어쓰기) ──
+    if (d.ai_strategy_md) setForce('pr-f-ai_strategy_md', d.ai_strategy_md);
+    // ── Phase 8-A: 제안 기본정보 (사용자 입력값 보존 — empty 시만) ──
+    if (d.proposal_title) setIfEmpty('pr-f-proposal_title', d.proposal_title);
+    if (d.expected_amount) setIfEmpty('pr-f-expected_amount', d.expected_amount);
+    // currency 는 select — 옵션이 일치하면 강제 (KRW 기본값 보호)
+    if (d.currency) {
+      const sel = document.getElementById('pr-f-currency');
+      if (sel && Array.from(sel.options).some(o => o.value === d.currency)) {
+        sel.value = d.currency;
+      }
+    }
+    // 제안일/제출기한 — 비어있을 때 RFP 일정으로 채움
+    if (d.rfp_received_date) setIfEmpty('pr-f-proposal_date', d.rfp_received_date);
+    if (d.rfp_due_date) setIfEmpty('pr-f-due_date', d.rfp_due_date);
+
     // _editing 캐시도 동기화 — 탭 전환해도 결과 유지
     if (_editing) {
       if (d.rfp_title) _editing.rfp_title = d.rfp_title;
@@ -1653,6 +1798,11 @@ const ProposalsPage = (() => {
       if (d.rfp_due_date) _editing.rfp_due_date = d.rfp_due_date;
       if (d.rfp_summary) _editing.rfp_summary = d.rfp_summary;
       if (d.ai_strategy_md) _editing.ai_strategy_md = d.ai_strategy_md;
+      if (d.proposal_title && !_editing.proposal_title)
+        _editing.proposal_title = d.proposal_title;
+      if (d.expected_amount && !_editing.expected_amount)
+        _editing.expected_amount = d.expected_amount;
+      if (d.currency) _editing.currency = d.currency;
     }
   }
 
@@ -1666,13 +1816,14 @@ const ProposalsPage = (() => {
     }
   }
 
-  // ── Phase 4-D: AI 탭 이벤트 (분석 / 재생성 / 복사) ─────────
+  // ── Phase 8-C: AI 분석 + 미리보기 + 복사 (기본정보 탭 통합) ─
+  // 분석 버튼은 RFP 섹션에 있고, 미리보기/복사는 AI 제안전략 요약 섹션에 있음
   function _bindAiTabEvents(e) {
     if (!e || !e.id) return;
     const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
     const analyzableFiles = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
 
-    // (1) 분석 / 재생성 버튼 — 둘 다 같은 endpoint, hasResult 면 덮어쓰기 확인
+    // (1) 분석 / 재생성 버튼 (RFP 섹션) — 결과를 폼에 자동 채움
     const analyzeBtn = document.getElementById('pr-ai-analyze-btn');
     if (analyzeBtn) {
       analyzeBtn.addEventListener('click', async () => {
@@ -1682,29 +1833,50 @@ const ProposalsPage = (() => {
               '분석 가능한 형식이 아닙니다 — PDF / 이미지 / 텍스트만 지원 (PPT/DOC/HWP 는 PDF 로 변환)'
             );
           } else {
-            Toast.error('RFP 파일이 없습니다. RFP 탭에서 먼저 업로드하세요.');
+            Toast.error('RFP 파일이 없습니다. 먼저 업로드하세요.');
           }
           return;
         }
-        const hasResult = e.ai_strategy_md && e.ai_strategy_md.trim();
-        if (hasResult) {
+        const currentMd = (
+          document.getElementById('pr-f-ai_strategy_md')?.value ||
+          e.ai_strategy_md ||
+          ''
+        ).trim();
+        if (currentMd) {
           const ok = confirm(
-            '기존 AI 분석 결과를 덮어쓰시겠습니까?\n(저장 전이면 [닫기]로 취소 가능합니다)'
+            '기존 AI 제안전략 요약을 덮어쓰시겠습니까?\n(저장 전이면 [닫기]로 취소 가능합니다)'
           );
           if (!ok) return;
         }
-        // 분석 가능한 첫 번째 RFP 파일로 분석
         await _doAnalyzeRfp(e.id, analyzableFiles[0].id, analyzeBtn);
-        // 결과를 화면에 재렌더 (탭 다시 그리기)
-        _renderActiveTab(_editing || e);
+        // Phase 8-C: 분석 결과를 폼에 즉시 채움 (textarea + 제안 기본정보)
+        // _doAnalyzeRfp 내부에서 _applyAnalysisToForm 호출됨
       });
     }
 
-    // (2) 복사 버튼 — clipboard.writeText
+    // (2) 미리보기 토글 — textarea ↔ rendered markdown
+    const previewBtn = document.getElementById('pr-ai-preview-btn');
+    const renderWrap = document.getElementById('pr-ai-md-render');
+    const ta = document.getElementById('pr-f-ai_strategy_md');
+    if (previewBtn && renderWrap && ta) {
+      previewBtn.addEventListener('click', () => {
+        const isShown = renderWrap.style.display !== 'none';
+        if (isShown) {
+          renderWrap.style.display = 'none';
+          previewBtn.innerHTML = '👁️ 미리보기';
+        } else {
+          renderWrap.innerHTML = _renderMarkdown(ta.value || '');
+          renderWrap.style.display = '';
+          previewBtn.innerHTML = '📝 편집 보기';
+        }
+      });
+    }
+
+    // (3) 복사 버튼 — clipboard.writeText (textarea 의 현재 값)
     const copyBtn = document.getElementById('pr-ai-copy-btn');
     if (copyBtn) {
       copyBtn.addEventListener('click', async () => {
-        const md = (_editing || e).ai_strategy_md || '';
+        const md = (document.getElementById('pr-f-ai_strategy_md')?.value || '').trim();
         if (!md) {
           Toast.error('복사할 내용이 없습니다');
           return;
@@ -1714,19 +1886,19 @@ const ProposalsPage = (() => {
           Toast.success('마크다운 클립보드에 복사됨');
         } catch (_) {
           // fallback — textarea 임시 사용
-          const ta = document.createElement('textarea');
-          ta.value = md;
-          ta.style.position = 'fixed';
-          ta.style.left = '-9999px';
-          document.body.appendChild(ta);
-          ta.select();
+          const tmp = document.createElement('textarea');
+          tmp.value = md;
+          tmp.style.position = 'fixed';
+          tmp.style.left = '-9999px';
+          document.body.appendChild(tmp);
+          tmp.select();
           try {
             document.execCommand('copy');
             Toast.success('마크다운 클립보드에 복사됨');
           } catch (_) {
             Toast.error('복사 실패 — 수동 선택 후 복사하세요');
           }
-          document.body.removeChild(ta);
+          document.body.removeChild(tmp);
         }
       });
     }

@@ -9275,6 +9275,138 @@ body,
   font-size: 13px;
 }
 
+/* ── Phase 8-D: 수주확률 카드 + 정성 메트릭 + 승리/리스크 요인 ── */
+.pr-eval-winprob-row {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 14px;
+  margin: 18px 0;
+}
+.pr-eval-winprob-card {
+  background: #fff;
+  border: 2px solid #ca8a04;
+  border-radius: 10px;
+  padding: 18px 14px;
+  text-align: center;
+  position: relative;
+}
+.pr-eval-winprob-label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.pr-eval-winprob-num {
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+  margin: 8px 0;
+  letter-spacing: -2px;
+}
+.pr-eval-winprob-unit {
+  font-size: 22px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.pr-eval-winprob-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 12px;
+  background: #ca8a04;
+  color: #fff;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pr-eval-metrics-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.pr-eval-metrics-label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.pr-eval-metric-row {
+  display: grid;
+  grid-template-columns: 84px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.pr-eval-metric-name {
+  font-size: 12px;
+  color: var(--text-1);
+  font-weight: 500;
+}
+.pr-eval-metric-bar {
+  height: 10px;
+  background: #f3f4f6;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.pr-eval-metric-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.4s ease-out;
+}
+.pr-eval-metric-val {
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.pr-eval-factors-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 14px 0;
+}
+.pr-eval-factor-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.pr-eval-factor-win {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+.pr-eval-factor-risk {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+.pr-eval-factor-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.pr-eval-factor-win .pr-eval-factor-title {
+  color: #15803d;
+}
+.pr-eval-factor-risk .pr-eval-factor-title {
+  color: #b91c1c;
+}
+.pr-eval-factor-list {
+  margin: 0;
+  padding-left: 18px;
+}
+.pr-eval-factor-list li {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 3px 0;
+  color: var(--text-1);
+}
+
+@media (max-width: 760px) {
+  .pr-eval-winprob-row,
+  .pr-eval-factors-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Phase 6-A: 4-탭 통합 — 섹션 구분선 */
 .pr-tab-divider {
   display: flex;

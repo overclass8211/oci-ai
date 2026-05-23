@@ -15,7 +15,9 @@ const { defineConfig, devices } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './e2e',
-  timeout: 30 * 1000,
+  // 60s test timeout — 외부 CDN 로드 + 모달 큰 컨텐츠 렌더 + AI 분석 mock 등 흡수
+  // 개별 waitFor 는 navigationTimeout(30s) 사용 → 총 합계가 timeout 안에 들어가야 함
+  timeout: 60 * 1000,
   expect: { timeout: 5000 },
   fullyParallel: false,         // 같은 DB 시드 공유 — 직렬 실행이 안전
   forbidOnly: !!process.env.CI,
