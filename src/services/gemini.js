@@ -368,12 +368,29 @@ async function analyzeProposalRFP({ filePath, mimeType, userId, endpoint }) {
     throw new Error('AI 응답이 비어있습니다 (Gemini 가 응답을 생성하지 못함)');
   }
 
+  // Phase 12: JSON 파싱 강화 — markdown fence/주변 텍스트 제거 후 재시도
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch (_) {
-    console.error('[gemini:analyzeProposalRFP] JSON parse failed. raw text:', text.slice(0, 500));
-    throw new Error('AI 응답을 JSON 으로 파싱할 수 없습니다');
+    let cleaned = String(text).trim();
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    }
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (_e2) {
+      console.error(
+        '[gemini:analyzeProposalRFP] JSON parse failed (after cleanup). raw text:',
+        text.slice(0, 500)
+      );
+      throw new Error(
+        'AI 분석 응답을 JSON 으로 파싱할 수 없습니다 — RFP 파일을 다시 확인하거나 다른 파일로 시도하세요'
+      );
+    }
   }
 
   // 사후 정규화 — 날짜 형식 검증 (YYYY-MM-DD 외엔 null)
@@ -660,15 +677,56 @@ async function evaluateProposalAgainstRFP({
     throw new Error('AI 평가 응답이 비어있습니다');
   }
 
+  // Phase 12: JSON 파싱 강화 — markdown fence/주변 텍스트 제거 + fallback
+  //   Gemini가 RFP-제안서 미스매치 케이스에서 비정형 응답을 반환할 수 있음
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch (_) {
-    console.error(
-      '[gemini:evaluateProposalAgainstRFP] JSON parse failed. raw:',
-      text.slice(0, 500)
-    );
-    throw new Error('AI 평가 응답을 JSON 으로 파싱할 수 없습니다');
+    // 1차 시도 실패 → markdown fence + 주변 텍스트 제거 후 재시도
+    let cleaned = String(text).trim();
+    // ``` 또는 ```json fence 제거
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+    // 첫 { 부터 마지막 } 사이만 추출 (앞뒤 설명 제거)
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    }
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (_e2) {
+      // 2차 시도도 실패 → RFP-제안서 미스매치로 추정, fallback 응답 반환
+      console.error(
+        '[gemini:evaluateProposalAgainstRFP] JSON parse failed (after cleanup). raw:',
+        text.slice(0, 500)
+      );
+      parsed = {
+        coverage_score: 0,
+        covered_count: 0,
+        missing_count: 0,
+        covered_items: [],
+        missing_items: [],
+        improvement_suggestions: [],
+        overall_assessment:
+          '⚠️ AI가 응답을 정상 형식으로 생성하지 못했습니다.\n\n가능한 원인:\n' +
+          '1. 업로드한 제안서가 RFP 와 일치하지 않는 다른 사업/프로젝트의 자료일 수 있습니다.\n' +
+          '2. 제안서 파일이 손상되었거나 내용이 너무 적을 수 있습니다.\n' +
+          '3. RFP 와 제안서의 언어/형식이 호환되지 않을 수 있습니다.\n\n' +
+          '권장 조치: 동일 사업의 정확한 RFP-제안서 쌍을 다시 업로드하여 평가를 시도하세요.',
+        win_probability: 0,
+        quality_metrics: {
+          requirement_coverage: 0,
+          strategy_clarity: 0,
+          differentiation: 0,
+          risk_handling: 0,
+          price_competitiveness: 0,
+        },
+        win_factors: [],
+        risk_factors: ['RFP-제안서 미스매치 추정 — 동일 사업의 자료인지 확인 필요'],
+        _parseError: true,
+      };
+    }
   }
 
   // 사후 정규화 + 길이 제한

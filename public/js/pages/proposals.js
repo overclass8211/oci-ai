@@ -804,18 +804,14 @@ const ProposalsPage = (() => {
         ${_renderFileList(rfpFiles, e.id, 'rfp')}
       </div>
 
-      <!-- Phase 10-2: 큰 CTA AI 분석 버튼 (강조 + 안내 통합) -->
-      <button class="pr-ai-cta" id="pr-ai-analyze-btn" type="button"
-        ${canAnalyze ? '' : 'disabled'}>
-        🤖 ${e.ai_strategy_md ? 'AI 분석 다시 시작' : 'AI 분석 시작'} — 모든 정보 자동 채움
-      </button>
-      <div class="pr-ai-cta-hint">
+      <!-- Phase 12: AI 분석 버튼은 2단계 (AI 제안전략 요약 섹션)로 이동 -->
+      <div style="margin-top:12px;padding:10px 14px;background:#ecfeff;border:1px solid #67e8f9;border-radius:6px;font-size:12px;color:#155e75">
         ${
           canAnalyze
-            ? `Gemini 2.5 Pro 가 RFP 를 읽어 제안명·고객사·금액·일정·6섹션 전략을 자동 생성합니다 (약 10-30초)`
+            ? `✅ <strong>RFP 파일 ${analyzableFiles.length}건 준비 완료</strong> — 다음 단계 <strong>[🤖 AI 제안전략 요약]</strong> 섹션에서 [AI 분석 시작] 버튼을 누르세요.`
             : hasRfpButUnanalyzable
               ? '⚠️ 등록된 RFP 파일이 분석 불가 형식입니다 — PDF / 이미지(PNG·JPG·WEBP) / 텍스트만 지원'
-              : '⚠️ 분석 가능한 RFP 파일을 먼저 업로드하세요'
+              : '💡 RFP 파일을 업로드한 뒤 다음 단계에서 AI 분석을 실행하세요'
         }
       </div>
     `;
@@ -896,13 +892,19 @@ const ProposalsPage = (() => {
   }
 
   // ── AI 제안전략 요약 섹션 (Phase 8-C: 비고 자리에 통합) ───
-  // 편집 가능한 textarea (markdown) + 미리보기 토글 + 복사 버튼
+  // 편집 가능한 textarea (markdown) + Word 다운로드 + 복사
+  // Phase 12: 큰 CTA AI 분석 버튼 이 섹션 상단으로 이동 (1단계 → 2단계)
   // 6섹션 가이드: 제안목표 / 주요 일정 / 핵심사항 / 준비사항(체크리스트) / 예상 리스크 / 독소조항 회피방안
   function _renderAiStrategySection(e) {
     const hasResult = e.ai_strategy_md && e.ai_strategy_md.trim();
+    // Phase 12: RFP 파일 호환성으로 AI 분석 가능 여부 결정 (1단계와 동일 로직)
+    const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
+    const analyzableFiles = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
+    const canAnalyze = analyzableFiles.length > 0;
+    const hasRfpButUnanalyzable = rfpFiles.length > 0 && analyzableFiles.length === 0;
     const placeholder = [
       '## 제안 목표',
-      '- (RFP 업로드 후 [🤖 AI 분석] 버튼을 누르면 자동 채움)',
+      '- (1단계 RFP 업로드 후 [🤖 AI 분석 시작] 버튼을 누르면 자동 채움)',
       '',
       '## 제안 주요 일정',
       '- ',
@@ -920,9 +922,24 @@ const ProposalsPage = (() => {
       '- ',
     ].join('\n');
     return `
-      <div style="margin-bottom:10px;padding:10px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#6b21a8;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <!-- Phase 12: 큰 CTA AI 분석 버튼 (1단계에서 이동) -->
+      <button class="pr-ai-cta" id="pr-ai-analyze-btn" type="button"
+        ${canAnalyze ? '' : 'disabled'}>
+        🤖 ${hasResult ? 'AI 분석 다시 시작' : 'AI 분석 시작'} — RFP 기반 자동 생성
+      </button>
+      <div class="pr-ai-cta-hint">
+        ${
+          canAnalyze
+            ? `Gemini 2.5 Pro 가 RFP 를 읽어 제안명·고객사·금액·일정·6섹션 전략을 자동 생성합니다 (약 10-30초)`
+            : hasRfpButUnanalyzable
+              ? '⚠️ 1단계의 RFP 파일이 분석 불가 형식입니다 — PDF / 이미지(PNG·JPG·WEBP) / 텍스트만 지원'
+              : '⚠️ 먼저 1단계 RFP 등록 섹션에서 분석 가능한 RFP 파일을 업로드하세요'
+        }
+      </div>
+
+      <div style="margin:14px 0 10px;padding:10px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#6b21a8;display:flex;align-items:center;justify-content:space-between;gap:8px">
         <div>
-          🧠 <strong>2단계 — AI 제안전략 요약</strong> — Markdown 으로 6섹션 작성. 직접 편집 가능. 상단 [🤖 AI 분석] 으로 자동 생성.
+          🧠 <strong>6섹션 마크다운 작성 영역</strong> — 직접 편집 가능. 위 [🤖 AI 분석 시작] 으로 자동 생성.
         </div>
         <div style="display:flex;gap:6px">
           ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-word-btn" type="button" title="Word(.docx) 내려받기">📄 Word 다운로드</button>' : ''}
@@ -941,6 +958,10 @@ const ProposalsPage = (() => {
   // ── 탭 4: 제안자료 (Phase 3 활성) ────────────────────────
   function _renderFilesTab(e) {
     const files = (e.files || []).filter(f => f.file_type !== 'rfp');
+    // Phase 12: AI 제안평가 큰 CTA — 분석 가능 자료 파일 자동 선택
+    const analyzableFiles = files.filter(f => _isAnalyzable(f.original_filename));
+    const canEvaluate = analyzableFiles.length > 0;
+    const hasFilesButUnanalyzable = files.length > 0 && analyzableFiles.length === 0;
     return `
       <div style="margin-bottom:10px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:12px;color:#1e40af">
         📦 <strong>제안 자료 아카이브</strong> — 제안서 / 회사소개서 / 레퍼런스 / 견적 / 응답서 등 PPT/Word/PDF/HWP 파일을 관리합니다.
@@ -994,6 +1015,21 @@ const ProposalsPage = (() => {
 
       <div style="font-size:12px;color:var(--text-3);margin:14px 0 8px">📂 등록된 파일 (${files.length}건)</div>
       ${_renderFileList(files, e.id, 'files')}
+
+      <!-- Phase 12: 큰 CTA AI 제안평가 버튼 (기본탭 [🤖 AI 분석 시작] 패턴 동일) -->
+      <button class="pr-ai-cta" id="pr-evaluate-cta" type="button"
+        ${canEvaluate ? '' : 'disabled'}>
+        📊 AI 제안평가 시작 — RFP 와 자동 비교
+      </button>
+      <div class="pr-ai-cta-hint">
+        ${
+          canEvaluate
+            ? `Gemini Pro 가 RFP 와 ${analyzableFiles.length}건의 제안서를 비교하여 수주확률·정성 메트릭·승리/리스크 요인을 생성합니다 (약 10-30초 · 1회 약 300-500원)`
+            : hasFilesButUnanalyzable
+              ? '⚠️ 등록된 자료가 분석 불가 형식입니다 — PDF / 이미지(PNG·JPG·WEBP) / 텍스트만 평가 가능'
+              : '⚠️ 평가할 제안서를 먼저 업로드하세요 (PDF / 이미지 / 텍스트)'
+        }
+      </div>
     `;
   }
 
@@ -1217,7 +1253,7 @@ const ProposalsPage = (() => {
         <th style="width:70px;text-align:center">📧 첨부</th>
         <th style="width:90px">크기</th>
         <th style="width:120px">등록일</th>
-        <th style="width:${source === 'files' ? '230' : '140'}px;text-align:center">작업</th>
+        <th style="width:140px;text-align:center">작업</th>
       </tr></thead>
       <tbody>
         ${files
@@ -1231,13 +1267,6 @@ const ProposalsPage = (() => {
           <td>${f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-'}</td>
           <td>${_fmtDateTime(f.created_at)}</td>
           <td style="text-align:center;white-space:nowrap">
-            ${
-              source === 'files'
-                ? _isAnalyzable(f.original_filename)
-                  ? `<button class="btn btn-ghost btn-sm pr-file-evaluate" data-id="${f.id}" type="button" title="RFP 대비 평가 (AI 코칭)" style="color:#0891b2;font-size:11px;padding:2px 6px">AI제안평가</button>`
-                  : `<span title="PDF / 이미지 / 텍스트만 평가 가능 — PPT/DOC/HWP/XLS 는 PDF 변환 권장" style="font-size:11px;color:var(--text-3);padding:0 4px">평가 불가</span>`
-                : ''
-            }
             <a class="btn btn-ghost btn-sm" href="${API.proposals.downloadFileUrl(proposalId, f.id)}" data-pr-file-download="${f.id}" title="다운로드" style="font-size:11px;padding:2px 6px">다운로드</a>
             <button class="btn btn-ghost btn-sm pr-file-del" data-id="${f.id}" data-source="${source}" type="button" style="color:#d93025;font-size:11px;padding:2px 6px" title="삭제">삭제</button>
           </td>
@@ -1864,13 +1893,23 @@ const ProposalsPage = (() => {
       });
     });
 
-    // (5) Phase 6-C — AI 평가 버튼 (자료 파일 행에서만 렌더링됨)
-    document.querySelectorAll('.pr-file-evaluate').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const fileId = parseInt(btn.dataset.id, 10);
-        await _doEvaluateProposal(e.id, fileId, btn);
+    // (5) Phase 12: AI 제안평가 큰 CTA 버튼 (자료 섹션 하단)
+    //   _renderFileList 의 행 단위 [AI제안평가] 버튼은 제거됨
+    //   분석 가능한 첫 번째 자료 파일을 자동 선택 (기본탭 AI 분석 패턴 동일)
+    const evalCta = document.getElementById('pr-evaluate-cta');
+    if (evalCta && source === 'files') {
+      evalCta.addEventListener('click', async () => {
+        const evalFiles = (e.files || []).filter(
+          f => f.file_type !== 'rfp' && _isAnalyzable(f.original_filename)
+        );
+        if (evalFiles.length === 0) {
+          Toast.error('평가 가능한 제안서가 없습니다 — PDF/이미지/텍스트 파일을 먼저 업로드하세요');
+          return;
+        }
+        // 첫 번째 분석 가능 파일로 평가
+        await _doEvaluateProposal(e.id, evalFiles[0].id, evalCta);
       });
-    });
+    }
 
     // 다운로드는 href 직접 — history 기록은 백엔드 자동
   }
