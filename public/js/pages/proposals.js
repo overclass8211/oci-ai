@@ -641,7 +641,8 @@ const ProposalsPage = (() => {
   // Phase 13: 1단계 = RFP + AI 분석 통합 → 두 가지 상태 모두 표시
   function _summary1(rfpFiles, hasAiStrategy, done) {
     if (rfpFiles.length === 0) {
-      return 'RFP 파일을 업로드한 뒤 [🤖 AI 분석 시작] 으로 모든 정보를 자동 채워보세요';
+      // Phase 13-4: 노란색 안내 박스 제거에 따른 메시지 보강 (기본정보 + 6섹션 채움 정보 추가)
+      return 'RFP 파일 업로드 후 [🤖 AI 분석] 클릭 시 기본정보 + 제안전략 6섹션 자동 채움';
     }
     const names = rfpFiles
       .slice(0, 2)
@@ -765,9 +766,7 @@ const ProposalsPage = (() => {
     const canAnalyze = analyzableFiles.length > 0;
     const hasRfpButUnanalyzable = rfpFiles.length > 0 && analyzableFiles.length === 0;
     return `
-      <div style="margin-bottom:16px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">
-        📑 <strong>1단계 — RFP 등록 & AI 분석</strong> — RFP 파일을 업로드한 뒤 [🤖 AI 분석] 버튼을 누르면, 제안 기본정보 + AI 제안전략 요약(6섹션)이 자동으로 채워집니다.
-      </div>
+      <!-- Phase 13-4: 노란색 안내 박스 제거 — 섹션 헤더 sub-text 와 중복되어 간소화 -->
 
       <!-- Phase 13-2: RFP 메타 입력 UI 제거 — AI 분석 결과/저장 흐름 유지를 위한 hidden 필드만 보존 -->
       <input type="hidden" id="pr-f-rfp_title" value="${esc(e.rfp_title || '')}">

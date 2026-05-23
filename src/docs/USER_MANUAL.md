@@ -929,6 +929,7 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 | Phase Proposal 13 | 🆕 기본탭 2섹션 통합 (3개 카드 → 2개) — RFP 등록 & AI 분석 한 카드에 응집 + Stepper 2단계로 단순화 |
 | Phase Proposal 13-2 | 🆕 RFP 메타 입력 UI 제거 (제목/접수일/제출마감일/요약 textarea) — hidden 필드로 저장 흐름 보존, 화면 단순화 |
 | Phase Proposal 13-3 | 🆕 제안평가 탭 5건 개선 — 메타UI/안내박스/연결견적 제거 + 정량 메트릭 키 매핑 fix (환각 0점 버그) + 신뢰성 가드(`win_prob = avg×20±5` 강제) |
+| Phase Proposal 13-4 | 🆕 RFP 섹션 노란색 안내 박스 제거 (헤더 sub-text 와 중복) — 정보 보강된 sub-text 한 곳에 응집 |
 
 ---
 
