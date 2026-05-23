@@ -45,7 +45,7 @@ const ProposalsPage = (() => {
   // 이전 4탭의 'ai' 탭은 기본정보 탭에 통합됨 (DB 컬럼/API 무변경)
   const TABS = [
     { id: 'basic', label: '📋 기본정보', alwaysOn: true },
-    { id: 'content', label: '📦 자료 & 견적', editOnly: true },
+    { id: 'content', label: '📊 제안평가', editOnly: true },
     { id: 'send', label: '📤 발송 & 이력', editOnly: true },
   ];
 
@@ -734,8 +734,12 @@ const ProposalsPage = (() => {
   function _renderFilesTab(e) {
     const files = (e.files || []).filter(f => f.file_type !== 'rfp');
     return `
-      <div style="margin-bottom:16px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:12px;color:#1e40af">
+      <div style="margin-bottom:10px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:12px;color:#1e40af">
         📦 <strong>제안 자료 아카이브</strong> — 제안서 / 회사소개서 / 레퍼런스 / 견적 / 응답서 등 PPT/Word/PDF/HWP 파일을 관리합니다.
+      </div>
+      <div style="margin-bottom:14px;padding:8px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:11px;color:#92400e">
+        💡 <strong>AI 제안평가 사용 안내</strong> — Gemini 2.5 Pro 는 <strong>PDF / 이미지(PNG·JPG·WEBP) / 텍스트</strong> 만 직접 분석 가능합니다.
+        <strong>PPT/DOC/HWP/XLS</strong> 는 평가 전에 <strong>PDF 로 변환</strong>해서 업로드하세요 (PowerPoint: 파일 → 내보내기 → PDF).
       </div>
 
       <!-- 메타 입력 (모든 파일에 공통 적용) -->
@@ -985,11 +989,11 @@ const ProposalsPage = (() => {
         <th style="width:90px">유형</th>
         <th>파일명</th>
         <th style="width:60px">Rev</th>
-        <th style="width:80px;text-align:center">최종본</th>
-        <th style="width:80px;text-align:center">📧 첨부</th>
-        <th style="width:110px">크기</th>
-        <th style="width:130px">등록일</th>
-        <th style="width:${source === 'files' ? '140' : '100'}px;text-align:center">작업</th>
+        <th style="width:70px;text-align:center">최종본</th>
+        <th style="width:70px;text-align:center">📧 첨부</th>
+        <th style="width:90px">크기</th>
+        <th style="width:120px">등록일</th>
+        <th style="width:${source === 'files' ? '230' : '140'}px;text-align:center">작업</th>
       </tr></thead>
       <tbody>
         ${files
@@ -1006,12 +1010,12 @@ const ProposalsPage = (() => {
             ${
               source === 'files'
                 ? _isAnalyzable(f.original_filename)
-                  ? `<button class="btn btn-ghost btn-sm pr-file-evaluate" data-id="${f.id}" type="button" title="RFP 대비 평가 (AI 코칭)" style="color:#0891b2">📊</button>`
-                  : `<span title="PDF / 이미지 / 텍스트만 평가 가능" style="font-size:11px;color:var(--text-3);padding:0 4px">—</span>`
+                  ? `<button class="btn btn-ghost btn-sm pr-file-evaluate" data-id="${f.id}" type="button" title="RFP 대비 평가 (AI 코칭)" style="color:#0891b2;font-size:11px;padding:2px 6px">AI제안평가</button>`
+                  : `<span title="PDF / 이미지 / 텍스트만 평가 가능 — PPT/DOC/HWP/XLS 는 PDF 변환 권장" style="font-size:11px;color:var(--text-3);padding:0 4px">평가 불가</span>`
                 : ''
             }
-            <a class="btn btn-ghost btn-sm" href="${API.proposals.downloadFileUrl(proposalId, f.id)}" data-pr-file-download="${f.id}" title="다운로드">⬇️</a>
-            <button class="btn btn-ghost btn-sm pr-file-del" data-id="${f.id}" data-source="${source}" type="button" style="color:#d93025" title="삭제">🗑️</button>
+            <a class="btn btn-ghost btn-sm" href="${API.proposals.downloadFileUrl(proposalId, f.id)}" data-pr-file-download="${f.id}" title="다운로드" style="font-size:11px;padding:2px 6px">다운로드</a>
+            <button class="btn btn-ghost btn-sm pr-file-del" data-id="${f.id}" data-source="${source}" type="button" style="color:#d93025;font-size:11px;padding:2px 6px" title="삭제">삭제</button>
           </td>
         </tr>`
           )
@@ -1637,6 +1641,24 @@ const ProposalsPage = (() => {
 
   // Phase 6-C: AI 제안서 평가 + 결과 카드 표시
   async function _doEvaluateProposal(propId, fileId, btn) {
+    // Phase 9-5: 사전 검증 — RFP 파일이 분석 가능한 형식인지 (서버 호출 전 검증)
+    const rfpFiles = (_editing?.files || []).filter(f => f.file_type === 'rfp');
+    const analyzableRfp = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
+    if (analyzableRfp.length === 0) {
+      if (rfpFiles.length > 0) {
+        Toast.error(
+          '⚠️ 등록된 RFP 파일이 분석 불가 형식입니다.\nPDF / 이미지(PNG·JPG·WEBP) / 텍스트만 평가 가능.\nPPT/DOC/HWP/XLS 는 PDF 로 변환 후 다시 업로드하세요.',
+          { duration: 10000 }
+        );
+      } else {
+        Toast.error(
+          '⚠️ 기본정보 탭의 RFP 영역에 PDF 파일을 먼저 업로드하세요.\n(AI 평가는 RFP 와 제안서를 동시에 비교합니다)',
+          { duration: 8000 }
+        );
+      }
+      return;
+    }
+
     // 기존 평가 결과가 화면에 있으면 덮어쓰기 confirm
     const existingCard = document.getElementById('pr-eval-card');
     if (existingCard) {
@@ -1904,8 +1926,10 @@ const ProposalsPage = (() => {
         try {
           const url = API.proposals.aiStrategyWordUrl(e.id);
           // 인증 토큰 필요 — fetch 로 blob 받아서 다운로드
-          const token = sessionStorage.getItem('authToken') || localStorage.getItem('authToken');
-          const userId = sessionStorage.getItem('userId') || localStorage.getItem('userId');
+          //   토큰 키는 API.js 와 동일: oci_token / current_user_id
+          const token =
+            localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '';
+          const userId = localStorage.getItem('current_user_id') || '';
           const headers = {};
           if (token) headers['Authorization'] = `Bearer ${token}`;
           if (userId) headers['X-User-Id'] = userId;
