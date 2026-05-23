@@ -770,24 +770,12 @@ const ProposalsPage = (() => {
       <div style="margin-bottom:16px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">
         📑 <strong>1단계 — RFP 등록 & AI 분석</strong> — RFP 파일을 업로드한 뒤 [🤖 AI 분석] 버튼을 누르면, 제안 기본정보 + AI 제안전략 요약(6섹션)이 자동으로 채워집니다.
       </div>
-      <div class="form-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">
-        <div class="form-row" style="grid-column:1 / span 2">
-          <label class="form-label">RFP 제목</label>
-          <input class="form-input" id="pr-f-rfp_title" value="${esc(e.rfp_title || '')}" placeholder="고객사 RFP 문서 제목 (AI 분석 시 자동 채움)">
-        </div>
-        <div class="form-row">
-          <label class="form-label">RFP 접수일</label>
-          <input class="form-input" id="pr-f-rfp_received_date" type="date" value="${e.rfp_received_date ? _toInputDate(e.rfp_received_date) : ''}">
-        </div>
-        <div class="form-row">
-          <label class="form-label">RFP 제출마감일</label>
-          <input class="form-input" id="pr-f-rfp_due_date" type="date" value="${e.rfp_due_date ? _toInputDate(e.rfp_due_date) : ''}">
-        </div>
-      </div>
-      <div class="form-row" style="margin-bottom:18px">
-        <label class="form-label">📝 RFP 요약 (AI 분석 보조 입력)</label>
-        <textarea class="form-input" id="pr-f-rfp_summary" rows="5" placeholder="RFP 핵심 요구사항·평가기준·예산·납기 등을 요약 입력 (AI 분석 결과로 자동 채움 가능)" style="resize:vertical;font-family:inherit;line-height:1.6">${esc(e.rfp_summary || '')}</textarea>
-      </div>
+
+      <!-- Phase 13-2: RFP 메타 입력 UI 제거 — AI 분석 결과/저장 흐름 유지를 위한 hidden 필드만 보존 -->
+      <input type="hidden" id="pr-f-rfp_title" value="${esc(e.rfp_title || '')}">
+      <input type="hidden" id="pr-f-rfp_received_date" value="${e.rfp_received_date ? _toInputDate(e.rfp_received_date) : ''}">
+      <input type="hidden" id="pr-f-rfp_due_date" value="${e.rfp_due_date ? _toInputDate(e.rfp_due_date) : ''}">
+      <input type="hidden" id="pr-f-rfp_summary" value="${esc(e.rfp_summary || '')}">
 
       <!-- RFP 파일 업로드 — Phase 4-C 드롭존 (다중 + drag/drop) -->
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">

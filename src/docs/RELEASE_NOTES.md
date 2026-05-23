@@ -4,7 +4,52 @@
 
 ---
 
-## v5.8 (2026.05.23) — 현재 ⭐
+## v5.8.1 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 Phase 13-2: RFP 메타 입력 UI 제거 (화면 단순화)**
+
+사용자 피드백 — 기본탭 화면을 더 단순화. RFP 메타 입력 UI 4개를 화면에서 제거.
+
+#### 🎨 변경 내용
+
+**제거 대상 (화면에서만 사라짐 — DB/저장 로직은 그대로)**:
+- `RFP 제목` (text input, 가로 2열)
+- `RFP 접수일` (date input)
+- `RFP 제출마감일` (date input)
+- `RFP 요약` (textarea, AI 분석 보조 입력)
+
+**보존 방식**:
+- 동일 ID(`pr-f-rfp_title`, `pr-f-rfp_received_date`, `pr-f-rfp_due_date`, `pr-f-rfp_summary`) 로 `<input type="hidden">` 만 남김
+- AI 분석 시 자동 채움 흐름 (`analyzeProposalRFP` → 폼 force 덮어쓰기) 정상 동작
+- `_collectForm()` / `_saveAndReturn()` 저장 로직 무변경 → 백엔드 컬럼 유지
+
+**효과**:
+- 화면이 더 깔끔 — RFP 파일 업로드 + AI 분석만 사용자가 신경 씀
+- 메타 정보는 AI 가 자동으로 채워 hidden 으로 저장 → 검토 시점만 노출 가능 (필요 시 다음 Phase 에서)
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음** — UI 만 제거
+- **변경 파일**:
+  - `public/js/pages/proposals.js`:
+    · `_renderRfpTab(e)` — `form-grid` 4개 입력 + 요약 textarea 제거
+    · 동일 ID 로 `<input type="hidden">` 4개 추가 (저장 흐름 보존)
+  - `src/docs/USER_MANUAL.md` — Phase 13-2 안내 박스 + 부록 이력 1줄 추가
+  - `src/docs/RELEASE_NOTES.md` — v5.8.1 추가
+
+### 📊 회귀 테스트
+- vitest: **44/44 (proposals) 통과**
+- lint: 0 errors / 0 warnings
+- E2E: skip — UI 표시만 제거 (ID/값 흐름 동일, 사용자 인터랙션 경로 변경 없음)
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+---
+
+## v5.8 (2026.05.23) — 직전
 
 ### 🎯 메인 — **제안 모듈 Phase 13: 기본탭 2섹션 통합 (3개 → 2개 카드)**
 

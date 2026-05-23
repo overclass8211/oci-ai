@@ -680,9 +680,8 @@ API 호출 로그 + 성능 모니터링:
 
 #### ① RFP 등록 & AI 분석 섹션 (1단계 카드)
 
-**메타 입력:**
-- RFP 제목 / 접수일 / 제출마감일
-- RFP 요약 (textarea — AI 분석 보조)
+> **Phase 13-2 (2026.05.23)**: RFP 메타 입력 UI(제목/접수일/제출마감일/요약 textarea) 가 화면에서 제거되었습니다.
+> AI 분석 결과는 hidden 필드로 그대로 저장·반영되며, 사용자는 RFP **파일 업로드 + AI 분석** 만 신경 쓰면 됩니다.
 
 **RFP 파일 업로드:**
 - **드롭존**: 클릭 or 드래그 드롭 — 다중 파일 동시 등록
@@ -921,6 +920,7 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 | Phase Proposal 11 | AI 평가 이력 영속 (모달 재진입 시 결과 유지) + Outlook(mailto) 발송 옵션 + 첨부 파일 일괄 다운로드 + 제안 목록 카드뷰/뷰 전환 토글 |
 | Phase Proposal 12 | AI 분석 버튼 1단계→2단계 이동 (워크플로우 자연스러움) + 제안평가 큰 CTA + 작업 컬럼 정리 + JSON 파싱 강화 (RFP-제안서 미스매치 fallback) |
 | Phase Proposal 13 | 🆕 기본탭 2섹션 통합 (3개 카드 → 2개) — RFP 등록 & AI 분석 한 카드에 응집 + Stepper 2단계로 단순화 |
+| Phase Proposal 13-2 | 🆕 RFP 메타 입력 UI 제거 (제목/접수일/제출마감일/요약 textarea) — hidden 필드로 저장 흐름 보존, 화면 단순화 |
 
 ---
 
