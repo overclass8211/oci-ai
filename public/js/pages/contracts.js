@@ -142,7 +142,14 @@ const ContractsPage = (() => {
   }
 
   // ── 페이지 진입점 ─────────────────────────────────────────
-  async function render(container) {
+  // 🐛 v5.9.3-hotfix: app.js 는 render() 를 인자 없이 호출함.
+  //    다른 페이지(proposals/quotes)와 동일하게 내부에서 #content 조회.
+  async function render() {
+    const container = document.getElementById('content');
+    if (!container) {
+      console.error('[ContractsPage] #content 컨테이너를 찾을 수 없습니다');
+      return;
+    }
     container.innerHTML = `
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div>
