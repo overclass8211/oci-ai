@@ -1729,6 +1729,185 @@ router.delete('/:id/share', async (req, res) => {
 });
 
 // ── POST /:id/revisions — 리비전 생성 ────────────────────────
+// ── Phase 9-3: AI 제안전략 요약 Word(.docx) 다운로드 ──
+// markdown (6섹션) → docx 변환 후 첨부 다운로드
+router.get('/:id/ai-strategy/word', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    const [[prop]] = await pool.query(
+      `SELECT proposal_no, proposal_title, customer_name, ai_strategy_md, ai_strategy_generated_at
+       FROM proposals WHERE id = ?`,
+      [id]
+    );
+    if (!prop) {
+      return res.status(404).json({ success: false, error: '제안을 찾을 수 없음' });
+    }
+    if (!prop.ai_strategy_md || !String(prop.ai_strategy_md).trim()) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'AI 제안전략 요약이 비어있습니다 — 먼저 작성/생성하세요' });
+    }
+
+    const { Document, Packer, Paragraph, HeadingLevel, TextRun, AlignmentType } = require('docx');
+
+    // 간단 markdown → docx 변환 (## 헤딩 + 불릿/체크박스 + 일반 문단)
+    const lines = String(prop.ai_strategy_md).split(/\r?\n/);
+    const children = [];
+
+    // 표지: 제목 + 메타
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 200 },
+        children: [new TextRun({ text: '🤖 AI 제안전략 요약', bold: true, size: 36 })],
+      })
+    );
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 100 },
+        children: [new TextRun({ text: `제안번호: ${prop.proposal_no || '-'}`, size: 22 })],
+      })
+    );
+    if (prop.proposal_title) {
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 100 },
+          children: [new TextRun({ text: `제안명: ${prop.proposal_title}`, size: 22 })],
+        })
+      );
+    }
+    if (prop.customer_name) {
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 100 },
+          children: [new TextRun({ text: `고객사: ${prop.customer_name}`, size: 22 })],
+        })
+      );
+    }
+    if (prop.ai_strategy_generated_at) {
+      const gen = new Date(prop.ai_strategy_generated_at);
+      const genStr = isNaN(gen)
+        ? String(prop.ai_strategy_generated_at)
+        : `${gen.getFullYear()}.${String(gen.getMonth() + 1).padStart(2, '0')}.${String(gen.getDate()).padStart(2, '0')}`;
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 400 },
+          children: [new TextRun({ text: `최근 AI 분석: ${genStr}`, size: 18, color: '666666' })],
+        })
+      );
+    } else {
+      children.push(new Paragraph({ spacing: { after: 400 }, children: [] }));
+    }
+
+    // 본문 — markdown 파싱
+    for (const raw of lines) {
+      const line = raw.replace(/\s+$/, ''); // 우측 공백 제거
+      if (!line) {
+        children.push(new Paragraph({}));
+        continue;
+      }
+      // ## Heading 2
+      if (/^##\s+/.test(line)) {
+        children.push(
+          new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 200, after: 100 },
+            children: [new TextRun({ text: line.replace(/^##\s+/, ''), bold: true, size: 28 })],
+          })
+        );
+      } else if (/^###\s+/.test(line)) {
+        children.push(
+          new Paragraph({
+            heading: HeadingLevel.HEADING_3,
+            spacing: { before: 150, after: 80 },
+            children: [new TextRun({ text: line.replace(/^###\s+/, ''), bold: true, size: 24 })],
+          })
+        );
+      } else if (/^- \[ \]\s+/.test(line)) {
+        // 체크박스 (미체크)
+        children.push(
+          new Paragraph({
+            bullet: { level: 0 },
+            children: [new TextRun({ text: `☐ ${line.replace(/^- \[ \]\s+/, '')}`, size: 22 })],
+          })
+        );
+      } else if (/^- \[x\]\s+/i.test(line)) {
+        children.push(
+          new Paragraph({
+            bullet: { level: 0 },
+            children: [new TextRun({ text: `☑ ${line.replace(/^- \[x\]\s+/i, '')}`, size: 22 })],
+          })
+        );
+      } else if (/^[-*]\s+/.test(line)) {
+        // 일반 불릿
+        children.push(
+          new Paragraph({
+            bullet: { level: 0 },
+            children: [new TextRun({ text: line.replace(/^[-*]\s+/, ''), size: 22 })],
+          })
+        );
+      } else if (/^\d+\.\s+/.test(line)) {
+        // 번호 리스트
+        children.push(
+          new Paragraph({
+            numbering: { reference: 'numbering-ref', level: 0 },
+            children: [new TextRun({ text: line.replace(/^\d+\.\s+/, ''), size: 22 })],
+          })
+        );
+      } else {
+        // 일반 문단 (bold/italic 미지원 — 단순 텍스트)
+        children.push(
+          new Paragraph({
+            spacing: { after: 80 },
+            children: [new TextRun({ text: line, size: 22 })],
+          })
+        );
+      }
+    }
+
+    const doc = new Document({
+      creator: 'OCI CRM AI',
+      title: `AI 제안전략 요약 — ${prop.proposal_no || ''}`,
+      styles: {
+        default: {
+          document: {
+            run: { font: '맑은 고딕', size: 22 },
+          },
+        },
+      },
+      sections: [{ properties: {}, children }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+
+    // 파일명 — proposal_no + 날짜 (한글 안전 인코딩)
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+    const baseName = `${prop.proposal_no || 'proposal'}_AI제안전략요약_${dateStr}.docx`;
+    const encodedName = encodeURIComponent(baseName);
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodedName}"; filename*=UTF-8''${encodedName}`
+    );
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.post('/:id/revisions', async (req, res) => {
   const conn = await pool.getConnection();
   try {

@@ -879,6 +879,70 @@ describe('Proposals API — Phase 1', () => {
     } catch (_) {}
   });
 
+  // ── Phase 9-3: AI 제안전략 Word(.docx) 다운로드 ───────────────
+  it('GET /:id/ai-strategy/word — markdown → docx 변환 + 다운로드 헤더', async () => {
+    const create = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__Word다운',
+        customer_name: '__TEST__고객',
+        proposal_date: '2026-05-23',
+      });
+    const propId = create.body.id;
+    createdIds.push(propId);
+
+    // 1) ai_strategy_md 비어있으면 400
+    const empty = await api()
+      .get(`/api/proposals/${propId}/ai-strategy/word`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toMatch(/비어있/);
+
+    // 2) ai_strategy_md 채운 뒤 다시 시도 → 200 + docx bytes
+    const sampleMd = [
+      '## 제안 목표',
+      '- __TEST__ 목표 1',
+      '- __TEST__ 목표 2',
+      '',
+      '## 제안 주요 일정',
+      '1. 1차 발표',
+      '2. 최종 제출',
+      '',
+      '## 제안 준비사항 (체크리스트)',
+      '- [ ] __TEST__ 미체크',
+      '- [x] __TEST__ 체크',
+    ].join('\n');
+    await api()
+      .put(`/api/proposals/${propId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ ai_strategy_md: sampleMd });
+
+    const ok = await api()
+      .get(`/api/proposals/${propId}/ai-strategy/word`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks = [];
+        res.on('data', d => chunks.push(d));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      });
+    expect(ok.status).toBe(200);
+    expect(ok.headers['content-type']).toMatch(/wordprocessingml/);
+    expect(ok.headers['content-disposition']).toMatch(/attachment/);
+    expect(ok.headers['content-disposition']).toMatch(/AI/i);
+    // docx 는 ZIP 포맷 — magic bytes 50 4B 03 04 ('PK\x03\x04')
+    expect(ok.body[0]).toBe(0x50);
+    expect(ok.body[1]).toBe(0x4b);
+    expect(ok.body.length).toBeGreaterThan(1000); // 최소 docx 크기
+
+    // 3) 존재하지 않는 proposal → 404
+    const notFound = await api()
+      .get('/api/proposals/99999999/ai-strategy/word')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(notFound.status).toBe(404);
+  });
+
   // ── Phase 5-B: 이메일 발송 ──────────────────────────────────
   it('POST /:id/email/send — mock Gmail 발송 + email_logs + history 기록', async () => {
     const create = await api()

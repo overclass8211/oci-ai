@@ -717,7 +717,7 @@ const ProposalsPage = (() => {
           🧠 <strong>2단계 — AI 제안전략 요약</strong> — Markdown 으로 6섹션 작성. 직접 편집 가능. 상단 [🤖 AI 분석] 으로 자동 생성.
         </div>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-ghost btn-sm" id="pr-ai-preview-btn" type="button" title="미리보기 토글">👁️ 미리보기</button>
+          ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-word-btn" type="button" title="Word(.docx) 내려받기">📄 Word 다운로드</button>' : ''}
           ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-copy-btn" type="button" title="markdown 복사">📋 복사</button>' : ''}
         </div>
       </div>
@@ -727,8 +727,6 @@ const ProposalsPage = (() => {
       <div style="font-size:11px;color:var(--text-3);text-align:right">
         ${e.ai_strategy_generated_at ? '최근 AI 분석: ' + _fmtDateTime(e.ai_strategy_generated_at) : '아직 AI 분석 결과 없음 — 수동 입력 가능'}
       </div>
-      <!-- 미리보기 영역 (토글 시 표시) -->
-      <div id="pr-ai-md-render" class="pr-ai-md" style="display:none;margin-top:12px;padding:14px 16px;background:#fafafa;border:1px solid var(--border);border-radius:6px"></div>
     `;
   }
 
@@ -1880,20 +1878,68 @@ const ProposalsPage = (() => {
       });
     }
 
-    // (2) 미리보기 토글 — textarea ↔ rendered markdown
-    const previewBtn = document.getElementById('pr-ai-preview-btn');
-    const renderWrap = document.getElementById('pr-ai-md-render');
-    const ta = document.getElementById('pr-f-ai_strategy_md');
-    if (previewBtn && renderWrap && ta) {
-      previewBtn.addEventListener('click', () => {
-        const isShown = renderWrap.style.display !== 'none';
-        if (isShown) {
-          renderWrap.style.display = 'none';
-          previewBtn.innerHTML = '👁️ 미리보기';
-        } else {
-          renderWrap.innerHTML = _renderMarkdown(ta.value || '');
-          renderWrap.style.display = '';
-          previewBtn.innerHTML = '📝 편집 보기';
+    // (2) Phase 9-3: Word(.docx) 다운로드 — 현재 textarea 내용으로 즉시 다운로드
+    //   미저장 변경사항이 있으면 먼저 [💾 저장] 안내, 저장 후 백엔드 endpoint 호출
+    const wordBtn = document.getElementById('pr-ai-word-btn');
+    if (wordBtn) {
+      wordBtn.addEventListener('click', async () => {
+        const ta = document.getElementById('pr-f-ai_strategy_md');
+        const currentMd = (ta?.value || '').trim();
+        if (!currentMd) {
+          Toast.error('다운로드할 AI 제안전략 요약이 비어있습니다');
+          return;
+        }
+        // 사용자가 textarea 를 수정했는지 확인 (서버의 ai_strategy_md 와 비교)
+        const savedMd = (_editing?.ai_strategy_md || '').trim();
+        if (currentMd !== savedMd) {
+          const ok = confirm(
+            '⚠️ 미저장 변경사항이 있습니다.\n저장 후 다운로드해야 최신 내용이 반영됩니다.\n그래도 현재 저장된 내용으로 다운로드할까요?'
+          );
+          if (!ok) {
+            Toast.info?.('[💾 저장] 후 다시 시도하세요');
+            return;
+          }
+        }
+        // 브라우저가 직접 다운로드 (인증 쿠키 자동 포함)
+        try {
+          const url = API.proposals.aiStrategyWordUrl(e.id);
+          // 인증 토큰 필요 — fetch 로 blob 받아서 다운로드
+          const token = sessionStorage.getItem('authToken') || localStorage.getItem('authToken');
+          const userId = sessionStorage.getItem('userId') || localStorage.getItem('userId');
+          const headers = {};
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          if (userId) headers['X-User-Id'] = userId;
+          const resp = await fetch(url, { headers, credentials: 'include' });
+          if (!resp.ok) {
+            let msg = `HTTP ${resp.status}`;
+            try {
+              const j = await resp.json();
+              if (j?.error) msg = j.error;
+            } catch (_) {}
+            throw new Error(msg);
+          }
+          const blob = await resp.blob();
+          // Content-Disposition 의 filename 추출 (UTF-8 encoded)
+          const cd = resp.headers.get('Content-Disposition') || '';
+          let filename = `AI제안전략요약.docx`;
+          const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+          if (m) {
+            try {
+              filename = decodeURIComponent(m[1]);
+            } catch (_) {}
+          }
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+          Toast.success('Word(.docx) 다운로드 완료');
+        } catch (err) {
+          console.error('[proposals:word] failed:', err);
+          Toast.error('Word 다운로드 실패: ' + (err.message || err));
         }
       });
     }

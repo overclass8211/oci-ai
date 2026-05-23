@@ -287,6 +287,8 @@ const API = {
     evaluate: (id, proposalFileId) =>
       API.post(`/proposals/${id}/evaluate`, { proposal_file_id: proposalFileId }),
     evaluations: id => API.get(`/proposals/${id}/evaluations`),
+    // Phase 9-3 — AI 제안전략 요약 Word(.docx) 다운로드 URL (브라우저가 직접 다운로드)
+    aiStrategyWordUrl: id => `/api/proposals/${id}/ai-strategy/word`,
   },
 
   // 견적서 (crm.quotes)
