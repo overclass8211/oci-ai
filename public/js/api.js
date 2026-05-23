@@ -291,6 +291,25 @@ const API = {
     aiStrategyWordUrl: id => `/api/proposals/${id}/ai-strategy/word`,
   },
 
+  // 계약 (crm.contracts) — Phase 0: 기반 CRUD + 파일
+  contracts: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== undefined && v !== '')
+      ).toString();
+      return API.get('/contracts' + (qs ? '?' + qs : ''));
+    },
+    get: id => API.get(`/contracts/${id}`),
+    create: body => API.post('/contracts', body),
+    update: (id, body) => API.put(`/contracts/${id}`, body),
+    delete: id => API.del(`/contracts/${id}`),
+    nextContractNo: year => API.get(`/contracts/next-contract-no${year ? '?year=' + year : ''}`),
+    // 파일
+    uploadFile: (id, formData) => API._upload(`/contracts/${id}/files`, formData),
+    deleteFile: (id, fileId) => API.del(`/contracts/${id}/files/${fileId}`),
+    downloadFileUrl: (id, fileId) => `/api/contracts/${id}/files/${fileId}/download`,
+  },
+
   // 견적서 (crm.quotes)
   quotes: {
     list: (params = {}) => {
