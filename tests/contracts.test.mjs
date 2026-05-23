@@ -278,6 +278,111 @@ describe('Contracts API — Phase 0', () => {
     expect(historyAfter.length).toBe(0);
   });
 
+  // ── Phase 3: 계약 템플릿 라이브러리 ──────────────────────────
+  it('GET /templates — 시드 템플릿 5종 + is_seed=true 마크', async () => {
+    const res = await api()
+      .get('/api/contracts/templates?is_active=1')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    const codes = res.body.data.map(t => t.template_code);
+    expect(codes).toContain('STD-NDA');
+    expect(codes).toContain('STD-MSA');
+    expect(codes).toContain('STD-SLA');
+    expect(codes).toContain('STD-SOW');
+    expect(codes).toContain('STD-SERVICE');
+    const nda = res.body.data.find(t => t.template_code === 'STD-NDA');
+    expect(nda.is_seed).toBe(true);
+    expect(Array.isArray(nda.variables)).toBe(true);
+    expect(nda.variables.length).toBeGreaterThan(0);
+  });
+
+  it('GET /templates/:id — body_md + variables 포함', async () => {
+    const list = await api()
+      .get('/api/contracts/templates?is_active=1')
+      .set('X-User-Id', String(TEST_USER_ID));
+    const ndaId = list.body.data.find(t => t.template_code === 'STD-NDA').id;
+    const res = await api()
+      .get(`/api/contracts/templates/${ndaId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.data.body_md).toContain('비밀유지계약서');
+    expect(res.body.data.body_md).toContain('{{을_회사명}}');
+    expect(res.body.data.is_seed).toBe(true);
+  });
+
+  it('POST /templates — 신규 사용자 템플릿 생성', async () => {
+    const res = await api()
+      .post('/api/contracts/templates')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__나만의템플릿',
+        contract_type: 'etc',
+        body_md: '# 테스트 템플릿\n안녕 {{회사명}}',
+        variables: [{ name: '회사명', label: '회사명', type: 'text', required: true }],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.template_code).toMatch(/^USR-/);
+
+    // 정리
+    await pool.query('DELETE FROM contract_templates WHERE id = ?', [res.body.id]);
+  });
+
+  it('DELETE /templates/:id — 시드 템플릿 삭제 거부 (403)', async () => {
+    const list = await api()
+      .get('/api/contracts/templates?is_active=1')
+      .set('X-User-Id', String(TEST_USER_ID));
+    const stdId = list.body.data.find(t => t.template_code === 'STD-NDA').id;
+    const res = await api()
+      .delete(`/api/contracts/templates/${stdId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('시스템 시드');
+  });
+
+  it('POST /from-template/:id — 변수 치환 + 계약 자동 생성 + history', async () => {
+    const list = await api()
+      .get('/api/contracts/templates?is_active=1')
+      .set('X-User-Id', String(TEST_USER_ID));
+    const ndaTemplate = list.body.data.find(t => t.template_code === 'STD-NDA');
+
+    const res = await api()
+      .post(`/api/contracts/from-template/${ndaTemplate.id}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__템플릿_적용_A사',
+        customer_name: '__TEST__A주식회사',
+        contract_type: 'NDA',
+        start_date: '2026-05-23',
+        end_date: '2027-05-22',
+        variables: {
+          비밀유지_기간_년: 5,
+          갑_회사명: '__TEST__우리회사',
+        },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.contract_no).toMatch(/^C-\d{4}-\d{4}$/);
+    expect(res.body.data.template_id).toBe(ndaTemplate.id);
+    expect(res.body.data.applied_variables.비밀유지_기간_년).toBe(5);
+    expect(res.body.data.applied_variables.갑_회사명).toBe('__TEST__우리회사');
+    expect(res.body.data.applied_variables.을_회사명).toBe('__TEST__A주식회사'); // autofill
+
+    const contractId = res.body.id;
+    createdIds.push(contractId);
+
+    // 계약 본문에 변수 치환되었는지 확인
+    const detail = await api()
+      .get(`/api/contracts/${contractId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.notes).toContain('__TEST__우리회사');
+    expect(detail.body.data.notes).toContain('__TEST__A주식회사');
+    expect(detail.body.data.notes).toContain('5년간 존속'); // {{비밀유지_기간_년}} → 5
+    expect(detail.body.data.notes).not.toContain('{{비밀유지_기간_년}}'); // 미치환 없음
+    expect(detail.body.data.template_id).toBe(ndaTemplate.id);
+    // history 에 template_apply 액션
+    expect(detail.body.data.history.some(h => h.action_type === 'template_apply')).toBe(true);
+  });
+
   // ── Phase 1: CLM 워크플로우 (상태 전이 검증) ─────────────────
   it('PATCH /:id/status — 정상 전이 (draft → review → negotiation → signing → active)', async () => {
     const cr = await api()

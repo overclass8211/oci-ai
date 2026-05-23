@@ -39,6 +39,7 @@ const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { analyzeContractLegal } = require('../services/gemini');
+const { CONTRACT_TEMPLATE_SEEDS, isSeedTemplateCode } = require('../data/contractTemplateSeeds');
 
 router.use(requireFeature('crm.contracts'));
 
@@ -305,7 +306,52 @@ async function ensureSchema() {
     }
   }
 }
-const _migrationPromise = ensureSchema();
+// Phase 3: 표준 시드 템플릿 idempotent UPSERT (서버 부팅 시)
+async function ensureTemplateSeeds() {
+  for (const seed of CONTRACT_TEMPLATE_SEEDS) {
+    try {
+      const [[exist]] = await pool.query(
+        `SELECT id FROM contract_templates WHERE template_code = ?`,
+        [seed.template_code]
+      );
+      if (exist) {
+        // 기존 시드 — body_md / variables_json / name 만 갱신 (version_no 증가 X)
+        await pool.query(
+          `UPDATE contract_templates
+              SET name = ?, contract_type = ?, language = ?,
+                  body_md = ?, variables_json = ?
+            WHERE template_code = ?`,
+          [
+            seed.name,
+            seed.contract_type,
+            seed.language,
+            seed.body_md,
+            JSON.stringify(seed.variables || []),
+            seed.template_code,
+          ]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO contract_templates
+            (template_code, name, contract_type, language, body_md, variables_json, version_no, is_active)
+           VALUES (?,?,?,?,?,?,1,1)`,
+          [
+            seed.template_code,
+            seed.name,
+            seed.contract_type,
+            seed.language,
+            seed.body_md,
+            JSON.stringify(seed.variables || []),
+          ]
+        );
+      }
+    } catch (e) {
+      console.warn(`[contracts:template-seed] ${seed.template_code} 시드 실패:`, e.message);
+    }
+  }
+}
+
+const _migrationPromise = ensureSchema().then(() => ensureTemplateSeeds());
 
 router.use(async (req, res, next) => {
   try {
@@ -435,6 +481,370 @@ router.get('/next-contract-no', async (req, res) => {
     }
   } catch (err) {
     handleError(res, err);
+  }
+});
+
+// =============================================================
+// Phase 3: 계약 템플릿 라이브러리 (CRUD + 변수 치환)
+// ⚠️ /:id 보다 먼저 선언해야 함 (Express 라우트 매칭 순서)
+// =============================================================
+
+// JSON 컬럼 파싱 헬퍼 (null/잘못된 형식 안전)
+function _parseTplJson(s, fallback) {
+  if (!s) return fallback;
+  try {
+    return JSON.parse(s);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+// 변수 치환 — {{변수명}} → 사용자 입력값
+// XSS 방지: 결과를 HTML 로 렌더할 때는 클라이언트가 escape 처리
+function _substituteVariables(bodyMd, vars) {
+  if (!bodyMd) return '';
+  const safeVars = vars && typeof vars === 'object' ? vars : {};
+  return String(bodyMd).replace(/\{\{([^}]+)\}\}/g, (m, name) => {
+    const key = String(name).trim();
+    const v = safeVars[key];
+    if (v === undefined || v === null || v === '') return m; // 미정의는 {{변수명}} 그대로 유지
+    return String(v);
+  });
+}
+
+// 자동 채움 — 컨텍스트(계약/사용자/시스템 설정)에서 변수 기본값 도출
+async function _resolveAutofill(varDefs, ctx) {
+  const result = {};
+  // ctx: { customerName, startDate, endDate, amount, currency, userId }
+  let supplier = null;
+  for (const def of varDefs || []) {
+    if (def.default !== undefined && def.default !== null) {
+      result[def.name] = def.default;
+    }
+    switch (def.autofill) {
+      case 'customer_name':
+        if (ctx.customerName) result[def.name] = ctx.customerName;
+        break;
+      case 'start_date':
+        if (ctx.startDate) result[def.name] = ctx.startDate;
+        break;
+      case 'end_date':
+        if (ctx.endDate) result[def.name] = ctx.endDate;
+        break;
+      case 'amount':
+        if (ctx.amount !== undefined && ctx.amount !== null) result[def.name] = ctx.amount;
+        break;
+      case 'currency':
+        if (ctx.currency) result[def.name] = ctx.currency;
+        break;
+      case 'today': {
+        const d = new Date();
+        const p = n => String(n).padStart(2, '0');
+        result[def.name] = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        break;
+      }
+      case 'user_name':
+        if (ctx.userId) {
+          try {
+            const [[tm]] = await pool.query(`SELECT name FROM team_members WHERE id = ?`, [
+              ctx.userId,
+            ]);
+            if (tm?.name) result[def.name] = tm.name;
+          } catch (_) {
+            /* 무시 */
+          }
+        }
+        break;
+      case 'supplier':
+        // system_settings 의 supplier_company_name (있으면)
+        if (supplier === null) {
+          try {
+            const [[row]] = await pool.query(
+              `SELECT setting_value FROM system_settings WHERE setting_key = 'supplier_company_name'`
+            );
+            supplier = row?.setting_value || '';
+          } catch (_) {
+            supplier = '';
+          }
+        }
+        if (supplier) result[def.name] = supplier;
+        break;
+    }
+  }
+  return result;
+}
+
+// GET /templates — 템플릿 목록
+router.get('/templates', async (req, res) => {
+  try {
+    const { contract_type, is_active } = req.query;
+    let where = 'WHERE 1=1';
+    const params = [];
+    if (contract_type) {
+      where += ' AND contract_type = ?';
+      params.push(contract_type);
+    }
+    if (is_active === '1' || is_active === 'true') {
+      where += ' AND is_active = 1';
+    } else if (is_active === '0' || is_active === 'false') {
+      where += ' AND is_active = 0';
+    }
+    const [rows] = await pool.query(
+      `SELECT id, template_code, name, contract_type, language,
+              version_no, is_active, created_at, updated_at,
+              variables_json
+         FROM contract_templates
+         ${where}
+        ORDER BY (template_code LIKE 'STD-%') DESC, contract_type ASC, name ASC`,
+      params
+    );
+    const data = rows.map(r => ({
+      ...r,
+      variables: _parseTplJson(r.variables_json, []),
+      is_seed: isSeedTemplateCode(r.template_code),
+    }));
+    res.json({ success: true, data });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /templates/:templateId — 템플릿 단건 (body_md 포함)
+router.get('/templates/:templateId', async (req, res) => {
+  try {
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!templateId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [[row]] = await pool.query(`SELECT * FROM contract_templates WHERE id = ?`, [templateId]);
+    if (!row) return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
+    res.json({
+      success: true,
+      data: {
+        ...row,
+        variables: _parseTplJson(row.variables_json, []),
+        is_seed: isSeedTemplateCode(row.template_code),
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST /templates — 신규 템플릿
+router.post('/templates', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const body = req.body || {};
+    if (!body.name || !String(body.name).trim()) {
+      return res.status(400).json({ success: false, error: '템플릿 이름이 필요합니다' });
+    }
+    if (!body.body_md) {
+      return res.status(400).json({ success: false, error: '템플릿 본문이 필요합니다' });
+    }
+    // template_code 자동 생성 (사용자 입력 없을 때) — USR-<timestamp>
+    let templateCode = body.template_code && String(body.template_code).trim();
+    if (!templateCode) {
+      templateCode = `USR-${Date.now()}`;
+    }
+    if (isSeedTemplateCode(templateCode)) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          error: 'STD- 로 시작하는 template_code 는 시스템 시드 예약입니다',
+        });
+    }
+    const variables = Array.isArray(body.variables) ? body.variables : [];
+    const [result] = await pool.query(
+      `INSERT INTO contract_templates
+        (template_code, name, contract_type, language, body_md, variables_json, version_no, is_active, created_by)
+       VALUES (?,?,?,?,?,?,1,1,?)`,
+      [
+        templateCode,
+        String(body.name).slice(0, 255),
+        body.contract_type || 'etc',
+        body.language || 'ko',
+        body.body_md,
+        JSON.stringify(variables),
+        userId || null,
+      ]
+    );
+    res.json({
+      success: true,
+      id: result.insertId,
+      data: { id: result.insertId, template_code: templateCode },
+    });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, error: 'template_code 가 이미 존재합니다' });
+    }
+    handleError(res, err);
+  }
+});
+
+// PUT /templates/:templateId — 수정
+router.put('/templates/:templateId', async (req, res) => {
+  try {
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!templateId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const body = req.body || {};
+    const [[prev]] = await pool.query(`SELECT * FROM contract_templates WHERE id = ?`, [
+      templateId,
+    ]);
+    if (!prev) return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
+
+    const fields = [];
+    const values = [];
+    const allowed = ['name', 'contract_type', 'language', 'body_md', 'is_active'];
+    for (const f of allowed) {
+      if (body[f] === undefined) continue;
+      let v = body[f];
+      if (f === 'is_active') v = v ? 1 : 0;
+      fields.push(`${f} = ?`);
+      values.push(v);
+    }
+    if (Array.isArray(body.variables)) {
+      fields.push('variables_json = ?');
+      values.push(JSON.stringify(body.variables));
+    }
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, error: '수정할 항목이 없습니다' });
+    }
+    // 시드 템플릿 — 일부 필드만 수정 가능 (사용자 변경 보호 — body_md 는 시드가 우선)
+    // 본 endpoint 는 사용자 직접 수정이므로 시드의 body_md/name 변경도 허용 (서버 재시작 시 시드가 다시 덮어씀)
+    values.push(templateId);
+    await pool.query(`UPDATE contract_templates SET ${fields.join(', ')} WHERE id = ?`, values);
+    res.json({ success: true, data: { id: templateId } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// DELETE /templates/:templateId — 삭제 (시드 보호)
+router.delete('/templates/:templateId', async (req, res) => {
+  try {
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!templateId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [[prev]] = await pool.query(`SELECT template_code FROM contract_templates WHERE id = ?`, [
+      templateId,
+    ]);
+    if (!prev) return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
+    if (isSeedTemplateCode(prev.template_code)) {
+      return res.status(403).json({
+        success: false,
+        error: `시스템 시드 템플릿 (${prev.template_code}) 은 삭제할 수 없습니다. is_active=0 으로 비활성화하세요.`,
+      });
+    }
+    await pool.query(`DELETE FROM contract_templates WHERE id = ?`, [templateId]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST /from-template/:templateId — 템플릿 기반 계약 생성 + 변수 치환
+// Body: { variables: {...}, title, customer_name, start_date, end_date, contract_amount, currency, ... }
+router.post('/from-template/:templateId', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!templateId) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 templateId 필요' });
+    }
+    const userId = getUserId(req);
+    const body = req.body || {};
+
+    const [[tpl]] = await conn.query(`SELECT * FROM contract_templates WHERE id = ?`, [templateId]);
+    if (!tpl) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
+    }
+    if (!tpl.is_active) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '비활성 템플릿입니다' });
+    }
+
+    // 변수 자동 채움 + 사용자 입력 병합
+    const varDefs = _parseTplJson(tpl.variables_json, []);
+    const autofilled = await _resolveAutofill(varDefs, {
+      customerName: body.customer_name,
+      startDate: body.start_date,
+      endDate: body.end_date,
+      amount: body.contract_amount,
+      currency: body.currency || 'KRW',
+      userId,
+    });
+    const userVars = body.variables && typeof body.variables === 'object' ? body.variables : {};
+    const mergedVars = { ...autofilled, ...userVars }; // 사용자 입력이 우선
+
+    // 변수 치환된 본문
+    const renderedBody = _substituteVariables(tpl.body_md, mergedVars);
+
+    // 새 계약 생성 — 자동채번 + 메타정보
+    const startDate = toYMD(body.start_date);
+    const endDate = toYMD(body.end_date);
+    const year = startDate ? new Date(startDate).getFullYear() : new Date().getFullYear();
+    let contractNo = body.contract_no && String(body.contract_no).trim();
+    if (!contractNo) contractNo = await generateContractNo(conn, year);
+
+    const title = body.title || `[${tpl.name}] ${body.customer_name || ''}`.trim();
+    const contractType =
+      body.contract_type && ALLOWED_CONTRACT_TYPES.includes(body.contract_type)
+        ? body.contract_type
+        : tpl.contract_type || 'etc';
+
+    const [result] = await conn.query(
+      `INSERT INTO contracts
+        (contract_no, title, customer_id, customer_name,
+         contract_type, status, start_date, end_date,
+         contract_amount, currency, language,
+         template_id, version_no, notes, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        contractNo,
+        String(title).slice(0, 300),
+        body.customer_id || null,
+        body.customer_name ? String(body.customer_name).slice(0, 200) : null,
+        contractType,
+        'draft',
+        startDate,
+        endDate,
+        body.contract_amount || null,
+        body.currency || tpl.language === 'ko' ? 'KRW' : body.currency || 'KRW',
+        body.language || tpl.language || 'ko',
+        templateId,
+        1,
+        renderedBody, // 치환된 본문을 notes 에 저장
+        userId || null,
+      ]
+    );
+    const contractId = result.insertId;
+    await logHistory(conn, contractId, userId, 'template_apply', {
+      description: `템플릿 적용: ${tpl.name} (${tpl.template_code}) — ${contractNo}`,
+      newValue: tpl.template_code,
+    });
+
+    await conn.commit();
+    res.json({
+      success: true,
+      id: contractId,
+      data: {
+        id: contractId,
+        contract_no: contractNo,
+        template_id: templateId,
+        template_code: tpl.template_code,
+        applied_variables: mergedVars,
+      },
+    });
+  } catch (err) {
+    await conn.rollback();
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, error: '계약번호가 이미 존재합니다' });
+    }
+    handleError(res, err);
+  } finally {
+    conn.release();
   }
 });
 
@@ -883,12 +1293,10 @@ router.patch('/:id/status', async (req, res) => {
     const fromStatus = prev.status;
     if (fromStatus === newStatus) {
       await conn.rollback();
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: `이미 ${STATUS_LABELS_KO[fromStatus] || fromStatus} 상태입니다`,
-        });
+      return res.status(400).json({
+        success: false,
+        error: `이미 ${STATUS_LABELS_KO[fromStatus] || fromStatus} 상태입니다`,
+      });
     }
 
     if (!_isValidTransition(fromStatus, newStatus)) {
