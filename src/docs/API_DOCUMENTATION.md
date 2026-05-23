@@ -1,6 +1,6 @@
 # 🔌 OCI CRM AI — API 문서
 
-> **버전**: 2026.05 (Phase G3 + Contract Phase 0 + Contract Phase 2 AI 법무)
+> **버전**: 2026.05 (Phase G3 + Contract Phase 0/1/2)
 > **Base URL**: `https://<your-domain>/api` (Production) / `http://localhost:3001/api` (Dev)
 > **인증 방식**: JWT Bearer Token + HttpOnly Refresh Cookie
 
@@ -1493,8 +1493,66 @@ CASCADE 삭제 (파일 디스크 + history 자동 정리).
 
 ### 22-A.10 history action_types
 **Phase 0**: `create` / `update` / `status_change` / `file_upload` / `file_delete`
-**Phase 2** (v5.9.1 신규): `legal_review` — AI 법무 검토 실행 시 자동 기록
+**Phase 1** (v5.9.2): `status_change` 강화 — description 에 한글 라벨 + 이모지 (`✅ 발효 / 🔄 갱신 / ⏰ 만료 / ❌ 해지`)
+**Phase 2** (v5.9.1): `legal_review` — AI 법무 검토 실행 시 자동 기록
 **Phase 3+** 향후 예정: `template_apply` / `alert_sent` / `esign_request` / `esign_signed` 등
+
+---
+
+### 22-A.15 PATCH `/contracts/:id/status` — CLM 상태 전이 (v5.9.2)
+
+8단계 전이 매트릭스 검증 + 자동 timestamp + history 강조.
+
+**Body** (필수):
+```json
+{ "status": "review" }
+```
+허용값: `draft` / `review` / `negotiation` / `signing` / `active` / `renewal` / `expired` / `terminated`
+
+**전이 매트릭스**:
+```
+draft       → review, terminated
+review      → draft, negotiation, terminated
+negotiation → review, signing, terminated
+signing     → negotiation, active, terminated
+active      → renewal, expired, terminated
+renewal     → active, expired, terminated
+expired     → terminated
+terminated  → (없음, 종착점)
+```
+
+**Response (성공)**:
+```json
+{ "success": true,
+  "data": {
+    "id": 1,
+    "from": "signing",
+    "to": "active",
+    "auto_start_date": "2026-05-23"  // signing→active 시 자동 채움 (있으면)
+} }
+```
+
+**Response (실패)**:
+| HTTP | error 메시지 | 원인 |
+|------|-------------|------|
+| 400 | "유효한 ID 필요" | id 파싱 실패 |
+| 400 | "유효하지 않은 상태값" | ALLOWED_STATUS 외 값 |
+| 400 | "이미 ⃝⃝ 상태입니다" | 동일 상태 |
+| 400 | "잘못된 전이: A → B (허용: X, Y)" | 매트릭스 위배 |
+| 404 | "계약을 찾을 수 없음" | 없는 id |
+
+**자동 동작**:
+- `signing → active` 시 `start_date` 가 NULL 이면 오늘로 자동 채움
+- 모든 전이는 `contract_history` 에 `status_change` 액션 + 강조 description 기록:
+  - `✅ 발효: 서명진행 → 발효 (start_date 자동 채움)`
+  - `🔄 갱신 시작: 발효 → 갱신중`
+  - `🔄 갱신 완료: 갱신중 → 발효`
+  - `⏰ 만료 처리: 발효 → 만료`
+  - `❌ 해지 처리: 발효 → 해지`
+
+**하위 호환**:
+- PUT `/contracts/:id` 로 status 변경 시 전이 검증 안 함
+- 관리자 직접 수정 / 데이터 마이그레이션 등 우회 경로 보존
 
 ---
 

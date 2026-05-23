@@ -40,6 +40,60 @@ const ContractsPage = (() => {
     expired: '#9ca3af',
     terminated: '#dc2626',
   };
+
+  // Phase 1: CLM 워크플로우 빠른 액션 매트릭스 (백엔드 STATUS_TRANSITIONS 와 동기화)
+  // 각 상태에서 표시할 빠른 액션 버튼 목록
+  // { to, label, kind } — kind: primary/ghost/danger
+  const QUICK_ACTIONS = {
+    draft: [
+      { to: 'review', label: '📋 검토 시작', kind: 'primary' },
+      { to: 'terminated', label: '❌ 해지', kind: 'danger' },
+    ],
+    review: [
+      { to: 'negotiation', label: '💬 협상 시작', kind: 'primary' },
+      { to: 'draft', label: '⬅ 초안 복귀', kind: 'ghost' },
+      { to: 'terminated', label: '❌ 해지', kind: 'danger' },
+    ],
+    negotiation: [
+      { to: 'signing', label: '✍ 서명 요청', kind: 'primary' },
+      { to: 'review', label: '⬅ 검토 복귀', kind: 'ghost' },
+      { to: 'terminated', label: '❌ 해지', kind: 'danger' },
+    ],
+    signing: [
+      { to: 'active', label: '✅ 발효 처리', kind: 'primary' },
+      { to: 'negotiation', label: '⬅ 협상 복귀', kind: 'ghost' },
+      { to: 'terminated', label: '❌ 해지', kind: 'danger' },
+    ],
+    active: [
+      { to: 'renewal', label: '🔄 갱신 시작', kind: 'primary' },
+      { to: 'expired', label: '⏰ 만료 처리', kind: 'ghost' },
+      { to: 'terminated', label: '❌ 해지', kind: 'danger' },
+    ],
+    renewal: [
+      { to: 'active', label: '✅ 갱신 완료', kind: 'primary' },
+      { to: 'expired', label: '⏰ 만료 처리', kind: 'ghost' },
+      { to: 'terminated', label: '❌ 해지', kind: 'danger' },
+    ],
+    expired: [{ to: 'terminated', label: '❌ 해지', kind: 'danger' }],
+    terminated: [], // 종착점 — 빠른 액션 없음
+  };
+
+  // Phase 1: 만료 임박 (30일 이내) 체크 — active 상태 + end_date 가 미래 30일 이내
+  function _isExpiringSoon(c) {
+    if (c.status !== 'active' || !c.end_date) return false;
+    const end = new Date(c.end_date);
+    if (isNaN(end)) return false;
+    const now = new Date();
+    const diffDays = Math.floor((end - now) / (1000 * 60 * 60 * 24));
+    return diffDays >= 0 && diffDays <= 30;
+  }
+  function _daysUntilEnd(c) {
+    if (!c.end_date) return null;
+    const end = new Date(c.end_date);
+    if (isNaN(end)) return null;
+    const now = new Date();
+    return Math.floor((end - now) / (1000 * 60 * 60 * 24));
+  }
   const CONTRACT_TYPE_LABELS = {
     NDA: 'NDA (비밀유지)',
     MSA: 'MSA (기본거래)',
@@ -199,7 +253,11 @@ const ContractsPage = (() => {
             <td><strong>${esc(c.title)}</strong></td>
             <td>${esc(c.customer_name || '-')}</td>
             <td style="font-size:12px">${_fmtDate(c.start_date)}</td>
-            <td style="font-size:12px">${_fmtDate(c.end_date)}</td>
+            <td style="font-size:12px">${_fmtDate(c.end_date)}${
+              _isExpiringSoon(c)
+                ? `<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px">⚠️ D-${_daysUntilEnd(c)} 만료 임박</div>`
+                : ''
+            }</td>
             <td style="text-align:right;font-family:monospace">${_fmtKRW(c.contract_amount)} ${c.contract_amount ? esc(c.currency || '') : ''}</td>
             <td style="text-align:center">${_statusBadge(c.status)}</td>
             <td style="text-align:center;font-size:12px">${c.file_count > 0 ? `📎 ${c.file_count}` : '-'}</td>
@@ -253,23 +311,71 @@ const ContractsPage = (() => {
     }
     _editing = editing;
 
+    // Phase 1: 편집 모달 footer 에 빠른 액션 버튼 동적 추가
+    const buttons = [{ label: '취소', kind: 'ghost', onClick: () => Modal.close() }];
+
+    if (id) {
+      // 현재 상태에서 가능한 빠른 액션 (전이 매트릭스 기반)
+      const quickActions = QUICK_ACTIONS[editing.status] || [];
+      quickActions.forEach(action => {
+        buttons.push({
+          label: action.label,
+          kind: action.kind,
+          onClick: () => _doStatusChange(id, editing.status, action.to, action.label),
+        });
+      });
+    }
+
+    buttons.push({
+      label: id ? '💾 저장' : '➕ 등록',
+      kind: 'primary',
+      onClick: () => _doSave(id),
+    });
+
     Modal.open({
       title: id ? `📜 계약 편집 — ${editing.contract_no}` : '📜 새 계약 등록',
       width: '900px',
       content: _renderForm(editing),
-      buttons: [
-        { label: '취소', kind: 'ghost', onClick: () => Modal.close() },
-        {
-          label: id ? '💾 저장' : '➕ 등록',
-          kind: 'primary',
-          onClick: () => _doSave(id),
-        },
-      ],
+      buttons,
       disableOverlayClose: true,
       onMounted: () => {
         if (id) _bindFileEvents(id);
       },
     });
+  }
+
+  // Phase 1: 상태 전이 실행 (confirm + PATCH + 모달 갱신)
+  async function _doStatusChange(id, fromStatus, toStatus, label) {
+    const fromKo = STATUS_LABELS[fromStatus] || fromStatus;
+    const toKo = STATUS_LABELS[toStatus] || toStatus;
+    const isDanger = toStatus === 'terminated' || toStatus === 'expired';
+    const msg =
+      `상태를 변경하시겠습니까?\n\n` +
+      `${fromKo}  →  ${toKo}\n\n` +
+      (toStatus === 'terminated'
+        ? '⚠️ 해지 후에는 다른 상태로 되돌릴 수 없습니다.'
+        : toStatus === 'expired'
+          ? '⏰ 만료 처리 후에는 해지만 추가로 가능합니다.'
+          : toStatus === 'active' && fromStatus === 'signing'
+            ? '✅ 발효 시작일(start_date)이 비어있으면 오늘 날짜로 자동 채워집니다.'
+            : '');
+    if (isDanger && !confirm(msg)) return;
+    if (!isDanger && !confirm(msg)) return;
+    try {
+      const res = await API.contracts.setStatus(id, toStatus);
+      const autoDate = res?.data?.auto_start_date;
+      Toast.success?.(
+        `${label} 완료 — ${fromKo} → ${toKo}` + (autoDate ? ` (start_date 자동 채움: ${autoDate})` : '')
+      );
+      Modal.close();
+      await _refreshList();
+      // 모달 다시 열어서 새 상태로 갱신
+      await _openModal(id);
+    } catch (err) {
+      console.error('[contracts:status-change] failed:', err);
+      const detail = err?.error || err?.message || String(err);
+      Toast.error?.(`상태 변경 실패: ${detail}`, { duration: 6000 });
+    }
   }
 
   function _renderForm(e) {

@@ -312,6 +312,8 @@ const API = {
     legalReview: (id, fileId) =>
       API.post(`/contracts/${id}/files/${fileId}/legal-review`, {}),
     legalReviews: id => API.get(`/contracts/${id}/legal-reviews`),
+    // Phase 1 — CLM 상태 전이 (검증 + 자동 timestamp + history 강조)
+    setStatus: (id, status) => API.patch(`/contracts/${id}/status`, { status }),
   },
 
   // 견적서 (crm.quotes)

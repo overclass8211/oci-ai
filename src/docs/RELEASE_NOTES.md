@@ -4,7 +4,80 @@
 
 ---
 
-## v5.9.1 (2026.05.23) — 현재 ⭐⭐⭐
+## v5.9.2 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **계약 모듈 Phase 1: CLM 워크플로우 (8단계 상태 전이 + 빠른 액션)**
+
+계약 라이프사이클 관리 강화 — 잘못된 전이 차단 + 워크플로우 시각화.
+
+#### 🚀 사용자 가치
+
+- **전이 매트릭스**: 정상 흐름만 허용 (draft → review → negotiation → signing → active)
+- **빠른 액션 버튼**: 모달 footer 에 현재 상태 기반 액션만 표시 (의사 결정 단순화)
+- **만료 임박 표시**: 목록에 30일 이내 만료 계약 ⚠️ 강조 (놓치지 않음)
+- **history 강조**: 발효/갱신/만료/해지 등 핵심 이벤트는 이모지로 즉시 식별
+
+#### 🛠 기술 변경
+
+##### 신규 엔드포인트
+- `PATCH /api/contracts/:id/status`
+  - 8단계 전이 매트릭스 검증
+  - 동일 상태 거부
+  - 자동 timestamp: `signing → active` 시 `start_date` 비어있으면 오늘 자동 채움
+  - history 강조 description (`✅ 발효` / `🔄 갱신 시작` / `🔄 갱신 완료` / `⏰ 만료 처리` / `❌ 해지 처리`)
+
+##### 8단계 전이 매트릭스 (백엔드 `STATUS_TRANSITIONS` 상수)
+```
+draft       → review, terminated
+review      → draft, negotiation, terminated
+negotiation → review, signing, terminated
+signing     → negotiation, active, terminated
+active      → renewal, expired, terminated
+renewal     → active, expired, terminated
+expired     → terminated
+terminated  → (없음 — 종착점)
+```
+
+##### 신규 API 헬퍼
+- `API.contracts.setStatus(id, status)` — PATCH 호출 wrapper
+
+##### 프론트 UI
+- `QUICK_ACTIONS` 매트릭스 (모달 footer 버튼 매핑)
+- `_doStatusChange()` — 상태 전이 실행 (confirm + PATCH + 모달 갱신)
+- `_isExpiringSoon()` / `_daysUntilEnd()` — 만료 임박 체크
+- 목록 종료일 컬럼 아래 ⚠️ D-N 만료 임박 표시
+
+##### 하위 호환
+- `PUT /api/contracts/:id` 로 status 변경 시 **전이 검증 안 함 유지**
+- 관리자 직접 수정 / 데이터 마이그레이션 등 우회 경로 보존
+- 정상 워크플로우는 PATCH `/status` 만 사용
+
+#### 📊 회귀 테스트
+- vitest: **신규 +4건 (총 21/21 contracts) 통과**, 전체 **397/397** — 기존 0건 영향
+- lint: 0 errors / 0 warnings
+- e2e: 기존 시나리오 영향 없음 (UI 추가만)
+
+#### 🛡 시스템 영향
+- 신규 endpoint 1개 추가만
+- 기존 PUT/POST/DELETE 무변경
+- DB 스키마 변경 0건 (Phase 0 에서 이미 status 컬럼 존재)
+- 프론트: 모달 footer 동적 변경 (기본 [💾 저장] 버튼은 그대로)
+
+#### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+배포 후:
+- 계약 편집 모달 → 현재 상태 기반 빠른 액션 버튼 자동 표시
+- 목록에서 만료 임박 (30일 이내) 계약 즉시 식별 가능
+
+#### 📅 다음 단계
+Phase 3 (계약 템플릿 라이브러리) 또는 Phase 4 (만료 알림 자동화) 권장.
+
+---
+
+## v5.9.1 (2026.05.23) — 직전 ⭐⭐⭐
 
 ### 🎯 메인 — **계약 모듈 Phase 2: AI 법무 검토 ⭐⭐⭐ (핵심 차별화 기능)**
 
