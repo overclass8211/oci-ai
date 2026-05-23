@@ -573,6 +573,73 @@ if (require.main === module) {
       );
     }
     scheduleAccessLogCleanup();
+
+    // ── Contract 만료 알림 자동 처리 (Phase 4 — 매일 오전 9시 KST) ────────
+    // pending + scheduled_for ≤ today 인 알림을 sent 로 갱신
+    // email 발송: 환경변수 CONTRACT_ALERT_EMAIL_ENABLED=1 + Gmail OAuth 시
+    function scheduleContractAlerts() {
+      const contractAlerts = require('./src/services/contractAlerts');
+      const next9am = new Date();
+      next9am.setHours(9, 0, 0, 0);
+      if (next9am <= new Date()) next9am.setDate(next9am.getDate() + 1);
+      const delay = next9am - new Date();
+
+      // 이메일 발송기 (옵션) — owner 의 Gmail OAuth 토큰으로 발송
+      // 토글 OFF 또는 OAuth 미연동 시 in-app 만 동작
+      const emailEnabled = String(process.env.CONTRACT_ALERT_EMAIL_ENABLED || '0') === '1';
+      let emailSender = null;
+      if (emailEnabled) {
+        emailSender = async ({ to, subject, text, contract_id: contractId }) => {
+          try {
+            const gmail = require('./src/services/gmail');
+            // 계약 owner_id 로 토큰 조회 → 본인의 Gmail 로 본인에게 발송 (자가 알림)
+            const [[contract]] = await pool.query(`SELECT owner_id FROM contracts WHERE id = ?`, [
+              contractId,
+            ]);
+            const senderUserId = contract?.owner_id;
+            if (!senderUserId) return; // 사용자 미지정 시 skip
+            // gmail.send(userId, { to, subject, text }) 패턴 (기존 G2)
+            if (typeof gmail.send === 'function') {
+              await gmail.send(senderUserId, { to, subject, text });
+            } else if (typeof gmail.sendMessageWithAttachments === 'function') {
+              await gmail.sendMessageWithAttachments(senderUserId, {
+                to,
+                subject,
+                text,
+                attachments: [],
+              });
+            }
+          } catch (e) {
+            console.warn('[contractAlerts] email send failed:', e.message);
+          }
+        };
+      }
+
+      setTimeout(async function runContractAlerts() {
+        try {
+          const result = await contractAlerts.processAlertQueue({
+            sendEmail: emailEnabled,
+            emailSender,
+          });
+          if (result.processed > 0) {
+            console.log(
+              `[contractAlerts] 처리: ${result.processed}건 (email=${emailEnabled ? 'on' : 'off'})`
+            );
+          }
+          if (result.errors?.length > 0) {
+            console.warn(`[contractAlerts] 오류 ${result.errors.length}건`);
+          }
+        } catch (e) {
+          console.error('[contractAlerts] 처리 실패:', e.message);
+        }
+        setTimeout(runContractAlerts, 24 * 60 * 60 * 1000); // 다음날 동시각
+      }, delay);
+
+      console.log(
+        `[contractAlerts] 만료 알림 자동 처리 등록 (다음 실행: ${next9am.toLocaleString('ko-KR')}, email=${emailEnabled ? 'on' : 'off'})`
+      );
+    }
+    scheduleContractAlerts();
   })();
 }
 
