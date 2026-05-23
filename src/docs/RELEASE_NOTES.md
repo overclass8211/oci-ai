@@ -4,7 +4,86 @@
 
 ---
 
-## v5.2 (2026.05.21~22) — 현재 ⭐
+## v5.3 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 Phase 8: 통합 워크플로우 + 수주확률 예측**
+
+영업 사원의 클릭 수를 절반으로 줄이고, 수주 가능성을 한 눈에 확인하는 핵심 개선.
+
+#### 1. 🤖 RFP → 폼 자동 채움 (Phase 8-A)
+
+기존: RFP 분석 → 결과를 수동으로 폼에 옮겨 입력 → 별도 탭에서 전략 작성
+**개선**: RFP 업로드 → [🤖 AI 분석] **한 번 클릭으로 모든 항목 자동 채움**
+
+`analyzeProposalRFP` 응답 schema 확장:
+- 기존: RFP 메타 (4종) + 5섹션 마크다운
+- **신규**: + **제안명** + **예상금액** + **통화** + **6섹션 마크다운**
+  - 제안 목표 / 제안 주요 일정 / 제안 핵심사항 / 제안 준비사항 (체크리스트) / 예상 리스크 / 독소조항과 회피방안
+
+#### 2. 📊 수주확률 + 정성 메트릭 (Phase 8-B)
+
+기존: AI 평가 = RFP 커버율(정량) + 충족/누락/개선 코칭만
+**개선**: + **수주확률 예측** + **정성 메트릭 5종** + **승리/리스크 요인**
+
+`evaluateProposalAgainstRFP` 응답 schema 확장:
+- `win_probability` (0-100): 예상 수주확률
+- `quality_metrics` (각 0-10): 명확성/완결성/차별성/실현가능성/가격경쟁력
+- `win_factors[]` 최대 5건: 강점 (각 100자)
+- `risk_factors[]` 최대 5건: 약점 (각 100자)
+
+#### 3. 🎨 3-탭 UI 통합 (Phase 8-C)
+
+기존: 4-탭 (기본+RFP / AI 전략 / 자료&견적 / 발송&이력)
+**개선**: 3-탭 (기본정보 / 자료&견적 / 발송&이력) — AI 탭 제거 + 기본탭 통합
+
+- **기본정보 탭**: ① RFP 등록 섹션 (상단) → ② 제안 기본정보 (자동 채움) → ③ AI 제안전략 요약 6섹션 (편집 가능 textarea + 미리보기 + 복사)
+- 비고 필드 폐지 → AI 제안전략 요약으로 통합
+- 워크플로우: RFP 업로드 → 클릭 1번 → 모달 닫지 않고 검토 → [저장]
+
+#### 4. 🎯 수주확률 카드 + 정성 메트릭 시각화 (Phase 8-D)
+
+- **🎯 수주확률 대형 게이지**: 70%+ 녹색 / 40-69% 황색 / 0-39% 적색 + 높음/보통/낮음 배지
+- **📈 정성 메트릭 5바**: 명확성/완결성/차별성/실현가능성/가격경쟁력 (0-10점)
+- **✅ 승리 요인 + ⚠️ 리스크 요인 좌우 2-칼럼**
+- 자료&견적 탭 = **3섹션 명확 분리** (📦 자료 / 📊 AI 평가 / 💰 견적)
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음** — 응답 schema 만 확장 (기존 컬럼 그대로 사용)
+- **신규 npm 의존성 0개** — Gemini responseSchema 강화 + frontend CSS 132줄
+- **변경 파일**:
+  - `src/services/gemini.js` (+117 / -10): RFP_ANALYSIS_PROMPT + PROPOSAL_EVAL_PROMPT + responseSchema + 후처리 정규화
+  - `public/js/pages/proposals.js` (+335 / -145): TABS 3개 + `_renderAiStrategySection` + `_renderEvalResult` 확장
+  - `public/css/styles.css` (+132): 수주확률 카드, 정성 메트릭, 승리/리스크 요인
+  - `tests/proposals.test.mjs` (+6): Phase 8-A 신규 필드 어설션
+  - `e2e/proposals.spec.js` (+118 / -27): 3탭 검증 + 수주확률 어설션 + 안정성 보강
+  - `playwright.config.js` (+2): test timeout 30s → 60s
+
+### 📊 회귀 테스트
+- vitest: **43/43 (proposals) / 375/375 전체 통과**
+- e2e: 격리 실행 모두 통과 (4-C / 8-C / 6-C 평가 카드)
+- lint: 0 errors / 0 warnings
+
+### 💰 비용 통제
+- 응답 schema 확장만 — 추가 API 호출 없음
+- 기존 confirm 다이얼로그 그대로 (사용자 의식 클릭)
+- 평균 1회 분석/평가: 300-500원 (Gemini Pro)
+
+### 📚 문서 갱신
+- `USER_MANUAL.md` — 제안 모듈 3-탭 워크플로우 갱신
+- `API_DOCUMENTATION.md` — §21.4 + §21.5 Phase 8-A/B 신규 필드 명세
+- `RELEASE_NOTES.md` (현재 파일)
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+- DB 스키마 변경 없음 — 마이그레이션 불필요
+- 기존 데이터 호환 (신규 필드는 nullable / fallback 처리)
+
+---
+
+## v5.2 (2026.05.21~22) — 이전
 
 ### 🎯 메인 — **제안 모듈 (Proposals) 완성 + AI 평가 신기능**
 

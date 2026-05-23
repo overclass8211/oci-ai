@@ -1264,12 +1264,12 @@ DELETE /api/admin/logo
 ### 21.3 리비전
 - `POST  /api/proposals/:id/revisions` — `{ title, description }` → version_no 자동 증가
 
-### 21.4 🤖 AI RFP 분석 (Phase 4-A)
+### 21.4 🤖 AI RFP 분석 (Phase 4-A → Phase 8-A 확장)
 - `POST  /api/proposals/:id/rfp/analyze` — `{ file_id }`
 
 Gemini 2.5 Pro Multimodal — 호환 형식 (PDF/이미지/텍스트) 만 분석.
 
-**응답:**
+**응답 (Phase 8-A — 제안 기본정보 + 6섹션 마크다운):**
 ```json
 {
   "success": true,
@@ -1278,20 +1278,29 @@ Gemini 2.5 Pro Multimodal — 호환 형식 (PDF/이미지/텍스트) 만 분석
     "rfp_received_date": "YYYY-MM-DD",
     "rfp_due_date": "YYYY-MM-DD",
     "rfp_summary": "...",
-    "ai_strategy_md": "## 1. RFP 핵심 요약..."
+    "proposal_title": "고객사명 + 프로젝트 표준 제안서",
+    "expected_amount": 50000000,
+    "currency": "KRW",
+    "ai_strategy_md": "## 제안 목표\n...\n## 제안 주요 일정\n...\n## 제안 핵심사항\n...\n## 제안 준비사항 (체크리스트)\n- [ ] ...\n## 예상 리스크\n...\n## 독소조항과 회피방안\n..."
   }
 }
 ```
 
+**Phase 8-A 신규 필드:**
+- `proposal_title` (string, max 300자): 제안서 제목 자동 생성
+- `expected_amount` (number|null): RFP 예산/추정 금액 (0 이상)
+- `currency` (string): 'KRW' / 'USD' / 'EUR' / 'JPY' / 'CNY' — 기본 'KRW'
+- `ai_strategy_md`: 6섹션 마크다운 (제안목표/주요일정/핵심사항/준비사항/예상리스크/독소조항)
+
 ⚠️ DB 자동 저장 X — 클라이언트가 검토 후 `PUT /:id` 로 별도 반영.
 
-### 21.5 📊 AI 제안서 평가 (Phase 6-B)
+### 21.5 📊 AI 제안서 평가 (Phase 6-B → Phase 8-B 확장)
 - `POST  /api/proposals/:id/evaluate` — `{ proposal_file_id }`
 - `GET   /api/proposals/:id/evaluations` — 평가 이력 50건
 
 RFP 자동 선택 (`file_type='rfp'` + 호환 형식 첫 파일). Gemini Pro 가 RFP + 제안서 동시 분석.
 
-**응답:**
+**응답 (Phase 8-B — 수주확률 + 정성 메트릭 + 승리/리스크 요인):**
 ```json
 {
   "success": true,
@@ -1306,11 +1315,29 @@ RFP 자동 선택 (`file_type='rfp'` + 호환 형식 첫 파일). Gemini Pro 가
     ],
     "improvement_suggestions": [{ "section": "...", "suggestion": "..." }],
     "overall_assessment": "## 1. 종합 평가...",
+    "win_probability": 72,
+    "quality_metrics": {
+      "clarity": 8,
+      "completeness": 7,
+      "differentiation": 6,
+      "feasibility": 9,
+      "price_competitiveness": 5
+    },
+    "win_factors": ["강력한 레퍼런스", "빠른 납기", "24/7 SLA"],
+    "risk_factors": ["가격 경쟁력 부족", "인증 부족"],
     "target_filename": "proposal_v1.pdf",
     "rfp_filename": "rfp_doc.pdf"
   }
 }
 ```
+
+**Phase 8-B 신규 필드:**
+- `win_probability` (number 0-100): 예상 수주확률 (%)
+- `quality_metrics` (object, 각 0-10): 정성 평가 5종
+  - `clarity` 명확성 / `completeness` 완결성 / `differentiation` 차별성
+  - `feasibility` 실현가능성 / `price_competitiveness` 가격경쟁력
+- `win_factors` (string[], 최대 5건): 승리 요인 (각 100자 이내)
+- `risk_factors` (string[], 최대 5건): 리스크 요인 (각 100자 이내)
 
 ### 21.6 📨 이메일 발송 (Phase 5-B, Gmail OAuth 필요)
 - `POST  /api/proposals/:id/email/send`
