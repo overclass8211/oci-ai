@@ -314,6 +314,22 @@ const API = {
     legalReviews: id => API.get(`/contracts/${id}/legal-reviews`),
     // Phase 1 — CLM 상태 전이 (검증 + 자동 timestamp + history 강조)
     setStatus: (id, status) => API.patch(`/contracts/${id}/status`, { status }),
+    // Phase 3 — 계약 템플릿 라이브러리
+    templates: {
+      list: (params = {}) => {
+        const qs = new URLSearchParams(
+          Object.entries(params).filter(([, v]) => v !== undefined && v !== '')
+        ).toString();
+        return API.get('/contracts/templates' + (qs ? '?' + qs : ''));
+      },
+      get: id => API.get(`/contracts/templates/${id}`),
+      create: body => API.post('/contracts/templates', body),
+      update: (id, body) => API.put(`/contracts/templates/${id}`, body),
+      delete: id => API.del(`/contracts/templates/${id}`),
+    },
+    // 템플릿 → 계약 자동 생성 (변수 치환 포함)
+    fromTemplate: (templateId, body) =>
+      API.post(`/contracts/from-template/${templateId}`, body),
   },
 
   // 견적서 (crm.quotes)

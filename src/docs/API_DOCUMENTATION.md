@@ -1,6 +1,6 @@
 # 🔌 OCI CRM AI — API 문서
 
-> **버전**: 2026.05 (Phase G3 + Contract Phase 0/1/2)
+> **버전**: 2026.05 (Phase G3 + Contract Phase 0/1/2/3)
 > **Base URL**: `https://<your-domain>/api` (Production) / `http://localhost:3001/api` (Dev)
 > **인증 방식**: JWT Bearer Token + HttpOnly Refresh Cookie
 
@@ -1495,7 +1495,107 @@ CASCADE 삭제 (파일 디스크 + history 자동 정리).
 **Phase 0**: `create` / `update` / `status_change` / `file_upload` / `file_delete`
 **Phase 1** (v5.9.2): `status_change` 강화 — description 에 한글 라벨 + 이모지 (`✅ 발효 / 🔄 갱신 / ⏰ 만료 / ❌ 해지`)
 **Phase 2** (v5.9.1): `legal_review` — AI 법무 검토 실행 시 자동 기록
-**Phase 3+** 향후 예정: `template_apply` / `alert_sent` / `esign_request` / `esign_signed` 등
+**Phase 3** (v5.9.3): `template_apply` — 템플릿 기반 계약 생성 시 자동 기록 (description: `템플릿 적용: ⃝⃝ (STD-NDA) — C-2026-NNNN`)
+**Phase 4+** 향후 예정: `alert_sent` / `esign_request` / `esign_signed` 등
+
+---
+
+### 22-A.16 계약 템플릿 라이브러리 (v5.9.3 — Phase 3)
+
+**시드 5종** (서버 부팅 시 자동 등록): `STD-NDA` / `STD-MSA` / `STD-SLA` / `STD-SOW` / `STD-SERVICE`
+**시드 보호**: `template_code` 가 `STD-` 로 시작하면 DELETE 403 / 신규 생성 시 거부 (USR- 접두 자동 채번)
+
+#### GET `/contracts/templates`
+목록 조회 (활성/유형 필터).
+
+**Query**:
+- `contract_type` (선택): NDA / MSA / SLA / SOW / service / etc 등
+- `is_active` (선택): `1` / `0`
+
+**Response**:
+```json
+{ "success": true, "data": [
+  { "id": 1, "template_code": "STD-NDA", "name": "NDA — 비밀유지계약서 (표준)",
+    "contract_type": "NDA", "language": "ko",
+    "variables": [{ "name": "을_회사명", "label": "을(고객사) 상호", "type": "text", "required": true, "autofill": "customer_name" }, ...],
+    "is_seed": true, "is_active": 1, "version_no": 1, "created_at": "..." },
+  ...
+]}
+```
+
+#### GET `/contracts/templates/:templateId`
+단건 조회 (`body_md` + `variables` 포함).
+
+#### POST `/contracts/templates`
+신규 사용자 템플릿 생성. `template_code` 미지정 시 `USR-{timestamp}` 자동.
+
+**Body** (필수: `name`, `body_md`):
+```json
+{
+  "name": "우리회사 NDA (커스텀)",
+  "contract_type": "NDA",
+  "language": "ko",
+  "body_md": "# 비밀유지계약서\n...{{회사명}}...",
+  "variables": [{ "name": "회사명", "label": "회사명", "type": "text", "required": true }]
+}
+```
+
+**에러**:
+- 400: `template_code` 가 `STD-` 로 시작 (시드 예약)
+- 409: `template_code` 중복
+
+#### PUT `/contracts/templates/:templateId`
+수정. 허용 필드: `name` / `contract_type` / `language` / `body_md` / `is_active` / `variables`.
+
+#### DELETE `/contracts/templates/:templateId`
+삭제. **시드 (STD- 접두) 는 403** — 비활성화는 PUT `is_active=0` 사용.
+
+#### POST `/contracts/from-template/:templateId` ⭐ 핵심
+변수 치환 + 계약 자동 생성.
+
+**Body**:
+```json
+{
+  "title": "A사 NDA (선택, 미지정 시 자동)",
+  "customer_name": "A주식회사",
+  "contract_type": "NDA",
+  "start_date": "2026-05-23",
+  "end_date": "2027-05-22",
+  "contract_amount": 30000000,
+  "currency": "KRW",
+  "variables": {
+    "비밀유지_기간_년": 5,
+    "갑_회사명": "우리회사 (자동 채움 안 할 때만)"
+  }
+}
+```
+
+**자동 채움 매핑** (`_resolveAutofill`):
+- `customer_name` → `{{을_회사명}}`
+- `system_settings.supplier_company_name` → `{{갑_회사명}}`
+- 오늘 → `{{계약일}}`
+- `start_date` → `{{시작일}}`, `{{착수일}}`
+- `end_date` → `{{종료일}}`, `{{완료일}}`
+- `contract_amount` → `{{금액}}`
+- `currency` → `{{통화}}`
+- 로그인 사용자 → `{{담당자명}}`
+
+**우선순위**: 사용자 입력 `variables[name]` > 자동 채움 > 정의된 default
+
+**Response**:
+```json
+{ "success": true, "id": 42,
+  "data": {
+    "id": 42, "contract_no": "C-2026-0042",
+    "template_id": 1, "template_code": "STD-NDA",
+    "applied_variables": { "을_회사명": "A주식회사", "비밀유지_기간_년": 5, ... }
+}}
+```
+
+**동시 효과**:
+- 새 계약 INSERT (자동 채번 + 변수 치환된 본문은 `notes` 컬럼에 저장)
+- `template_id` 컬럼에 사용한 템플릿 id 기록
+- `contract_history` 에 `template_apply` 액션 자동 기록
 
 ---
 

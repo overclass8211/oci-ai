@@ -4,7 +4,100 @@
 
 ---
 
-## v5.9.2 (2026.05.23) — 현재 ⭐
+## v5.9.3 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **계약 모듈 Phase 3: 계약 템플릿 라이브러리 (5종 표준 + 변수 치환 + 미리보기)**
+
+표준 계약서 빠른 작성 — NDA 5분 안에 완성.
+
+#### 🚀 사용자 가치
+
+```
+[📋 템플릿] → 선택 → 변수 입력 → 미리보기 → ➕ 생성
+                                                ↓
+                                  C-2026-NNNN 자동 채번 + 본문 자동 채움
+```
+
+**5종 표준 시드** (서버 부팅 시 자동 등록):
+| 코드 | 이름 |
+|------|------|
+| `STD-NDA` | NDA — 비밀유지계약서 |
+| `STD-MSA` | MSA — 기본거래계약서 |
+| `STD-SLA` | SLA — 서비스수준계약서 |
+| `STD-SOW` | SOW — 작업기술서 |
+| `STD-SERVICE` | 용역계약서 |
+
+각 템플릿은 공통 변수 8개 + 템플릿별 추가 변수 (예: NDA 의 `비밀유지_기간_년`).
+
+#### 🎨 UI 디자인
+
+**1단계 — 템플릿 선택 모달**:
+- 카드 그리드 (auto-fill, min 220px)
+- 아이콘 + 짧은 설명 (🔒 NDA / 📋 MSA / ⚡ SLA / 📐 SOW / 🤝 용역)
+- `STD` 배지 (시드) vs `USR` 배지 (사용자 정의)
+- hover 시 OCI Red border + 살짝 떠오름
+
+**2단계 — 변수 입력 + 미리보기**:
+- 좌측: 동적 변수 폼 (text/date/number) + 메타정보 (고객사/날짜/금액/통화)
+- 우측: 실시간 미리보기 (입력 200ms debounce → 변수 치환 결과 즉시 반영)
+- [➕ 계약 생성] → 자동 채번 + 편집 모달 자동 진입
+
+#### 🛠 기술 변경
+
+##### 백엔드 (Commit 1, 별도 commit)
+- `src/data/contractTemplateSeeds.js` — 5종 시드 + 변수 정의
+- `src/routes/contracts.js`:
+  - `ensureTemplateSeeds()` — 부팅 시 idempotent UPSERT
+  - 5개 endpoint: `GET/POST/PUT/DELETE /templates`, `GET /templates/:id`
+  - **`POST /from-template/:templateId`** — 변수 치환 + 계약 자동 생성
+  - `_substituteVariables()`, `_resolveAutofill()` 헬퍼
+  - 시드 보호: `STD-` 접두 코드는 DELETE 403
+
+##### 프론트 (Commit 2, 이번 commit)
+- `public/js/api.js`: `API.contracts.templates.*` 5개 + `fromTemplate()` 헬퍼
+- `public/js/pages/contracts.js`:
+  - 헤더 [📋 템플릿에서 새 계약] 버튼 추가
+  - `_openTemplatePicker()` — 카드 그리드 모달
+  - `_openTemplateApplyForm()` — 변수 입력 + 미리보기 모달
+  - `_refreshTemplatePreview()` — 실시간 변수 치환 (debounce 200ms)
+  - `_collectTemplateForm()` — 변수 + 메타 수집
+  - `_doApplyTemplate()` — 필수 변수 검증 + POST + 편집 모달 자동 진입
+  - TPL_META (9종 계약 유형별 아이콘+설명)
+
+#### 🛡 시드 보호 정책
+
+- `template_code` 가 `STD-` 로 시작 → **DELETE 403 거부** (시드 보호)
+- 사용자 정의 템플릿 = `USR-{timestamp}` 자동 채번 (자유로운 수정/삭제)
+- 시드 비활성화: `is_active=0` 으로 PUT (DELETE 대신)
+- 서버 부팅 시 시드 5종 idempotent UPSERT — name/body_md/variables_json 갱신, 사용자 데이터 보호
+
+#### 📊 회귀 테스트
+- vitest: **신규 +5건 (총 26/26 contracts) 통과**, 전체 **402/402 (33 files)** — 기존 0건 영향
+- lint: 0 errors / 0 warnings
+- e2e: 기존 시나리오 영향 없음 (UI 추가만)
+
+#### 🛡 시스템 영향
+- 신규 endpoint 6개 추가 (templates 5 + from-template 1)
+- 기존 endpoint 무변경
+- DB 스키마 변경 0건 (Phase 0 에서 이미 `contract_templates` 테이블 생성)
+- 프론트: 헤더 버튼 1개 + 모달 2개 (기존 [+ 새 계약] 버튼은 그대로)
+
+#### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+배포 후:
+- DB 에 5종 시드 자동 등록 (확인: `SELECT template_code, name FROM contract_templates WHERE template_code LIKE 'STD-%'`)
+- 계약 페이지 헤더에 [📋 템플릿에서 새 계약] 버튼 표시
+- 5분 안에 표준 NDA/MSA 등 작성 가능
+
+#### 📅 다음 단계
+Phase 4 (만료 알림 자동화) 또는 Phase 5 (AI 협상 코칭) 권장.
+
+---
+
+## v5.9.2 (2026.05.23) — 직전 ⭐
 
 ### 🎯 메인 — **계약 모듈 Phase 1: CLM 워크플로우 (8단계 상태 전이 + 빠른 액션)**
 

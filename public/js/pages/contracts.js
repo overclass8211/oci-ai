@@ -154,9 +154,10 @@ const ContractsPage = (() => {
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div>
           <h1 style="margin:0;font-size:20px">📜 계약 관리</h1>
-          <div style="font-size:12px;color:var(--text-3);margin-top:4px">계약 라이프사이클 + AI 법무 검토 (Phase 0: 기본 CRUD)</div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">계약 라이프사이클(CLM) + AI 법무 검토 + 표준 템플릿</div>
         </div>
-        <div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" id="ct-tpl-btn" title="표준 템플릿(NDA/MSA/SLA/SOW/용역)에서 계약 자동 생성">📋 템플릿에서 새 계약</button>
           <button class="btn btn-primary" id="ct-new-btn">+ 새 계약</button>
         </div>
       </div>
@@ -186,6 +187,8 @@ const ContractsPage = (() => {
   function _bindHeaderEvents() {
     document.getElementById('ct-new-btn').addEventListener('click', () => _openModal(null));
     document.getElementById('ct-refresh-btn').addEventListener('click', () => _refreshList());
+    // Phase 3: 템플릿 선택 모달 진입
+    document.getElementById('ct-tpl-btn').addEventListener('click', () => _openTemplatePicker());
 
     const searchInput = document.getElementById('ct-search');
     let debounceTimer;
@@ -861,6 +864,309 @@ const ContractsPage = (() => {
       const wrap = document.getElementById('ct-legal-review-wrap');
       if (wrap) wrap.innerHTML = '';
     });
+  }
+
+  // ── Phase 3: 계약 템플릿 라이브러리 ────────────────────────
+  // 템플릿 카테고리 메타 (아이콘 + 짧은 설명)
+  const TPL_META = {
+    NDA: { icon: '🔒', desc: '비밀유지계약 — 영업비밀 보호' },
+    MSA: { icon: '📋', desc: '기본거래계약 — 거래 기본 조건' },
+    SLA: { icon: '⚡', desc: '서비스수준계약 — 가용성/응답시간' },
+    SOW: { icon: '📐', desc: '작업기술서 — 범위/일정/산출물' },
+    service: { icon: '🤝', desc: '용역계약 — 일반 위탁' },
+    purchase: { icon: '🛒', desc: '구매계약' },
+    license: { icon: '🎫', desc: '라이선스' },
+    employment: { icon: '👔', desc: '고용계약' },
+    etc: { icon: '📄', desc: '기타' },
+  };
+
+  // 1단계: 템플릿 선택 모달
+  async function _openTemplatePicker() {
+    let templates;
+    try {
+      const res = await API.contracts.templates.list({ is_active: '1' });
+      templates = res?.data || [];
+    } catch (err) {
+      Toast.error?.('템플릿 목록 조회 실패: ' + (err.message || err));
+      return;
+    }
+    if (!templates.length) {
+      Toast.error?.('등록된 템플릿이 없습니다. 관리자에게 문의하세요.');
+      return;
+    }
+
+    Modal.open({
+      title: '📋 템플릿 선택 — 표준 계약서에서 빠르게 시작',
+      width: '760px',
+      content: `
+        <div style="margin-bottom:12px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:12px;color:#1e40af">
+          💡 표준 템플릿을 선택하면 변수(회사명/금액/날짜 등) 입력 후 계약이 자동 생성됩니다.
+        </div>
+        <div class="ct-tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+          ${templates
+            .map(t => {
+              const meta = TPL_META[t.contract_type] || TPL_META.etc;
+              const badge = t.is_seed
+                ? '<span style="font-size:9px;padding:1px 6px;background:#16a34a;color:#fff;border-radius:8px;margin-left:4px" title="시스템 표준 템플릿">STD</span>'
+                : '<span style="font-size:9px;padding:1px 6px;background:#6b7280;color:#fff;border-radius:8px;margin-left:4px" title="사용자 정의">USR</span>';
+              return `<div class="ct-tpl-card" data-id="${t.id}" tabindex="0" role="button"
+                style="cursor:pointer;padding:14px;border:2px solid var(--border);border-radius:8px;background:#fff;transition:all .15s;display:flex;flex-direction:column;gap:8px"
+                onmouseover="this.style.borderColor='var(--oci-red,#E63329)';this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 8px rgba(0,0,0,0.08)'"
+                onmouseout="this.style.borderColor='var(--border)';this.style.transform='translateY(0)';this.style.boxShadow='none'">
+                <div style="font-size:24px">${meta.icon}</div>
+                <div>
+                  <div style="font-weight:600;font-size:13px;margin-bottom:2px">${esc(t.name)}${badge}</div>
+                  <div style="font-size:11px;color:var(--text-3)">${esc(meta.desc)}</div>
+                </div>
+                <div style="margin-top:auto;font-size:10px;color:var(--text-3)">
+                  변수 ${(t.variables || []).length}개 · ${esc(t.contract_type)}
+                </div>
+              </div>`;
+            })
+            .join('')}
+        </div>
+      `,
+      buttons: [{ label: '취소', kind: 'ghost', onClick: () => Modal.close() }],
+      onMounted: () => {
+        document.querySelectorAll('.ct-tpl-card').forEach(card => {
+          card.addEventListener('click', () => {
+            const id = parseInt(card.dataset.id, 10);
+            Modal.close();
+            // 약간의 딜레이로 모달 전환 부드럽게
+            setTimeout(() => _openTemplateApplyForm(id), 100);
+          });
+          card.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              card.click();
+            }
+          });
+        });
+      },
+    });
+  }
+
+  // 2단계: 변수 입력 폼 (선택한 템플릿)
+  async function _openTemplateApplyForm(templateId) {
+    let tpl;
+    try {
+      const res = await API.contracts.templates.get(templateId);
+      tpl = res?.data;
+    } catch (err) {
+      Toast.error?.('템플릿 조회 실패: ' + (err.message || err));
+      return;
+    }
+    if (!tpl) return;
+
+    const variables = Array.isArray(tpl.variables) ? tpl.variables : [];
+    Modal.open({
+      title: `📋 ${tpl.name} — 변수 입력`,
+      width: '900px',
+      content: `
+        <div style="margin-bottom:14px;padding:10px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:12px;color:#92400e">
+          💡 필수(<span style="color:#dc2626">*</span>) 변수를 입력하면 본문에 자동 치환됩니다. 미리보기를 확인 후 [➕ 계약 생성]을 누르세요.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <!-- 좌: 변수 입력 폼 -->
+          <div>
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px">🔧 변수 입력 (${variables.length}개)</div>
+            <div class="ct-tpl-vars" style="display:flex;flex-direction:column;gap:8px;max-height:500px;overflow-y:auto">
+              ${variables
+                .map(v => {
+                  const inputType =
+                    v.type === 'date' ? 'date' : v.type === 'number' ? 'number' : 'text';
+                  const defaultVal = v.default !== undefined && v.default !== null ? v.default : '';
+                  const required = v.required ? '<span style="color:#dc2626;margin-left:2px">*</span>' : '';
+                  return `<div class="form-row">
+                    <label class="form-label" style="font-size:11px">${esc(v.label || v.name)}${required}</label>
+                    <input class="form-input ct-tpl-var-input" data-var-name="${esc(v.name)}"
+                      type="${inputType}" value="${esc(defaultVal)}"
+                      placeholder="{{${esc(v.name)}}}"
+                      style="font-size:12px">
+                  </div>`;
+                })
+                .join('')}
+            </div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)">
+              <div style="font-weight:600;font-size:12px;margin-bottom:6px">📌 계약 메타정보</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="form-row">
+                  <label class="form-label" style="font-size:11px">계약명</label>
+                  <input class="form-input" id="ct-tpl-title" type="text"
+                    placeholder="(자동 — 템플릿명 + 고객사)" style="font-size:12px">
+                </div>
+                <div class="form-row">
+                  <label class="form-label" style="font-size:11px">고객사명 ↔ {{을_회사명}}</label>
+                  <input class="form-input" id="ct-tpl-customer" type="text" style="font-size:12px">
+                </div>
+                <div class="form-row">
+                  <label class="form-label" style="font-size:11px">시작일</label>
+                  <input class="form-input" id="ct-tpl-start" type="date" style="font-size:12px">
+                </div>
+                <div class="form-row">
+                  <label class="form-label" style="font-size:11px">종료일</label>
+                  <input class="form-input" id="ct-tpl-end" type="date" style="font-size:12px">
+                </div>
+                <div class="form-row">
+                  <label class="form-label" style="font-size:11px">계약금액 ↔ {{금액}}</label>
+                  <input class="form-input" id="ct-tpl-amount" type="number" min="0" placeholder="0" style="font-size:12px">
+                </div>
+                <div class="form-row">
+                  <label class="form-label" style="font-size:11px">통화 ↔ {{통화}}</label>
+                  <select class="form-input" id="ct-tpl-currency" style="font-size:12px">
+                    <option value="KRW">KRW</option>
+                    <option value="USD">USD</option>
+                    <option value="JPY">JPY</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 우: 미리보기 -->
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="font-weight:600;font-size:13px">👁 미리보기 (변수 치환 결과)</div>
+              <button class="btn btn-ghost btn-sm" id="ct-tpl-refresh" type="button" style="font-size:11px">🔄 갱신</button>
+            </div>
+            <div id="ct-tpl-preview" style="border:1px solid var(--border);border-radius:6px;padding:12px;background:#fafafa;max-height:600px;overflow-y:auto;font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;font-size:12px;line-height:1.6;white-space:pre-wrap"></div>
+          </div>
+        </div>
+      `,
+      buttons: [
+        { label: '취소', kind: 'ghost', onClick: () => Modal.close() },
+        {
+          label: '➕ 계약 생성',
+          kind: 'primary',
+          onClick: () => _doApplyTemplate(templateId, tpl),
+        },
+      ],
+      disableOverlayClose: true,
+      onMounted: () => {
+        _initTemplateMetaDefaults(tpl);
+        _refreshTemplatePreview(tpl);
+        // 입력 변경 → 실시간 미리보기 (debounce 200ms)
+        let timer;
+        const onInput = () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => _refreshTemplatePreview(tpl), 200);
+        };
+        document.querySelectorAll('.ct-tpl-var-input').forEach(i => i.addEventListener('input', onInput));
+        ['ct-tpl-customer', 'ct-tpl-start', 'ct-tpl-end', 'ct-tpl-amount', 'ct-tpl-currency'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.addEventListener('input', onInput);
+        });
+        document.getElementById('ct-tpl-refresh')?.addEventListener('click', () => _refreshTemplatePreview(tpl));
+      },
+    });
+  }
+
+  // 메타 필드 default 채움 (오늘 / KRW 등)
+  function _initTemplateMetaDefaults() {
+    const today = _toInputDate(new Date());
+    const startEl = document.getElementById('ct-tpl-start');
+    if (startEl && !startEl.value) startEl.value = today;
+    const currencyEl = document.getElementById('ct-tpl-currency');
+    if (currencyEl && !currencyEl.value) currencyEl.value = 'KRW';
+  }
+
+  // 변수 + 메타 수집
+  function _collectTemplateForm(tpl) {
+    const variables = {};
+    document.querySelectorAll('.ct-tpl-var-input').forEach(i => {
+      const name = i.dataset.varName;
+      const val = i.value;
+      if (val !== '' && val !== null && val !== undefined) variables[name] = val;
+    });
+    // 메타 → 자동 채움 매핑 (백엔드 _resolveAutofill 과 호환)
+    const customer = document.getElementById('ct-tpl-customer')?.value?.trim() || null;
+    const start = document.getElementById('ct-tpl-start')?.value || null;
+    const end = document.getElementById('ct-tpl-end')?.value || null;
+    const amount = document.getElementById('ct-tpl-amount')?.value || null;
+    const currency = document.getElementById('ct-tpl-currency')?.value || 'KRW';
+    const title = document.getElementById('ct-tpl-title')?.value?.trim() || null;
+    return {
+      variables,
+      title: title || `${tpl.name} — ${customer || '(미정)'}`,
+      customer_name: customer,
+      start_date: start,
+      end_date: end,
+      contract_amount: amount,
+      currency,
+    };
+  }
+
+  // 미리보기 갱신 (클라이언트 변수 치환 — 백엔드와 동일 규칙)
+  function _refreshTemplatePreview(tpl) {
+    const preview = document.getElementById('ct-tpl-preview');
+    if (!preview) return;
+    const form = _collectTemplateForm(tpl);
+    // 자동 채움 시뮬레이션 (메타 → 변수)
+    const merged = { ...form.variables };
+    if (form.customer_name && !merged['을_회사명']) merged['을_회사명'] = form.customer_name;
+    if (form.start_date && !merged['시작일']) merged['시작일'] = form.start_date;
+    if (form.start_date && !merged['착수일']) merged['착수일'] = form.start_date;
+    if (form.end_date && !merged['종료일']) merged['종료일'] = form.end_date;
+    if (form.end_date && !merged['완료일']) merged['완료일'] = form.end_date;
+    if (form.contract_amount && !merged['금액']) {
+      merged['금액'] = Number(form.contract_amount).toLocaleString('ko-KR');
+    }
+    if (form.currency && !merged['통화']) merged['통화'] = form.currency;
+    if (!merged['계약일']) merged['계약일'] = _toInputDate(new Date());
+
+    // {{변수명}} → 값 치환 (XSS escape 후 미리보기)
+    const rendered = String(tpl.body_md || '').replace(/\{\{([^}]+)\}\}/g, (m, name) => {
+      const key = String(name).trim();
+      const v = merged[key];
+      if (v === undefined || v === null || v === '') return m; // 미정의 유지
+      return String(v);
+    });
+    // XSS 안전 표시 (escape + 마크다운 어휘는 그대로 유지)
+    preview.textContent = rendered;
+  }
+
+  // 계약 생성 실행 (POST /from-template/:id)
+  async function _doApplyTemplate(templateId, tpl) {
+    const form = _collectTemplateForm(tpl);
+    // 필수 변수 검증 (variables_json 의 required=true 필드)
+    const missing = [];
+    (tpl.variables || []).forEach(v => {
+      if (v.required && (form.variables[v.name] === undefined || form.variables[v.name] === '')) {
+        // 메타로 자동 채움될 변수 (을_회사명 / 시작일 / 종료일 / 금액 / 통화 / 계약일) 는 제외
+        const autofilled =
+          (v.name === '을_회사명' && form.customer_name) ||
+          (v.name === '시작일' && form.start_date) ||
+          (v.name === '종료일' && form.end_date) ||
+          (v.name === '금액' && form.contract_amount) ||
+          (v.name === '통화' && form.currency) ||
+          v.name === '계약일' ||
+          v.autofill === 'today' ||
+          v.autofill === 'supplier' ||
+          v.autofill === 'user_name';
+        if (!autofilled) missing.push(v.label || v.name);
+      }
+    });
+    if (missing.length > 0) {
+      Toast.error?.('필수 변수 누락: ' + missing.join(', '));
+      return;
+    }
+    try {
+      Toast.info?.('계약 생성 중...');
+      const res = await API.contracts.fromTemplate(templateId, form);
+      const newId = res?.id || res?.data?.id;
+      const newNo = res?.data?.contract_no;
+      Toast.success?.(`계약 등록 완료 — ${newNo}`);
+      Modal.close();
+      await _refreshList();
+      // 새로 만든 계약 편집 모달 자동 진입
+      if (newId) {
+        setTimeout(() => _openModal(newId), 150);
+      }
+    } catch (err) {
+      console.error('[contracts:from-template] failed:', err);
+      const detail = err?.error || err?.message || String(err);
+      Toast.error?.(`계약 생성 실패: ${detail}`, { duration: 6000 });
+    }
   }
 
   return { render };
