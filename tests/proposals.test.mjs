@@ -451,7 +451,11 @@ describe('Proposals API — Phase 1', () => {
     expect(ana.body.data.rfp_received_date).toBe('2026-05-15');
     expect(ana.body.data.rfp_due_date).toBe('2026-06-15');
     expect(ana.body.data.rfp_summary).toMatch(/__MOCK__/);
-    expect(ana.body.data.ai_strategy_md).toMatch(/RFP 핵심 요약/);
+    // Phase 8-A: 6섹션 마크다운 + 제안 기본정보 자동 추출
+    expect(ana.body.data.ai_strategy_md).toMatch(/제안 목표/);
+    expect(ana.body.data.proposal_title).toBe('__MOCK__ 제안서 제목');
+    expect(ana.body.data.expected_amount).toBe(50000000);
+    expect(ana.body.data.currency).toBe('KRW');
 
     // DB 자동 저장 X — proposals.rfp_title 은 아직 비어있어야 함
     const [[prop]] = await pool.query(

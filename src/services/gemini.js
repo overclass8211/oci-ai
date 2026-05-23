@@ -184,25 +184,30 @@ async function getCrmContext() {
 // 입력: filePath(절대경로), mimeType, userId(토큰 추적)
 // 출력: { rfp_title, rfp_received_date, rfp_due_date, rfp_summary, ai_strategy_md }
 //        - 추출 실패한 필드는 null (환각 방지 — 확실하지 않으면 null)
-const RFP_ANALYSIS_PROMPT = `당신은 B2B IT 솔루션 영업 전문가입니다. 첨부된 RFP(제안요청서) 문서를 분석하여 다음 5가지 정보를 JSON 으로 반환하세요.
+const RFP_ANALYSIS_PROMPT = `당신은 B2B IT 솔루션 영업 전문가입니다. 첨부된 RFP(제안요청서) 문서를 분석하여 다음 정보를 JSON 으로 반환하세요.
 
 규칙:
 1. 반드시 문서에 명시된 정보만 사용하세요. 추론·추측·환각 금지.
 2. 확실하지 않으면 해당 필드를 null 로 반환하세요. 빈 문자열 X.
 3. 날짜는 'YYYY-MM-DD' 형식으로만. 시간 정보는 제거.
+4. 금액은 정수로 (예: 50000000 = 5천만원). 통화는 'KRW'/'USD'/'EUR' 중 하나.
 
 반환 필드:
 - rfp_title: RFP 의 정식 제목 (300자 이내, 문서 상단/표지에 명시된 그대로)
 - rfp_received_date: 발주처 접수 마감일 또는 문서 발행일 (null 가능)
 - rfp_due_date: 제안서 제출 마감일 (null 가능, 가장 중요한 마감일)
 - rfp_summary: RFP 핵심 요약 (한국어, 500자 이내) — 발주처, 사업 범위, 예산 규모, 평가 기준 등 핵심만
-- ai_strategy_md: 제안 전략 마크다운 (1500자 이내)
-   포함 항목:
-   ## 1. RFP 핵심 요약
-   ## 2. 평가 기준 분석
-   ## 3. 차별화 포인트 (기술/가격/일정/사후관리)
-   ## 4. 리스크 요인
-   ## 5. 권장 제안 방향
+- proposal_title: 우리가 작성할 제안서 제목 추천 (200자 이내, "[고객사명] [프로젝트명] 제안서" 형식 권장, null 가능)
+- expected_amount: 사업 예상 금액 (정수, 예산이 명시된 경우만, null 가능)
+- currency: 통화 코드 ('KRW' / 'USD' / 'EUR', 기본 'KRW', null 가능)
+- ai_strategy_md: 제안 전략 마크다운 (2500자 이내)
+   포함 항목 (6 섹션 — 사용자 워크플로우 요구):
+   ## 1. 제안 목표
+   ## 2. 제안 주요 일정
+   ## 3. 제안 핵심 사항
+   ## 4. 제안 준비사항 (체크리스트)
+   ## 5. 예상 리스크
+   ## 6. 독소조항 / 회피방안
 `;
 
 // Gemini Multimodal 이 직접 처리 가능한 파일 형식 (inlineData)
@@ -240,8 +245,11 @@ async function analyzeProposalRFP({ filePath, mimeType, userId, endpoint }) {
       rfp_received_date: '2026-05-15',
       rfp_due_date: '2026-06-15',
       rfp_summary: '__MOCK__ RFP 요약 — 테스트 환경 응답',
+      proposal_title: '__MOCK__ 제안서 제목',
+      expected_amount: 50000000,
+      currency: 'KRW',
       ai_strategy_md:
-        '## 1. RFP 핵심 요약\n- 테스트\n\n## 2. 평가 기준 분석\n- 테스트\n\n## 3. 차별화 포인트\n- 테스트\n\n## 4. 리스크 요인\n- 테스트\n\n## 5. 권장 제안 방향\n- 테스트',
+        '## 1. 제안 목표\n- 테스트\n\n## 2. 제안 주요 일정\n- 테스트\n\n## 3. 제안 핵심 사항\n- 테스트\n\n## 4. 제안 준비사항 (체크리스트)\n- 테스트\n\n## 5. 예상 리스크\n- 테스트\n\n## 6. 독소조항 / 회피방안\n- 테스트',
       _mock: true,
     };
   }
@@ -303,7 +311,7 @@ async function analyzeProposalRFP({ filePath, mimeType, userId, endpoint }) {
       ],
       generationConfig: {
         temperature: 0.3, // 환각 억제 (결정적 응답 선호)
-        maxOutputTokens: 4096,
+        maxOutputTokens: 6144,
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'object',
@@ -312,6 +320,10 @@ async function analyzeProposalRFP({ filePath, mimeType, userId, endpoint }) {
             rfp_received_date: { type: 'string', nullable: true },
             rfp_due_date: { type: 'string', nullable: true },
             rfp_summary: { type: 'string', nullable: true },
+            // Phase 8-A: 제안 기본정보 자동 추출 (제안명/예상금액/통화)
+            proposal_title: { type: 'string', nullable: true },
+            expected_amount: { type: 'integer', nullable: true },
+            currency: { type: 'string', nullable: true },
             ai_strategy_md: { type: 'string', nullable: true },
           },
           required: [
@@ -319,6 +331,9 @@ async function analyzeProposalRFP({ filePath, mimeType, userId, endpoint }) {
             'rfp_received_date',
             'rfp_due_date',
             'rfp_summary',
+            'proposal_title',
+            'expected_amount',
+            'currency',
             'ai_strategy_md',
           ],
         },
@@ -359,11 +374,21 @@ async function analyzeProposalRFP({ filePath, mimeType, userId, endpoint }) {
 
   // 사후 정규화 — 날짜 형식 검증 (YYYY-MM-DD 외엔 null)
   const validDate = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null);
+  // Phase 8-A: 통화 화이트리스트 + 금액 양수 정수 검증
+  const validCurrency = s => (['KRW', 'USD', 'EUR', 'JPY', 'CNY'].includes(s) ? s : null);
+  const validAmount = n => {
+    const v = parseInt(n, 10);
+    return Number.isFinite(v) && v > 0 && v < 1e15 ? v : null;
+  };
   return {
     rfp_title: parsed.rfp_title ? String(parsed.rfp_title).slice(0, 300) : null,
     rfp_received_date: validDate(parsed.rfp_received_date),
     rfp_due_date: validDate(parsed.rfp_due_date),
     rfp_summary: parsed.rfp_summary ? String(parsed.rfp_summary).slice(0, 5000) : null,
+    // Phase 8-A: 제안 기본정보 자동 추출 (제안명/예상금액/통화)
+    proposal_title: parsed.proposal_title ? String(parsed.proposal_title).slice(0, 300) : null,
+    expected_amount: validAmount(parsed.expected_amount),
+    currency: validCurrency(parsed.currency) || 'KRW',
     ai_strategy_md: parsed.ai_strategy_md ? String(parsed.ai_strategy_md).slice(0, 20000) : null,
   };
 }
@@ -403,7 +428,20 @@ RFP의 요구사항·평가기준·필수항목을 기준으로 제안서가 얼
    ## 1. 종합 평가
    ## 2. 강점
    ## 3. 보완 필요
-   ## 4. 권장 액션`;
+   ## 4. 권장 액션
+
+[Phase 8-B 추가 — 수주확률 + 정성 메트릭]
+- win_probability: 0~100 정수 — 제안서 품질 기반 예상 수주 가능성
+   · 기준: 커버율(40%) + 핵심전략 명확성(30%) + 차별화 포인트(20%) + 리스크 노출(10%)
+   · 보수적으로 평가 (데이터 부족 시 50점 기본)
+- quality_metrics: 객체 — 정성 평가 (각 0~5 정수)
+   · requirement_coverage: 요구사항 완전성 (0~5)
+   · strategy_clarity: 핵심 전략 명확성 (0~5)
+   · differentiation: 차별화 포인트 강도 (0~5)
+   · risk_handling: 리스크 대응 적정성 (0~5)
+   · price_competitiveness: 가격 경쟁력 (0~5, 가격 정보 없으면 3)
+- win_factors: 배열 string — 수주 강점 요인 최대 5개 (각 50자 이내)
+- risk_factors: 배열 string — 탈락 위험 요인 최대 5개 (각 50자 이내)`;
 
 async function evaluateProposalAgainstRFP({
   rfpPath,
@@ -434,6 +472,17 @@ async function evaluateProposalAgainstRFP({
       ],
       overall_assessment:
         '## 1. 종합 평가\n- 테스트\n\n## 2. 강점\n- 테스트\n\n## 3. 보완 필요\n- 테스트\n\n## 4. 권장 액션\n- 테스트',
+      // Phase 8-B: 수주확률 + 정성 메트릭
+      win_probability: 65,
+      quality_metrics: {
+        requirement_coverage: 4,
+        strategy_clarity: 3,
+        differentiation: 3,
+        risk_handling: 2,
+        price_competitiveness: 3,
+      },
+      win_factors: ['__MOCK__ 기술 차별화', '__MOCK__ 레퍼런스 풍부'],
+      risk_factors: ['__MOCK__ 보안 인증 미보유', '__MOCK__ 가격 경쟁력 약함'],
       _mock: true,
     };
   }
@@ -550,6 +599,27 @@ async function evaluateProposalAgainstRFP({
               },
             },
             overall_assessment: { type: 'string' },
+            // Phase 8-B: 수주확률 + 정성 메트릭
+            win_probability: { type: 'integer' },
+            quality_metrics: {
+              type: 'object',
+              properties: {
+                requirement_coverage: { type: 'integer' },
+                strategy_clarity: { type: 'integer' },
+                differentiation: { type: 'integer' },
+                risk_handling: { type: 'integer' },
+                price_competitiveness: { type: 'integer' },
+              },
+              required: [
+                'requirement_coverage',
+                'strategy_clarity',
+                'differentiation',
+                'risk_handling',
+                'price_competitiveness',
+              ],
+            },
+            win_factors: { type: 'array', items: { type: 'string' } },
+            risk_factors: { type: 'array', items: { type: 'string' } },
           },
           required: [
             'coverage_score',
@@ -559,6 +629,10 @@ async function evaluateProposalAgainstRFP({
             'missing_items',
             'improvement_suggestions',
             'overall_assessment',
+            'win_probability',
+            'quality_metrics',
+            'win_factors',
+            'risk_factors',
           ],
         },
       },
@@ -605,6 +679,22 @@ async function evaluateProposalAgainstRFP({
     }));
 
   const score = Math.max(0, Math.min(100, parseInt(parsed.coverage_score, 10) || 0));
+  // Phase 8-B: 수주확률 + 정성 메트릭 정규화
+  const winProb = Math.max(0, Math.min(100, parseInt(parsed.win_probability, 10) || 50));
+  const clampMetric = n => Math.max(0, Math.min(5, parseInt(n, 10) || 0));
+  const qm = parsed.quality_metrics || {};
+  const qualityMetrics = {
+    requirement_coverage: clampMetric(qm.requirement_coverage),
+    strategy_clarity: clampMetric(qm.strategy_clarity),
+    differentiation: clampMetric(qm.differentiation),
+    risk_handling: clampMetric(qm.risk_handling),
+    price_competitiveness: clampMetric(qm.price_competitiveness),
+  };
+  const clipArr = (arr, maxItems, maxLen) =>
+    (Array.isArray(arr) ? arr : [])
+      .slice(0, maxItems)
+      .map(s => clip(s, maxLen))
+      .filter(Boolean);
   return {
     coverage_score: score,
     covered_count: parseInt(parsed.covered_count, 10) || 0,
@@ -613,6 +703,11 @@ async function evaluateProposalAgainstRFP({
     missing_items: clipObj(parsed.missing_items),
     improvement_suggestions: clipObj(parsed.improvement_suggestions),
     overall_assessment: clip(parsed.overall_assessment, 5000),
+    // Phase 8-B: 수주확률 + 정성 메트릭
+    win_probability: winProb,
+    quality_metrics: qualityMetrics,
+    win_factors: clipArr(parsed.win_factors, 5, 100),
+    risk_factors: clipArr(parsed.risk_factors, 5, 100),
   };
 }
 
