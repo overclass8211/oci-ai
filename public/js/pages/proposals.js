@@ -567,17 +567,15 @@ const ProposalsPage = (() => {
         }
         break;
       }
-      // ── 탭 2: 자료 & 견적 (Phase 8-D: 3섹션 명확 분리) ──
-      //   ① 📦 제안 자료 (파일 업로드 + 목록)
-      //   ② 📊 AI 평가 (수주확률 + 정성 메트릭 + 승리/리스크 요인)
-      //   ③ 💰 연결 견적 (조회 전용)
+      // ── 탭 2: 제안평가 (Phase 13-3: 2섹션으로 단순화) ──
+      //   ① 📦 제안 자료 (파일 업로드 + 목록 + 큰 [📊 AI 제안평가] CTA)
+      //   ② 📊 AI 평가 결과 (수주확률 + 정량 메트릭 + 승리/리스크 요인)
+      //   * 연결 견적 섹션 제거 (Phase 13-3) — 기본정보 탭에서 이미 확인 가능
       case 'content':
         wrap.innerHTML =
           _renderFilesTab(e) +
-          `<div class="pr-tab-divider">📊 AI 평가 (수주확률 + 정성 메트릭)</div>` +
-          _renderEvalSection(e) +
-          `<div class="pr-tab-divider">💰 연결 견적</div>` +
-          _renderQuoteTab(e);
+          `<div class="pr-tab-divider">📊 AI 평가 (수주확률 + 정량 메트릭)</div>` +
+          _renderEvalSection(e);
         _bindFileEvents(e, 'files');
         _bindEvalCloseBtn(); // Phase 11-A: 이력 카드 닫기 버튼
         break;
@@ -951,47 +949,16 @@ const ProposalsPage = (() => {
     const canEvaluate = analyzableFiles.length > 0;
     const hasFilesButUnanalyzable = files.length > 0 && analyzableFiles.length === 0;
     return `
-      <div style="margin-bottom:10px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:12px;color:#1e40af">
-        📦 <strong>제안 자료 아카이브</strong> — 제안서 / 회사소개서 / 레퍼런스 / 견적 / 응답서 등 PPT/Word/PDF/HWP 파일을 관리합니다.
-      </div>
+      <!-- Phase 13-3: "제안 자료 아카이브" 안내 박스 제거 — UI 더 간결화 -->
       <div style="margin-bottom:14px;padding:8px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:11px;color:#92400e">
         💡 <strong>AI 제안평가 사용 안내</strong> — Gemini 2.5 Pro 는 <strong>PDF / 이미지(PNG·JPG·WEBP) / 텍스트</strong> 만 직접 분석 가능합니다.
         <strong>PPT/DOC/HWP/XLS</strong> 는 평가 전에 <strong>PDF 로 변환</strong>해서 업로드하세요 (PowerPoint: 파일 → 내보내기 → PDF).
       </div>
 
-      <!-- 메타 입력 (모든 파일에 공통 적용) -->
-      <div style="background:#fafafa;border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
-          <div class="form-row">
-            <label class="form-label" style="font-size:11px">파일 유형</label>
-            <select class="form-input" id="pr-file-type" style="font-size:12px">
-              <option value="proposal">제안서</option>
-              <option value="company_profile">회사소개서</option>
-              <option value="reference">레퍼런스</option>
-              <option value="quote">견적</option>
-              <option value="response_form">응답서</option>
-              <option value="etc">기타</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label class="form-label" style="font-size:11px">리비전 번호</label>
-            <input class="form-input" id="pr-file-rev" type="number" min="1" value="${e.version_no || 1}" style="font-size:12px">
-          </div>
-          <div class="form-row">
-            <label class="form-label" style="font-size:11px">&nbsp;</label>
-            <label style="display:flex;align-items:center;gap:4px;padding:6px;font-size:12px">
-              <input type="checkbox" id="pr-file-final"> ✅ 최종본
-            </label>
-          </div>
-          <div class="form-row">
-            <label class="form-label" style="font-size:11px">&nbsp;</label>
-            <label style="display:flex;align-items:center;gap:4px;padding:6px;font-size:12px">
-              <input type="checkbox" id="pr-file-email"> 📧 이메일 첨부
-            </label>
-          </div>
-        </div>
-        <input class="form-input" id="pr-file-desc" placeholder="설명 (선택)" style="font-size:12px">
-      </div>
+      <!-- Phase 13-3: 메타 입력 UI 제거 — 기본값(파일유형=proposal, rev=1, final=false, email=false, desc 빈값) 으로 자동 업로드 -->
+      <!-- 업로드 핸들러 _doUpload() 는 element 부재 시 default 사용 (proposals.js 2007-2016 참조) -->
+      <input type="hidden" id="pr-file-type" value="proposal">
+      <input type="hidden" id="pr-file-rev" value="${e.version_no || 1}">
 
       <!-- Phase 4-C 드롭존 (다중 + drag/drop) -->
       <div id="pr-files-dropzone" class="pr-dropzone" data-source="files" tabindex="0" role="button" aria-label="제안 자료 추가">
@@ -1012,7 +979,7 @@ const ProposalsPage = (() => {
       <div class="pr-ai-cta-hint">
         ${
           canEvaluate
-            ? `Gemini Pro 가 RFP 와 ${analyzableFiles.length}건의 제안서를 비교하여 수주확률·정성 메트릭·승리/리스크 요인을 생성합니다 (약 10-30초 · 1회 약 300-500원)`
+            ? `Gemini Pro 가 RFP 와 ${analyzableFiles.length}건의 제안서를 비교하여 수주확률·정량 메트릭·승리/리스크 요인을 생성합니다 (약 10-30초 · 1회 약 300-500원)`
             : hasFilesButUnanalyzable
               ? '⚠️ 등록된 자료가 분석 불가 형식입니다 — PDF / 이미지(PNG·JPG·WEBP) / 텍스트만 평가 가능'
               : '⚠️ 평가할 제안서를 먼저 업로드하세요 (PDF / 이미지 / 텍스트)'
@@ -1027,7 +994,7 @@ const ProposalsPage = (() => {
     const latest = e && e.latest_evaluation;
     return `
       <div style="margin-bottom:10px;padding:10px 14px;background:#ecfeff;border:1px solid #67e8f9;border-radius:6px;font-size:12px;color:#155e75">
-        📊 <strong>AI 평가</strong> — 위 자료의 [AI제안평가] 버튼을 누르면 RFP 와 자동 비교하여 <strong>수주확률 + 정성 메트릭 + 승리/리스크 요인</strong>을 생성합니다. (Gemini Pro 호출 — 약 10-30초)
+        📊 <strong>AI 평가</strong> — 위 자료의 [AI제안평가] 버튼을 누르면 RFP 와 자동 비교하여 <strong>수주확률 + 정량 메트릭 + 승리/리스크 요인</strong>을 생성합니다. (Gemini Pro 호출 — 약 10-30초)
         ${
           latest
             ? `<br>💾 <strong>최근 평가 이력 자동 불러옴</strong> — ${_fmtDateTime(latest.generated_at)} 생성 (커버율 ${latest.coverage_score}% · 수주확률 ${latest.win_probability || '-'}%)`
@@ -1067,12 +1034,14 @@ const ProposalsPage = (() => {
     const winColor = winProb >= 70 ? '#16a34a' : winProb >= 40 ? '#ca8a04' : '#dc2626';
     const winLabel = winProb >= 70 ? '높음' : winProb >= 40 ? '보통' : '낮음';
     const qm = data.quality_metrics || {};
+    // Phase 13-3: backend 의 quality_metrics 키와 정확히 매핑 (이전엔 키 불일치로 항상 0점 표시되는 환각 버그)
+    //   backend: requirement_coverage / strategy_clarity / differentiation / risk_handling / price_competitiveness
     const metrics = [
-      { key: 'clarity', label: '명확성', value: parseInt(qm.clarity, 10) || 0 },
-      { key: 'completeness', label: '완결성', value: parseInt(qm.completeness, 10) || 0 },
-      { key: 'differentiation', label: '차별성', value: parseInt(qm.differentiation, 10) || 0 },
-      { key: 'feasibility', label: '실현가능성', value: parseInt(qm.feasibility, 10) || 0 },
-      { key: 'price_competitiveness', label: '가격경쟁력', value: parseInt(qm.price_competitiveness, 10) || 0 },
+      { key: 'requirement_coverage', label: '요구사항 완전성', value: parseInt(qm.requirement_coverage, 10) || 0 },
+      { key: 'strategy_clarity', label: '전략 명확성', value: parseInt(qm.strategy_clarity, 10) || 0 },
+      { key: 'differentiation', label: '차별화 강도', value: parseInt(qm.differentiation, 10) || 0 },
+      { key: 'risk_handling', label: '리스크 대응', value: parseInt(qm.risk_handling, 10) || 0 },
+      { key: 'price_competitiveness', label: '가격 경쟁력', value: parseInt(qm.price_competitiveness, 10) || 0 },
     ];
     const winFactors = Array.isArray(data.win_factors) ? data.win_factors.filter(Boolean) : [];
     const riskFactors = Array.isArray(data.risk_factors) ? data.risk_factors.filter(Boolean) : [];
@@ -1096,17 +1065,18 @@ const ProposalsPage = (() => {
           <div class="pr-eval-winprob-badge" style="background:${winColor}">${winLabel}</div>
         </div>
         <div class="pr-eval-metrics-card">
-          <div class="pr-eval-metrics-label">📈 정성 메트릭 (10점 만점)</div>
+          <div class="pr-eval-metrics-label">📈 정량 메트릭 (5점 만점)</div>
           ${metrics
             .map(m => {
-              const pct = (m.value / 10) * 100;
-              const col = m.value >= 7 ? '#16a34a' : m.value >= 4 ? '#ca8a04' : '#dc2626';
+              // Phase 13-3: backend 스키마 0~5 정수에 맞춰 스케일/색상 임계값 조정 (이전엔 10점 만점으로 잘못 표시)
+              const pct = (m.value / 5) * 100;
+              const col = m.value >= 4 ? '#16a34a' : m.value >= 2 ? '#ca8a04' : '#dc2626';
               return `<div class="pr-eval-metric-row">
                 <div class="pr-eval-metric-name">${esc(m.label)}</div>
                 <div class="pr-eval-metric-bar">
                   <div class="pr-eval-metric-fill" style="width:${pct}%;background:${col}"></div>
                 </div>
-                <div class="pr-eval-metric-val" style="color:${col}">${m.value}</div>
+                <div class="pr-eval-metric-val" style="color:${col}">${m.value}<span style="opacity:0.4;font-size:10px">/5</span></div>
               </div>`;
             })
             .join('')}

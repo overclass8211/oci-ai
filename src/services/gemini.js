@@ -452,18 +452,41 @@ RFP의 요구사항·평가기준·필수항목을 기준으로 제안서가 얼
    ## 3. 보완 필요
    ## 4. 권장 액션
 
-[Phase 8-B 추가 — 수주확률 + 정성 메트릭]
+[Phase 8-B + 13-3 — 수주확률 + 정량 메트릭 (신뢰성 강화)]
+- quality_metrics: 객체 — 정량 평가 (각 0~5 정수, 반드시 RFP·제안서 본문 근거에서 산출)
+   · requirement_coverage: 요구사항 완전성 (0~5) — RFP 필수항목 중 응답된 비율 직결
+   · strategy_clarity: 핵심 전략 명확성 (0~5) — 제안서 본문에서 전략 문장이 명시되었는가
+   · differentiation: 차별화 포인트 강도 (0~5) — 경쟁사와 구별되는 강점이 명확한가
+   · risk_handling: 리스크 대응 적정성 (0~5) — RFP가 요구한 리스크 항목 대응 정도
+   · price_competitiveness: 가격 경쟁력 (0~5)
+       - 제안서에 가격/금액/단가 정보가 **없으면 반드시 0** (3 같은 기본값 절대 금지)
+       - 가격 정보가 있고 합리성이 RFP 예산 대비 적절하면 3~5
+
 - win_probability: 0~100 정수 — 제안서 품질 기반 예상 수주 가능성
-   · 기준: 커버율(40%) + 핵심전략 명확성(30%) + 차별화 포인트(20%) + 리스크 노출(10%)
-   · 보수적으로 평가 (데이터 부족 시 50점 기본)
-- quality_metrics: 객체 — 정성 평가 (각 0~5 정수)
-   · requirement_coverage: 요구사항 완전성 (0~5)
-   · strategy_clarity: 핵심 전략 명확성 (0~5)
-   · differentiation: 차별화 포인트 강도 (0~5)
-   · risk_handling: 리스크 대응 적정성 (0~5)
-   · price_competitiveness: 가격 경쟁력 (0~5, 가격 정보 없으면 3)
+   · 산출 공식 (이 공식을 반드시 따르세요):
+       1단계: avg = (quality_metrics 5개 값의 평균)
+       2단계: base = avg × 20  (5점 만점 → 100점 환산)
+       3단계: 최종 win_probability = base ± 5점 범위 내 (예: base=64 → 59~69 사이)
+   · 일관성 강제 규칙 (반드시 준수):
+       - quality_metrics 5개가 **모두 0** 이면 win_probability 는 반드시 **0~10** 사이
+       - 평균이 1점 미만이면 win_probability ≤ 25
+       - 평균이 3점 이상이면 win_probability ≥ 50
+       - 평균이 4점 이상이면 win_probability ≥ 70
+       - covered_count 가 0 이면 win_probability ≤ 15 (충족 항목이 없는데 수주확률 높으면 환각)
+
 - win_factors: 배열 string — 수주 강점 요인 최대 5개 (각 50자 이내)
-- risk_factors: 배열 string — 탈락 위험 요인 최대 5개 (각 50자 이내)`;
+   · 반드시 quality_metrics 에서 4점 이상인 항목에 근거하여 도출
+   · 근거 없는 일반론 ("좋은 회사", "신뢰성 있음") 금지
+- risk_factors: 배열 string — 탈락 위험 요인 최대 5개 (각 50자 이내)
+   · 반드시 quality_metrics 에서 2점 이하인 항목 또는 missing_items 에 근거
+   · 빈 배열 절대 금지 (모든 제안서에는 최소 1개 이상 리스크 존재)
+
+[최종 검증 — 응답 생성 직전 자가 검토]
+다음 항목이 모두 일치해야 응답을 반환하세요. 일치하지 않으면 값을 재조정:
+1. win_probability 가 quality_metrics 평균 × 20 의 ±5 범위 내인가?
+2. quality_metrics 가 0인 항목에 대해 win_factors/risk_factors 가 모순되지 않는가?
+3. covered_count == covered_items.length 인가?
+4. missing_count == missing_items.length 인가?`;
 
 async function evaluateProposalAgainstRFP({
   rfpPath,
@@ -742,8 +765,7 @@ async function evaluateProposalAgainstRFP({
     }));
 
   const score = Math.max(0, Math.min(100, parseInt(parsed.coverage_score, 10) || 0));
-  // Phase 8-B: 수주확률 + 정성 메트릭 정규화
-  const winProb = Math.max(0, Math.min(100, parseInt(parsed.win_probability, 10) || 50));
+  // Phase 8-B + 13-3: 수주확률 + 정량 메트릭 정규화 + 환각 일관성 가드
   const clampMetric = n => Math.max(0, Math.min(5, parseInt(n, 10) || 0));
   const qm = parsed.quality_metrics || {};
   const qualityMetrics = {
@@ -753,6 +775,33 @@ async function evaluateProposalAgainstRFP({
     risk_handling: clampMetric(qm.risk_handling),
     price_competitiveness: clampMetric(qm.price_competitiveness),
   };
+
+  // Phase 13-3: 환각 일관성 가드 — AI 가 quality_metrics 와 동떨어진 win_probability 를 반환할 때 보정
+  //   사용자 보고: "수주확률 높다고 하는데 메트릭에 0점 자리가 나옴" → 본질적 환각
+  //   가드: win_probability 가 metrics 평균 × 20 ± 15점 범위를 벗어나면 평균 기반으로 재산출
+  const rawWinProb = Math.max(0, Math.min(100, parseInt(parsed.win_probability, 10) || 50));
+  const metricsAvg =
+    (qualityMetrics.requirement_coverage +
+      qualityMetrics.strategy_clarity +
+      qualityMetrics.differentiation +
+      qualityMetrics.risk_handling +
+      qualityMetrics.price_competitiveness) /
+    5;
+  const expectedWinProb = Math.round(metricsAvg * 20); // 평균 × 20 = 기대 수주확률
+  const winProbDiff = Math.abs(rawWinProb - expectedWinProb);
+  let winProb;
+  if (metricsAvg === 0) {
+    // 모든 메트릭 0 이면 수주확률도 0
+    winProb = 0;
+  } else if (winProbDiff > 15) {
+    // 15점 초과 괴리 → 평균 기반으로 보정 (±5 노이즈 허용)
+    winProb = Math.max(0, Math.min(100, expectedWinProb));
+    console.warn(
+      `[gemini:evaluateProposalAgainstRFP] win_probability 환각 보정: AI=${rawWinProb} → ${winProb} (metrics 평균 ${metricsAvg.toFixed(1)} 기반)`
+    );
+  } else {
+    winProb = rawWinProb;
+  }
   const clipArr = (arr, maxItems, maxLen) =>
     (Array.isArray(arr) ? arr : [])
       .slice(0, maxItems)

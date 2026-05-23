@@ -4,7 +4,81 @@
 
 ---
 
-## v5.8.1 (2026.05.23) — 현재 ⭐
+## v5.8.2 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 Phase 13-3: 제안평가 탭 5건 개선 (UI 단순화 + AI 신뢰성 가드)**
+
+사용자 피드백 4건 + 추가 1건 — 환각 0점 버그 발견 / 수정 포함.
+
+#### 1. 메타 입력 UI 제거 (파일유형/리비전/최종본/이메일첨부)
+- `_renderFilesTab(e)` 의 4-grid 입력 + 설명 textarea 삭제
+- 기본값으로 자동 업로드: `file_type='proposal'`, `revision_no=현재버전`, `is_final=false`, `include_in_email=false`, `description=''`
+- hidden 으로 `pr-file-type` / `pr-file-rev` 만 보존 → 업로드 핸들러 호환
+
+#### 2. "📦 제안 자료 아카이브" 안내 박스 제거
+- 화면 상단 파란색 안내 박스 삭제 → 화면 더 간결
+
+#### 3. "정성 메트릭" → "정량 메트릭" 표기 통일
+- 탭 헤더, AI 평가 카드 라벨, CTA 힌트, 안내 박스 모두 일관 변경
+
+#### 4. 🐛 환각 0점 버그 fix + AI 신뢰성 가드
+
+**🔑 환각의 진짜 원인 발견**:
+- Frontend 가 backend 와 다른 키를 읽고 있어서 메트릭이 항상 0점 표시
+- Before (frontend): `clarity`, `completeness`, `feasibility`, `differentiation`, `price_competitiveness`
+- After (frontend): `requirement_coverage`, `strategy_clarity`, `differentiation`, `risk_handling`, `price_competitiveness` ← backend 와 동일
+- 사용자가 본 "수주확률 높은데 메트릭이 0" 현상의 근본 원인
+
+**메트릭 스케일 표시 보정**: 10점 만점 → 5점 만점 (backend 0~5 스키마 일치)
+
+**Gemini 프롬프트 강화** (`src/services/gemini.js`):
+- `win_probability = avg(metrics) × 20 ± 5` 산출 공식 명시
+- 일관성 규칙 5가지: 메트릭 모두 0 → 수주확률 ≤10, covered_count=0 → 수주확률 ≤15, 평균 4점↑ → 수주확률 ≥70 등
+- 자가 검증 4항목 (응답 직전 reflection)
+- `price_competitiveness`: 가격 정보 부재 시 0 강제 (이전엔 기본 3)
+- `win_factors`/`risk_factors` 도 메트릭 점수와 일관되도록 강제
+
+**Backend 후처리 가드** (환각 안전망):
+- `metricsAvg === 0` → `win_probability = 0` 강제
+- AI가 반환한 `win_probability` 가 `expected ± 15` 초과 벗어나면 → 평균 기반으로 재계산 + `console.warn` 경고 로그
+
+#### 5. 💰 연결 견적 섹션 삭제
+- `case 'content'` 에서 `_renderQuoteTab(e)` 호출 + divider 제거
+- 견적 연결은 기본정보 탭의 "연결 견적" Combobox 에서 그대로 가능
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음** — UI/AI 프롬프트만 변경
+- **변경 파일**:
+  - `public/js/pages/proposals.js`:
+    · `_renderFilesTab` — 메타 UI/안내박스 제거, hidden 2개로 호환
+    · `_renderEvalResult` — 메트릭 키 5개 backend 일치, 스케일 5점 만점 표시
+    · `_renderEvalSection` / CTA 힌트 — "정성" → "정량"
+    · `case 'content'` — 연결견적 섹션 제거
+  - `src/services/gemini.js`:
+    · `PROPOSAL_EVAL_PROMPT` — 산출 공식 + 일관성 5규칙 + 자가검증 4항목 추가
+    · `evaluateProposalAgainstRFP` 후처리 — `metricsAvg` 기반 환각 보정 가드
+  - `src/docs/USER_MANUAL.md` — Phase 13-3 안내 박스 + 정량 메트릭 5점 시각화 + 부록 이력 추가
+  - `src/docs/RELEASE_NOTES.md` — v5.8.2 신규
+
+### 📊 회귀 테스트
+- vitest: **44/44 (proposals) 통과** — backend mock 응답 변경 없음
+- lint: 0 errors / 0 warnings
+- E2E: skip — UI 표시 제거는 hidden 호환, 메트릭 키 fix 는 mock 으로 검증 불가(실 Gemini 호출 필요)
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+### 👁 사용자 체감 변화
+- **Before**: 제안평가 탭 = 안내 박스 2개 + 메타입력 4개 + 드롭존 + 파일목록 + AI평가 CTA + 평가결과 + 연결견적 (긴 화면)
+- **After**: 제안평가 탭 = 노란 안내 박스 + 드롭존 + 파일목록 + AI평가 CTA + 평가결과 (깔끔)
+- **신뢰성**: 메트릭 점수가 정확하게 표시되고, 수주확률과 메트릭 평균이 항상 일치
+
+---
+
+## v5.8.1 (2026.05.23) — 직전
 
 ### 🎯 메인 — **제안 모듈 Phase 13-2: RFP 메타 입력 UI 제거 (화면 단순화)**
 
