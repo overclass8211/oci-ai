@@ -278,6 +278,112 @@ describe('Contracts API — Phase 0', () => {
     expect(historyAfter.length).toBe(0);
   });
 
+  // ── Phase 2: AI 법무 검토 ─────────────────────────────────
+  it('POST /:id/files/:fileId/legal-review — AI 법무 검토 실행 + DB 영속화 + history', async () => {
+    // 새 계약 + 파일 1건 업로드
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__legal_review_A',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+        start_date: '2026-05-23',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    const up = await api()
+      .post(`/api/contracts/${id}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'contract')
+      .attach('files', TEST_FILE);
+    const fileId = up.body.data.uploaded[0].id;
+
+    // AI 법무 검토 실행 (mock 응답 — NODE_ENV=test)
+    const res = await api()
+      .post(`/api/contracts/${id}/files/${fileId}/legal-review`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.review_score).toBeGreaterThanOrEqual(0);
+    expect(res.body.data.review_score).toBeLessThanOrEqual(100);
+    expect(['high', 'medium', 'low']).toContain(res.body.data.risk_level);
+    expect(Array.isArray(res.body.data.toxic_clauses)).toBe(true);
+    expect(Array.isArray(res.body.data.missing_clauses)).toBe(true);
+    expect(res.body.data.legal_compliance).toBeDefined();
+    expect(res.body.data.legal_compliance.fair_trade_act).toBeDefined();
+
+    // DB 에 영속화 됐는지 + GET /:id 응답에 latest_legal_review 포함되는지
+    const detail = await api()
+      .get(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.latest_legal_review).toBeDefined();
+    expect(detail.body.data.latest_legal_review).not.toBeNull();
+    expect(detail.body.data.latest_legal_review.target_file_id).toBe(fileId);
+    expect(detail.body.data.latest_legal_review.review_score).toBe(res.body.data.review_score);
+    // history 에 legal_review 액션 기록
+    expect(detail.body.data.history.some(h => h.action_type === 'legal_review')).toBe(true);
+    // 메인 테이블에도 score 반영
+    expect(detail.body.data.legal_review_score).toBe(res.body.data.review_score);
+  });
+
+  it('GET /:id/legal-reviews — 검토 이력 조회 (다중 버전)', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__legal_history',
+        customer_name: '__TEST__',
+        contract_type: 'service',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    const up = await api()
+      .post(`/api/contracts/${id}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'contract')
+      .attach('files', TEST_FILE);
+    const fileId = up.body.data.uploaded[0].id;
+
+    // 같은 파일 2번 검토 → 이력 2건
+    await api()
+      .post(`/api/contracts/${id}/files/${fileId}/legal-review`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    await api()
+      .post(`/api/contracts/${id}/files/${fileId}/legal-review`)
+      .set('X-User-Id', String(TEST_USER_ID));
+
+    const list = await api()
+      .get(`/api/contracts/${id}/legal-reviews`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(list.status).toBe(200);
+    expect(list.body.data.length).toBe(2);
+    expect(list.body.data[0].target_filename).toBeDefined();
+    expect(list.body.data[0].review_score).toBeGreaterThanOrEqual(0);
+    expect(list.body.data[0].toxic_clauses).toBeDefined();
+    expect(list.body.data[0].legal_compliance.fair_trade_act).toBeDefined();
+  });
+
+  it('POST /:id/files/:fileId/legal-review — 존재하지 않는 파일 → 404', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__no_file',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    const res = await api()
+      .post(`/api/contracts/${id}/files/999999/legal-review`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(404);
+  });
+
   it('POST / — proposal_id 연결 시 customer 자동 반영', async () => {
     // 임시 proposal 생성 (mock 데이터)
     const propRes = await api()

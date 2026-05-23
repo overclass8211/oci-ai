@@ -823,6 +823,297 @@ async function evaluateProposalAgainstRFP({
   };
 }
 
+// =============================================================
+// Contract Phase 2: AI 법무 검토 (analyzeContractLegal)
+//
+// 입력: 계약서 파일 1건 (PDF / 이미지 / 텍스트)
+// 출력: 4가지 분석 영역 (독소조항/누락/한국법규/수정안) + 종합 평가
+// =============================================================
+const CONTRACT_LEGAL_PROMPT = `당신은 대한민국 법무팀 변호사입니다.
+첨부된 계약서를 한국 법규(공정거래법·하도급법·개인정보보호법·약관규제법) 관점에서 검토하세요.
+
+검토 영역 4가지:
+1) 독소조항 탐지 — 우리 회사(을)에게 일방적으로 불리한 조항
+2) 누락 조항 — 필수 보호조항이 빠졌는지
+3) 한국 법규 부합 — 강행규정 위반 여부
+4) 수정안 — 각 위험 항목별 구체적 권장 문구
+
+규칙:
+1. 반드시 한국어로 응답.
+2. 계약서 본문에서 실제로 발견된 조항만 인용 (없는 조항 만들지 마세요).
+3. 모든 점수는 보수적으로 (애매하면 더 위험하게 평가).
+4. 수정안은 한국 표준 계약 관행에 따른 문구로 제안.
+
+반환 필드 (JSON):
+- review_score: 0~100 정수 — 전반적 안전성 점수
+   · 100 = 완벽히 균형잡힌 계약
+   · 70~99 = 경미한 보완 필요
+   · 40~69 = 중요 위험 존재
+   · 0~39 = 즉시 재협상 필요
+- risk_level: 'high' | 'medium' | 'low' — review_score 와 일치해야 함
+   · review_score < 40 → high
+   · 40~69 → medium
+   · ≥ 70 → low
+- toxic_clauses: 배열 [{ clause_type, severity, location, original_text, why_problematic, suggested_fix }] — 최대 10개
+   · clause_type: 예: '책임 한계', '일방적 종료권', '무제한 보증', '위약금 과다', '관할법원 지정', '경업금지 과다' 등
+   · severity: 'high' | 'medium' | 'low'
+   · location: 예: '제8조 1항' 또는 '제3조' (조항 번호 — 본문에서 추출)
+   · original_text: 원문 발췌 (최대 200자, 따옴표 없이)
+   · why_problematic: 왜 문제인지 (한국 법규 또는 관행 근거, 150자 이내)
+   · suggested_fix: 수정안 (구체적 문구, 200자 이내)
+- missing_clauses: 배열 [{ clause_type, importance, suggested_addition }] — 최대 8개
+   · clause_type: 예: '비밀유지', '손해배상 상한', '관할법원', '분쟁해결 절차', '하자보수 책임', '지적재산권 귀속', '개인정보 처리' 등
+   · importance: 'high' | 'medium' | 'low' — 누락 시 위험도
+   · suggested_addition: 추가 권장 문구 (200자 이내)
+- legal_compliance: 객체 — 한국 법규 부합 여부
+   · fair_trade_act: { compliant: boolean, issues: string[] } — 공정거래법
+   · subcontract_act: { compliant: boolean, issues: string[] } — 하도급법
+   · privacy_act: { compliant: boolean, issues: string[] } — 개인정보보호법
+   · 각 issues 배열은 최대 3개 (각 100자 이내)
+- improvement_suggestions: 배열 [{ section, suggestion }] — 최대 5개
+   · section: 예: '제5조 가격', '전반' 등
+   · suggestion: 개선 방향 (150자 이내)
+- overall_assessment: 한국어 마크다운 종합 평가 (500자 이내, 다음 구조 포함)
+   ## 1. 종합 평가
+   ## 2. 가장 큰 위험
+   ## 3. 권장 액션
+
+[일관성 강제 규칙 — 응답 직전 자가 검증]
+1. risk_level 과 review_score 가 위 임계값에 일치하는가?
+2. toxic_clauses 가 0건이면 review_score ≥ 70 인가?
+3. toxic_clauses 중 severity='high' 가 있으면 review_score < 70 인가?
+4. legal_compliance 중 한 가지라도 compliant=false 이면 risk_level ≠ 'low' 인가?
+일치하지 않으면 값 재조정 후 응답.`;
+
+async function analyzeContractLegal({ contractPath, contractMime, userId, endpoint }) {
+  // 테스트 환경 — Gemini API 호출 없이 mock 응답
+  if (process.env.NODE_ENV === 'test') {
+    return {
+      review_score: 62,
+      risk_level: 'medium',
+      toxic_clauses: [
+        {
+          clause_type: '__MOCK__ 책임 한계',
+          severity: 'high',
+          location: '제8조 1항',
+          original_text: '__MOCK__ 본 계약 위반으로 인한 손해배상은 최대 1만원으로 한정한다.',
+          why_problematic: '__MOCK__ 손해배상 상한이 비현실적으로 낮음 — 공정거래법상 무효 가능성',
+          suggested_fix: '__MOCK__ "계약금액의 100%를 한도로 한다" 로 변경 권장',
+        },
+      ],
+      missing_clauses: [
+        {
+          clause_type: '__MOCK__ 비밀유지',
+          importance: 'high',
+          suggested_addition:
+            '__MOCK__ 양 당사자는 본 계약 수행 중 알게 된 상대방의 영업 비밀을 제3자에게 누설하지 않는다.',
+        },
+      ],
+      legal_compliance: {
+        fair_trade_act: { compliant: false, issues: ['__MOCK__ 손해배상 상한 무효 가능성'] },
+        subcontract_act: { compliant: true, issues: [] },
+        privacy_act: { compliant: true, issues: [] },
+      },
+      improvement_suggestions: [
+        { section: '__MOCK__ 제8조', suggestion: '__MOCK__ 책임 한계 재협상 필요' },
+      ],
+      overall_assessment:
+        '## 1. 종합 평가\n- __MOCK__ 중간 위험\n\n## 2. 가장 큰 위험\n- __MOCK__ 책임 한계 비현실적\n\n## 3. 권장 액션\n- __MOCK__ 제8조 재협상',
+      _mock: true,
+    };
+  }
+
+  // 사전 검증 — API 키
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.length < 10) {
+    throw new Error(
+      'AI 법무 검토 서비스가 설정되지 않았습니다 (GEMINI_API_KEY 누락) — 관리자에게 문의하세요'
+    );
+  }
+
+  const fs = require('fs');
+  if (!contractPath || !fs.existsSync(contractPath)) {
+    throw new Error('계약서 파일이 디스크에 없습니다 (삭제됨)');
+  }
+
+  // 호환 형식 검증 (analyzeProposalRFP 와 동일한 _resolveAnalyzableMime 재사용)
+  const resolvedMime = _resolveAnalyzableMime(contractPath, contractMime);
+  if (!resolvedMime) {
+    throw new Error(
+      '계약서 파일이 분석 불가 형식입니다. PDF / 이미지 (PNG·JPG·WEBP) / 텍스트만 지원'
+    );
+  }
+
+  const buffer = fs.readFileSync(contractPath);
+  if (buffer.length < 64) {
+    throw new Error('파일이 너무 작거나 손상되었습니다');
+  }
+  if (buffer.length > 30 * 1024 * 1024) {
+    throw new Error(
+      `파일 크기 ${(buffer.length / 1024 / 1024).toFixed(1)}MB 가 30MB 초과 — 파일을 압축/요약하여 재시도`
+    );
+  }
+
+  console.log(
+    `[gemini:analyzeContractLegal] file=${(buffer.length / 1024).toFixed(1)}KB mime=${resolvedMime}`
+  );
+
+  const b64 = buffer.toString('base64');
+  const model = genAI.getGenerativeModel({
+    model: MODEL_PRO,
+    safetySettings: SAFETY_SETTINGS,
+  });
+
+  let result;
+  try {
+    result = await model.generateContent({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: '[계약서 본문]' },
+            { inlineData: { mimeType: resolvedMime, data: b64 } },
+            { text: CONTRACT_LEGAL_PROMPT },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2, // 법무 검토는 결정적이어야 함 (재현 가능)
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+      },
+    });
+  } catch (e) {
+    console.error('[gemini:analyzeContractLegal] generateContent failed:', e?.message || e);
+    const friendly = friendlyError(e) || e?.message || 'Gemini API 호출 실패';
+    throw new Error(`AI 법무 검토 호출 실패: ${friendly}`);
+  }
+
+  const response = result.response;
+  await logTokenUsage(
+    endpoint || 'contract_legal_review',
+    response.usageMetadata,
+    MODEL_PRO,
+    userId
+  );
+
+  if (response.promptFeedback?.blockReason) {
+    throw new Error(`AI 법무 검토 거부됨: ${response.promptFeedback.blockReason}`);
+  }
+
+  const text = response.text();
+  if (!text || !text.trim()) {
+    throw new Error('AI 법무 검토 응답이 비어있습니다');
+  }
+
+  // JSON 파싱 강화 (Phase 12-C 패턴 재사용)
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (_) {
+    let cleaned = String(text).trim();
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    }
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (_e2) {
+      console.error('[gemini:analyzeContractLegal] JSON parse failed:', text.slice(0, 500));
+      parsed = {
+        review_score: 0,
+        risk_level: 'high',
+        toxic_clauses: [],
+        missing_clauses: [],
+        legal_compliance: {
+          fair_trade_act: { compliant: false, issues: ['AI 응답 파싱 실패'] },
+          subcontract_act: { compliant: false, issues: [] },
+          privacy_act: { compliant: false, issues: [] },
+        },
+        improvement_suggestions: [],
+        overall_assessment:
+          '⚠️ AI가 응답을 정상 형식으로 생성하지 못했습니다.\n\n가능한 원인:\n' +
+          '1. 업로드한 파일이 계약서가 아닌 다른 문서일 수 있습니다.\n' +
+          '2. 파일이 손상되었거나 텍스트가 너무 적을 수 있습니다.\n\n' +
+          '권장: 정상 계약서 PDF/이미지를 다시 업로드하여 재시도하세요.',
+        _parseError: true,
+      };
+    }
+  }
+
+  // 사후 정규화 + 길이 제한 + 일관성 가드
+  const clip = (s, n) => (typeof s === 'string' ? s.slice(0, n) : '');
+  const clipStrArr = (arr, maxItems, maxLen) =>
+    (Array.isArray(arr) ? arr : [])
+      .slice(0, maxItems)
+      .map(s => clip(s, maxLen))
+      .filter(Boolean);
+
+  const reviewScore = Math.max(0, Math.min(100, parseInt(parsed.review_score, 10) || 0));
+  // risk_level 자동 보정 — review_score 와 일치하지 않으면 score 기준으로 재산출
+  let riskLevel = parsed.risk_level;
+  if (!['high', 'medium', 'low'].includes(riskLevel)) riskLevel = null;
+  const expectedRisk = reviewScore < 40 ? 'high' : reviewScore < 70 ? 'medium' : 'low';
+  if (riskLevel !== expectedRisk) {
+    if (riskLevel) {
+      console.warn(
+        `[gemini:analyzeContractLegal] risk_level 보정: AI='${riskLevel}' → '${expectedRisk}' (review_score ${reviewScore} 기반)`
+      );
+    }
+    riskLevel = expectedRisk;
+  }
+
+  const toxicClauses = (Array.isArray(parsed.toxic_clauses) ? parsed.toxic_clauses : [])
+    .slice(0, 10)
+    .map(c => ({
+      clause_type: clip(c.clause_type, 80),
+      severity: ['high', 'medium', 'low'].includes(c.severity) ? c.severity : 'medium',
+      location: clip(c.location, 80),
+      original_text: clip(c.original_text, 300),
+      why_problematic: clip(c.why_problematic, 250),
+      suggested_fix: clip(c.suggested_fix, 300),
+    }))
+    .filter(c => c.clause_type);
+
+  const missingClauses = (Array.isArray(parsed.missing_clauses) ? parsed.missing_clauses : [])
+    .slice(0, 8)
+    .map(c => ({
+      clause_type: clip(c.clause_type, 80),
+      importance: ['high', 'medium', 'low'].includes(c.importance) ? c.importance : 'medium',
+      suggested_addition: clip(c.suggested_addition, 300),
+    }))
+    .filter(c => c.clause_type);
+
+  const lc = parsed.legal_compliance || {};
+  const normalizeLaw = obj => ({
+    compliant: obj && obj.compliant === true,
+    issues: clipStrArr(obj?.issues, 3, 150),
+  });
+  const legalCompliance = {
+    fair_trade_act: normalizeLaw(lc.fair_trade_act),
+    subcontract_act: normalizeLaw(lc.subcontract_act),
+    privacy_act: normalizeLaw(lc.privacy_act),
+  };
+
+  const improvementSuggestions = (
+    Array.isArray(parsed.improvement_suggestions) ? parsed.improvement_suggestions : []
+  )
+    .slice(0, 5)
+    .map(s => ({ section: clip(s.section, 100), suggestion: clip(s.suggestion, 250) }))
+    .filter(s => s.section || s.suggestion);
+
+  return {
+    review_score: reviewScore,
+    risk_level: riskLevel,
+    toxic_clauses: toxicClauses,
+    missing_clauses: missingClauses,
+    legal_compliance: legalCompliance,
+    improvement_suggestions: improvementSuggestions,
+    overall_assessment: clip(parsed.overall_assessment, 5000),
+  };
+}
+
 async function runStream(res, params) {
   if (process.env.NODE_ENV === 'test') {
     res.write('data: {"text":"[TEST] mock AI response"}\n\n');
@@ -915,5 +1206,6 @@ module.exports = {
   runStream,
   analyzeProposalRFP,
   evaluateProposalAgainstRFP,
+  analyzeContractLegal,
   friendlyError,
 };

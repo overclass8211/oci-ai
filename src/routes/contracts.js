@@ -38,6 +38,7 @@ const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
+const { analyzeContractLegal } = require('../services/gemini');
 
 router.use(requireFeature('crm.contracts'));
 
@@ -499,7 +500,7 @@ router.get('/:id', async (req, res) => {
     );
     if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
 
-    const [[files], [history]] = await Promise.all([
+    const [[files], [history], [latestReview]] = await Promise.all([
       pool.query(`SELECT * FROM contract_files WHERE contract_id = ? ORDER BY created_at DESC`, [
         id,
       ]),
@@ -510,10 +511,47 @@ router.get('/:id', async (req, res) => {
           WHERE ch.contract_id = ? ORDER BY ch.created_at DESC LIMIT 200`,
         [id]
       ),
+      // Phase 2: 최신 AI 법무 검토 결과 (모달 재진입 시 자동 표시)
+      pool.query(
+        `SELECT clr.*, cf.original_filename AS target_filename
+           FROM contract_legal_reviews clr
+           LEFT JOIN contract_files cf ON cf.id = clr.target_file_id
+          WHERE clr.contract_id = ?
+          ORDER BY clr.generated_at DESC LIMIT 1`,
+        [id]
+      ),
     ]);
 
     contract.files = files;
     contract.history = history;
+    // Phase 2: 최신 법무 검토 풀어서 노출 (JSON 컬럼 → 객체)
+    if (latestReview && latestReview[0]) {
+      const r = latestReview[0];
+      const parseJson = (s, fallback) => {
+        if (!s) return fallback;
+        try {
+          return JSON.parse(s);
+        } catch (_) {
+          return fallback;
+        }
+      };
+      contract.latest_legal_review = {
+        id: r.id,
+        target_file_id: r.target_file_id,
+        target_filename: r.target_filename,
+        review_score: r.review_score,
+        risk_level: r.risk_level,
+        toxic_clauses: parseJson(r.toxic_clauses_json, []),
+        missing_clauses: parseJson(r.missing_clauses_json, []),
+        legal_compliance: parseJson(r.legal_compliance_json, {}),
+        improvement_suggestions: parseJson(r.improvement_suggestions_json, []),
+        overall_assessment: r.overall_assessment,
+        language: r.language,
+        generated_at: r.generated_at,
+      };
+    } else {
+      contract.latest_legal_review = null;
+    }
     res.json({ success: true, data: contract });
   } catch (err) {
     handleError(res, err);
@@ -912,6 +950,155 @@ router.delete('/:id/files/:fileId', async (req, res) => {
     });
 
     res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// =============================================================
+// Phase 2: AI 법무 검토 (analyzeContractLegal)
+//
+// 정책: team_lead+ 권한 권장 (현재 manager+ 로 열어둠 — Phase 2-PR2 에서 조정)
+// AI 비용: 1회 약 500-1000원 (Gemini 2.5 Pro Multimodal)
+// =============================================================
+
+// POST /:id/files/:fileId/legal-review — AI 법무 검토 실행 + DB 영속화
+router.post('/:id/files/:fileId/legal-review', async (req, res) => {
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    const fileId = parseInt(req.params.fileId, 10);
+    if (!contractId || !fileId) {
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    const userId = getUserId(req);
+
+    // 계약 존재 확인
+    const [[contract]] = await pool.query(`SELECT id FROM contracts WHERE id = ?`, [contractId]);
+    if (!contract) {
+      return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+    }
+
+    // 대상 파일 조회
+    const [[file]] = await pool.query(
+      `SELECT * FROM contract_files WHERE id = ? AND contract_id = ?`,
+      [fileId, contractId]
+    );
+    if (!file) {
+      return res.status(404).json({ success: false, error: '계약서 파일을 찾을 수 없음' });
+    }
+
+    console.log(
+      `[contracts:legal-review] start contract=${contractId} file=${fileId} (${file.original_filename})`
+    );
+    const startedAt = Date.now();
+
+    // Gemini 호출 (테스트 환경은 mock)
+    const result = await analyzeContractLegal({
+      contractPath: file.file_path,
+      contractMime: file.mime_type,
+      userId,
+      endpoint: 'contract_legal_review',
+    });
+
+    // DB 영속화 (contract_legal_reviews)
+    const [insertResult] = await pool.query(
+      `INSERT INTO contract_legal_reviews
+        (contract_id, target_file_id, review_score, risk_level,
+         toxic_clauses_json, missing_clauses_json, legal_compliance_json,
+         improvement_suggestions_json, overall_assessment, language, generated_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        contractId,
+        fileId,
+        result.review_score,
+        result.risk_level,
+        JSON.stringify(result.toxic_clauses || []),
+        JSON.stringify(result.missing_clauses || []),
+        JSON.stringify(result.legal_compliance || {}),
+        JSON.stringify(result.improvement_suggestions || []),
+        result.overall_assessment || null,
+        req.body?.language || 'ko',
+        userId || null,
+      ]
+    );
+
+    // 메인 contracts 테이블에도 요약 점수 반영 (마지막 검토 결과)
+    await pool.query(
+      `UPDATE contracts SET legal_review_score = ?, ai_review_summary = ? WHERE id = ?`,
+      [result.review_score, result.overall_assessment || null, contractId]
+    );
+
+    // history 자동 기록
+    await logHistory(null, contractId, userId, 'legal_review', {
+      description: `AI 법무 검토 완료 — score=${result.review_score}, risk=${result.risk_level} (${file.original_filename})`,
+      newValue: `score=${result.review_score}, risk=${result.risk_level}`,
+    });
+
+    console.log(
+      `[contracts:legal-review] done contract=${contractId} score=${result.review_score} risk=${result.risk_level} elapsed=${Date.now() - startedAt}ms`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        id: insertResult.insertId,
+        target_file_id: fileId,
+        target_filename: file.original_filename,
+        ...result,
+        generated_at: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error('[contracts:legal-review] failed:', err?.message || err);
+    handleError(res, err);
+  }
+});
+
+// GET /:id/legal-reviews — 법무 검토 이력 조회 (다중 버전)
+router.get('/:id/legal-reviews', async (req, res) => {
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    if (!contractId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+
+    const [rows] = await pool.query(
+      `SELECT clr.*, cf.original_filename AS target_filename,
+              tm.name AS generated_by_name
+         FROM contract_legal_reviews clr
+         LEFT JOIN contract_files cf ON cf.id = clr.target_file_id
+         LEFT JOIN team_members tm ON tm.id = clr.generated_by
+        WHERE clr.contract_id = ?
+        ORDER BY clr.generated_at DESC
+        LIMIT 50`,
+      [contractId]
+    );
+
+    // JSON 컬럼 풀어서 노출
+    const parseJson = (s, fallback) => {
+      if (!s) return fallback;
+      try {
+        return JSON.parse(s);
+      } catch (_) {
+        return fallback;
+      }
+    };
+    const data = rows.map(r => ({
+      id: r.id,
+      target_file_id: r.target_file_id,
+      target_filename: r.target_filename,
+      review_score: r.review_score,
+      risk_level: r.risk_level,
+      toxic_clauses: parseJson(r.toxic_clauses_json, []),
+      missing_clauses: parseJson(r.missing_clauses_json, []),
+      legal_compliance: parseJson(r.legal_compliance_json, {}),
+      improvement_suggestions: parseJson(r.improvement_suggestions_json, []),
+      overall_assessment: r.overall_assessment,
+      language: r.language,
+      generated_by: r.generated_by,
+      generated_by_name: r.generated_by_name,
+      generated_at: r.generated_at,
+    }));
+
+    res.json({ success: true, data });
   } catch (err) {
     handleError(res, err);
   }
