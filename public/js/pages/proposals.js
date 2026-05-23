@@ -469,10 +469,11 @@ const ProposalsPage = (() => {
         wrap.innerHTML =
           _renderFilesTab(e) +
           `<div class="pr-tab-divider">📊 AI 평가 (수주확률 + 정성 메트릭)</div>` +
-          _renderEvalSection() +
+          _renderEvalSection(e) +
           `<div class="pr-tab-divider">💰 연결 견적</div>` +
           _renderQuoteTab(e);
         _bindFileEvents(e, 'files');
+        _bindEvalCloseBtn(); // Phase 11-A: 이력 카드 닫기 버튼
         break;
       // ── 탭 3: 발송 & 이력 ────────────────────────────────
       // 이메일/공유 + 리비전/히스토리 통합
@@ -892,15 +893,31 @@ const ProposalsPage = (() => {
     `;
   }
 
-  // Phase 8-D: AI 평가 섹션 — 자료 행에서 [📊] 클릭 시 채워짐
-  // 빈 상태에서도 안내 표시 (수주확률/메트릭 등 신규 기능 노출)
-  function _renderEvalSection() {
+  // Phase 8-D + Phase 11-A: AI 평가 섹션 — 자료 행에서 [AI제안평가] 클릭 시 채워짐
+  //   Phase 11-A: 최신 평가 이력 자동 표시 (모달 재진입 시에도 결과 유지)
+  function _renderEvalSection(e) {
+    const latest = e && e.latest_evaluation;
     return `
       <div style="margin-bottom:10px;padding:10px 14px;background:#ecfeff;border:1px solid #67e8f9;border-radius:6px;font-size:12px;color:#155e75">
-        📊 <strong>AI 평가</strong> — 위 자료의 [📊] 버튼을 누르면 RFP 와 자동 비교하여 <strong>수주확률 + 정성 메트릭 + 승리/리스크 요인</strong>을 생성합니다. (Gemini Pro 호출 — 약 10-30초)
+        📊 <strong>AI 평가</strong> — 위 자료의 [AI제안평가] 버튼을 누르면 RFP 와 자동 비교하여 <strong>수주확률 + 정성 메트릭 + 승리/리스크 요인</strong>을 생성합니다. (Gemini Pro 호출 — 약 10-30초)
+        ${
+          latest
+            ? `<br>💾 <strong>최근 평가 이력 자동 불러옴</strong> — ${_fmtDateTime(latest.generated_at)} 생성 (커버율 ${latest.coverage_score}% · 수주확률 ${latest.win_probability || '-'}%)`
+            : ''
+        }
       </div>
-      <div id="pr-eval-result"></div>
+      <div id="pr-eval-result">${latest ? _renderEvalResult(latest) : ''}</div>
     `;
+  }
+
+  // Phase 11-A: 평가 결과 카드의 [✕ 닫기] 버튼 이벤트 바인딩
+  function _bindEvalCloseBtn() {
+    const closeBtn = document.getElementById('pr-eval-close-btn');
+    if (!closeBtn) return;
+    closeBtn.addEventListener('click', () => {
+      const wrap = document.getElementById('pr-eval-result');
+      if (wrap) wrap.innerHTML = '';
+    });
   }
 
   // Phase 6-C + 8-D: AI 평가 결과 카드 렌더링
@@ -1265,8 +1282,20 @@ const ProposalsPage = (() => {
           }
         </div>
 
-        <div style="display:flex;justify-content:flex-end;gap:8px">
-          <button class="btn btn-primary" id="pr-email-send-btn" type="button">📨 이메일 발송</button>
+        <!-- Phase 11-A: 발송 옵션 — Outlook(mailto) 권장 + Gmail OAuth 보조 -->
+        <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost" id="pr-email-download-btn" type="button" title="선택한 첨부 파일을 로컬에 다운로드 (메일앱에서 수동 첨부용)">
+            📥 첨부 파일 다운로드
+          </button>
+          <button class="btn btn-primary" id="pr-email-mailto-btn" type="button" title="OS 기본 메일앱(Outlook/Apple Mail 등)으로 발송 — 권장">
+            📧 메일앱(Outlook)으로 발송
+          </button>
+          <button class="btn btn-ghost" id="pr-email-send-btn" type="button" title="Gmail OAuth 로 직접 발송 (Google 연동 필요)">
+            ✉️ Gmail 발송
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);text-align:right;margin-top:6px">
+          💡 메일앱 발송: 첨부 파일은 자동 첨부 안 됨 → [📥 첨부 파일 다운로드] 후 메일앱에서 수동 첨부
         </div>
         <div id="pr-email-status" class="pr-email-status"></div>
       </div>
@@ -2103,9 +2132,70 @@ const ProposalsPage = (() => {
     }
   }
 
-  // ── Phase 5-D: 이메일/공유 탭 이벤트 ───────────────────────
+  // ── Phase 5-D + Phase 11-A: 이메일/공유 탭 이벤트 ───────
   function _bindEmailTabEvents(e) {
     if (!e || !e.id) return;
+
+    // Phase 11-A: 메일앱(Outlook) mailto: 발송 — 견적 모듈 패턴 재사용
+    const mailtoBtn = document.getElementById('pr-email-mailto-btn');
+    if (mailtoBtn) {
+      mailtoBtn.addEventListener('click', () => {
+        const to = (document.getElementById('pr-email-to')?.value || '').trim();
+        const cc = (document.getElementById('pr-email-cc')?.value || '').trim();
+        const subject = (document.getElementById('pr-email-subject')?.value || '').trim();
+        const body = (document.getElementById('pr-email-body')?.value || '').trim();
+        if (!subject) {
+          Toast.error('제목을 입력하세요');
+          return;
+        }
+        // mailto: URL 조립 (to/cc/subject/body 모두 URL encode)
+        const params = [];
+        if (cc) params.push(`cc=${encodeURIComponent(cc)}`);
+        params.push(`subject=${encodeURIComponent(subject)}`);
+        params.push(`body=${encodeURIComponent(body)}`);
+        const mailto = `mailto:${encodeURIComponent(to)}?${params.join('&')}`;
+        // mailto 길이 한계 (~2000자) 확인
+        if (mailto.length > 2000) {
+          Toast.error('본문이 너무 깁니다. 메일앱에서 직접 입력하거나 Gmail 발송을 사용하세요', {
+            duration: 8000,
+          });
+          return;
+        }
+        // 새 창/탭 트리거 — OS 기본 메일앱 자동 실행
+        window.location.href = mailto;
+        const statusEl = document.getElementById('pr-email-status');
+        if (statusEl) {
+          statusEl.innerHTML =
+            '✅ 메일앱(Outlook/Apple Mail 등)이 실행되었습니다. 첨부 파일이 있으면 [📥 첨부 파일 다운로드] 후 수동 첨부하세요.';
+        }
+      });
+    }
+
+    // Phase 11-A: 첨부 파일 일괄 다운로드 (메일앱에서 수동 첨부용)
+    const downloadBtn = document.getElementById('pr-email-download-btn');
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', () => {
+        const fileIds = Array.from(document.querySelectorAll('.pr-email-file:checked')).map(el =>
+          parseInt(el.value, 10)
+        );
+        if (fileIds.length === 0) {
+          Toast.error('다운로드할 첨부 파일을 선택하세요 (체크박스)');
+          return;
+        }
+        // 각 파일에 대해 별도 다운로드 트리거 (브라우저가 순차 다운로드)
+        fileIds.forEach((fid, idx) => {
+          setTimeout(() => {
+            const a = document.createElement('a');
+            a.href = API.proposals.downloadFileUrl(e.id, fid);
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }, idx * 250); // 250ms 간격 (브라우저 다운로드 차단 회피)
+        });
+        Toast.success(`${fileIds.length}개 첨부 파일 다운로드 시작`);
+      });
+    }
 
     // (1) 이메일 발송 버튼
     const sendBtn = document.getElementById('pr-email-send-btn');

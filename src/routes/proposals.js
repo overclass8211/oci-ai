@@ -549,14 +549,74 @@ router.get('/:id', async (req, res) => {
            LEFT JOIN team_members tm ON tm.id = ph.created_by
           WHERE ph.proposal_id = ? ORDER BY ph.created_at DESC LIMIT 200`,
         [id]
+      ),
+      // Phase 11-A: 최신 AI 평가 1건 + 파일명 (모달 재진입 시 자동 표시)
+      pool.query(
+        `SELECT pe.id, pe.proposal_id, pe.target_file_id, pe.rfp_file_id,
+                pe.coverage_score, pe.covered_count, pe.missing_count,
+                pe.evaluation_md, pe.evaluation_json, pe.generated_at,
+                tf.original_filename AS target_filename,
+                rf.original_filename AS rfp_filename,
+                tm.name AS created_by_name
+           FROM proposal_evaluations pe
+           LEFT JOIN proposal_files tf ON tf.id = pe.target_file_id
+           LEFT JOIN proposal_files rf ON rf.id = pe.rfp_file_id
+           LEFT JOIN team_members tm ON tm.id = pe.created_by
+          WHERE pe.proposal_id = ?
+          ORDER BY pe.generated_at DESC
+          LIMIT 1`,
+        [id]
       )
     );
-    const [[[lead]], [[quote]], [files], [revisions], [emailLogs], [history]] =
+    const [[[lead]], [[quote]], [files], [revisions], [emailLogs], [history], [[latestEvalRow]]] =
       await Promise.all(queries);
+
+    // Phase 11-A: evaluation_json 안에 전체 평가 데이터 (covered_items/quality_metrics 등)
+    let latestEval = null;
+    if (latestEvalRow) {
+      let detail = null;
+      try {
+        detail = latestEvalRow.evaluation_json ? JSON.parse(latestEvalRow.evaluation_json) : null;
+      } catch (_) {
+        /* ignore */
+      }
+      latestEval = {
+        id: latestEvalRow.id,
+        proposal_id: latestEvalRow.proposal_id,
+        target_file_id: latestEvalRow.target_file_id,
+        rfp_file_id: latestEvalRow.rfp_file_id,
+        target_filename: latestEvalRow.target_filename,
+        rfp_filename: latestEvalRow.rfp_filename,
+        coverage_score: latestEvalRow.coverage_score,
+        covered_count: latestEvalRow.covered_count,
+        missing_count: latestEvalRow.missing_count,
+        generated_at: latestEvalRow.generated_at,
+        created_by_name: latestEvalRow.created_by_name,
+        // evaluation_json 풀어서 노출 (프론트 _renderEvalResult 와 동일 schema)
+        covered_items: (detail && detail.covered_items) || [],
+        missing_items: (detail && detail.missing_items) || [],
+        improvement_suggestions: (detail && detail.improvement_suggestions) || [],
+        overall_assessment:
+          (detail && detail.overall_assessment) || latestEvalRow.evaluation_md || null,
+        win_probability: (detail && detail.win_probability) || 0,
+        quality_metrics: (detail && detail.quality_metrics) || null,
+        win_factors: (detail && detail.win_factors) || [],
+        risk_factors: (detail && detail.risk_factors) || [],
+      };
+    }
 
     res.json({
       success: true,
-      data: { ...proposal, lead, quote, files, revisions, email_logs: emailLogs, history },
+      data: {
+        ...proposal,
+        lead,
+        quote,
+        files,
+        revisions,
+        email_logs: emailLogs,
+        history,
+        latest_evaluation: latestEval,
+      },
     });
   } catch (err) {
     handleError(res, err);
