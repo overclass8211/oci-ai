@@ -308,6 +308,10 @@ const API = {
     uploadFile: (id, formData) => API._upload(`/contracts/${id}/files`, formData),
     deleteFile: (id, fileId) => API.del(`/contracts/${id}/files/${fileId}`),
     downloadFileUrl: (id, fileId) => `/api/contracts/${id}/files/${fileId}/download`,
+    // Phase 2 — AI 법무 검토 (Gemini 2.5 Pro · 약 500-1000원/회)
+    legalReview: (id, fileId) =>
+      API.post(`/contracts/${id}/files/${fileId}/legal-review`, {}),
+    legalReviews: id => API.get(`/contracts/${id}/legal-reviews`),
   },
 
   // 견적서 (crm.quotes)

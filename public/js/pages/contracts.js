@@ -365,13 +365,169 @@ const ContractsPage = (() => {
                 <strong style="font-size:13px">📎 첨부 파일 (${(e.files || []).length}건)</strong>
                 <button class="btn btn-ghost btn-sm" id="ct-file-add-btn" type="button">+ 파일 추가</button>
               </div>
+              <div style="margin-bottom:10px;padding:8px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:11px;color:#92400e">
+                💡 <strong>🤖 AI 법무 검토</strong> — 계약서 PDF/이미지/텍스트 파일에서 사용 가능. Gemini 2.5 Pro 가 한국법(공정거래법·하도급법·개인정보보호법) 관점에서 독소조항·누락조항·수정안을 자동 생성합니다 (약 30-60초 · 1회 약 500-1000원)
+              </div>
               <input type="file" id="ct-file-input" multiple style="display:none"
                 accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg,.txt,.md">
               ${_renderFileList(e.files || [], e.id)}
+
+              <!-- Phase 2: AI 법무 검토 결과 카드 (최신 검토 자동 prefill) -->
+              <div id="ct-legal-review-wrap" style="margin-top:14px">
+                ${e.latest_legal_review ? _renderLegalReview(e.latest_legal_review) : ''}
+              </div>
             </div>`
-          : '<div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">💡 계약 등록 후 파일 첨부가 가능합니다</div>'
+          : '<div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">💡 계약 등록 후 파일 첨부 + AI 법무 검토가 가능합니다</div>'
       }
     `;
+  }
+
+  // Phase 2: AI 분석 가능 형식 (PDF / 이미지 / 텍스트)
+  function _isAnalyzable(filename) {
+    if (!filename) return false;
+    return /\.(pdf|png|jpe?g|webp|txt|md)$/i.test(filename);
+  }
+
+  // Phase 2: 법무 검토 결과 카드 (색상 코드 + 4섹션)
+  function _renderLegalReview(d) {
+    if (!d) return '';
+    const score = Math.max(0, Math.min(100, parseInt(d.review_score, 10) || 0));
+    const risk = d.risk_level || 'medium';
+    const riskColors = { high: '#dc2626', medium: '#ca8a04', low: '#16a34a' };
+    const riskLabels = { high: '높은 위험', medium: '중간 위험', low: '낮은 위험' };
+    const riskColor = riskColors[risk] || '#6b7280';
+    const riskLabel = riskLabels[risk] || risk;
+
+    const toxic = Array.isArray(d.toxic_clauses) ? d.toxic_clauses : [];
+    const missing = Array.isArray(d.missing_clauses) ? d.missing_clauses : [];
+    const improve = Array.isArray(d.improvement_suggestions) ? d.improvement_suggestions : [];
+    const lc = d.legal_compliance || {};
+    const sevColors = { high: '#dc2626', medium: '#ca8a04', low: '#6b7280' };
+    const sevLabels = { high: '높음', medium: '중간', low: '낮음' };
+
+    const lawRow = (name, key) => {
+      const row = lc[key] || {};
+      const ok = row.compliant === true;
+      const issues = Array.isArray(row.issues) ? row.issues : [];
+      const color = ok ? '#16a34a' : '#dc2626';
+      const icon = ok ? '✅' : '⚠️';
+      return `<div style="padding:8px 12px;background:${ok ? '#f0fdf4' : '#fef2f2'};border:1px solid ${ok ? '#bbf7d0' : '#fecaca'};border-radius:6px;margin-bottom:6px">
+        <div style="font-weight:600;color:${color};font-size:12px">${icon} ${esc(name)} ${ok ? '부합' : '위반 가능성'}</div>
+        ${issues.length > 0 ? `<ul style="margin:4px 0 0 18px;font-size:11px;color:#374151">${issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : ''}
+      </div>`;
+    };
+
+    return `<div class="ct-legal-card" style="border:2px solid ${riskColor};border-radius:8px;padding:14px;background:#fafafa;margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+        <div>
+          <div style="font-size:14px;font-weight:600">🤖 AI 법무 검토 결과</div>
+          ${d.target_filename ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px">${esc(d.target_filename)}</div>` : ''}
+        </div>
+        <button class="btn btn-ghost btn-sm" id="ct-legal-close-btn" type="button" title="닫기">✕</button>
+      </div>
+
+      <!-- 점수 + 위험도 -->
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:14px;margin-bottom:14px">
+        <div style="text-align:center;padding:12px;background:#fff;border:2px solid ${riskColor};border-radius:8px">
+          <div style="font-size:10px;color:var(--text-3);margin-bottom:4px">안전성 점수</div>
+          <div style="font-size:28px;font-weight:700;color:${riskColor}">${score}<span style="font-size:14px;opacity:0.6">/100</span></div>
+          <div style="margin-top:6px;display:inline-block;padding:2px 10px;background:${riskColor};color:#fff;border-radius:10px;font-size:11px;font-weight:600">${esc(riskLabel)}</div>
+        </div>
+        <div style="padding:12px;background:#fff;border:1px solid var(--border);border-radius:8px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">위험 항목 요약</div>
+          <div style="display:flex;gap:14px;font-size:13px">
+            <div>🔴 독소조항 <strong>${toxic.length}</strong>건</div>
+            <div>🟡 누락조항 <strong>${missing.length}</strong>건</div>
+            <div>💡 개선 제안 <strong>${improve.length}</strong>건</div>
+          </div>
+          ${d.generated_at ? `<div style="margin-top:8px;font-size:10px;color:var(--text-3)">생성: ${_fmtDateTime(d.generated_at)}</div>` : ''}
+        </div>
+      </div>
+
+      <!-- 한국 법규 부합 -->
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">🇰🇷 한국 법규 부합 여부</div>
+        ${lawRow('공정거래법', 'fair_trade_act')}
+        ${lawRow('하도급법', 'subcontract_act')}
+        ${lawRow('개인정보보호법', 'privacy_act')}
+      </div>
+
+      <!-- 독소조항 -->
+      ${
+        toxic.length > 0
+          ? `<div style="margin-bottom:14px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#dc2626">🔴 독소조항 (${toxic.length}건)</div>
+              <ul style="margin:0;padding-left:0;list-style:none">
+                ${toxic
+                  .map(
+                    c => `<li style="margin-bottom:10px;padding:10px;background:#fef2f2;border-left:3px solid ${sevColors[c.severity] || '#dc2626'};border-radius:4px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <strong style="font-size:12px">${esc(c.clause_type)} ${c.location ? `<span style="font-weight:400;color:var(--text-3);font-size:11px">— ${esc(c.location)}</span>` : ''}</strong>
+                    <span style="font-size:10px;padding:1px 8px;background:${sevColors[c.severity] || '#6b7280'};color:#fff;border-radius:10px">${esc(sevLabels[c.severity] || c.severity)}</span>
+                  </div>
+                  ${c.original_text ? `<div style="font-size:11px;color:#7f1d1d;margin:4px 0;padding:6px 8px;background:#fee;border-radius:4px;font-family:serif">"${esc(c.original_text)}"</div>` : ''}
+                  ${c.why_problematic ? `<div style="font-size:11px;color:#374151;margin:4px 0">⚠️ ${esc(c.why_problematic)}</div>` : ''}
+                  ${c.suggested_fix ? `<div style="font-size:11px;color:#065f46;margin-top:4px;padding:6px 8px;background:#f0fdf4;border-radius:4px">💡 <strong>수정안:</strong> ${esc(c.suggested_fix)}</div>` : ''}
+                </li>`
+                  )
+                  .join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+
+      <!-- 누락조항 -->
+      ${
+        missing.length > 0
+          ? `<div style="margin-bottom:14px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#ca8a04">🟡 누락 조항 (${missing.length}건)</div>
+              <ul style="margin:0;padding-left:0;list-style:none">
+                ${missing
+                  .map(
+                    m => `<li style="margin-bottom:8px;padding:8px 10px;background:#fffbeb;border-left:3px solid ${sevColors[m.importance] || '#ca8a04'};border-radius:4px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <strong style="font-size:12px">${esc(m.clause_type)}</strong>
+                    <span style="font-size:10px;padding:1px 8px;background:${sevColors[m.importance] || '#6b7280'};color:#fff;border-radius:10px">${esc(sevLabels[m.importance] || m.importance)}</span>
+                  </div>
+                  ${m.suggested_addition ? `<div style="font-size:11px;color:#374151">${esc(m.suggested_addition)}</div>` : ''}
+                </li>`
+                  )
+                  .join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+
+      <!-- 개선 제안 -->
+      ${
+        improve.length > 0
+          ? `<div style="margin-bottom:14px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px">💡 개선 제안 (${improve.length}건)</div>
+              <ul style="margin:0;padding-left:18px;font-size:12px">
+                ${improve.map(s => `<li><strong>${esc(s.section)}</strong>: ${esc(s.suggestion)}</li>`).join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+
+      <!-- 종합 평가 (마크다운) -->
+      ${
+        d.overall_assessment
+          ? `<div style="margin-top:14px;padding:10px;background:#fff;border:1px solid var(--border);border-radius:6px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px">📝 종합 평가</div>
+              <div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.6">${esc(d.overall_assessment)}</div>
+            </div>`
+          : ''
+      }
+    </div>`;
+  }
+
+  function _fmtDateTime(s) {
+    if (!s) return '';
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   }
 
   function _renderFileList(files, contractId) {
@@ -384,22 +540,28 @@ const ContractsPage = (() => {
         <th>파일명</th>
         <th style="width:90px">크기</th>
         <th style="width:120px">등록일</th>
-        <th style="width:120px;text-align:center">작업</th>
+        <th style="width:230px;text-align:center">작업</th>
       </tr></thead>
       <tbody>
         ${files
-          .map(
-            f => `<tr>
+          .map(f => {
+            const analyzable = _isAnalyzable(f.original_filename);
+            return `<tr>
           <td><span class="badge badge-gray">${esc(f.file_type || '-')}</span></td>
           <td>${esc(f.original_filename)}</td>
           <td>${f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-'}</td>
           <td>${_fmtDate(f.created_at)}</td>
           <td style="text-align:center;white-space:nowrap">
+            ${
+              analyzable
+                ? `<button class="btn btn-ghost btn-sm ct-legal-btn" data-id="${f.id}" data-name="${esc(f.original_filename)}" type="button" title="AI 법무 검토" style="font-size:11px;padding:2px 6px;color:#7c3aed">🤖 법무</button>`
+                : `<span style="display:inline-block;font-size:10px;color:var(--text-3);padding:2px 6px" title="PDF/이미지/텍스트만 AI 분석 가능">—</span>`
+            }
             <a class="btn btn-ghost btn-sm" href="${API.contracts.downloadFileUrl(contractId, f.id)}" data-ct-file-download="${f.id}" title="다운로드" style="font-size:11px;padding:2px 6px">다운로드</a>
             <button class="btn btn-ghost btn-sm ct-file-del" data-id="${f.id}" type="button" style="color:#d93025;font-size:11px;padding:2px 6px" title="삭제">삭제</button>
           </td>
-        </tr>`
-          )
+        </tr>`;
+          })
           .join('')}
       </tbody>
     </table>`;
@@ -439,6 +601,50 @@ const ContractsPage = (() => {
         }
       });
     });
+    // Phase 2: [🤖 법무] AI 법무 검토 실행
+    document.querySelectorAll('.ct-legal-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fileId = parseInt(btn.dataset.id, 10);
+        const name = btn.dataset.name || '계약서';
+        const ok = confirm(
+          `🤖 AI 법무 검토를 실행하시겠습니까?\n\n` +
+            `대상 파일: ${name}\n\n` +
+            `Gemini 2.5 Pro 가 한국법(공정거래법·하도급법·개인정보보호법) 관점에서 ` +
+            `독소조항·누락조항·수정안을 분석합니다.\n\n` +
+            `• 소요 시간: 약 30-60초\n` +
+            `• 예상 비용: 약 500-1000원/회\n\n` +
+            `계속하시겠습니까?`
+        );
+        if (!ok) return;
+        const origText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '⏳';
+        try {
+          Toast.info?.('AI 법무 검토 중... (최대 60초 소요)');
+          const res = await API.contracts.legalReview(contractId, fileId);
+          const data = res?.data;
+          if (!data) throw new Error('응답 비어있음');
+          Toast.success?.(
+            `AI 법무 검토 완료 — 점수 ${data.review_score}, 위험도 ${data.risk_level}`
+          );
+          const wrap = document.getElementById('ct-legal-review-wrap');
+          if (wrap) {
+            wrap.innerHTML = _renderLegalReview(data);
+            wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            _bindLegalCloseBtn();
+          }
+        } catch (err) {
+          console.error('[contracts:legal-review] failed:', err);
+          const detail = err?.error || err?.message || String(err);
+          Toast.error?.('AI 법무 검토 실패: ' + detail, { duration: 8000 });
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = origText;
+        }
+      });
+    });
+    // Phase 2: 결과 카드 [✕ 닫기] (latest_legal_review prefill 시에도 동작)
+    _bindLegalCloseBtn();
     // 다운로드: GCP CORS 우회를 위한 인증 헤더 fetch (proposals 패턴)
     document.querySelectorAll('[data-ct-file-download]').forEach(a => {
       a.addEventListener('click', async ev => {
@@ -532,6 +738,16 @@ const ContractsPage = (() => {
     } catch (err) {
       Toast.error?.('삭제 실패: ' + (err.message || err));
     }
+  }
+
+  // Phase 2: 법무 검토 카드 닫기 버튼
+  function _bindLegalCloseBtn() {
+    const closeBtn = document.getElementById('ct-legal-close-btn');
+    if (!closeBtn) return;
+    closeBtn.addEventListener('click', () => {
+      const wrap = document.getElementById('ct-legal-review-wrap');
+      if (wrap) wrap.innerHTML = '';
+    });
   }
 
   return { render };
