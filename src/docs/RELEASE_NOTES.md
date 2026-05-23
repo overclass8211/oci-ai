@@ -4,7 +4,80 @@
 
 ---
 
-## v5.6 (2026.05.23) — 현재 ⭐
+## v5.7 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 Phase 12: AI 분석 위치 이동 + AI평가 큰 CTA + JSON 파싱 강화**
+
+사용자 피드백 3건 — 워크플로우 자연스러움 + 시인성 + 에러 처리 견고화.
+
+#### 1. 🎯 기본탭 AI 분석 버튼 1단계→2단계 이동 (Phase 12-A)
+
+**기존**: 1단계 RFP 등록 섹션 하단에 큰 CTA `[🤖 AI 분석 시작]`
+**개선**: 2단계 AI 제안전략 요약 섹션 **상단**으로 이동
+
+```
+1단계: 📑 RFP 등록 → ✅ 파일 N건 준비 완료 안내만
+2단계: 🤖 AI 제안전략 요약
+       [══ 🤖 AI 분석 시작 — RFP 기반 자동 생성 ══]  ← 큰 OCI Red CTA
+       (textarea + Word 다운로드)
+3단계: 📋 기본정보 검토 & 저장
+```
+
+**효과**: 워크플로우가 더 자연스러움 — "RFP 업로드 → 다음 단계 카드로 이동 → AI 분석"
+
+#### 2. 📊 제안평가 탭 — 큰 [AI 제안평가] CTA + 작업 컬럼 정리 (Phase 12-B)
+
+**기존**: 자료 행 작업 컬럼 = `[AI제안평가] [다운로드] [삭제]` — 작은 텍스트 버튼
+**개선**:
+- 작업 컬럼 단순화: `[다운로드] [삭제]` 만
+- 자료 섹션 하단에 **큰 OCI Red CTA `[📊 AI 제안평가 시작]`** 추가
+- 분석 가능한 첫 번째 자료 파일 자동 선택 → `_doEvaluateProposal()` 호출
+
+**효과**: 기본탭 `[AI 분석 시작]` 패턴과 동일 → **시각적 일관성** + **사용자 절대 놓치지 않음**
+
+#### 3. 🛡 AI 평가 JSON 파싱 강화 — RFP-제안서 미스매치 fallback (Phase 12-C)
+
+**증상**: RFP 와 맞지 않는 제안서 업로드 → AI 평가 시 JSON 파싱 에러로 앱 동작 멈춤
+**원인**: Gemini가 RFP-제안서 미스매치 케이스에서 `responseSchema` 강제에도 비정형 응답 가능
+
+**Fix**:
+- 1차 `JSON.parse(text)` 실패 시 markdown fence (` ``` `) 제거 + 첫 `{` ~ 마지막 `}` 추출 후 재시도
+- 2차도 실패 시 **fallback 응답** 반환 (앱 동작 정상 유지):
+  ```
+  coverage_score: 0, win_probability: 0
+  overall_assessment:
+  "⚠️ AI가 응답을 정상 형식으로 생성하지 못했습니다.
+   가능한 원인:
+   ① 업로드한 제안서가 RFP 와 일치하지 않는 다른 사업/프로젝트의 자료일 수 있습니다.
+   ② 제안서 파일이 손상되었거나 내용이 너무 적을 수 있습니다.
+   ③ RFP 와 제안서의 언어/형식이 호환되지 않을 수 있습니다.
+   권장 조치: 동일 사업의 정확한 RFP-제안서 쌍을 다시 업로드하여 평가를 시도하세요."
+  risk_factors: ["RFP-제안서 미스매치 추정 — 동일 사업의 자료인지 확인 필요"]
+  ```
+- `analyzeProposalRFP` 도 동일 패턴 적용 (방어적 fix)
+
+**효과**: 사용자가 잘못된 파일 쌍을 업로드해도 **앱이 죽지 않고 친절한 안내** 표시
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음**
+- **신규 npm 의존성 0개**
+- **변경 파일**:
+  - `public/js/pages/proposals.js` — `_renderRfpTab` CTA 제거 / `_renderAiStrategySection` CTA 추가 / `_renderFileList` 작업 컬럼 단순화 / `_renderFilesTab` 큰 CTA 추가 / `_bindFileEvents` `#pr-evaluate-cta` 신규
+  - `src/services/gemini.js` — `evaluateProposalAgainstRFP` + `analyzeProposalRFP` JSON 파싱 강화 + fallback
+
+### 📊 회귀 테스트
+- vitest: **44/44 (proposals) 통과**
+- lint: 0 errors / 0 warnings
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+---
+
+## v5.6 (2026.05.23) — 직전
 
 ### 🎯 메인 — **제안 모듈 Phase 11: AI 평가 영속 + Outlook 연동 + 목록 카드뷰**
 
