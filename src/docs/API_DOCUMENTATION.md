@@ -1,6 +1,6 @@
 # 🔌 OCI CRM AI — API 문서
 
-> **버전**: 2026.05 (Phase G3)
+> **버전**: 2026.05 (Phase G3 + Contract Phase 0)
 > **Base URL**: `https://<your-domain>/api` (Production) / `http://localhost:3001/api` (Dev)
 > **인증 방식**: JWT Bearer Token + HttpOnly Refresh Cookie
 
@@ -1391,6 +1391,110 @@ RFP 자동 선택 (`file_type='rfp'` + 호환 형식 첫 파일). Gemini Pro 가
 
 ### 21.10 history action_types
 `create` / `update` / `status_change` / `rfp_upload` / `file_upload` / `file_download` / `file_delete` / `revision_create` / `ai_analyze` / `evaluate` / `email_send` / `share_create` / `share_revoke` / `share_view` / `share_download`
+
+---
+
+## 22-A. 계약 API (`/contracts`) — Contract Phase 0 (v5.9.0)
+
+**기능 플래그**: `crm.contracts`
+**권한**: manager+ (기본 CRUD), team_lead+ (확장 — Phase 2+)
+**테이블**: contracts, contract_files, contract_history, contract_templates, contract_legal_reviews, contract_alerts (자가 마이그레이션)
+
+### 22-A.1 GET `/contracts/next-contract-no`
+
+다음 자동 채번 미리보기 (C-YYYY-NNNN).
+
+**Query**:
+- `year` (선택): 기본 현재 연도
+
+**Response**:
+```json
+{ "success": true, "data": { "contract_no": "C-2026-0042", "year": 2026 } }
+```
+
+### 22-A.2 GET `/contracts`
+
+목록 조회 (검색/필터/페이징).
+
+**Query**:
+- `search`: 계약번호/제목/고객사
+- `status`: draft | review | negotiation | signing | active | renewal | expired | terminated
+- `contract_type`: NDA | MSA | SLA | SOW | service | purchase | license | employment | etc
+- `customer_id` / `proposal_id` / `lead_id`: 연결 ID
+- `date_from` / `date_to`: 시작일 범위
+- `expiring_soon=1`: 30일 이내 만료 (status=active 만)
+- `page` / `limit`: 페이징
+
+**Response**: `{ success, data: [...], pagination: { total, page, limit, totalPages } }`
+
+### 22-A.3 GET `/contracts/:id`
+
+단건 + 파일/이력 포함.
+
+**Response**:
+```json
+{ "success": true, "data": {
+  "id": 1, "contract_no": "C-2026-0001", "title": "A사 NDA",
+  "customer_name": "A사", "contract_type": "NDA", "status": "draft",
+  "start_date": "2026-05-23", "end_date": "2027-05-22",
+  "contract_amount": 30000000, "currency": "KRW",
+  "files": [...], "history": [...]
+}}
+```
+
+### 22-A.4 POST `/contracts`
+
+생성. `proposal_id` 전달 시 customer_id/customer_name/expected_amount/currency 자동 반영.
+
+**Body** (필수: title):
+```json
+{ "title": "A사 NDA 계약", "customer_name": "A사", "contract_type": "NDA",
+  "start_date": "2026-05-23", "end_date": "2027-05-22",
+  "contract_amount": 30000000, "currency": "KRW",
+  "auto_renewal": true, "renewal_notice_days": 60,
+  "proposal_id": 42 }
+```
+
+**Response**: `{ success, id, data: { id, contract_no } }`
+
+### 22-A.5 PUT `/contracts/:id`
+
+수정. 변경된 필드만 history 에 diff 자동 기록 (field_name/old_value/new_value).
+
+**허용 필드**: title, customer_id, customer_name, proposal_id, lead_id,
+contract_type, status, start_date, end_date, contract_amount, currency,
+language, auto_renewal, renewal_notice_days, template_id, version_no,
+parent_contract_id, owner_id, owner_name, notes
+
+### 22-A.6 DELETE `/contracts/:id`
+
+CASCADE 삭제 (파일 디스크 + history 자동 정리).
+
+### 22-A.7 POST `/contracts/:id/files`
+
+다중 파일 업로드 (FormData).
+
+**FormData**:
+- `files[]`: 다중 파일 (또는 `file` 단일)
+- `file_type`: contract | draft | signed | amendment | attachment | etc (기본 contract)
+- `version_no`, `is_final`, `description` (선택)
+
+**제한**: 100MB/파일, 확장자 pdf/ppt/doc/xls/hwp/png/jpg/jpeg/txt/md
+
+**Response**: `{ success, data: { uploaded: [...], failed: [...] } }`
+
+### 22-A.8 GET `/contracts/:id/files/:fileId/download`
+
+파일 다운로드 (Content-Disposition: attachment).
+
+### 22-A.9 DELETE `/contracts/:id/files/:fileId`
+
+파일 삭제 (디스크 + DB row + history 기록).
+
+### 22-A.10 history action_types (Phase 0)
+`create` / `update` / `status_change` / `file_upload` / `file_delete`
+
+Phase 1+ 에서 추가 예정: `legal_review` / `template_apply` / `alert_sent` / `esign_request` / `esign_signed` 등
 
 ---
 

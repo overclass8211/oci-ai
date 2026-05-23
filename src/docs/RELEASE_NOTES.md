@@ -4,7 +4,108 @@
 
 ---
 
-## v5.8.2 (2026.05.23) — 현재 ⭐
+## v5.9.0 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **계약 모듈 Phase 0: 기반 인프라 (Contract Lifecycle Management 시작)**
+
+새로운 모듈 — 시스템 영향 최소화 전략 (신규 추가만, 기존 변경 0건).
+
+#### 🆕 모듈 개요
+
+```
+사이드바
+├─ 영업관리
+│  ├─ 영업리드
+│  ├─ 영업딜
+│  ├─ 고객사
+│  ├─ 영업 캘린더
+│  ├─ 견적서
+│  ├─ 제안
+│  └─ 계약 ← 🆕 신규
+```
+
+**Phase 0 — 기반 인프라 (이번 릴리즈)**:
+- DB 6개 신규 테이블 (자가 마이그레이션)
+- 백엔드 CRUD + 파일 업로드/다운로드 + history Audit Trail
+- 프론트 목록 페이지 + 작성/편집 모달
+- 8단계 상태 / 9종 계약 유형
+- 자동채번 (C-YYYY-NNNN)
+
+**Phase 1 ~ 7 — 향후 (사용자 사전 승인 받음)**:
+- Phase 1: CLM 워크플로우 + 빠른 액션 + Audit Trail 강화
+- Phase 2: ⭐⭐⭐ **AI 법무 검토** (독소조항/누락/한국법규/수정안)
+- Phase 3: 계약 템플릿 라이브러리 (NDA/MSA/SLA + 변수 치환)
+- Phase 4: 만료 알림 (90/60/30/7일 + 자동 갱신 분기)
+- Phase 5: AI 협상 코칭
+- Phase 6: 다국어 (한/영)
+- Phase 7: 전자서명 (모두싸인 우선)
+
+### 🛠 기술 변경
+
+#### 신규 DB 테이블 6개 (idempotent 자가 마이그레이션)
+| 테이블 | 용도 | 사용 시작 |
+|--------|------|----------|
+| `contracts` | 메인 엔티티 | Phase 0 |
+| `contract_files` | 파일 (CASCADE) | Phase 0 |
+| `contract_history` | Audit Trail (CASCADE) | Phase 0 |
+| `contract_templates` | 템플릿 라이브러리 | Phase 3 |
+| `contract_legal_reviews` | AI 법무 검토 결과 | Phase 2 |
+| `contract_alerts` | 만료 알림 큐 | Phase 4 |
+
+#### 신규 엔드포인트 (Phase 0)
+- `GET    /api/contracts/next-contract-no` — 다음 채번 미리보기
+- `GET    /api/contracts` — 목록 (검색/필터/페이징)
+- `GET    /api/contracts/:id` — 단건 (files + history)
+- `POST   /api/contracts` — 생성 (proposal_id 자동 연결)
+- `PUT    /api/contracts/:id` — 수정 (diff history 자동)
+- `DELETE /api/contracts/:id` — CASCADE 삭제
+- `POST   /api/contracts/:id/files` — 다중 파일 업로드
+- `GET    /api/contracts/:id/files/:fileId/download`
+- `DELETE /api/contracts/:id/files/:fileId`
+
+#### 신규 파일 4개
+- `src/routes/contracts.js` (760 lines)
+- `tests/contracts.test.mjs` (290 lines, 14건)
+- `public/js/pages/contracts.js` (~450 lines)
+- `e2e/contracts.spec.js` (3건)
+
+#### 기존 파일 수정 (각 1-18줄, 격리적)
+- `server.js`: 라우터 등록 1줄
+- `src/data/featureRegistry.js`: `crm.contracts` 기능 플래그 등록
+- `src/data/menuDefaults.js`: 메뉴 시드 1줄
+- `src/services/authService.js`: 4개 role ROLE_PAGES 에 추가
+- `public/js/api.js`: API.contracts.* 헬퍼 (18줄)
+- `public/index.html`: 사이드바 메뉴 + script
+- `public/js/app.js`: pages 매핑 + featureMap
+- `eslint.config.js`: `ContractsPage` globals 등록
+
+### 📊 회귀 테스트
+- vitest: **신규 14/14**, 전체 **390+ passed (회귀 0건)**
+- lint: 0 errors / 0 warnings
+- e2e: Phase 0 시나리오 작성 완료 (UI 미보유 dev 서버 재시작 후 자동 검증)
+
+### 🛡 시스템 영향 평가
+- **신규 추가만** — 기존 테이블/라우트/모듈 0건 수정
+- **격리** — `/api/contracts` 라우터만 신규, 기존 모듈 무영향
+- **롤백 안전** — 신규 테이블만 DROP 하면 원상복구 가능
+- **Service Worker** — `CACHE_VERSION` 자동 갱신으로 사용자 브라우저 캐시 자동 무효화
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+배포 후 자동 동작:
+- DB 자가 마이그레이션 → 6개 신규 테이블 생성
+- 사이드바에 "계약" 메뉴 자동 노출
+- 사용자는 즉시 사용 가능 (manager+ 권한)
+
+### 📅 다음 단계
+
+Phase 1 (CLM 워크플로우 + 빠른 액션) 진입 권장. 사용자 결정 대기.
+
+---
+
+## v5.8.2 (2026.05.23) — 직전
 
 ### 🎯 메인 — **제안 모듈 Phase 13-3: 제안평가 탭 5건 개선 (UI 단순화 + AI 신뢰성 가드)**
 

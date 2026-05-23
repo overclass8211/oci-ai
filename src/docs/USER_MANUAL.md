@@ -894,6 +894,92 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 
 ---
 
+## 📜 계약 모듈 (Contract Phase 0 — v5.9.0 신규)
+
+> **위치**: 사이드바 → 영업관리 → 계약 (제안 바로 아래)
+> **권한**: manager+ (기본 CRUD), team_lead+ (확장 기능 — Phase 2+)
+> **상위 의존**: 제안(Proposal)/리드(Lead)/고객사(Customer) — 선택적 연결만
+
+### 🎯 모듈 비전 (전체 Phase 0 → 7)
+
+| Phase | 범위 | 상태 |
+|-------|------|:----:|
+| Phase 0 | 기반 (CRUD + 파일 + Audit Trail + DB 6개 테이블) | ✅ |
+| Phase 1 | CLM 워크플로우 (8단계 상태 전이 + 빠른 액션) | 예정 |
+| Phase 2 | **AI 법무 검토** ⭐⭐⭐ (독소조항/누락/한국법규) | 예정 |
+| Phase 3 | 계약 템플릿 라이브러리 (NDA/MSA/SLA + 변수 치환) | 예정 |
+| Phase 4 | 만료 알림 (90/60/30/7일 + 자동 갱신 분기) | 예정 |
+| Phase 5 | AI 협상 코칭 (불리한 조건 알림 + 카드 추천) | 예정 |
+| Phase 6 | 다국어 (한/영 대조 + 영문 요약) | 예정 |
+| Phase 7 | 전자서명 (모두싸인 통합) | 예정 |
+
+### Phase 0 — 현재 사용 가능 기능
+
+#### ① 목록 페이지
+
+```
+📜 계약 관리                                                    [+ 새 계약]
+─────────────────────────────────────────────────────────────────────
+🔎 [검색]  [상태 ▾]  [유형 ▾]  [새로고침]
+
+| 계약번호      | 유형  | 계약명                | 고객사    | 시작일      | 종료일      | 금액         | 상태   | 파일 | 작업 |
+|--------------|------|----------------------|----------|------------|------------|--------------|-------|------|-----|
+| C-2026-0001  | NDA  | A사 NDA 계약 (2026)   | A사       | 2026.05.23 | 2027.05.22 | 30,000,000 KRW | 검토중 | 📎 2 | [편집] [삭제] |
+```
+
+**필터:**
+- 검색: 계약번호 / 제목 / 고객사
+- 상태: 8단계 (초안 / 검토중 / 협상중 / 서명진행 / 발효 / 갱신중 / 만료 / 해지)
+- 유형: 9가지 (NDA / MSA / SLA / SOW / 용역계약 / 구매계약 / 라이선스 / 고용계약 / 기타)
+
+#### ② 작성/편집 모달
+
+**자동 채번**: 신규 진입 시 `C-YYYY-NNNN` 다음 번호 미리보기 (저장 시 확정)
+
+**필드 (Phase 0):**
+- 계약번호 (자동 채번, readonly 후) / 유형 / 상태
+- 계약명 (필수)
+- 고객사명 / 통화 (KRW/USD/JPY/EUR)
+- 시작일 / 종료일 / 계약금액
+- 자동 갱신 (Yes/No) / 갱신 알림 기간 / 언어
+- 비고
+
+**제안 자동 연결** (백엔드):
+- POST 시 `proposal_id` 를 보내면 → 제안의 customer_id/customer_name/expected_amount/currency 자동 반영
+- `lead_id` 도 동일 — 리드의 customer 정보 자동 채움
+
+#### ③ 파일 업로드 (계약 저장 후 가능)
+
+- 다중 파일 동시 업로드 (최대 100MB/파일)
+- 허용 확장자: PDF / PPT / DOC / XLS / HWP / PNG / JPG / TXT / MD
+- 파일 유형: contract / draft / signed / amendment / attachment / etc
+- 다운로드: 인증 헤더(`Authorization` + `X-User-Id`) 포함 fetch (CORS-friendly)
+- 삭제: confirm + 디스크 파일 정리 + history 자동 기록
+
+#### ④ 감사 추적 (Audit Trail)
+
+`contract_history` 테이블에 모든 작업 자동 기록:
+- `create` — 계약 생성
+- `update` — 필드별 diff (field_name + old_value + new_value)
+- `status_change` — 상태 전이 (Phase 1 에서 검증 강화)
+- `file_upload` / `file_delete` — 파일 작업
+
+→ 법적 분쟁 시 증거로 활용 가능 (누가 / 언제 / 무엇을 바꿨는지 모두 기록).
+
+### 🛡 시스템 영향 최소화 보장 (Phase 0)
+
+- 신규 테이블 6개만 (기존 테이블 수정 0건)
+- 신규 라우트 `/api/contracts` 만 (기존 모듈 격리)
+- 자가 마이그레이션 — 서버 부팅 시 idempotent 생성
+- 운영 환경 배포 시 schema 자동 반영 (수동 SQL 불필요)
+
+### 📅 다음 Phase 안내
+
+Phase 1 진입 시 상태 워크플로우 + 빠른 액션 버튼이 모달 하단에 추가됩니다.
+Phase 2 진입 시 첨부 파일 옆에 [🤖 AI 법무 검토] 버튼이 활성화됩니다 (Gemini Multimodal — 독소조항 자동 탐지).
+
+---
+
 ## 📎 부록: 키보드 단축키
 
 | 단축키 | 동작 |
@@ -930,6 +1016,7 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 | Phase Proposal 13-2 | 🆕 RFP 메타 입력 UI 제거 (제목/접수일/제출마감일/요약 textarea) — hidden 필드로 저장 흐름 보존, 화면 단순화 |
 | Phase Proposal 13-3 | 🆕 제안평가 탭 5건 개선 — 메타UI/안내박스/연결견적 제거 + 정량 메트릭 키 매핑 fix (환각 0점 버그) + 신뢰성 가드(`win_prob = avg×20±5` 강제) |
 | Phase Proposal 13-4 | 🆕 RFP 섹션 노란색 안내 박스 제거 (헤더 sub-text 와 중복) — 정보 보강된 sub-text 한 곳에 응집 |
+| Phase Contract 0 | 🆕 계약 모듈 기반 인프라 — DB 6개 테이블 + CRUD + 파일 + history (Audit Trail) + 자동채번 C-YYYY-NNNN + 8단계 상태 + 9종 유형. **신규 추가만, 기존 모듈 영향 0건** (manager+ RBAC) |
 
 ---
 
