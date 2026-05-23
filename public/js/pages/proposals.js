@@ -412,25 +412,55 @@ const ProposalsPage = (() => {
       //   ① 상단: RFP 등록 (파일 + 메타 + AI 분석 버튼)
       //   ② 중단: 제안 기본정보 (AI 자동채움 가능)
       //   ③ 하단: AI 제안전략 요약 (6섹션, 비고 자리 통합)
-      case 'basic':
-        wrap.innerHTML =
-          (e && e.id
-            ? `<div class="pr-tab-divider">📑 RFP 등록 & AI 분석</div>` +
-              _renderRfpTab(e) +
-              `<div class="pr-tab-divider">📋 제안 기본정보</div>`
-            : '') +
-          _renderBasicTab(e) +
-          (e && e.id
-            ? `<div class="pr-tab-divider">🤖 AI 제안전략 요약 (6섹션)</div>` +
-              _renderAiStrategySection(e)
-            : '');
+      case 'basic': {
+        // Phase 10-2: Stepper + Collapsible 섹션 UX 재설계
+        //   ① 1단계 RFP 등록 → ② 2단계 AI 분석 → ③ 3단계 제안 기본정보 검토 & 저장
+        if (e && e.id) {
+          const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
+          const step1Done = rfpFiles.length > 0; // RFP 파일 업로드 완료
+          const step2Done = !!(e.ai_strategy_md && String(e.ai_strategy_md).trim()); // AI 분석/요약 채워짐
+          // 임시 placeholder 제거 + 사용자가 실제 입력했는지
+          const realTitle = e.proposal_title && e.proposal_title !== '(임시)';
+          const realCustomer = e.customer_name && e.customer_name !== '(임시)';
+          const step3Done = realTitle && realCustomer; // 필수 기본정보 입력 완료
+          // 활성 단계 — 가장 첫 미완료 단계
+          const active = !step1Done ? 1 : !step2Done ? 2 : 3;
+          // 펼침 상태 — 활성 단계만 펼침, 완료된 단계는 접힘
+          const open = { 1: active === 1, 2: active === 2, 3: active === 3 };
+
+          wrap.innerHTML =
+            _renderStepper(step1Done, step2Done, step3Done, active) +
+            _renderStepSection(1, '📑 RFP 등록 & AI 분석', _summary1(rfpFiles, step1Done), {
+              active: active === 1,
+              done: step1Done,
+              open: open[1],
+              body: _renderRfpTab(e),
+            }) +
+            _renderStepSection(2, '🤖 AI 제안전략 요약', _summary2(e, step2Done), {
+              active: active === 2,
+              done: step2Done,
+              open: open[2],
+              body: _renderAiStrategySection(e),
+            }) +
+            _renderStepSection(3, '📋 제안 기본정보 검토 & 저장', _summary3(e, step3Done), {
+              active: active === 3,
+              done: step3Done,
+              open: open[3],
+              body: _renderBasicTab(e),
+            });
+        } else {
+          // 신규 모드 (임시 제안 생성 실패 시 fallback) — 기본정보 폼만
+          wrap.innerHTML = _renderBasicTab(e);
+        }
         _attachLeadCombobox();
         _attachQuoteCombobox(e.quote_id);
         if (e && e.id) {
           _bindFileEvents(e, 'rfp');
-          _bindAiTabEvents(e); // RFP 섹션의 AI 분석 버튼 + AI 요약 섹션의 복사
+          _bindAiTabEvents(e); // RFP 섹션의 AI 분석 버튼 + AI 요약 섹션의 복사/Word
+          _bindSectionToggle(); // Phase 10-2: 섹션 헤더 클릭 시 접기/펼치기
         }
         break;
+      }
       // ── 탭 2: 자료 & 견적 (Phase 8-D: 3섹션 명확 분리) ──
       //   ① 📦 제안 자료 (파일 업로드 + 목록)
       //   ② 📊 AI 평가 (수주확률 + 정성 메트릭 + 승리/리스크 요인)
@@ -457,6 +487,82 @@ const ProposalsPage = (() => {
       default:
         wrap.innerHTML = '';
     }
+  }
+
+  // ── Phase 10-2: Stepper + Collapsible 섹션 헬퍼 ─────────
+  // 상단 진행 스텝퍼 (3단계 시각화)
+  function _renderStepper(d1, d2, d3, active) {
+    const step = (num, label, meta, done) => {
+      const cls = done ? 'is-done' : active === num ? 'is-active' : 'is-pending';
+      return `<div class="pr-step ${cls}">
+        <div class="pr-step-num"><span class="pr-step-num-text">${num}</span></div>
+        <div class="pr-step-body">
+          <div class="pr-step-label">${label}</div>
+          <div class="pr-step-meta">${meta}</div>
+        </div>
+      </div>`;
+    };
+    return `<div class="pr-stepper">
+      ${step(1, 'RFP 업로드', 'PDF 첨부', d1)}
+      <div class="pr-step-connector"></div>
+      ${step(2, 'AI 분석', '전략 6섹션 자동 생성', d2)}
+      <div class="pr-step-connector"></div>
+      ${step(3, '검토 & 저장', '기본정보 확정', d3)}
+    </div>`;
+  }
+
+  // Collapsible 섹션 카드 (단계별)
+  function _renderStepSection(num, title, summary, opts) {
+    const { active, done, open, body } = opts || {};
+    const cls = [
+      'pr-section',
+      active ? 'is-active' : '',
+      done ? 'is-done' : '',
+      open ? 'is-open' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return `<div class="${cls}" data-step="${num}">
+      <div class="pr-section-header" data-section-toggle="${num}">
+        <div class="pr-section-title">
+          ${esc(title)} ${done ? '<span class="pr-section-badge">✓ 완료</span>' : ''}
+        </div>
+        <div class="pr-section-summary">${summary || ''}</div>
+        <div class="pr-section-toggle">▼</div>
+      </div>
+      <div class="pr-section-body">${body}</div>
+    </div>`;
+  }
+
+  // 단계별 summary (접힌 상태에서 보이는 1줄 요약)
+  function _summary1(rfpFiles, done) {
+    if (!done) return 'RFP 파일을 업로드하면 AI 분석으로 모든 정보가 자동 채워집니다';
+    const names = rfpFiles
+      .slice(0, 2)
+      .map(f => f.original_filename)
+      .join(', ');
+    return `${rfpFiles.length}개 파일${rfpFiles.length > 2 ? ' (' + names + ' 외)' : ' — ' + names}`;
+  }
+  function _summary2(e, done) {
+    if (!done) return '상단 [🤖 AI 분석] 클릭 → 6섹션 마크다운 자동 생성';
+    const len = String(e.ai_strategy_md || '').length;
+    return `6섹션 마크다운 — ${len.toLocaleString()}자`;
+  }
+  function _summary3(e, done) {
+    if (!done) return '제안명·고객사·예상금액 등 검토 후 [💾 저장]';
+    return `${e.proposal_title || ''} · ${e.customer_name || ''}`;
+  }
+
+  // 섹션 헤더 클릭 → 접기/펼치기 토글 (active/done 클래스는 유지)
+  function _bindSectionToggle() {
+    document.querySelectorAll('[data-section-toggle]').forEach(header => {
+      header.addEventListener('click', ev => {
+        // textarea/input/button 클릭은 토글 무시
+        if (ev.target.closest('input, textarea, button, a, select, label')) return;
+        const card = header.closest('.pr-section');
+        if (card) card.classList.toggle('is-open');
+      });
+    });
   }
 
   // ── 탭 1: 기본정보 (Phase 1 폼 재사용) ───────────────────
@@ -593,22 +699,19 @@ const ProposalsPage = (() => {
         ${_renderFileList(rfpFiles, e.id, 'rfp')}
       </div>
 
-      <!-- Phase 8-C: 통합 AI 분석 트리거 (RFP → 기본정보 + AI 요약 자동 채움) -->
-      <div style="margin-top:14px;padding:12px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:12px">
-        <div style="flex:1;font-size:12px;color:#6b21a8">
-          🤖 <strong>RFP 자동 분석</strong> —
-          ${
-            canAnalyze
-              ? `${analyzableFiles.length}건의 분석 가능 파일 중 <strong>첫 번째 파일</strong>을 Gemini 2.5 Pro 로 분석합니다.`
-              : hasRfpButUnanalyzable
-                ? '⚠️ 등록된 RFP 파일이 분석 불가 형식입니다. PDF / 이미지(PNG·JPG·WEBP) / 텍스트 만 지원.'
-                : '⚠️ 분석 가능한 RFP 파일을 먼저 업로드하세요.'
-          }
-        </div>
-        <button class="btn btn-primary" id="pr-ai-analyze-btn" type="button"
-          ${canAnalyze ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"'}>
-          🤖 AI 분석 ${e.ai_strategy_md ? '(다시 생성)' : ''}
-        </button>
+      <!-- Phase 10-2: 큰 CTA AI 분석 버튼 (강조 + 안내 통합) -->
+      <button class="pr-ai-cta" id="pr-ai-analyze-btn" type="button"
+        ${canAnalyze ? '' : 'disabled'}>
+        🤖 ${e.ai_strategy_md ? 'AI 분석 다시 시작' : 'AI 분석 시작'} — 모든 정보 자동 채움
+      </button>
+      <div class="pr-ai-cta-hint">
+        ${
+          canAnalyze
+            ? `Gemini 2.5 Pro 가 RFP 를 읽어 제안명·고객사·금액·일정·6섹션 전략을 자동 생성합니다 (약 10-30초)`
+            : hasRfpButUnanalyzable
+              ? '⚠️ 등록된 RFP 파일이 분석 불가 형식입니다 — PDF / 이미지(PNG·JPG·WEBP) / 텍스트만 지원'
+              : '⚠️ 분석 가능한 RFP 파일을 먼저 업로드하세요'
+        }
       </div>
     `;
   }

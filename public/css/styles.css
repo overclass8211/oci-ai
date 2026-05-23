@@ -9407,6 +9407,208 @@ body,
   }
 }
 
+/* ── Phase 10-2: 제안 모듈 기본탭 UX 재설계 (Stepper + Collapsible) ── */
+.pr-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, #fff5f5 0%, #fafafa 100%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+.pr-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.pr-step-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+  background: #e5e7eb;
+  color: #6b7280;
+  border: 2px solid #d1d5db;
+  transition: all 0.25s ease;
+}
+.pr-step.is-active .pr-step-num {
+  background: var(--oci-red);
+  color: #fff;
+  border-color: var(--oci-red);
+  box-shadow: 0 0 0 4px rgba(230, 51, 41, 0.15);
+}
+.pr-step.is-done .pr-step-num {
+  background: #16a34a;
+  color: #fff;
+  border-color: #16a34a;
+}
+.pr-step.is-done .pr-step-num::after {
+  content: '✓';
+}
+.pr-step.is-done .pr-step-num-text {
+  display: none;
+}
+.pr-step-body {
+  min-width: 0;
+}
+.pr-step-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1.3;
+  margin-bottom: 2px;
+}
+.pr-step.is-pending .pr-step-label {
+  color: var(--text-3);
+}
+.pr-step-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.3;
+}
+.pr-step-connector {
+  flex: 0 0 30px;
+  height: 2px;
+  background: #d1d5db;
+  margin: 0 8px;
+}
+.pr-step.is-done + .pr-step-connector {
+  background: #16a34a;
+}
+@media (max-width: 760px) {
+  .pr-step-connector {
+    flex: 0 0 14px;
+  }
+  .pr-step-meta {
+    display: none;
+  }
+}
+
+/* Collapsible 섹션 (각 단계 카드) */
+.pr-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+.pr-section.is-active {
+  border-color: var(--oci-red);
+  box-shadow: 0 2px 8px rgba(230, 51, 41, 0.08);
+}
+.pr-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: #fafafa;
+  border-bottom: 1px solid transparent;
+  transition: background 0.15s ease;
+}
+.pr-section-header:hover {
+  background: #f3f4f6;
+}
+.pr-section.is-active .pr-section-header {
+  background: #fff5f5;
+}
+.pr-section.is-open .pr-section-header {
+  border-bottom-color: var(--border);
+}
+.pr-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.pr-section-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #dcfce7;
+  color: #15803d;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.pr-section-summary {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-right: auto;
+  margin-left: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pr-section-toggle {
+  font-size: 14px;
+  color: var(--text-2);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.pr-section.is-open .pr-section-toggle {
+  transform: rotate(180deg);
+}
+.pr-section-body {
+  padding: 16px;
+  display: none;
+}
+.pr-section.is-open .pr-section-body {
+  display: block;
+}
+
+/* 큰 강조 AI 분석 버튼 (CTA) */
+.pr-ai-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, var(--oci-red) 0%, #c12824 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(230, 51, 41, 0.25);
+  margin-top: 14px;
+}
+.pr-ai-cta:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(230, 51, 41, 0.35);
+}
+.pr-ai-cta:active:not(:disabled) {
+  transform: translateY(0);
+}
+.pr-ai-cta:disabled {
+  background: #d1d5db;
+  color: #6b7280;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.pr-ai-cta-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
 /* Phase 6-A: 4-탭 통합 — 섹션 구분선 */
 .pr-tab-divider {
   display: flex;
