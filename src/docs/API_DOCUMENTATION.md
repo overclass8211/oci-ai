@@ -1,6 +1,6 @@
 # 🔌 OCI CRM AI — API 문서
 
-> **버전**: 2026.05 (Phase G3 + Contract Phase 0/1/2/3)
+> **버전**: 2026.05 (Phase G3 + Contract Phase 0/1/2/3/4)
 > **Base URL**: `https://<your-domain>/api` (Production) / `http://localhost:3001/api` (Dev)
 > **인증 방식**: JWT Bearer Token + HttpOnly Refresh Cookie
 
@@ -1496,7 +1496,68 @@ CASCADE 삭제 (파일 디스크 + history 자동 정리).
 **Phase 1** (v5.9.2): `status_change` 강화 — description 에 한글 라벨 + 이모지 (`✅ 발효 / 🔄 갱신 / ⏰ 만료 / ❌ 해지`)
 **Phase 2** (v5.9.1): `legal_review` — AI 법무 검토 실행 시 자동 기록
 **Phase 3** (v5.9.3): `template_apply` — 템플릿 기반 계약 생성 시 자동 기록 (description: `템플릿 적용: ⃝⃝ (STD-NDA) — C-2026-NNNN`)
-**Phase 4+** 향후 예정: `alert_sent` / `esign_request` / `esign_signed` 등
+**Phase 4** (v5.9.4): 알림 이력은 별도 `contract_alerts` 테이블에 영속 (history 와 분리). cron 처리 결과는 서버 로그 (`[contractAlerts] 처리: N건`)
+**Phase 5+** 향후 예정: `esign_request` / `esign_signed` 등
+
+---
+
+### 22-A.17 만료 알림 큐 (v5.9.4 — Phase 4)
+
+**자동 cron**: 매일 09:00 KST 에 `processAlertQueue()` 실행
+**2회 알림**: `D-renewal_notice_days` (기본 30) + `D-7` (최종 경고, 중복 시 1건)
+**채널**: `inapp` (기본 항상) + `email` (`.env CONTRACT_ALERT_EMAIL_ENABLED=1` 시)
+
+#### GET `/contracts/:id/alerts`
+계약별 알림 조회 (pending + sent + cancelled 전체).
+
+**Response**:
+```json
+{ "success": true, "data": [
+  { "id": 1, "contract_id": 42, "alert_type": "notice_30",
+    "scheduled_for": "2026-04-25", "sent_at": null,
+    "status": "pending", "channel": "inapp",
+    "created_at": "2026-03-24T10:00:00.000Z" },
+  { "id": 2, "contract_id": 42, "alert_type": "notice_7",
+    "scheduled_for": "2026-05-18", "sent_at": null,
+    "status": "pending", "channel": "inapp",
+    "created_at": "2026-03-24T10:00:00.000Z" }
+]}
+```
+
+#### DELETE `/contracts/alerts/:alertId`
+개별 알림 취소 (pending → cancelled).
+- 400: 이미 sent / cancelled 상태인 알림 (취소 불가)
+- 404: 알림 없음
+
+#### POST `/contracts/alerts/process`
+큐 수동 처리 (cron 트리거 대신, 테스트/admin용).
+
+**Response**:
+```json
+{ "success": true, "data": {
+  "processed": 5,
+  "errors": [],
+  "total_candidates": 5
+}}
+```
+
+#### 자동 enqueue/cancel 동작
+
+| 트리거 | 동작 |
+|--------|------|
+| POST `/contracts` (end_date 있음) | enqueue 2건 |
+| POST `/contracts/from-template/:id` (end_date 있음) | enqueue 2건 |
+| PUT `/contracts/:id` (end_date 변경) | pending cancel + 재 enqueue |
+| PUT `/contracts/:id` (renewal_notice_days 변경) | 재 enqueue |
+| PUT `/contracts/:id` (end_date NULL) | pending 모두 cancel |
+| PATCH `/contracts/:id/status` (→ terminated/expired) | pending 모두 cancel |
+
+모두 best-effort — 알림 실패해도 계약 작업 성공.
+
+#### 환경변수
+- `CONTRACT_ALERT_EMAIL_ENABLED=0|1` (기본 0)
+  - 1 일 때 계약 owner 의 Gmail OAuth 토큰 사용 → 자가 알림 발송
+  - 토큰 미연동 시 skip (in-app 만)
 
 ---
 

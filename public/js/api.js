@@ -330,6 +330,10 @@ const API = {
     // 템플릿 → 계약 자동 생성 (변수 치환 포함)
     fromTemplate: (templateId, body) =>
       API.post(`/contracts/from-template/${templateId}`, body),
+    // Phase 4 — 만료 알림 큐
+    alerts: id => API.get(`/contracts/${id}/alerts`),
+    cancelAlert: alertId => API.del(`/contracts/alerts/${alertId}`),
+    processAlerts: () => API.post('/contracts/alerts/process', {}),
   },
 
   // 견적서 (crm.quotes)

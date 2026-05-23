@@ -908,7 +908,7 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 | Phase 1 | CLM 워크플로우 (8단계 상태 전이 + 빠른 액션 + 만료 임박 표시) | ✅ |
 | Phase 2 | **AI 법무 검토** ⭐⭐⭐ (독소조항/누락/한국법규) | ✅ |
 | Phase 3 | 계약 템플릿 라이브러리 (5종 표준 + 변수 치환 + 미리보기) | ✅ |
-| Phase 4 | 만료 알림 (90/60/30/7일 + 자동 갱신 분기) | 예정 |
+| Phase 4 | 만료 알림 (renewal_notice_days + D-7 + cron + email 옵션) | ✅ |
 | Phase 5 | AI 협상 코칭 (불리한 조건 알림 + 카드 추천) | 예정 |
 | Phase 6 | 다국어 (한/영 대조 + 영문 요약) | 예정 |
 | Phase 7 | 전자서명 (모두싸인 통합) | 예정 |
@@ -975,7 +975,97 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 
 ### 📅 다음 Phase 안내
 
-Phase 4 (만료 알림) 또는 Phase 5 (AI 협상 코칭) 권장.
+Phase 5 (AI 협상 코칭), Phase 6 (다국어) 또는 Phase 7 (전자서명) 권장.
+
+---
+
+## ⏰ Phase 4 — 만료 알림 자동화 (v5.9.4 신규)
+
+> **자동화**: 매일 오전 9시 KST 에 만료 임박 알림 자동 처리
+> **위치**: 계약 편집 모달 하단 "⏰ 만료 알림" 섹션
+> **2회 알림**: D-`renewal_notice_days` (기본 30일) + D-7 (최종 경고)
+
+### 🚀 사용자 가치
+
+```
+계약 종료일 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 만료일
+                  ↑                  ↑
+              renewal_notice      D-7 (최종 경고)
+              (기본 30일)
+                  ↓                  ↓
+              in-app + email     in-app + email
+              자동 알림            자동 알림
+```
+
+### 🛠 동작 흐름
+
+1. **계약 생성/수정** → `end_date` 입력 → 알림 자동 enqueue (best-effort)
+2. **계약 편집 모달** → 알림 섹션에서 예정/발송/취소 이력 확인
+3. **cron (매일 09:00 KST)** → scheduled_for ≤ today 인 pending 처리 → status=sent
+4. **계약 상태가 terminated/expired** → pending 알림 자동 cancel
+
+### 📊 알림 상태 3가지
+
+| 상태 | 의미 | 표시 |
+|------|------|------|
+| `pending` | 발송 대기 | 🔵 예정 (취소 버튼 표시) |
+| `sent` | 발송 완료 | ✅ 발송완료 (sent_at 표시) |
+| `cancelled` | 취소됨 | ⚪ 취소됨 (회색) |
+
+### 🔔 알림 채널
+
+#### 1. in-app (항상 활성)
+- `contract_alerts` 테이블이 큐 역할
+- 계약 모달에서 직접 조회
+- 별도 UI 알림 (예: 토스트) 없음 — 사용자가 모달 열어서 확인하는 방식
+
+#### 2. email (옵션 — `.env CONTRACT_ALERT_EMAIL_ENABLED=1` 시)
+- 계약 owner_id 의 Gmail OAuth 토큰 사용 → 본인에게 자가 알림 발송
+- 토큰 미연동 시 skip (in-app 만 동작, 에러 없음)
+- 발송 실패해도 in-app 큐는 sent 갱신 (안정성)
+
+### ⏰ 알림 시점 — 사용자 커스터마이즈
+
+계약별 `renewal_notice_days` 필드 (기본 30) 로 1차 알림 시점 조정:
+
+| 설정 | 1차 알림 | 2차 알림 (고정) |
+|------|---------|---------------|
+| `renewal_notice_days=30` | D-30 | D-7 |
+| `renewal_notice_days=60` | D-60 | D-7 |
+| `renewal_notice_days=14` | D-14 | D-7 |
+| `renewal_notice_days=7` | D-7 (중복 — 1건만) | — |
+
+### 🔄 자동 동작
+
+| 트리거 | 동작 |
+|--------|------|
+| 계약 생성 (POST `/`) | end_date 있으면 자동 enqueue (2건) |
+| 템플릿 적용 (POST `/from-template/:id`) | end_date 있으면 자동 enqueue |
+| 계약 수정 (PUT `/:id`) — end_date 변경 | pending 모두 cancel 후 재 enqueue |
+| 계약 수정 — renewal_notice_days 변경 | 동일 (1차 시점 재계산) |
+| 계약 수정 — end_date 비움 | pending 모두 cancel |
+| 상태 전이 → terminated | pending 모두 cancel |
+| 상태 전이 → expired | pending 모두 cancel |
+
+### 🛠 관리자 도구
+
+- `GET /api/contracts/:id/alerts` — 계약별 알림 조회 (pending+sent+cancelled)
+- `DELETE /api/contracts/alerts/:alertId` — 개별 알림 취소 (pending → cancelled)
+- `POST /api/contracts/alerts/process` — 큐 수동 처리 (cron 트리거 대신, 테스트용)
+
+### 💌 이메일 발송 활성화 절차
+
+1. `.env` 에 `CONTRACT_ALERT_EMAIL_ENABLED=1` 추가
+2. 계약 owner 가 Google OAuth (Gmail 연동) 완료되어 있어야 함
+3. PM2 restart → 콘솔에 `[contractAlerts] ... email=on` 확인
+4. cron 트리거 시 owner 의 Gmail 로 본인에게 자가 알림 발송
+
+### 안전성 보장
+
+- 알림 처리 실패해도 계약 생성/수정 성공 (best-effort)
+- email 발송 실패해도 in-app 큐는 sent 갱신
+- 테스트 환경 (`NODE_ENV=test`) 에서는 cron 미등록
+- 한 번에 최대 500건 처리 (큐 폭주 방지)
 
 ---
 
@@ -1270,6 +1360,7 @@ PDF로 변환: PowerPoint/Word → 파일 → 내보내기 → PDF.
 | Phase Contract 2 | 🆕 ⭐⭐⭐ **AI 법무 검토** — Gemini 2.5 Pro Multimodal + 한국법(공정거래법/하도급법/개인정보보호법) 특화. 독소조항/누락조항/한국법규/수정안 4섹션 결과 카드 + 위험도 색상 코드 + risk_level↔review_score 일관성 가드 + 환각 fallback + 검토 이력 영속 (v5.9.1) |
 | Phase Contract 1 | 🆕 **CLM 워크플로우** — 8단계 상태 전이 매트릭스 (draft→review→negotiation→signing→active↔renewal/expired/terminated) + 빠른 액션 버튼 (모달 footer 동적) + signing→active 자동 start_date + 만료 임박 30일 ⚠️ 표시 + 잘못된 전이 거부 + history 강조 (v5.9.2) |
 | Phase Contract 3 | 🆕 **계약 템플릿 라이브러리** — 5종 표준 시드 (NDA/MSA/SLA/SOW/용역) + `{{변수명}}` 치환 + 자동 채움 (고객사/금액/날짜/담당자) + 실시간 미리보기 + 시드 보호 (STD-/USR- 접두) + 템플릿→계약 자동 생성 흐름 (v5.9.3) |
+| Phase Contract 4 | 🆕 **만료 알림 자동화** — 2회 알림 (D-`renewal_notice_days` + D-7) + cron (매일 09:00 KST) + in-app 큐 + email 옵션 (Gmail OAuth, `.env CONTRACT_ALERT_EMAIL_ENABLED=1`) + 자동 enqueue/cancel (terminated/expired/end_date 변경) + 편집 모달 알림 섹션 (예정/발송/취소 표시) (v5.9.4) |
 
 ---
 

@@ -378,7 +378,12 @@ const ContractsPage = (() => {
       bind,
       disableOverlayClose: true,
       onOpen: () => {
-        if (id) _bindFileEvents(id);
+        if (id) {
+          _bindFileEvents(id);
+          _loadAndRenderAlerts(id);
+          const refreshBtn = document.getElementById('ct-alerts-refresh-btn');
+          if (refreshBtn) refreshBtn.addEventListener('click', () => _loadAndRenderAlerts(id));
+        }
       },
     });
   }
@@ -520,6 +525,18 @@ const ContractsPage = (() => {
               <!-- Phase 2: AI 법무 검토 결과 카드 (최신 검토 자동 prefill) -->
               <div id="ct-legal-review-wrap" style="margin-top:14px">
                 ${e.latest_legal_review ? _renderLegalReview(e.latest_legal_review) : ''}
+              </div>
+
+              <!-- Phase 4: 만료 알림 큐 (편집 모드만) -->
+              <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <strong style="font-size:13px">⏰ 만료 알림</strong>
+                  <button class="btn btn-ghost btn-sm" id="ct-alerts-refresh-btn" type="button">🔄 새로고침</button>
+                </div>
+                <div style="margin-bottom:10px;padding:8px 12px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:11px;color:#1e40af">
+                  💡 종료일 기준 <strong>${e.renewal_notice_days || 30}일 전</strong> + <strong>7일 전</strong> 자동 알림 (매일 오전 9시 처리). 종료일이 비어있으면 알림 없음.
+                </div>
+                <div id="ct-alerts-wrap"><div style="padding:10px;text-align:center;color:var(--text-3);font-size:12px">⏳ 불러오는 중...</div></div>
               </div>
             </div>`
           : '<div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">💡 계약 등록 후 파일 첨부 + AI 법무 검토가 가능합니다</div>'
@@ -883,6 +900,87 @@ const ContractsPage = (() => {
     } catch (err) {
       Toast.error?.('삭제 실패: ' + (err.message || err));
     }
+  }
+
+  // ── Phase 4: 만료 알림 큐 UI ──────────────────────────────
+  async function _loadAndRenderAlerts(contractId) {
+    const wrap = document.getElementById('ct-alerts-wrap');
+    if (!wrap) return;
+    try {
+      const res = await API.contracts.alerts(contractId);
+      _renderAlertsList(wrap, contractId, res?.data || []);
+    } catch (err) {
+      wrap.innerHTML = `<div style="padding:10px;color:#dc2626;font-size:12px">알림 조회 실패: ${esc(err?.message || err)}</div>`;
+    }
+  }
+
+  function _renderAlertsList(wrap, contractId, alerts) {
+    if (!alerts.length) {
+      wrap.innerHTML = `<div style="padding:14px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:6px;border:1px dashed var(--border);font-size:12px">예정된 알림 없음 — 종료일 설정 후 [💾 저장] 하면 자동 등록됩니다</div>`;
+      return;
+    }
+    // 상태별 그룹
+    const pending = alerts.filter(a => a.status === 'pending');
+    const sent = alerts.filter(a => a.status === 'sent');
+    const cancelled = alerts.filter(a => a.status === 'cancelled');
+
+    const STATUS_META = {
+      pending: { label: '예정', color: '#3b82f6', bg: '#dbeafe' },
+      sent: { label: '발송완료', color: '#16a34a', bg: '#dcfce7' },
+      cancelled: { label: '취소됨', color: '#9ca3af', bg: '#f3f4f6' },
+    };
+
+    const renderRow = a => {
+      const meta = STATUS_META[a.status] || STATUS_META.cancelled;
+      const typeLabel = a.alert_type === 'notice_7' ? 'D-7 (최종 경고)' : (a.alert_type || '').replace('notice_', 'D-');
+      const scheduledDate = a.scheduled_for ? new Date(a.scheduled_for).toISOString().slice(0, 10) : '-';
+      const sentDate = a.sent_at ? new Date(a.sent_at).toISOString().slice(0, 16).replace('T', ' ') : null;
+      const cancelBtn = a.status === 'pending'
+        ? `<button class="btn btn-ghost btn-sm ct-alert-cancel" data-id="${a.id}" type="button" style="font-size:11px;padding:2px 6px;color:#dc2626">취소</button>`
+        : '';
+      return `<tr style="background:${a.status === 'cancelled' ? '#fafafa' : '#fff'}">
+        <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${meta.bg};color:${meta.color}">${esc(meta.label)}</span></td>
+        <td style="font-size:12px">${esc(typeLabel)}</td>
+        <td style="font-size:12px;font-family:monospace">${esc(scheduledDate)}</td>
+        <td style="font-size:11px;color:var(--text-3)">${sentDate ? esc(sentDate) : '-'}</td>
+        <td style="font-size:11px;color:var(--text-3)">${esc(a.channel || 'inapp')}</td>
+        <td style="text-align:center">${cancelBtn}</td>
+      </tr>`;
+    };
+
+    wrap.innerHTML = `
+      <div style="display:flex;gap:12px;margin-bottom:8px;font-size:11px;color:var(--text-3)">
+        <span>📅 예정 <strong style="color:#3b82f6">${pending.length}</strong></span>
+        <span>✅ 발송 <strong style="color:#16a34a">${sent.length}</strong></span>
+        <span>❌ 취소 <strong style="color:#9ca3af">${cancelled.length}</strong></span>
+      </div>
+      <table class="data-table" style="font-size:12px">
+        <thead><tr>
+          <th style="width:80px">상태</th>
+          <th style="width:130px">시점</th>
+          <th style="width:110px">예약일</th>
+          <th style="width:130px">발송일시</th>
+          <th style="width:70px">채널</th>
+          <th style="width:60px;text-align:center">작업</th>
+        </tr></thead>
+        <tbody>
+          ${alerts.map(renderRow).join('')}
+        </tbody>
+      </table>
+    `;
+
+    wrap.querySelectorAll('.ct-alert-cancel').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('이 알림을 취소하시겠습니까?')) return;
+        try {
+          await API.contracts.cancelAlert(parseInt(btn.dataset.id, 10));
+          Toast.success?.('알림 취소됨');
+          await _loadAndRenderAlerts(contractId);
+        } catch (err) {
+          Toast.error?.('취소 실패: ' + (err.message || err));
+        }
+      });
+    });
   }
 
   // Phase 2: 법무 검토 카드 닫기 버튼

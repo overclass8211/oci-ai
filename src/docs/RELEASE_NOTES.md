@@ -4,7 +4,85 @@
 
 ---
 
-## v5.9.3 (2026.05.23) — 현재 ⭐
+## v5.9.4 (2026.05.24) — 현재 ⭐
+
+### 🎯 메인 — **계약 모듈 Phase 4: 만료 알림 자동화 (cron + email)**
+
+종료일 임박 자동 알림 — 갱신 협상 시간 확보.
+
+#### 🚀 사용자 가치
+
+- **2회 알림**: 사용자 설정 (D-`renewal_notice_days`, 기본 30일) + 고정 (D-7, 최종 경고)
+- **자동 cron**: 매일 오전 9시 KST 처리 (FX/cleanup 패턴 재사용)
+- **In-app 큐**: 모달에서 예정/발송/취소 이력 직접 확인
+- **Email 옵션**: `.env CONTRACT_ALERT_EMAIL_ENABLED=1` 시 owner Gmail 발송 (안전 토글)
+
+#### 🐛 핫픽스 포함 (Commit 1 백엔드와 함께)
+
+**모달 'undefined' 버그 수정** — 운영 환경에서 발견된 심각한 버그:
+- 원인: `Modal.open()` API 잘못 사용 (`content`/`buttons`/`onMounted` ❌)
+- 수정: `body`/`footer`+`bind`/`onOpen` ✅ 정확한 API 적용
+- 영향 모달: 신규/편집/템플릿 선택/변수 입력 모두 정상화
+
+**행 클릭 → 편집 모달** — UX 개선:
+- 계약 목록 행 전체 클릭 시 편집 모달 자동 열림
+- 버튼은 `stopPropagation` 으로 안전 분리
+
+#### 🛠 기술 변경 (3 commits)
+
+##### Commit 1: 백엔드 큐 서비스 + 핫픽스 (`19c7b68`)
+- `src/services/contractAlerts.js` (신규, ~180줄):
+  - `enqueueExpiryAlerts(contractId, endDate, noticeDays)` — pending cancel 후 재 enqueue
+  - `cancelAlerts(contractId, reason)` — pending 만 cancel (sent 보존)
+  - `processAlertQueue({sendEmail, emailSender, now})` — cron 처리
+  - `_buildAlertMessage(contract, daysLeft)` — auto_renewal 분기 메시지
+  - 중복 방지 (D-7 ≡ 1차 일 시 1건만)
+- `src/routes/contracts.js` 통합:
+  - POST/PUT/PATCH/from-template 에 자동 enqueue/cancel (best-effort)
+  - 신규 endpoint 3개 (`GET /:id/alerts`, `DELETE /alerts/:alertId`, `POST /alerts/process`)
+- `tests/contracts.test.mjs` +5건
+
+##### Commit 2: cron 등록 + email 옵션 (`ed0e06a`)
+- `server.js`: `scheduleContractAlerts()` 신규 (매일 09:00 KST)
+- `.env`: `CONTRACT_ALERT_EMAIL_ENABLED` 신규 (기본 0)
+- email 발송기: 계약 owner_id 의 Gmail OAuth 토큰 사용 (없으면 skip)
+
+##### Commit 3: 프론트 UI + 문서 (이번)
+- `public/js/api.js`: `alerts(id)` / `cancelAlert(alertId)` / `processAlerts()`
+- `public/js/pages/contracts.js`:
+  - 편집 모달 하단에 알림 섹션 (예정/발송/취소 표 + 카운트)
+  - 모달 진입 시 자동 로드 + [🔄 새로고침] 버튼
+  - [취소] 버튼 (pending 만) — confirm 후 DELETE
+- 문서:
+  - `USER_MANUAL.md` Phase 4 섹션 (사용자 가치 + 동작 흐름 + 채널 + 안전성)
+  - `API_DOCUMENTATION.md` endpoint 3개 명세 + action_types `alert_sent`
+
+#### 📊 회귀 테스트
+- vitest: **신규 +5건 (총 31/31 contracts), 전체 407/407 (33 files)** — 기존 0건 회귀
+- lint: 0 errors / 0 warnings (모든 commit)
+
+#### 🛡 시스템 영향
+- 신규 서비스 파일 1개 + 라우트 미세 통합 (best-effort, 실패 시 계약 작업 영향 X)
+- DB 스키마 변경 0건 (Phase 0 에서 이미 `contract_alerts` 생성)
+- 환경변수 추가 1개 (`CONTRACT_ALERT_EMAIL_ENABLED`, 기본 OFF)
+- 테스트 환경: 서버 listen 안 함 → cron 미등록 → vitest 영향 X
+
+#### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+배포 후 콘솔 확인:
+```
+[contractAlerts] 만료 알림 자동 처리 등록 (다음 실행: 2026. 5. 25. AM 9:00:00, email=off)
+```
+
+#### 📅 다음 단계
+Phase 5 (AI 협상 코칭), Phase 6 (다국어), Phase 7 (전자서명) 권장.
+
+---
+
+## v5.9.3 (2026.05.23) — 직전 ⭐
 
 ### 🎯 메인 — **계약 모듈 Phase 3: 계약 템플릿 라이브러리 (5종 표준 + 변수 치환 + 미리보기)**
 
