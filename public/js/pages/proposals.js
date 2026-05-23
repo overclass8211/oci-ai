@@ -16,6 +16,15 @@ const ProposalsPage = (() => {
   // Phase 9-2: [+제안등록] 클릭 시 임시 제안 자동 생성 → 편집 모드 진입
   // [저장] 시 false 로 전환. [닫기] 시 true 면 자동 DELETE (사용자가 RFP 업로드한 경우 confirm)
   let _isTempProposal = false;
+  // Phase 11-B: 목록 뷰 모드 (table | card) — localStorage 영속
+  const VIEW_KEY = 'pr-list-view-mode';
+  let _viewMode = (() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'card' ? 'card' : 'table';
+    } catch (_) {
+      return 'table';
+    }
+  })();
 
   // 상태 → 한국어 라벨 / 색상
   const STATUS_LABEL = {
@@ -135,7 +144,12 @@ const ProposalsPage = (() => {
         <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2)">
           <input type="checkbox" id="pr-due-soon"> 마감임박 (7일)
         </label>
-        <div style="margin-left:auto;display:flex;gap:8px">
+        <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+          <!-- Phase 11-B: 뷰 토글 (테이블 / 카드) -->
+          <div class="pr-view-toggle" role="tablist" aria-label="목록 표시 형식">
+            <button type="button" data-view="table" class="${_viewMode === 'table' ? 'is-active' : ''}" title="테이블 뷰">☰ 목록</button>
+            <button type="button" data-view="card" class="${_viewMode === 'card' ? 'is-active' : ''}" title="카드 뷰">▦ 카드</button>
+          </div>
           <button class="btn btn-primary" id="pr-new-btn">+ 제안 등록</button>
         </div>
       </div>
@@ -148,6 +162,25 @@ const ProposalsPage = (() => {
     document.getElementById('pr-search').addEventListener('input', _debounce(_reload, 250));
     document.getElementById('pr-status').addEventListener('change', _reload);
     document.getElementById('pr-due-soon').addEventListener('change', _reload);
+    // Phase 11-B: 뷰 토글 핸들러
+    document.querySelectorAll('.pr-view-toggle button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.view;
+        if (next === _viewMode) return;
+        _viewMode = next;
+        try {
+          localStorage.setItem(VIEW_KEY, next);
+        } catch (_) {}
+        document.querySelectorAll('.pr-view-toggle button').forEach(b => {
+          b.classList.toggle('is-active', b.dataset.view === next);
+        });
+        const wrap = document.getElementById('pr-list-wrap');
+        if (wrap && _list) {
+          wrap.innerHTML = _renderList(_list);
+          _bindListEvents();
+        }
+      });
+    });
 
     await _reload();
   }
@@ -174,6 +207,10 @@ const ProposalsPage = (() => {
         등록된 제안이 없습니다. <br>우측 상단의 [+ 제안 등록] 버튼을 눌러 시작하세요.
       </div>`;
     }
+    return _viewMode === 'card' ? _renderCardList(rows) : _renderTableList(rows);
+  }
+
+  function _renderTableList(rows) {
     return `
       <table class="data-table">
         <thead>
@@ -221,10 +258,67 @@ const ProposalsPage = (() => {
     `;
   }
 
+  // Phase 11-B: 카드 뷰 렌더 (반응형 그리드 — auto-fill min 290px)
+  function _renderCardList(rows) {
+    return `
+      <div class="pr-card-grid">
+        ${rows
+          .map(r => {
+            const due = r.due_date ? _fmtDate(r.due_date) : '-';
+            const isOverdue =
+              r.due_date && new Date(r.due_date) < new Date() && r.status !== 'accepted';
+            const amount = r.expected_amount
+              ? esc(Fmt.amount(r.expected_amount, r.currency || 'KRW'))
+              : '-';
+            return `
+        <div class="pr-card" data-id="${r.id}">
+          <div class="pr-card-header">
+            <span class="pr-card-no">${esc(r.proposal_no)}</span>
+            <span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span>
+          </div>
+          <div class="pr-card-title">
+            <a href="#" class="pr-link" data-id="${r.id}">${esc(r.proposal_title || '(제안명 미입력)')}</a>
+          </div>
+          <div class="pr-card-meta">
+            <div class="pr-card-meta-row" title="고객사">
+              🏢 <strong>${esc(r.customer_name || '-')}</strong>
+            </div>
+            <div class="pr-card-meta-row pr-card-amount" title="예상금액">
+              💰 ${amount}
+            </div>
+            <div class="pr-card-meta-row ${isOverdue ? 'pr-card-due-overdue' : ''}" title="제출기한">
+              📅 제출기한: ${due}${isOverdue ? ' (마감 초과)' : ''}
+            </div>
+            ${
+              r.quote_no
+                ? `<div class="pr-card-meta-row" title="연결 견적" style="font-family:monospace;font-size:11px;color:var(--text-3)">
+                    📄 ${esc(r.quote_no)}
+                  </div>`
+                : ''
+            }
+          </div>
+          <div class="pr-card-footer">
+            <div class="pr-card-stats">
+              ${r.file_count > 0 ? `<span title="파일">📎 ${r.file_count}</span>` : ''}
+              <span title="담당자">👤 ${esc(r.owner_name || '미배정')}</span>
+            </div>
+            <div class="pr-card-actions">
+              <button class="btn btn-ghost btn-sm" data-act="edit" data-id="${r.id}">상세</button>
+              <button class="btn btn-ghost btn-sm" data-act="delete" data-id="${r.id}" style="color:#d93025">삭제</button>
+            </div>
+          </div>
+        </div>`;
+          })
+          .join('')}
+      </div>
+    `;
+  }
+
   function _bindListEvents() {
     document.querySelectorAll('.pr-link').forEach(a => {
       a.addEventListener('click', e => {
         e.preventDefault();
+        e.stopPropagation();
         const id = parseInt(a.dataset.id, 10);
         _openModal(id);
       });
@@ -232,10 +326,20 @@ const ProposalsPage = (() => {
     document.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', e => {
         e.preventDefault();
+        e.stopPropagation();
         const id = parseInt(btn.dataset.id, 10);
         const act = btn.dataset.act;
         if (act === 'edit') _openModal(id);
         else if (act === 'delete') _delete(id);
+      });
+    });
+    // Phase 11-B: 카드 전체 클릭 시 모달 열기 (.pr-link/버튼 클릭은 stopPropagation 으로 제외)
+    document.querySelectorAll('.pr-card[data-id]').forEach(card => {
+      card.addEventListener('click', e => {
+        // 안쪽 a/button 클릭은 위 핸들러가 stopPropagation
+        if (e.target.closest('a, button')) return;
+        const id = parseInt(card.dataset.id, 10);
+        if (id) _openModal(id);
       });
     });
   }
