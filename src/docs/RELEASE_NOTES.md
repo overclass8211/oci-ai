@@ -4,7 +4,147 @@
 
 ---
 
-## v5.4 (2026.05.23) — 현재 ⭐
+## v5.6 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 Phase 11: AI 평가 영속 + Outlook 연동 + 목록 카드뷰**
+
+사용자 피드백 3건 반영 — 데이터 영속성 + 메일앱 다양화 + 시각화 옵션.
+
+#### 1. 💾 AI 평가 결과 영속화 (Phase 11-A)
+
+**증상**: AI 제안평가 → 저장 → 모달 닫기 → 다시 열기 → **평가 결과가 사라짐**
+**원인**: `_renderEvalSection()` 이 빈 div 만 렌더 (DB 이력은 남지만 모달 재진입 시 표시 안 함)
+**Fix**:
+- 백엔드 `GET /:id` 응답에 `latest_evaluation` 신규 필드 추가
+  · `proposal_evaluations` 최신 1건 + 파일명 자동 조회 (ORDER BY generated_at DESC LIMIT 1)
+  · `evaluation_json` 파싱 → covered_items / missing_items / quality_metrics / win_factors / risk_factors 등 풀어서 노출
+- 프론트 `_renderEvalSection(e)`:
+  · `e.latest_evaluation` 있으면 카드 자동 prefill
+  · 안내 배너 강화: "💾 최근 평가 이력 자동 불러옴 — 커버율 N% · 수주확률 N%"
+  · `[✕ 닫기]` 버튼 추가 (사용자가 일시 숨김 가능)
+
+#### 2. 📧 Outlook(mailto) 발송 옵션 (Phase 11-A)
+
+**기존**: Gmail OAuth 발송만 (Google 연동 필요)
+**개선**: 발송 옵션 3가지 — 사용자가 메일 환경에 맞춰 선택
+
+| 옵션 | 동작 | 권장 |
+|------|------|------|
+| **📧 메일앱(Outlook) 발송** | mailto URL → OS 기본 메일앱 자동 실행 | 회사 표준 Outlook 사용자 |
+| **✉️ Gmail 발송** | Gmail OAuth 직접 발송 + 자동 첨부 | Google Workspace 사용자 |
+| **📥 첨부 파일 다운로드** | 선택 파일들 일괄 다운로드 (250ms 간격) | 메일앱 수동 첨부 보완 |
+
+- mailto URL 2000자 한계 검증 → 긴 본문은 Gmail 권장
+- 견적 모듈 mailto 패턴 재사용
+
+#### 3. 🗂 제안 목록 카드뷰 + 뷰 전환 토글 (Phase 11-B)
+
+**기존**: 테이블 뷰만
+**개선**: **카드 뷰 추가** + 사용자가 토글로 전환 (`[☰ 목록] [▦ 카드]`)
+
+- 반응형 그리드: auto-fill min 290px → 1열~4열 자동 조정
+- 카드 전체 클릭 = 모달 열기
+- hover 시 OCI Red border + 부드러운 transform
+- 사용자 선호 localStorage 영속 (`pr-list-view-mode`)
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음**
+- **신규 npm 의존성 0개**
+- **변경 파일**:
+  - `src/routes/proposals.js` — `GET /:id` 응답에 `latest_evaluation` 추가
+  - `public/js/pages/proposals.js` — `_renderEvalSection(e)` prefill + 발송 옵션 3개 핸들러 + 뷰 토글 + 카드뷰 렌더 + `_viewMode` 영속
+  - `public/css/styles.css` — `.pr-view-toggle` / `.pr-card-grid` / `.pr-card-*` 신규 (+126)
+
+### 📊 회귀 테스트
+- vitest: **44/44 (proposals) 통과**
+- lint: 0 errors / 0 warnings
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+---
+
+## v5.5 (2026.05.23) — 이전
+
+### 🎯 메인 — **제안 모듈 Phase 10: 디자이너 관점 UX 재설계 + Quick Fix 6건**
+
+사용자 피드백 6건 반영 — 인지 부하 감소 + 워크플로우 시각화 + Quick Fix.
+
+#### 1. 🐛 Word 다운로드 401 인증 fix (Phase 10-1)
+**증상**: `[📄 Word 다운로드]` 클릭 → "로그인이 필요합니다" 401 에러
+**원인**: fetch 호출 시 잘못된 토큰 키 사용 (`authToken`/`userId`)
+**Fix**: 올바른 키로 변경 (`oci_token`/`current_user_id`, API.js 와 동일)
+
+#### 2. 🎨 기본탭 UX 재설계 (Phase 10-2) — 핵심 개선
+**기존 구조 (Phase 8-C)**: 3섹션 세로 나열 (RFP + 기본정보 + AI 요약) — 세로 스크롤 길고 AI 분석 버튼이 묻힘
+**개선 구조 (Phase 10-2)**: **Stepper + Collapsible + 큰 CTA**
+
+```
+[① RFP 업로드] ─── [② AI 분석] ─── [③ 검토 & 저장]
+   현재 단계          (대기중)           (대기중)
+
+📑 1단계: RFP 등록 & AI 분석 (펼침/활성)
+  └ 드롭존 + 파일 목록 + [══ 🤖 AI 분석 시작 ══]  ← 큰 OCI Red CTA
+
+🤖 2단계: AI 제안전략 요약 (접힘) — "6섹션 마크다운 — 1,247자" ▼
+📋 3단계: 제안 기본정보 검토 & 저장 (접힘) — 요약 ▼
+```
+
+**디자인 의도:**
+- 시각적 진행감 (Stepper) — 사용자가 어디까지 왔는지 한눈에
+- 포커스 집중 (Collapsible) — 활성 단계만 펼침
+- AI 분석 prominence (큰 CTA 가로 버튼) — 절대 놓치지 않음
+- 단계별 요약 (접힘 시에도 핵심 정보 1줄)
+
+#### 3. 🏷 탭 제목 변경 (Phase 10-1)
+- `"📦 자료 & 견적"` → `"📊 제안평가"` (핵심 기능 명확화)
+
+#### 4. 📋 PPTX AI 분석 안내 강화 (Phase 10-1)
+- 제안평가 탭 상단에 **노란색 안내 배너** 추가
+- "PPT/DOC/HWP/XLS 는 평가 전에 PDF 로 변환해서 업로드하세요 (PowerPoint: 파일 → 내보내기 → PDF)"
+
+#### 5. 🛡 AI 코칭 에러 사전 차단 (Phase 10-1)
+**기존**: `[AI제안평가]` 클릭 → 서버 호출 후에야 비호환 안내 → Gemini 비용/시간 낭비
+**개선**: confirm 이전에 RFP 파일 분석 가능 형식 사전 검증 → 즉시 안내
+- RFP 비호환: "PPT/DOC/HWP/XLS 는 PDF 로 변환 후 다시 업로드"
+- RFP 없음: "기본정보 탭의 RFP 영역에 PDF 파일을 먼저 업로드"
+
+#### 6. 🔤 자료 작업 컬럼 한글화 (Phase 10-1)
+- `[📊]` 아이콘 → **AI제안평가** 텍스트
+- `[⬇️]` 아이콘 → **다운로드** 텍스트
+- `[🗑️]` 아이콘 → **삭제** 텍스트
+- 평가 불가 시 `—` → **"평가 불가"** 텍스트 + 안내 tooltip
+
+#### 7. 📚 문서 갱신 (Phase 10-3)
+- `USER_MANUAL.md` — Stepper UX 안내 + 탭명 변경 + 작업 컬럼 한글화
+- `RELEASE_NOTES.md` (현재 파일)
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음** — UI/UX 만 개선
+- **신규 npm 의존성 0개**
+- **변경 파일**:
+  - `public/js/pages/proposals.js` — Stepper + Collapsible 헬퍼 + 토글 핸들러 + 인증 토큰 키 + 한글화 + 사전 검증
+  - `public/css/styles.css` — `.pr-stepper` / `.pr-section` / `.pr-ai-cta` 신규 (+167)
+  - `src/docs/USER_MANUAL.md` / `RELEASE_NOTES.md` — 문서 갱신
+
+### 📊 회귀 테스트
+- vitest: **44/44 (proposals) 통과**
+- lint: 0 errors / 0 warnings
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+- DB 스키마 변경 없음 — 마이그레이션 불필요
+- Service Worker 캐시 자동 갱신
+
+---
+
+## v5.4 (2026.05.23) — 직전
 
 ### 🎯 메인 — **제안 모듈 Phase 9: UX 개선 + 임시 제안 + Word 다운로드**
 
