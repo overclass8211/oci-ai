@@ -4,7 +4,59 @@
 
 ---
 
-## v5.7 (2026.05.23) — 현재 ⭐
+## v5.8 (2026.05.23) — 현재 ⭐
+
+### 🎯 메인 — **제안 모듈 Phase 13: 기본탭 2섹션 통합 (3개 → 2개 카드)**
+
+사용자 피드백 — 불필요한 항목 정리, RFP 작업을 한 카드에 응집.
+
+#### 🎨 기본탭 카드 구조 단순화
+
+**기존 (Phase 10/12 누적)**:
+```
+Stepper: [① RFP 업로드] → [② AI 분석] → [③ 검토 & 저장]
+├─ 1단계: 📑 RFP 등록 & AI 분석 (메타 + 드롭존 + 파일 목록 + 안내만)
+├─ 2단계: 🤖 AI 제안전략 요약 (큰 CTA + 6섹션 textarea)
+└─ 3단계: 📋 제안 기본정보 (3열 그리드)
+```
+
+**개선 (Phase 13)**:
+```
+Stepper: [① RFP 등록 & AI 분석] → [② 검토 & 저장]
+├─ 1단계: 📑 RFP 등록 & AI 분석 (모든 RFP 작업 통합)
+│         · 메타 입력 + 드롭존 + 파일 목록
+│         · 큰 CTA [🤖 AI 분석 시작]
+│         · 6섹션 마크다운 textarea + Word 다운로드 + 복사
+└─ 2단계: 📋 제안 기본정보 검토 & 저장 (3열 그리드)
+```
+
+**효과**:
+- 카드 개수 3 → 2 (간결화)
+- "RFP → 분석 → 요약" 흐름이 한 카드에 응집 → 사용자 컨텍스트 유지
+- Stepper 더 단순 (2단계 = 사용자 멘탈 모델 매칭)
+
+### 🛠 기술 변경
+
+- **DB 스키마 변경 없음** — UI/UX 만 개선
+- **변경 파일**:
+  - `public/js/pages/proposals.js`:
+    · `_renderActiveTab` 'basic' case — 3섹션 → 2섹션 통합
+    · `_renderStepper2` 신규 (2단계 stepper)
+    · `_summary1` 시그니처 변경 — `(rfpFiles, hasAiStrategy, done)` AI 상태 반영
+    · `step1Done` 조건 = `hasRfp && hasAiStrategy` (둘 다 완료해야 ✓)
+
+### 📊 회귀 테스트
+- vitest: **44/44 (proposals) 통과**
+- lint: 0 errors / 0 warnings
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+---
+
+## v5.7 (2026.05.23) — 직전
 
 ### 🎯 메인 — **제안 모듈 Phase 12: AI 분석 위치 이동 + AI평가 큰 CTA + JSON 파싱 강화**
 

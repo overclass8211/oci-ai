@@ -660,15 +660,18 @@ API 호출 로그 + 성능 모니터링:
   - RFP 파일/AI 분석 결과 없으면 자동 DELETE
   - 있으면 confirm: "업로드한 RFP 파일 및 AI 분석 결과가 함께 삭제됩니다"
 
-### 1️⃣ 기본정보 탭 (Phase 10 Stepper UX 재설계)
+### 1️⃣ 기본정보 탭 (Phase 13 — 2단계 통합 UX)
 
-**상단 Stepper (3단계 시각화):**
+**상단 Stepper (2단계로 단순화):**
 ```
-[① RFP 업로드] ─── [② AI 분석] ─── [③ 검토 & 저장]
-   현재 단계          (대기중)           (대기중)
+[① RFP 등록 & AI 분석] ─── [② 검토 & 저장]
+   현재 단계                  (대기중)
 ```
 - 단계 번호 원형: 활성=🔴 OCI Red 강조 / 완료=🟢 녹색 ✓ / 대기=⚪ 회색
-- 진행에 따라 자동 갱신 (RFP 업로드 → ✓ → AI 분석 활성화 등)
+- 진행에 따라 자동 갱신 (RFP 업로드 + AI 분석 모두 완료 시 ✓)
+
+> Phase 13: 기존 3개 카드 (RFP / AI 요약 / 기본정보) → **2개 카드**로 통합.
+> RFP 등록과 AI 분석을 같은 카드에 응집하여 사용자 컨텍스트 유지.
 
 **Collapsible 카드 동작:**
 - **활성 단계만 펼침** (나머지는 접힌 상태 + 1줄 요약)
@@ -916,7 +919,8 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 | Phase Proposal 9 | [+제안등록] = 임시 제안 자동 생성 + 고객사/제안일/제출기한 자동 채움 + 입력값 보존 버그 fix + 미리보기 → Word(.docx) 다운로드 |
 | Phase Proposal 10 | 기본탭 UX 재설계 (Stepper + Collapsible + 큰 CTA) + 자료&견적 → 제안평가 탭명 변경 + 작업 컬럼 한글화 + PPTX 안내 강화 + AI 코칭 사전 검증 + Word 다운로드 인증 fix |
 | Phase Proposal 11 | AI 평가 이력 영속 (모달 재진입 시 결과 유지) + Outlook(mailto) 발송 옵션 + 첨부 파일 일괄 다운로드 + 제안 목록 카드뷰/뷰 전환 토글 |
-| Phase Proposal 12 | 🆕 AI 분석 버튼 1단계→2단계 이동 (워크플로우 자연스러움) + 제안평가 큰 CTA + 작업 컬럼 정리 + JSON 파싱 강화 (RFP-제안서 미스매치 fallback) |
+| Phase Proposal 12 | AI 분석 버튼 1단계→2단계 이동 (워크플로우 자연스러움) + 제안평가 큰 CTA + 작업 컬럼 정리 + JSON 파싱 강화 (RFP-제안서 미스매치 fallback) |
+| Phase Proposal 13 | 🆕 기본탭 2섹션 통합 (3개 카드 → 2개) — RFP 등록 & AI 분석 한 카드에 응집 + Stepper 2단계로 단순화 |
 
 ---
 
