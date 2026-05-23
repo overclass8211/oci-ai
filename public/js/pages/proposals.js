@@ -13,6 +13,9 @@ const ProposalsPage = (() => {
   let _teamCache = [];
   let _comboboxes = [];
   let _activeTab = 'basic'; // 현재 활성 탭
+  // Phase 9-2: [+제안등록] 클릭 시 임시 제안 자동 생성 → 편집 모드 진입
+  // [저장] 시 false 로 전환. [닫기] 시 true 면 자동 DELETE (사용자가 RFP 업로드한 경우 confirm)
+  let _isTempProposal = false;
 
   // 상태 → 한국어 라벨 / 색상
   const STATUS_LABEL = {
@@ -248,9 +251,10 @@ const ProposalsPage = (() => {
     }
   }
 
-  // ── 모달 (Phase 2: 7개 탭 구조) ──────────────────────────
+  // ── 모달 (Phase 8-C: 3-탭, Phase 9-2: 신규는 임시 제안 자동 생성) ──
   async function _openModal(id) {
     _editing = null;
+    _isTempProposal = false;
     _cleanupInstances();
     _activeTab = 'basic'; // 항상 기본정보 탭으로 시작
 
@@ -265,26 +269,38 @@ const ProposalsPage = (() => {
         Toast.error('제안 정보 불러오기 실패: ' + (err.message || err));
         return;
       }
+    } else {
+      // Phase 9-2: 신규 = 임시 제안 자동 생성 → 편집 모드 진입
+      //   - proposal_no 자동 채번 (백엔드)
+      //   - 필수값 통과를 위해 '(임시)' placeholder 사용
+      //   - 모달 열린 직후엔 빈 값으로 표시 (저장 시 사용자 실제 입력 필요)
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const r = await API.proposals.create({
+          proposal_title: '(임시)',
+          customer_name: '(임시)',
+          proposal_date: today,
+          status: 'draft',
+        });
+        // 응답에서 받은 임시 제안을 즉시 다시 fetch 해서 _editing 전체 채움 (files/history 등 포함)
+        const full = await API.proposals.get(r.data.id);
+        _editing = full.data;
+        _isTempProposal = true;
+        // 임시 placeholder 값은 UI 에서 빈칸으로 표시 (저장 시 사용자가 실제 값 입력 필요)
+        _editing.proposal_title = '';
+        _editing.customer_name = '';
+      } catch (err) {
+        Toast.error('제안 생성 실패: ' + (err.message || err));
+        return;
+      }
     }
 
-    const e = _editing || {
-      proposal_no: '(저장 시 자동 생성)',
-      proposal_title: '',
-      customer_name: '',
-      proposal_date: new Date().toISOString().slice(0, 10),
-      status: 'draft',
-      lead_id: null,
-      customer_id: null,
-      quote_id: null,
-      due_date: '',
-      owner_id: null,
-      expected_amount: '',
-      currency: 'KRW',
-      remark: '',
-    };
+    const e = _editing;
 
     Modal.open({
-      title: id ? `📝 제안 상세 — ${esc(e.proposal_no)} (${_statusLabel(e.status)})` : '✏️ 새 제안 등록',
+      title: _isTempProposal
+        ? `✏️ 새 제안 작성 — ${esc(e.proposal_no)}`
+        : `📝 제안 상세 — ${esc(e.proposal_no)} (${_statusLabel(e.status)})`,
       width: 1180,
       body: _renderModalBody(e),
       footer: `
@@ -293,10 +309,7 @@ const ProposalsPage = (() => {
       `,
       disableOverlayClose: true,
       bind: {
-        '#pr-cancel-btn': () => {
-          _cleanupInstances();
-          Modal.close();
-        },
+        '#pr-cancel-btn': () => _closeAndCleanup(),
         '#pr-save-btn': () => _save(),
       },
       onOpen: () => {
@@ -304,6 +317,37 @@ const ProposalsPage = (() => {
         _renderActiveTab(e);
       },
     });
+  }
+
+  // Phase 9-2: 모달 닫기 + 임시 제안 정리
+  //   - 임시 제안 (저장 전) → RFP 업로드/AI 분석한 경우 confirm, 아니면 자동 DELETE
+  //   - 정상 제안 (저장 후) → 그냥 닫기
+  async function _closeAndCleanup() {
+    if (_isTempProposal && _editing && _editing.id) {
+      const files = Array.isArray(_editing.files) ? _editing.files : [];
+      const hasUploadedContent =
+        files.length > 0 ||
+        (_editing.rfp_title && String(_editing.rfp_title).trim()) ||
+        (_editing.ai_strategy_md && String(_editing.ai_strategy_md).trim());
+      if (hasUploadedContent) {
+        const ok = confirm(
+          '⚠️ 작성 중인 제안을 닫으시겠습니까?\n업로드한 RFP 파일 및 AI 분석 결과가 함께 삭제됩니다.'
+        );
+        if (!ok) return; // 닫기 취소
+      }
+      // 임시 제안 + CASCADE 로 파일/이력 모두 삭제
+      try {
+        await API.proposals.delete(_editing.id);
+      } catch (_) {
+        /* 무시 — 어차피 모달 닫음 */
+      }
+    }
+    _cleanupInstances();
+    Modal.close();
+    if (_isTempProposal) {
+      // 임시 제안 삭제 후 목록 갱신 (사용자가 보고 있을 수 있음)
+      await _reload();
+    }
   }
 
   function _renderModalBody(e) {
@@ -1496,24 +1540,18 @@ const ProposalsPage = (() => {
     const rfpSummary = get('pr-f-rfp_summary', e.rfp_summary || '');
     // Phase 8-C: AI 제안전략 요약 textarea (편집 가능 — 비고 자리에 통합됨)
     const aiStrategyMd = get('pr-f-ai_strategy_md', e.ai_strategy_md || '');
-    // 편집 모드만 RFP/AI 필드 전송 (신규는 기본정보만)
-    if (_editing) {
-      body.rfp_title = rfpTitle || null;
-      body.rfp_received_date = rfpReceived || null;
-      body.rfp_due_date = rfpDue || null;
-      body.rfp_summary = rfpSummary || null;
-      // Phase 8-C: textarea 에서 직접 읽음 (사용자 편집 + AI 결과 모두 반영)
-      body.ai_strategy_md = aiStrategyMd || null;
-    }
+    // Phase 9-2: _editing 항상 truthy (신규도 임시 제안 자동 생성됨) → RFP/AI 필드 항상 전송
+    body.rfp_title = rfpTitle || null;
+    body.rfp_received_date = rfpReceived || null;
+    body.rfp_due_date = rfpDue || null;
+    body.rfp_summary = rfpSummary || null;
+    body.ai_strategy_md = aiStrategyMd || null;
 
     try {
-      if (_editing) {
-        await API.proposals.update(_editing.id, body);
-        Toast.success('제안 수정됨');
-      } else {
-        const res = await API.proposals.create(body);
-        Toast.success(`제안 생성됨 — ${res.data?.proposal_no || ''}`);
-      }
+      // Phase 9-2: 신규/편집 통합 — 항상 PUT 사용 (임시 제안이 이미 백엔드에 존재)
+      await API.proposals.update(_editing.id, body);
+      Toast.success(_isTempProposal ? `제안 생성됨 — ${_editing.proposal_no || ''}` : '제안 수정됨');
+      _isTempProposal = false; // 저장 후 정상 제안으로 전환
       _cleanupInstances();
       Modal.close();
       await _reload();
