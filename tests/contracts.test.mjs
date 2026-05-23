@@ -278,6 +278,168 @@ describe('Contracts API — Phase 0', () => {
     expect(historyAfter.length).toBe(0);
   });
 
+  // ── Phase 4: 만료 알림 큐 ─────────────────────────────────
+  it('POST / — end_date 있는 계약 생성 시 알림 자동 enqueue (1차 + D-7)', async () => {
+    // 미래의 종료일 (예: 60일 후)
+    const future = new Date();
+    future.setDate(future.getDate() + 60);
+    const endDateStr = future.toISOString().slice(0, 10);
+
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__alert_enqueue',
+        customer_name: '__TEST__',
+        contract_type: 'service',
+        start_date: '2026-05-24',
+        end_date: endDateStr,
+        renewal_notice_days: 30,
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    // 알림 enqueue 는 비동기 (catch 만 등록) — 약간 대기
+    await new Promise(r => setTimeout(r, 200));
+
+    const alerts = await api()
+      .get(`/api/contracts/${id}/alerts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(alerts.status).toBe(200);
+    expect(alerts.body.data.length).toBe(2); // 30일 전 + 7일 전
+    const types = alerts.body.data.map(a => a.alert_type);
+    expect(types).toContain('notice_30');
+    expect(types).toContain('notice_7');
+    expect(alerts.body.data.every(a => a.status === 'pending')).toBe(true);
+  });
+
+  it('POST / — renewal_notice_days=7 시 중복 방지 (D-7 1건만)', async () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 30);
+    const endDateStr = future.toISOString().slice(0, 10);
+
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__alert_dedup',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+        end_date: endDateStr,
+        renewal_notice_days: 7,
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const alerts = await api()
+      .get(`/api/contracts/${id}/alerts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(alerts.body.data.length).toBe(1); // 중복 제거
+    expect(alerts.body.data[0].alert_type).toBe('notice_7');
+  });
+
+  it('PATCH /:id/status — terminated 전이 시 pending 알림 모두 cancel', async () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 90);
+    const endDateStr = future.toISOString().slice(0, 10);
+
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__alert_cancel',
+        customer_name: '__TEST__',
+        contract_type: 'MSA',
+        end_date: endDateStr,
+        renewal_notice_days: 30,
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    // 해지로 전이
+    await api()
+      .patch(`/api/contracts/${id}/status`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'terminated' });
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const alerts = await api()
+      .get(`/api/contracts/${id}/alerts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(alerts.body.data.every(a => a.status === 'cancelled')).toBe(true);
+  });
+
+  it('DELETE /alerts/:alertId — 개별 pending 알림 취소', async () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 60);
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__alert_del',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+        end_date: future.toISOString().slice(0, 10),
+        renewal_notice_days: 30,
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const alerts = await api()
+      .get(`/api/contracts/${id}/alerts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    const alertId = alerts.body.data[0].id;
+    const del = await api()
+      .delete(`/api/contracts/alerts/${alertId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(del.status).toBe(200);
+
+    const after = await api()
+      .get(`/api/contracts/${id}/alerts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    const target = after.body.data.find(a => a.id === alertId);
+    expect(target.status).toBe('cancelled');
+  });
+
+  it('POST /alerts/process — 큐 처리 (scheduled_for ≤ today 인 알림만 sent 로 갱신)', async () => {
+    // 과거 종료일 → 모든 알림이 이미 scheduled_for 가 지난 상태
+    const past = new Date();
+    past.setDate(past.getDate() - 1); // 어제 만료
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__alert_process',
+        customer_name: '__TEST__',
+        contract_type: 'service',
+        end_date: past.toISOString().slice(0, 10),
+        renewal_notice_days: 30,
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    await new Promise(r => setTimeout(r, 200));
+
+    const process = await api()
+      .post('/api/contracts/alerts/process')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(process.status).toBe(200);
+    expect(process.body.data.processed).toBeGreaterThanOrEqual(2);
+
+    const after = await api()
+      .get(`/api/contracts/${id}/alerts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(after.body.data.every(a => a.status === 'sent')).toBe(true);
+    expect(after.body.data.every(a => a.sent_at !== null)).toBe(true);
+  });
+
   // ── Phase 3: 계약 템플릿 라이브러리 ──────────────────────────
   it('GET /templates — 시드 템플릿 5종 + is_seed=true 마크', async () => {
     const res = await api()

@@ -282,10 +282,25 @@ const ContractsPage = (() => {
       </table>
     `;
     wrap.querySelectorAll('.ct-edit-btn').forEach(b => {
-      b.addEventListener('click', () => _openModal(parseInt(b.dataset.id, 10)));
+      b.addEventListener('click', e => {
+        e.stopPropagation();
+        _openModal(parseInt(b.dataset.id, 10));
+      });
     });
     wrap.querySelectorAll('.ct-del-btn').forEach(b => {
-      b.addEventListener('click', () => _doDelete(parseInt(b.dataset.id, 10)));
+      b.addEventListener('click', e => {
+        e.stopPropagation();
+        _doDelete(parseInt(b.dataset.id, 10));
+      });
+    });
+    // 행 전체 클릭 → 편집 모달 (proposals 동작과 같이)
+    wrap.querySelectorAll('tbody tr').forEach(tr => {
+      const editBtn = tr.querySelector('.ct-edit-btn');
+      if (!editBtn) return;
+      tr.style.cursor = 'pointer';
+      tr.addEventListener('click', () => {
+        _openModal(parseInt(editBtn.dataset.id, 10));
+      });
     });
   }
 
@@ -342,13 +357,27 @@ const ContractsPage = (() => {
       onClick: () => _doSave(id),
     });
 
+    // Modal.open 표준 API (body/footer/bind/onOpen) 로 변환
+    // buttons 배열 → footer HTML + bind 맵 (CSP-safe)
+    const footerHtml = buttons
+      .map(b => {
+        const klass = b.kind === 'primary' ? 'btn btn-primary' : b.kind === 'danger' ? 'btn btn-danger' : 'btn btn-ghost';
+        return `<button class="${klass}" data-ct-action="${esc(b.label)}">${esc(b.label)}</button>`;
+      })
+      .join(' ');
+    const bind = {};
+    buttons.forEach(b => {
+      bind[`[data-ct-action="${b.label}"]`] = b.onClick;
+    });
+
     Modal.open({
       title: id ? `📜 계약 편집 — ${editing.contract_no}` : '📜 새 계약 등록',
-      width: '900px',
-      content: _renderForm(editing),
-      buttons,
+      width: 1000,
+      body: _renderForm(editing),
+      footer: footerHtml,
+      bind,
       disableOverlayClose: true,
-      onMounted: () => {
+      onOpen: () => {
         if (id) _bindFileEvents(id);
       },
     });
@@ -897,8 +926,8 @@ const ContractsPage = (() => {
 
     Modal.open({
       title: '📋 템플릿 선택 — 표준 계약서에서 빠르게 시작',
-      width: '760px',
-      content: `
+      width: 900,
+      body: `
         <div style="margin-bottom:12px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;font-size:12px;color:#1e40af">
           💡 표준 템플릿을 선택하면 변수(회사명/금액/날짜 등) 입력 후 계약이 자동 생성됩니다.
         </div>
@@ -910,9 +939,7 @@ const ContractsPage = (() => {
                 ? '<span style="font-size:9px;padding:1px 6px;background:#16a34a;color:#fff;border-radius:8px;margin-left:4px" title="시스템 표준 템플릿">STD</span>'
                 : '<span style="font-size:9px;padding:1px 6px;background:#6b7280;color:#fff;border-radius:8px;margin-left:4px" title="사용자 정의">USR</span>';
               return `<div class="ct-tpl-card" data-id="${t.id}" tabindex="0" role="button"
-                style="cursor:pointer;padding:14px;border:2px solid var(--border);border-radius:8px;background:#fff;transition:all .15s;display:flex;flex-direction:column;gap:8px"
-                onmouseover="this.style.borderColor='var(--oci-red,#E63329)';this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 8px rgba(0,0,0,0.08)'"
-                onmouseout="this.style.borderColor='var(--border)';this.style.transform='translateY(0)';this.style.boxShadow='none'">
+                style="cursor:pointer;padding:14px;border:2px solid var(--border);border-radius:8px;background:#fff;transition:all .15s;display:flex;flex-direction:column;gap:8px">
                 <div style="font-size:24px">${meta.icon}</div>
                 <div>
                   <div style="font-weight:600;font-size:13px;margin-bottom:2px">${esc(t.name)}${badge}</div>
@@ -926,14 +953,26 @@ const ContractsPage = (() => {
             .join('')}
         </div>
       `,
-      buttons: [{ label: '취소', kind: 'ghost', onClick: () => Modal.close() }],
-      onMounted: () => {
+      footer: `<button class="btn btn-ghost" id="ct-tpl-cancel-btn">취소</button>`,
+      bind: {
+        '#ct-tpl-cancel-btn': () => Modal.close(),
+      },
+      onOpen: () => {
         document.querySelectorAll('.ct-tpl-card').forEach(card => {
           card.addEventListener('click', () => {
             const id = parseInt(card.dataset.id, 10);
             Modal.close();
-            // 약간의 딜레이로 모달 전환 부드럽게
             setTimeout(() => _openTemplateApplyForm(id), 100);
+          });
+          card.addEventListener('mouseenter', () => {
+            card.style.borderColor = 'var(--oci-red,#E63329)';
+            card.style.transform = 'translateY(-2px)';
+            card.style.boxShadow = '0 4px 8px rgba(0,0,0,0.08)';
+          });
+          card.addEventListener('mouseleave', () => {
+            card.style.borderColor = 'var(--border)';
+            card.style.transform = 'translateY(0)';
+            card.style.boxShadow = 'none';
           });
           card.addEventListener('keydown', e => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -961,8 +1000,8 @@ const ContractsPage = (() => {
     const variables = Array.isArray(tpl.variables) ? tpl.variables : [];
     Modal.open({
       title: `📋 ${tpl.name} — 변수 입력`,
-      width: '900px',
-      content: `
+      width: 1100,
+      body: `
         <div style="margin-bottom:14px;padding:10px 14px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:12px;color:#92400e">
           💡 필수(<span style="color:#dc2626">*</span>) 변수를 입력하면 본문에 자동 치환됩니다. 미리보기를 확인 후 [➕ 계약 생성]을 누르세요.
         </div>
@@ -1033,16 +1072,16 @@ const ContractsPage = (() => {
           </div>
         </div>
       `,
-      buttons: [
-        { label: '취소', kind: 'ghost', onClick: () => Modal.close() },
-        {
-          label: '➕ 계약 생성',
-          kind: 'primary',
-          onClick: () => _doApplyTemplate(templateId, tpl),
-        },
-      ],
+      footer: `
+        <button class="btn btn-ghost" id="ct-tpl-apply-cancel">취소</button>
+        <button class="btn btn-primary" id="ct-tpl-apply-save">➕ 계약 생성</button>
+      `,
+      bind: {
+        '#ct-tpl-apply-cancel': () => Modal.close(),
+        '#ct-tpl-apply-save': () => _doApplyTemplate(templateId, tpl),
+      },
       disableOverlayClose: true,
-      onMounted: () => {
+      onOpen: () => {
         _initTemplateMetaDefaults(tpl);
         _refreshTemplatePreview(tpl);
         // 입력 변경 → 실시간 미리보기 (debounce 200ms)

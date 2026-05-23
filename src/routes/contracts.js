@@ -40,6 +40,7 @@ const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { analyzeContractLegal } = require('../services/gemini');
 const { CONTRACT_TEMPLATE_SEEDS, isSeedTemplateCode } = require('../data/contractTemplateSeeds');
+const contractAlerts = require('../services/contractAlerts');
 
 router.use(requireFeature('crm.contracts'));
 
@@ -646,12 +647,10 @@ router.post('/templates', async (req, res) => {
       templateCode = `USR-${Date.now()}`;
     }
     if (isSeedTemplateCode(templateCode)) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: 'STD- 로 시작하는 template_code 는 시스템 시드 예약입니다',
-        });
+      return res.status(400).json({
+        success: false,
+        error: 'STD- 로 시작하는 template_code 는 시스템 시드 예약입니다',
+      });
     }
     const variables = Array.isArray(body.variables) ? body.variables : [];
     const [result] = await pool.query(
@@ -826,6 +825,15 @@ router.post('/from-template/:templateId', async (req, res) => {
     });
 
     await conn.commit();
+
+    // Phase 4: end_date 있으면 알림 enqueue (best-effort)
+    if (endDate) {
+      const noticeDays = Number(body.renewal_notice_days) || 30;
+      contractAlerts
+        .enqueueExpiryAlerts(contractId, endDate, noticeDays)
+        .catch(e => console.warn('[contracts:from-template] alert enqueue failed:', e.message));
+    }
+
     res.json({
       success: true,
       id: contractId,
@@ -1111,6 +1119,15 @@ router.post('/', async (req, res) => {
     });
 
     await conn.commit();
+
+    // Phase 4: end_date 있으면 만료 알림 자동 enqueue (best-effort, 계약 생성 성공에 영향 X)
+    if (endDate) {
+      const noticeDays = Number(body.renewal_notice_days) || 30;
+      contractAlerts
+        .enqueueExpiryAlerts(contractId, endDate, noticeDays)
+        .catch(e => console.warn('[contracts:create] alert enqueue failed:', e.message));
+    }
+
     res.json({
       success: true,
       id: contractId,
@@ -1217,6 +1234,32 @@ router.put('/:id', async (req, res) => {
     }
 
     await conn.commit();
+
+    // Phase 4: end_date 또는 renewal_notice_days 변경 시 알림 reschedule
+    const endDateChanged =
+      body.end_date !== undefined &&
+      String(prev.end_date || '').slice(0, 10) !== String(body.end_date || '').slice(0, 10);
+    const noticeDaysChanged =
+      body.renewal_notice_days !== undefined &&
+      Number(prev.renewal_notice_days) !== Number(body.renewal_notice_days);
+    if (endDateChanged || noticeDaysChanged) {
+      const newEnd = body.end_date !== undefined ? toYMD(body.end_date) : prev.end_date;
+      const newNotice =
+        body.renewal_notice_days !== undefined
+          ? Number(body.renewal_notice_days) || 30
+          : prev.renewal_notice_days || 30;
+      if (newEnd) {
+        contractAlerts
+          .enqueueExpiryAlerts(id, newEnd, newNotice)
+          .catch(e => console.warn('[contracts:update] alert reschedule failed:', e.message));
+      } else {
+        // end_date 가 비워지면 모두 cancel
+        contractAlerts
+          .cancelAlerts(id, 'end_date_removed')
+          .catch(e => console.warn('[contracts:update] alert cancel failed:', e.message));
+      }
+    }
+
     res.json({ success: true, data: { id } });
   } catch (err) {
     await conn.rollback();
@@ -1353,6 +1396,14 @@ router.patch('/:id/status', async (req, res) => {
     });
 
     await conn.commit();
+
+    // Phase 4: terminated / expired 로 전이 시 pending 알림 cancel
+    if (newStatus === 'terminated' || newStatus === 'expired') {
+      contractAlerts
+        .cancelAlerts(id, `status_change_to_${newStatus}`)
+        .catch(e => console.warn('[contracts:status] alert cancel failed:', e.message));
+    }
+
     res.json({
       success: true,
       data: {
@@ -1652,6 +1703,59 @@ router.get('/:id/legal-reviews', async (req, res) => {
     }));
 
     res.json({ success: true, data });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// =============================================================
+// Phase 4: 만료 알림 큐 API
+// =============================================================
+
+// GET /:id/alerts — 계약별 알림 조회 (pending + sent + cancelled 전체)
+router.get('/:id/alerts', async (req, res) => {
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    if (!contractId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [rows] = await pool.query(
+      `SELECT * FROM contract_alerts
+        WHERE contract_id = ?
+        ORDER BY scheduled_for ASC, id ASC`,
+      [contractId]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// DELETE /alerts/:alertId — 개별 알림 취소 (pending → cancelled)
+router.delete('/alerts/:alertId', async (req, res) => {
+  try {
+    const alertId = parseInt(req.params.alertId, 10);
+    if (!alertId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [[alert]] = await pool.query(`SELECT id, status FROM contract_alerts WHERE id = ?`, [
+      alertId,
+    ]);
+    if (!alert) return res.status(404).json({ success: false, error: '알림을 찾을 수 없음' });
+    if (alert.status !== 'pending') {
+      return res
+        .status(400)
+        .json({ success: false, error: `${alert.status} 상태의 알림은 취소할 수 없습니다` });
+    }
+    await pool.query(`UPDATE contract_alerts SET status = 'cancelled' WHERE id = ?`, [alertId]);
+    res.json({ success: true, data: { id: alertId } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST /alerts/process — 알림 큐 수동 처리 (cron 대신 트리거)
+// Commit 2 에서 cron 등록 시 자동 실행되지만, 관리자/테스트용 수동 트리거 유지
+router.post('/alerts/process', async (req, res) => {
+  try {
+    const result = await contractAlerts.processAlertQueue({});
+    res.json({ success: true, data: result });
   } catch (err) {
     handleError(res, err);
   }
