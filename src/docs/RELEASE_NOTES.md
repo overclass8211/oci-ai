@@ -4,7 +4,128 @@
 
 ---
 
-## v5.9.0 (2026.05.23) — 현재 ⭐
+## v5.9.1 (2026.05.23) — 현재 ⭐⭐⭐
+
+### 🎯 메인 — **계약 모듈 Phase 2: AI 법무 검토 ⭐⭐⭐ (핵심 차별화 기능)**
+
+Gemini 2.5 Pro Multimodal 기반 한국법 특화 계약서 자동 검토.
+
+#### 🚀 사용자 가치
+
+```
+계약서 PDF 1장 + [🤖 법무] 클릭 + 30-60초 대기 = 변호사 1시간 비용 대체
+```
+
+**1회 약 500-1000원 (Gemini Pro API)**으로:
+- 독소조항 자동 탐지 (책임 한계, 일방적 종료권, 위약금 과다, 경업금지 과다 등)
+- 누락 조항 알림 (비밀유지, 손해배상 상한, 관할법원, 분쟁해결, 하자보수 등)
+- 한국 법규 부합 검증 (공정거래법 / 하도급법 / 개인정보보호법)
+- 수정안 자동 제안 (각 위험 항목별 구체적 한국 표준 문구)
+
+#### 🛡 신뢰성 가드 (환각 방지)
+
+**risk_level ↔ review_score 일관성 강제** (사용자 우려 사항 사전 차단):
+- AI 가 두 값을 어긋나게 반환 시 → score 기준으로 risk_level 자동 보정 + 콘솔 경고
+- 예: review_score=85 인데 AI가 risk_level='high' 반환 → 자동 'low' 로 보정
+
+**JSON 파싱 강화** (Phase 12-C 패턴 재사용):
+- markdown fence 제거 → 첫 `{` ~ 마지막 `}` 추출 → 재파싱
+- 그래도 실패하면 friendly fallback 응답 (계약서가 아닌 파일 안내)
+
+**프롬프트 자가 검증** (응답 직전 4가지 일치 확인):
+1. risk_level 이 review_score 임계값(<40 high, 40-69 medium, ≥70 low)과 일치하는가?
+2. toxic_clauses 가 0건이면 review_score ≥ 70 인가?
+3. toxic_clauses 중 severity='high' 가 있으면 review_score < 70 인가?
+4. legal_compliance 중 하나라도 compliant=false 이면 risk_level ≠ 'low' 인가?
+
+#### 🎨 UI 디자인
+
+**파일 행 작업 컬럼**:
+```
+| 유형     | 파일명             | 크기     | 등록일       | 작업                             |
+|---------|--------------------|---------|------------|----------------------------------|
+| contract| 계약서_v1.pdf      | 2.3 MB  | 2026.05.23 | [🤖 법무] [다운로드] [삭제]      |
+| contract| ppt파일.pptx       | 1.1 MB  | 2026.05.23 | — [다운로드] [삭제]              |
+```
+- `_isAnalyzable()` — PDF/PNG/JPG/WEBP/TXT/MD 만 [🤖 법무] 버튼 활성화
+- 그 외 형식은 `—` 표시 (PDF 변환 안내)
+
+**결과 카드 — 색상 코드**:
+- 🔴 High (0-39점): 적색 — 즉시 재협상 필요
+- 🟡 Medium (40-69점): 황색 — 중요 위험 존재
+- 🟢 Low (70-100점): 녹색 — 경미한 보완 필요
+
+**4섹션 표시**:
+1. 점수 카드 + 위험 항목 요약 (독소/누락/개선 건수)
+2. 한국 법규 부합 (3대 법규 ✅/⚠️)
+3. 독소조항 (원문 인용 + 문제점 + 수정안)
+4. 누락조항 + 개선 제안 + 종합 평가 (마크다운)
+
+#### 💾 영속화 + 이력 관리
+
+- DB 영속: `contract_legal_reviews` (Phase 0 에서 이미 생성)
+- 같은 파일 여러 번 검토 → 모든 이력 보존 (최대 50건 조회)
+- 메인 `contracts` 테이블: 마지막 검토의 `legal_review_score`/`ai_review_summary` 자동 반영
+- `contract_history` 에 `legal_review` 액션 자동 기록
+- **모달 재진입 시 최신 검토 자동 표시** (`latest_legal_review` prefill — proposals Phase 11-A 패턴)
+
+### 🛠 기술 변경
+
+#### 신규 함수
+- `src/services/gemini.js`: `analyzeContractLegal({ contractPath, contractMime, userId, endpoint })`
+  - CONTRACT_LEGAL_PROMPT — 한국법 특화 시스템 프롬프트
+  - 사전 검증: API key, 파일 존재, mime 호환, 파일 크기 (30MB 한도)
+  - 사후 정규화: toxic_clauses/missing_clauses/legal_compliance 모든 필드 길이 제한 + 일관성 가드
+
+#### 신규 엔드포인트 2개
+- `POST /api/contracts/:id/files/:fileId/legal-review` — 검토 실행 + DB 영속 + 메인 테이블 score 반영 + history 기록
+- `GET  /api/contracts/:id/legal-reviews` — 이력 조회 (최대 50건)
+- `GET  /api/contracts/:id` 확장 — `latest_legal_review` 필드 신규 (prefill 용)
+
+#### 신규 헬퍼
+- `API.contracts.legalReview(id, fileId)` — POST 호출 wrapper
+- `API.contracts.legalReviews(id)` — GET 호출 wrapper
+
+#### 프론트 UI
+- `_renderLegalReview(data)` — 결과 카드 렌더링
+- `_isAnalyzable(filename)` — PDF/이미지/텍스트 형식 검증
+- `_bindLegalCloseBtn()` — 결과 카드 [✕ 닫기]
+- 파일 행 [🤖 법무] 버튼 + confirm 다이얼로그 (비용/시간 안내)
+
+### 📊 회귀 테스트
+- vitest: **신규 +3건 (총 17/17 contracts) 통과**, 전체 **393/393 (33 files)** — 기존 0건 영향
+- lint: 0 errors / 0 warnings
+- e2e: 기존 시나리오 영향 없음 (메뉴/페이지 구조 동일)
+
+### 🛡 시스템 영향 평가
+- **신규 함수 추가만** — `analyzeProposalRFP`/`evaluateProposalAgainstRFP` 무변경
+- **GET /:id 응답 확장** — 신규 필드만 추가 (하위 호환)
+- DB 스키마 변경 0건 (Phase 0 에서 이미 `contract_legal_reviews` 테이블 생성)
+- 기존 모듈 영향 0건
+
+### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+배포 후 즉시 동작:
+- 계약 편집 모달 → 첨부 파일 옆 [🤖 법무] 버튼 활성화
+- Gemini API 키가 `.env` 에 설정되어 있으면 실제 검토 작동
+- 미설정 시 friendly error 메시지
+
+### 💰 비용 모니터링
+
+기존 `ai_usage` 테이블에 자동 기록 (endpoint='contract_legal_review'):
+- `prompt_tokens` + `completion_tokens` 추적
+- 관리자 페이지에서 월별 사용량 조회 가능
+
+### 📅 다음 단계
+
+Phase 3 (계약 템플릿 라이브러리) 또는 Phase 1 (CLM 워크플로우) 진입 권장.
+
+---
+
+## v5.9.0 (2026.05.23) — 직전
 
 ### 🎯 메인 — **계약 모듈 Phase 0: 기반 인프라 (Contract Lifecycle Management 시작)**
 

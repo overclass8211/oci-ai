@@ -1,6 +1,6 @@
 # 🔌 OCI CRM AI — API 문서
 
-> **버전**: 2026.05 (Phase G3 + Contract Phase 0)
+> **버전**: 2026.05 (Phase G3 + Contract Phase 0 + Contract Phase 2 AI 법무)
 > **Base URL**: `https://<your-domain>/api` (Production) / `http://localhost:3001/api` (Dev)
 > **인증 방식**: JWT Bearer Token + HttpOnly Refresh Cookie
 
@@ -1491,10 +1491,123 @@ CASCADE 삭제 (파일 디스크 + history 자동 정리).
 
 파일 삭제 (디스크 + DB row + history 기록).
 
-### 22-A.10 history action_types (Phase 0)
-`create` / `update` / `status_change` / `file_upload` / `file_delete`
+### 22-A.10 history action_types
+**Phase 0**: `create` / `update` / `status_change` / `file_upload` / `file_delete`
+**Phase 2** (v5.9.1 신규): `legal_review` — AI 법무 검토 실행 시 자동 기록
+**Phase 3+** 향후 예정: `template_apply` / `alert_sent` / `esign_request` / `esign_signed` 등
 
-Phase 1+ 에서 추가 예정: `legal_review` / `template_apply` / `alert_sent` / `esign_request` / `esign_signed` 등
+---
+
+### 22-A.11 POST `/contracts/:id/files/:fileId/legal-review` ⭐⭐⭐ (v5.9.1)
+
+AI 법무 검토 실행 (Gemini 2.5 Pro Multimodal · 한국법 특화).
+
+**비용**: 1회 약 500-1000원 (Gemini Pro API 토큰)
+**소요 시간**: 30-60초
+**분석 가능 형식**: PDF / PNG / JPG / WEBP / TXT / MD
+
+**Body** (선택):
+```json
+{ "language": "ko" }
+```
+
+**Response**:
+```json
+{ "success": true, "data": {
+  "id": 42,
+  "target_file_id": 7,
+  "target_filename": "contract_v1.pdf",
+  "review_score": 72,
+  "risk_level": "medium",
+  "toxic_clauses": [
+    {
+      "clause_type": "책임 한계",
+      "severity": "high",
+      "location": "제8조 1항",
+      "original_text": "본 계약 위반으로 인한 손해배상은 최대 1만원으로...",
+      "why_problematic": "손해배상 상한이 비현실적으로 낮음 — 공정거래법 무효 가능성",
+      "suggested_fix": "계약금액의 100%를 한도로 한다 로 변경 권장"
+    }
+  ],
+  "missing_clauses": [
+    { "clause_type": "비밀유지", "importance": "high",
+      "suggested_addition": "양 당사자는 본 계약 수행 중 알게 된 영업 비밀을..." }
+  ],
+  "legal_compliance": {
+    "fair_trade_act": { "compliant": false, "issues": ["손해배상 상한 무효 가능성"] },
+    "subcontract_act": { "compliant": true, "issues": [] },
+    "privacy_act": { "compliant": true, "issues": [] }
+  },
+  "improvement_suggestions": [
+    { "section": "제8조", "suggestion": "책임 한계 재협상 필요" }
+  ],
+  "overall_assessment": "## 1. 종합 평가\n- 중간 위험...",
+  "generated_at": "2026-05-23T22:00:00.000Z"
+}}
+```
+
+**동시 효과** (자동):
+- `contract_legal_reviews` 테이블에 INSERT (영속)
+- `contracts.legal_review_score` / `ai_review_summary` 자동 갱신
+- `contract_history` 에 `legal_review` 액션 자동 기록
+
+**에러 응답**:
+| HTTP | 사유 |
+|------|------|
+| 400 | 유효한 ID 누락 |
+| 404 | 계약/파일 없음 |
+| 500 | Gemini API 키 미설정 / API 호출 실패 / 파일 손상 |
+
+### 22-A.12 GET `/contracts/:id/legal-reviews` (v5.9.1)
+
+검토 이력 조회 (최대 50건).
+
+**Response**:
+```json
+{ "success": true, "data": [
+  { "id": 42, "target_file_id": 7, "target_filename": "contract_v1.pdf",
+    "review_score": 72, "risk_level": "medium",
+    "toxic_clauses": [...], "missing_clauses": [...],
+    "legal_compliance": {...}, "improvement_suggestions": [...],
+    "overall_assessment": "...", "language": "ko",
+    "generated_by": 1, "generated_by_name": "김매니저",
+    "generated_at": "2026-05-23T22:00:00.000Z" },
+  ...
+]}
+```
+
+### 22-A.13 GET `/contracts/:id` — latest_legal_review 확장 (v5.9.1)
+
+기존 단건 조회 응답에 `latest_legal_review` 필드 추가 (모달 재진입 시 prefill 용).
+
+**Response 추가 필드**:
+```json
+{ "success": true, "data": {
+  ...,
+  "latest_legal_review": {
+    "id": 42, "target_file_id": 7, "target_filename": "contract_v1.pdf",
+    "review_score": 72, "risk_level": "medium",
+    "toxic_clauses": [...], "missing_clauses": [...],
+    "legal_compliance": {...}, "improvement_suggestions": [...],
+    "overall_assessment": "...", "language": "ko",
+    "generated_at": "2026-05-23T22:00:00.000Z"
+  }
+}}
+```
+- 검토 이력 없으면 `null`
+
+### 22-A.14 신뢰성 가드 (v5.9.1)
+
+**risk_level ↔ review_score 일관성 강제** (backend 후처리):
+- `review_score < 40` → `risk_level = 'high'` 강제
+- `40 ≤ score < 70` → `risk_level = 'medium'`
+- `score ≥ 70` → `risk_level = 'low'`
+- AI 가 일치하지 않게 반환 시 자동 보정 + 콘솔 `[gemini:analyzeContractLegal] risk_level 보정` 경고 로그
+
+**JSON 파싱 fallback** (Phase 12-C 패턴):
+- 1차: JSON.parse(raw text)
+- 2차: markdown fence 제거 + 첫/마지막 brace 추출 후 재시도
+- 3차 실패 → friendly fallback 응답 (`_parseError: true`, overall_assessment 에 안내 메시지)
 
 ---
 
