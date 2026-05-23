@@ -360,7 +360,7 @@ async function logHistory(conn, contractId, userId, actionType, opts = {}) {
   }
 }
 
-// 허용 상태값 (CLM 워크플로우 — Phase 1 에서 전이 검증 추가)
+// 허용 상태값 (CLM 워크플로우 — Phase 1 전이 검증 활성화)
 const ALLOWED_STATUS = [
   'draft', // 초안
   'review', // 검토중
@@ -371,6 +371,43 @@ const ALLOWED_STATUS = [
   'expired', // 만료
   'terminated', // 해지
 ];
+
+// Phase 1: 상태 전이 매트릭스 (사용자 승인 받은 8단계 워크플로우)
+// 정방향: draft → review → negotiation → signing → active
+// 되돌리기: review→draft / negotiation→review / signing→negotiation (1단계만)
+// 갱신 사이클: active ↔ renewal
+// 종료: active/renewal → expired or terminated
+// 해지: 어디서든 → terminated (단, expired/terminated 자신 제외, 그리고 terminated 에서는 어디로도 못 감)
+const STATUS_TRANSITIONS = {
+  draft: ['review', 'terminated'],
+  review: ['draft', 'negotiation', 'terminated'],
+  negotiation: ['review', 'signing', 'terminated'],
+  signing: ['negotiation', 'active', 'terminated'],
+  active: ['renewal', 'expired', 'terminated'],
+  renewal: ['active', 'expired', 'terminated'],
+  expired: ['terminated'],
+  terminated: [],
+};
+
+// 상태 라벨 (history 메시지용 — 한글)
+const STATUS_LABELS_KO = {
+  draft: '초안',
+  review: '검토중',
+  negotiation: '협상중',
+  signing: '서명진행',
+  active: '발효',
+  renewal: '갱신중',
+  expired: '만료',
+  terminated: '해지',
+};
+
+// 전이가 유효한지 검증
+function _isValidTransition(from, to) {
+  if (from === to) return false; // 자기 자신으로 전이 금지
+  const allowedTargets = STATUS_TRANSITIONS[from];
+  if (!allowedTargets) return false; // 알 수 없는 from
+  return allowedTargets.includes(to);
+}
 
 const ALLOWED_CONTRACT_TYPES = [
   'NDA', // 비밀유지계약
@@ -811,6 +848,114 @@ router.delete('/:id', async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
+    handleError(res, err);
+  } finally {
+    conn.release();
+  }
+});
+
+// ── PATCH /:id/status — 상태 전이 (Phase 1 CLM 워크플로우) ───
+// 전이 규칙 검증 + 자동 timestamp + history 강조
+router.patch('/:id/status', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    const userId = getUserId(req);
+    const newStatus = req.body?.status;
+    if (!newStatus || !ALLOWED_STATUS.includes(newStatus)) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효하지 않은 상태값' });
+    }
+
+    const [[prev]] = await conn.query(`SELECT id, status, start_date FROM contracts WHERE id = ?`, [
+      id,
+    ]);
+    if (!prev) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+    }
+
+    const fromStatus = prev.status;
+    if (fromStatus === newStatus) {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({
+          success: false,
+          error: `이미 ${STATUS_LABELS_KO[fromStatus] || fromStatus} 상태입니다`,
+        });
+    }
+
+    if (!_isValidTransition(fromStatus, newStatus)) {
+      await conn.rollback();
+      const allowed = STATUS_TRANSITIONS[fromStatus] || [];
+      const allowedKo = allowed.map(s => STATUS_LABELS_KO[s] || s).join(', ');
+      return res.status(400).json({
+        success: false,
+        error:
+          `잘못된 전이: ${STATUS_LABELS_KO[fromStatus]} → ${STATUS_LABELS_KO[newStatus] || newStatus}` +
+          (allowed.length > 0
+            ? ` (허용: ${allowedKo})`
+            : ' (이 상태에서는 다른 상태로 전이할 수 없습니다)'),
+      });
+    }
+
+    // 자동 timestamp — signing → active 시 start_date 비어있으면 오늘 채움
+    let extraSql = '';
+    const extraParams = [];
+    if (fromStatus === 'signing' && newStatus === 'active' && !prev.start_date) {
+      const today = new Date();
+      const p = n => String(n).padStart(2, '0');
+      const todayYmd = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`;
+      extraSql = ', start_date = ?';
+      extraParams.push(todayYmd);
+    }
+
+    await conn.query(`UPDATE contracts SET status = ?${extraSql} WHERE id = ?`, [
+      newStatus,
+      ...extraParams,
+      id,
+    ]);
+
+    // history 강조 (전이 종류에 따라 description 다르게)
+    let desc;
+    if (newStatus === 'terminated') {
+      desc = `❌ 해지 처리: ${STATUS_LABELS_KO[fromStatus]} → 해지`;
+    } else if (newStatus === 'expired') {
+      desc = `⏰ 만료 처리: ${STATUS_LABELS_KO[fromStatus]} → 만료`;
+    } else if (fromStatus === 'signing' && newStatus === 'active') {
+      desc = `✅ 발효: 서명진행 → 발효` + (extraSql ? ' (start_date 자동 채움)' : '');
+    } else if (fromStatus === 'active' && newStatus === 'renewal') {
+      desc = `🔄 갱신 시작: 발효 → 갱신중`;
+    } else if (fromStatus === 'renewal' && newStatus === 'active') {
+      desc = `🔄 갱신 완료: 갱신중 → 발효`;
+    } else {
+      desc = `상태 변경: ${STATUS_LABELS_KO[fromStatus]} → ${STATUS_LABELS_KO[newStatus]}`;
+    }
+    await logHistory(conn, id, userId, 'status_change', {
+      fieldName: 'status',
+      oldValue: fromStatus,
+      newValue: newStatus,
+      description: desc,
+    });
+
+    await conn.commit();
+    res.json({
+      success: true,
+      data: {
+        id,
+        from: fromStatus,
+        to: newStatus,
+        auto_start_date: extraSql ? extraParams[0] : null,
+      },
+    });
+  } catch (err) {
+    await conn.rollback();
     handleError(res, err);
   } finally {
     conn.release();
