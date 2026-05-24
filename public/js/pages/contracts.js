@@ -614,6 +614,7 @@ const ContractsPage = (() => {
         <span style="flex:1"></span>
         <button class="btn btn-ghost" id="ct-cancel-btn">${isTempMode ? '취소 (삭제)' : '취소'}</button>
         <button class="btn btn-primary" id="ct-save-btn">${id ? '💾 저장' : '➕ 등록'}</button>
+        ${id ? `<button class="btn btn-secondary" id="ct-share-btn" type="button" style="background:#7c3aed;color:#fff;border:none">🔗 공유 링크</button>` : ''}
       `,
       bind: {
         '#ct-cancel-btn': cancelHandler,
@@ -637,7 +638,7 @@ const ContractsPage = (() => {
           });
         });
         if (id) _bindFileEvents(id);
-        _attachLinkComboboxes(); // v6.0.0 Step 2 Commit 4: 4개 연결 Combobox
+        // v6.0.0 fix: Combobox 4개 UI 제거됨 — _attachLinkComboboxes 호출 불필요
         _bindLegalCtaBtn(id); // v6.0.0 Step 3: 메인 AI 법무 검토 CTA
         _bindExtractedMetaCardEvents(); // v6.0.0 Phase A2-3: AI 추출 카드 [✓ 적용] 버튼
         _bindContractNoModeToggle(); // v6.0.0 Phase A3: 자동/수동 채번 토글
@@ -645,6 +646,13 @@ const ContractsPage = (() => {
         _bindLegalSectionToggles(); // v6.0.0 UX: AI 결과 섹션별 접기
         if (id) _bindEsignEvents(id); // v6.0.0 Step 4: 전자서명 섹션 이벤트
         if (id) _bindShareCommentsEvents(id); // v6.0.0 Phase B+D: 공유 + 댓글
+        // v6.0.0 fix: footer [🔗 공유 링크] 버튼 핸들러
+        if (id) {
+          const shareBtn = document.getElementById('ct-share-btn');
+          if (shareBtn) {
+            shareBtn.addEventListener('click', () => _openShareManagerModal(id));
+          }
+        }
       },
     });
   }
@@ -734,39 +742,13 @@ const ContractsPage = (() => {
             value="${e.review_deadline ? _toInputDate(e.review_deadline) : ''}">
         </div>
 
-        <!-- 연결: 고객/리드/제안/견적 (Combobox 자동완성) -->
-        <div class="form-row">
-          <label class="form-label">🔗 고객사</label>
-          <input class="form-input" id="ct-f-customer-search" type="text" autocomplete="off"
-            value="${esc(e.customer_name || '')}" placeholder="고객사명 2글자 이상 입력">
-          <input type="hidden" id="ct-f-customer_id" value="${e.customer_id || ''}">
-        </div>
-        <div class="form-row">
-          <label class="form-label">🔗 영업리드</label>
-          <input class="form-input" id="ct-f-lead-search" type="text" autocomplete="off"
-            value="${e.lead_id ? '#' + e.lead_id : ''}" placeholder="리드 검색 (프로젝트명/고객사)">
-          <input type="hidden" id="ct-f-lead_id" value="${e.lead_id || ''}">
-        </div>
-        <div class="form-row">
-          <label class="form-label">🔗 제안</label>
-          <input class="form-input" id="ct-f-proposal-search" type="text" autocomplete="off"
-            value="${e.proposal_id ? '#' + e.proposal_id : ''}" placeholder="제안 검색 (번호/제목/고객사)">
-          <input type="hidden" id="ct-f-proposal_id" value="${e.proposal_id || ''}">
-        </div>
-        <div class="form-row">
-          <label class="form-label">🔗 견적</label>
-          <input class="form-input" id="ct-f-quote-search" type="text" autocomplete="off"
-            value="${e.quote_id ? '#' + e.quote_id : ''}" placeholder="견적 검색 (번호/이름/고객사)">
-          <input type="hidden" id="ct-f-quote_id" value="${e.quote_id || ''}">
-        </div>
-        <div class="form-row" style="grid-column:span 2">
-          <label class="form-label">언어</label>
-          <select class="form-input" id="ct-f-language">
-            <option value="ko" ${(e.language || 'ko') === 'ko' ? 'selected' : ''}>한국어</option>
-            <option value="en" ${e.language === 'en' ? 'selected' : ''}>English</option>
-            <option value="ja" ${e.language === 'ja' ? 'selected' : ''}>日本語</option>
-          </select>
-        </div>
+        <!-- v6.0.0 fix: 연결 필드는 UI 제거 (hidden 으로 데이터 모델 유지)
+             고객사 ID 는 [🏢 상대방 회사 매칭] 모달로만 채워짐, 언어는 default 'ko' -->
+        <input type="hidden" id="ct-f-customer_id" value="${e.customer_id || ''}">
+        <input type="hidden" id="ct-f-lead_id" value="${e.lead_id || ''}">
+        <input type="hidden" id="ct-f-proposal_id" value="${e.proposal_id || ''}">
+        <input type="hidden" id="ct-f-quote_id" value="${e.quote_id || ''}">
+        <input type="hidden" id="ct-f-language" value="${esc(e.language || 'ko')}">
 
         <div class="form-row" style="grid-column:1 / span 3">
           <label class="form-label">비고</label>
@@ -777,8 +759,7 @@ const ContractsPage = (() => {
       <!-- v6.0.0 Step 4: 전자서명 (Modusign) 섹션 — 편집 모드 + status=approved 또는 이미 요청됨 -->
       ${e.id && (e.status === 'approved' || e.esign_request_id) ? _renderEsignSection(e) : ''}
 
-      <!-- v6.0.0 Phase B+D: 공유 링크 + 댓글 (편집 모드만) -->
-      ${e.id ? _renderShareSection(e) : ''}
+      <!-- v6.0.0 fix: 공유 링크는 footer 버튼으로 이동, 댓글은 본문 유지 -->
       ${e.id ? _renderCommentsSection(e) : ''}
 
       ${
@@ -898,8 +879,8 @@ const ContractsPage = (() => {
     if (hasReview) {
       const meta = e.latest_legal_review?.extracted_meta;
       return `<div id="ct-legal-review-wrap" style="margin-bottom:16px">
-        ${meta ? _renderExtractedMetaCard(meta, e) : ''}
         ${_renderLegalReview(e.latest_legal_review)}
+        ${meta ? _renderExtractedMetaCard(meta, e) : ''}
       </div>`;
     }
 
@@ -1171,7 +1152,7 @@ const ContractsPage = (() => {
       div.querySelector('.ct-esign-del').addEventListener('click', () => div.remove());
     };
 
-    Modal.show({
+    Modal.open({
       title: '✍ 전자서명 요청',
       body,
       footer,
@@ -1218,20 +1199,36 @@ const ContractsPage = (() => {
     });
   }
 
-  // ── v6.0.0 Phase B: 공유 링크 섹션 ─────────────────────────
-  function _renderShareSection(_e) {
-    return `<div style="margin-top:16px;border:1px solid var(--border);border-radius:8px;padding:14px">
+  // ── v6.0.0 fix: 공유 링크 관리 통합 모달 (목록 + 새 발급) ──────────
+  function _openShareManagerModal(contractId) {
+    const body = `<div style="padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div>
-          <div style="font-size:14px;font-weight:700">🔗 공유 링크</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:2px">
-            검토자에게 안전한 링크 발급 (만료 기한 + 권한별: viewer/commenter/approver)
-          </div>
+        <div style="font-size:12px;color:var(--text-3)">
+          검토자에게 안전한 링크 발급 (만료 기한 + 권한별: viewer/commenter/approver)
         </div>
         <button id="ct-share-new-btn" type="button" class="btn btn-primary btn-sm">+ 새 공유 링크</button>
       </div>
-      <div id="ct-share-list" style="font-size:12px"><div class="loading" style="padding:10px;color:var(--text-3);text-align:center">불러오는 중...</div></div>
+      <div id="ct-share-list" style="font-size:12px;min-height:120px"><div class="loading" style="padding:20px;color:var(--text-3);text-align:center">불러오는 중...</div></div>
     </div>`;
+    const footer = `<button class="btn btn-ghost" id="ct-share-mgr-close">닫기</button>`;
+    Modal.open({
+      title: '🔗 공유 링크 관리',
+      body,
+      footer,
+      width: 900,
+      bind: { '#ct-share-mgr-close': () => Modal.close() },
+      onOpen: () => {
+        const newBtn = document.getElementById('ct-share-new-btn');
+        if (newBtn) {
+          newBtn.addEventListener('click', () => {
+            // 새 발급 모달은 현재 모달 닫고 → 발급 모달 → 다시 관리 모달
+            Modal.close();
+            _openShareCreateModal(contractId, () => _openShareManagerModal(contractId));
+          });
+        }
+        _loadShareLinks(contractId);
+      },
+    });
   }
 
   async function _loadShareLinks(contractId) {
@@ -1297,12 +1294,12 @@ const ContractsPage = (() => {
         });
       });
     } catch (e) {
-      wrap.innerHTML = `<div style="padding:10px;color:#d93025">조회 실패: ${esc(e.message || '')}</div>`;
+      wrap.innerHTML = _renderFriendlyErrorBox('공유 링크 목록 조회', e);
     }
   }
 
-  // 새 공유 링크 발급 모달
-  function _openShareCreateModal(contractId) {
+  // 새 공유 링크 발급 모달 (옵션: onComplete 콜백 — 발급 후 관리 모달 재오픈)
+  function _openShareCreateModal(contractId, onComplete) {
     const body = `<div style="padding:16px">
       <div style="margin-bottom:12px;padding:10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:11px;color:#075985">
         💡 발급된 링크가 수신자 이메일로 자동 발송됩니다 (Gmail OAuth 연결 시). 검토자는 해당 링크로 read-only 접근 + 권한별 댓글 작성 가능.
@@ -1347,7 +1344,7 @@ const ContractsPage = (() => {
       row.querySelector('.ct-share-r-del').addEventListener('click', () => row.remove());
     };
 
-    Modal.show({
+    Modal.open({
       title: '🔗 새 공유 링크 발급',
       body,
       footer,
@@ -1385,7 +1382,9 @@ const ContractsPage = (() => {
               `공유 링크 발급 완료 — ${r?.data?.recipients_count || recipients.length}명에게 메일 발송`
             );
             Modal.close();
-            _loadShareLinks(contractId);
+            // v6.0.0 fix: 콜백 (관리 모달 재오픈) 또는 본문 갱신
+            if (typeof onComplete === 'function') onComplete();
+            else _loadShareLinks(contractId);
           } catch (e) {
             btn.disabled = false;
             btn.innerHTML = '🔗 발급 + 메일 발송';
@@ -1450,14 +1449,13 @@ const ContractsPage = (() => {
         })
         .join('');
     } catch (e) {
-      wrap.innerHTML = `<div style="padding:10px;color:#d93025">조회 실패: ${esc(e.message || '')}</div>`;
+      wrap.innerHTML = _renderFriendlyErrorBox('댓글 목록 조회', e);
     }
   }
 
   function _bindShareCommentsEvents(contractId) {
-    document
-      .getElementById('ct-share-new-btn')
-      ?.addEventListener('click', () => _openShareCreateModal(contractId));
+    // v6.0.0 fix: 공유 섹션 footer 버튼화 → 본문 ct-share-new-btn 핸들러 불필요
+    // 댓글 등록 핸들러만 유지
     const cBtn = document.getElementById('ct-comment-submit');
     if (cBtn) {
       cBtn.addEventListener('click', async () => {
@@ -1475,14 +1473,13 @@ const ContractsPage = (() => {
           document.getElementById('ct-comment-body').value = '';
           _loadComments(contractId);
         } catch (e) {
-          Toast.error?.('등록 실패: ' + (e.message || e));
+          _showFriendlyError('댓글 등록', e);
         } finally {
           cBtn.disabled = false;
           cBtn.textContent = '💬 등록';
         }
       });
     }
-    _loadShareLinks(contractId);
     _loadComments(contractId);
   }
 
@@ -1819,6 +1816,46 @@ const ContractsPage = (() => {
     }
   }
 
+  // v6.0.0 fix: 사용자 친화 에러 메시지 (raw API 메시지 노출 금지)
+  // - 콘솔에 상세 로그
+  // - Toast 에는 모듈 기준 명확한 안내
+  function _showFriendlyError(action, err) {
+    const raw = err?.error || err?.message || err?.toString?.() || '알 수 없는 오류';
+    console.error(`[contracts] ${action} 실패:`, raw, err);
+    // 404/500 등 패턴별 친화 메시지
+    let msg = `${action} 중 오류가 발생했습니다`;
+    if (/404|Not Found|찾을 수 없습니다/i.test(raw)) {
+      msg += ' — 기능이 아직 활성화되지 않았거나 서버 업데이트가 필요할 수 있습니다. 잠시 후 다시 시도하세요';
+    } else if (/401|403|권한|인증/i.test(raw)) {
+      msg += ' — 권한이 없습니다. 다시 로그인 후 시도하세요';
+    } else if (/500|서버 오류|Internal/i.test(raw)) {
+      msg += ' — 서버 일시적 오류. 잠시 후 다시 시도하세요';
+    } else if (/network|fetch|connect/i.test(raw)) {
+      msg += ' — 네트워크 연결을 확인하세요';
+    } else {
+      // raw 메시지가 비교적 짧고 깨끗하면 노출, 아니면 일반화
+      if (raw.length < 100 && !/\{|\[|undefined|null/.test(raw)) {
+        msg += `: ${raw}`;
+      } else {
+        msg += ' — 자세한 내용은 브라우저 콘솔 (F12) 을 확인하세요';
+      }
+    }
+    Toast.error?.(msg, { duration: 6000 });
+  }
+
+  // v6.0.0 fix: 카드/섹션 안에 표시하는 친화 에러 HTML
+  function _renderFriendlyErrorBox(action, err) {
+    const raw = err?.error || err?.message || '';
+    console.error(`[contracts] ${action} 실패 (섹션):`, raw, err);
+    return `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:12px;color:#7f1d1d">
+      <div style="font-weight:600;margin-bottom:4px">⚠️ ${esc(action)} 기능을 사용할 수 없습니다</div>
+      <div style="font-size:11px;color:#991b1b;line-height:1.6">
+        잠시 후 다시 시도하시거나, 페이지 새로고침 (Ctrl+Shift+R) 후 재시도하세요.<br>
+        문제가 지속되면 운영 담당자에게 문의 (자세한 내용은 브라우저 콘솔 F12 참고).
+      </div>
+    </div>`;
+  }
+
   // v6.0.0 Phase A4: 적용 완료 버튼 시각화 (공통 헬퍼)
   function _markMetaBtnApplied(btn) {
     if (!btn) return;
@@ -1920,7 +1957,7 @@ const ContractsPage = (() => {
   // 3) 매칭 없거나 사용자가 [신규 등록] 선택 시 → 빠른 등록 미니 폼
   async function _openCounterpartyMatchModal(rawName, sourceBtn) {
     if (!rawName) return;
-    if (typeof Modal === 'undefined' || typeof Modal.show !== 'function') {
+    if (typeof Modal === 'undefined' || typeof Modal.open !== 'function') {
       Toast.error?.('Modal 컴포넌트를 찾을 수 없습니다');
       return;
     }
@@ -1995,7 +2032,7 @@ const ContractsPage = (() => {
     const footer = `
       <button class="btn btn-ghost" id="ct-match-cancel-btn" type="button">취소</button>`;
 
-    Modal.show({
+    Modal.open({
       title: '🏢 상대방 회사 매칭',
       body,
       footer,
@@ -2130,8 +2167,11 @@ const ContractsPage = (() => {
         </div>
       </div>
 
-      <!-- v6.0.0 UX 개선: 4섹션 collapsible (toxic/missing 기본 펼침, 나머지 접힘) -->
-      ${_renderLegalSection('toxic', '🔴', '독소조항', toxic.length, 'dc2626', toxic.length > 0, `
+      <!-- v6.0.0 fix: 순서 변경 — 종합평가 펼침(맨 위), 나머지 접기 -->
+      ${_renderLegalSection('overall', '📝', '종합 평가', d.overall_assessment ? 1 : 0, '7c3aed', true, `
+        <div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.6">${esc(d.overall_assessment || '')}</div>`)}
+
+      ${_renderLegalSection('toxic', '🔴', '독소조항', toxic.length, 'dc2626', false, `
         <ul style="margin:0;padding-left:0;list-style:none">
           ${toxic.map(c => `<li style="margin-bottom:10px;padding:10px;background:#fef2f2;border-left:3px solid ${sevColors[c.severity] || '#dc2626'};border-radius:4px">
             <div style="display:flex;justify-content:space-between;margin-bottom:4px">
@@ -2144,7 +2184,7 @@ const ContractsPage = (() => {
           </li>`).join('')}
         </ul>`)}
 
-      ${_renderLegalSection('missing', '🟡', '누락 조항', missing.length, 'ca8a04', missing.length > 0, `
+      ${_renderLegalSection('missing', '🟡', '누락 조항', missing.length, 'ca8a04', false, `
         <ul style="margin:0;padding-left:0;list-style:none">
           ${missing.map(m => `<li style="margin-bottom:8px;padding:8px 10px;background:#fffbeb;border-left:3px solid ${sevColors[m.importance] || '#ca8a04'};border-radius:4px">
             <div style="display:flex;justify-content:space-between;margin-bottom:4px">
@@ -2164,9 +2204,6 @@ const ContractsPage = (() => {
         <ul style="margin:0;padding-left:18px;font-size:12px">
           ${improve.map(s => `<li><strong>${esc(s.section)}</strong>: ${esc(s.suggestion)}</li>`).join('')}
         </ul>`)}
-
-      ${_renderLegalSection('overall', '📝', '종합 평가', d.overall_assessment ? 1 : 0, '6b7280', false, `
-        <div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.6">${esc(d.overall_assessment || '')}</div>`)}
     </div>`;
   }
 
@@ -2487,10 +2524,10 @@ const ContractsPage = (() => {
         );
         const wrap = document.getElementById('ct-legal-review-wrap');
         if (wrap) {
-          // v6.0.0 fix: extracted_meta 카드는 항상 렌더 (null 이어도 추출 실패 안내)
+          // v6.0.0 fix: 순서 변경 — 법무 검토 결과(주) 먼저, AI 추출 카드(보조)는 아래
           wrap.innerHTML =
-            _renderExtractedMetaCard(data.extracted_meta || null, null) +
-            _renderLegalReview(data);
+            _renderLegalReview(data) +
+            _renderExtractedMetaCard(data.extracted_meta || null, null);
           wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
           _bindLegalCloseBtn();
           _bindExtractedMetaCardEvents();
