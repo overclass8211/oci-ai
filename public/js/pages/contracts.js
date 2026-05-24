@@ -213,8 +213,12 @@ const ContractsPage = (() => {
             const linkBadge = linkCount > 0
               ? `<span style="display:inline-block;font-size:9px;padding:1px 5px;background:#dbeafe;color:#1e40af;border-radius:8px;margin-left:4px" title="연결: 고객/리드/제안/견적 ${linkCount}건">🔗${linkCount}</span>`
               : '';
+            // v6.0.0 Phase A3: 거래처 계약번호가 있으면 보조 정보로 작게 표시
+            const extNoBadge = c.external_contract_no
+              ? `<div style="font-size:9px;color:var(--text-3);margin-top:2px" title="거래처 계약번호">↪ ${esc(c.external_contract_no)}</div>`
+              : '';
             return `<tr data-id="${c.id}" class="ct-row">
-              <td style="font-family:monospace;font-size:11px">${esc(c.contract_no)}</td>
+              <td style="font-family:monospace;font-size:11px">${esc(c.contract_no)}${extNoBadge}</td>
               <td><span class="badge badge-gray" style="font-size:10px">${esc(CONTRACT_TYPE_LABELS[c.contract_type]?.split(' ')[0] || c.contract_type || '-')}</span></td>
               <td>${esc(c.title)}${linkBadge}</td>
               <td>${esc(c.customer_name || '-')}</td>
@@ -481,6 +485,7 @@ const ContractsPage = (() => {
         _attachLinkComboboxes(); // v6.0.0 Step 2 Commit 4: 4개 연결 Combobox
         _bindLegalCtaBtn(id); // v6.0.0 Step 3: 메인 AI 법무 검토 CTA
         _bindExtractedMetaCardEvents(); // v6.0.0 Phase A2-3: AI 추출 카드 [✓ 적용] 버튼
+        _bindContractNoModeToggle(); // v6.0.0 Phase A3: 자동/수동 채번 토글
       },
     });
   }
@@ -492,8 +497,21 @@ const ContractsPage = (() => {
       ${e.id ? _renderLegalCtaSection(e) : ''}
       <div class="form-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
         <div class="form-row">
-          <label class="form-label">계약번호</label>
-          <input class="form-input" id="ct-f-contract_no" value="${esc(e.contract_no || '')}" ${e.id ? 'readonly' : ''} style="font-family:monospace">
+          <label class="form-label" style="display:flex;align-items:center;gap:8px">
+            <span>계약번호</span>
+            <span style="display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;font-size:11px;font-weight:400">
+              <button type="button" class="ct-no-mode-btn" data-mode="auto"
+                style="border:0;background:var(--oci-red);color:#fff;padding:2px 8px;cursor:pointer">자동</button>
+              <button type="button" class="ct-no-mode-btn" data-mode="manual"
+                style="border:0;background:#f5f5f5;color:#666;padding:2px 8px;cursor:pointer">수동</button>
+            </span>
+          </label>
+          <input class="form-input" id="ct-f-contract_no" value="${esc(e.contract_no || '')}"
+            readonly style="font-family:monospace;background:#fafafa"
+            data-original-no="${esc(e.contract_no || '')}">
+          <div class="ct-no-hint" style="font-size:10px;color:var(--text-3);margin-top:4px">
+            자동 채번 활성 — 저장 시 확정됩니다
+          </div>
         </div>
         <div class="form-row">
           <label class="form-label">유형</label>
@@ -506,6 +524,15 @@ const ContractsPage = (() => {
           <select class="form-input" id="ct-f-status">
             ${Object.entries(STATUS_LABELS).map(([k, v]) => `<option value="${k}" ${(e.status || 'draft') === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}
           </select>
+        </div>
+
+        <!-- v6.0.0 Phase A3: 거래처(상대방) 계약번호 (선택, 보조 식별자) -->
+        <div class="form-row" style="grid-column:1 / span 3">
+          <label class="form-label">거래처 계약번호 <span style="font-weight:400;color:var(--text-3);font-size:11px">(선택 — 상대방이 발급한 번호)</span></label>
+          <input class="form-input" id="ct-f-external_contract_no"
+            value="${esc(e.external_contract_no || '')}"
+            placeholder="예: ABC-2026-001, KIM-CO-20260101 (양식 자유)"
+            maxlength="80" style="font-family:monospace">
         </div>
 
         <div class="form-row" style="grid-column:1 / span 3">
@@ -819,6 +846,70 @@ const ContractsPage = (() => {
         </button>
       </div>
     </div>`;
+  }
+
+  // v6.0.0 Phase A3: 계약번호 자동/수동 토글 바인딩
+  // - 자동: readonly + 회색 배경 + 자동 채번 미리보기 표시
+  // - 수동: editable + 흰색 배경 + 사용자 직접 입력
+  function _bindContractNoModeToggle() {
+    const input = document.getElementById('ct-f-contract_no');
+    if (!input) return;
+    const buttons = document.querySelectorAll('.ct-no-mode-btn');
+    const hint = input.parentElement?.querySelector('.ct-no-hint');
+    if (!buttons.length) return;
+
+    // 초기 상태: data-mode 가 없으면 'auto' 로 세팅
+    if (!input.dataset.mode) input.dataset.mode = 'auto';
+    _updateContractNoUI(input, hint, input.dataset.mode);
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        if (!mode) return;
+        // 수동 → 자동 전환 시 원본 값 복원
+        if (mode === 'auto' && input.dataset.mode === 'manual') {
+          input.value = input.dataset.originalNo || '';
+        }
+        // 자동 → 수동 전환 시 신규 모드면 입력란 비우기 (사용자가 직접 작성)
+        if (mode === 'manual' && input.dataset.mode === 'auto' && !input.dataset.originalNo) {
+          input.value = '';
+        }
+        input.dataset.mode = mode;
+        _updateContractNoUI(input, hint, mode);
+        // 토글 버튼 시각화
+        buttons.forEach(b => {
+          const isActive = b.dataset.mode === mode;
+          b.style.background = isActive ? 'var(--oci-red)' : '#f5f5f5';
+          b.style.color = isActive ? '#fff' : '#666';
+        });
+        if (mode === 'manual') {
+          // 수동 전환 시 입력란에 포커스
+          setTimeout(() => input.focus(), 0);
+        }
+      });
+    });
+  }
+
+  function _updateContractNoUI(input, hint, mode) {
+    if (mode === 'manual') {
+      input.removeAttribute('readonly');
+      input.style.background = '#fff';
+      if (hint) {
+        hint.textContent =
+          '수동 입력 — 양식 자유 (예: C-2026-9999, ABC-001). 중복 시 저장 거부됩니다';
+        hint.style.color = '#d97706';
+      }
+    } else {
+      input.setAttribute('readonly', '');
+      input.style.background = '#fafafa';
+      if (hint) {
+        const orig = input.dataset.originalNo || '';
+        hint.textContent = orig
+          ? '자동 채번 (기존 번호 유지)'
+          : '자동 채번 활성 — 저장 시 확정됩니다';
+        hint.style.color = 'var(--text-3)';
+      }
+    }
   }
 
   // _renderExtractedMetaCard 의 버튼 이벤트 바인딩 (모달 onOpen 에서 호출)
@@ -1435,8 +1526,26 @@ const ContractsPage = (() => {
   }
 
   function _collectForm() {
+    // v6.0.0 Phase A3: 채번 모드 — 수동일 때만 contract_no 전송, 자동이면 백엔드 채번
+    const noInput = document.getElementById('ct-f-contract_no');
+    const noMode = noInput?.dataset?.mode || 'auto'; // 'auto' | 'manual'
+    const noOriginal = noInput?.dataset?.originalNo || '';
+    const noCurrent = noInput?.value?.trim() || '';
+    let contractNoToSend;
+    if (noMode === 'manual') {
+      // 수동 모드: 항상 입력값 전송 (빈값이면 백엔드 거부)
+      contractNoToSend = noCurrent || undefined;
+    } else {
+      // 자동 모드 — 신규: undefined (백엔드 채번), 편집: 원본 그대로 (변경 없음)
+      contractNoToSend = noOriginal || undefined;
+    }
+
+    // v6.0.0 Phase A3: 거래처 계약번호 (선택)
+    const ext = document.getElementById('ct-f-external_contract_no')?.value?.trim() || '';
+
     return {
-      contract_no: document.getElementById('ct-f-contract_no')?.value?.trim() || undefined,
+      contract_no: contractNoToSend,
+      external_contract_no: ext || null,
       contract_type: document.getElementById('ct-f-contract_type')?.value,
       status: document.getElementById('ct-f-status')?.value,
       title: document.getElementById('ct-f-title')?.value?.trim() || '',

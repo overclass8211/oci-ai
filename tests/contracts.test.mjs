@@ -522,6 +522,168 @@ describe('Contracts API — Phase 0', () => {
     expect(res.status).toBe(404);
   });
 
+  // ── v6.0.0 Phase A3: 수동 채번 + external_contract_no 시나리오 ─────────────
+  it('POST / — 수동 채번 (contract_no 직접 지정)', async () => {
+    const manualNo = `__TEST_A3_${Date.now()}`;
+    const res = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__A3_manual_no',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+        contract_no: manualNo,
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.contract_no).toBe(manualNo);
+    const id = res.body.id;
+    createdIds.push(id);
+
+    const detail = await api()
+      .get(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.contract_no).toBe(manualNo);
+  });
+
+  it('POST / — 수동 채번 중복 시 409', async () => {
+    const dupNo = `__TEST_DUP_${Date.now()}`;
+    // 1차 생성
+    const r1 = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__A3_dup_first',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+        contract_no: dupNo,
+      });
+    expect(r1.status).toBe(200);
+    createdIds.push(r1.body.id);
+
+    // 2차 생성 (같은 번호) → 409
+    const r2 = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__A3_dup_second',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+        contract_no: dupNo,
+      });
+    expect(r2.status).toBe(409);
+    expect(r2.body.success).toBe(false);
+  });
+
+  it('POST / + GET / + GET /:id — external_contract_no 저장/조회/검색', async () => {
+    const extNo = `EXT-A3-${Date.now()}`;
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__A3_external_no',
+        customer_name: '__TEST__A3_ext',
+        contract_type: 'MSA',
+        external_contract_no: extNo,
+      });
+    expect(cr.status).toBe(200);
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    // GET /:id 응답에 external_contract_no 포함
+    const detail = await api()
+      .get(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.external_contract_no).toBe(extNo);
+
+    // GET / 목록 응답에 external_contract_no 포함
+    const list = await api()
+      .get(`/api/contracts?search=__TEST__A3_external_no&limit=10`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(list.status).toBe(200);
+    const found = list.body.data.find(c => c.id === id);
+    expect(found).toBeDefined();
+    expect(found.external_contract_no).toBe(extNo);
+
+    // 거래처 계약번호로 검색 (search 파라미터)
+    const searchRes = await api()
+      .get(`/api/contracts?search=${encodeURIComponent(extNo)}&limit=10`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(searchRes.status).toBe(200);
+    expect(searchRes.body.data.some(c => c.id === id)).toBe(true);
+  });
+
+  it('PUT /:id — contract_no 수정 (자동→수동 전환 시뮬레이션) + history', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__A3_no_update',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+    const newNo = `__TEST_A3_NEW_${Date.now()}`;
+
+    const upd = await api()
+      .put(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ contract_no: newNo });
+    expect(upd.status).toBe(200);
+
+    const detail = await api()
+      .get(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.contract_no).toBe(newNo);
+    expect(detail.body.data.history.some(h => h.field_name === 'contract_no')).toBe(true);
+  });
+
+  it('PUT /:id — contract_no 빈값 거부 → 400', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__A3_no_blank',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    const upd = await api()
+      .put(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ contract_no: '   ' });
+    expect(upd.status).toBe(400);
+    expect(upd.body.error).toContain('비울 수 없습니다');
+  });
+
+  it('PUT /:id — external_contract_no 빈문자 → null 로 저장', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__A3_ext_clear',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+        external_contract_no: 'TO_BE_CLEARED',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    // 빈문자열 전송 → 백엔드에서 null 로 정규화
+    const upd = await api()
+      .put(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ external_contract_no: '' });
+    expect(upd.status).toBe(200);
+
+    const detail = await api()
+      .get(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.external_contract_no).toBeNull();
+  });
+
   it('POST / — proposal_id 연결 시 customer 자동 반영', async () => {
     // 임시 proposal 생성 (mock 데이터)
     const propRes = await api()

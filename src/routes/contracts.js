@@ -182,6 +182,18 @@ async function ensureSchema() {
       /* 이미 존재 */
     }
 
+    // v6.0.0 Phase A3: external_contract_no — 거래처(상대방) 계약번호 (선택, 보조 식별자)
+    // 자사 contract_no 와 별개로 거래처가 발급한 번호 (양식 자유)
+    try {
+      await pool.query(`ALTER TABLE contracts ADD COLUMN external_contract_no VARCHAR(80) NULL`);
+      await pool.query(
+        `ALTER TABLE contracts ADD INDEX idx_external_contract_no (external_contract_no)`
+      );
+      console.log('[contracts:migration] external_contract_no 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+
     // ② 파일: contract_files
     await pool.query(`
       CREATE TABLE IF NOT EXISTS contract_files (
@@ -454,9 +466,12 @@ router.get('/', async (req, res) => {
     let where = 'WHERE 1=1';
     const params = [];
     if (search) {
-      where += ' AND (c.title LIKE ? OR c.contract_no LIKE ? OR c.customer_name LIKE ?)';
+      // v6.0.0 Phase A3: 검색 대상에 external_contract_no 추가 (거래처 계약번호로도 찾기)
+      where +=
+        ' AND (c.title LIKE ? OR c.contract_no LIKE ? OR c.customer_name LIKE ?' +
+        ' OR c.external_contract_no LIKE ?)';
       const k = `%${search}%`;
-      params.push(k, k, k);
+      params.push(k, k, k, k);
     }
     if (status) {
       where += ' AND c.status = ?';
@@ -500,7 +515,8 @@ router.get('/', async (req, res) => {
     const [[countRow], [rows]] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS total FROM contracts c ${where}`, params),
       pool.query(
-        `SELECT c.id, c.contract_no, c.title, c.customer_id, c.customer_name,
+        `SELECT c.id, c.contract_no, c.external_contract_no,
+                c.title, c.customer_id, c.customer_name,
                 c.proposal_id, c.lead_id, c.quote_id, c.contract_type, c.status,
                 c.start_date, c.end_date, c.contract_amount, c.currency,
                 c.auto_renewal, c.renewal_notice_days,
@@ -649,6 +665,12 @@ router.post('/', async (req, res) => {
     let contractNo = body.contract_no && String(body.contract_no).trim();
     if (!contractNo) contractNo = await generateContractNo(conn, year);
 
+    // v6.0.0 Phase A3: 거래처 계약번호 (선택)
+    const externalContractNo =
+      body.external_contract_no && String(body.external_contract_no).trim()
+        ? String(body.external_contract_no).slice(0, 80)
+        : null;
+
     const status = body.status && ALLOWED_STATUS.includes(body.status) ? body.status : 'draft';
     const contractType =
       body.contract_type && ALLOWED_CONTRACT_TYPES.includes(body.contract_type)
@@ -665,15 +687,16 @@ router.post('/', async (req, res) => {
 
     const [result] = await conn.query(
       `INSERT INTO contracts
-        (contract_no, title, customer_id, customer_name,
+        (contract_no, external_contract_no, title, customer_id, customer_name,
          proposal_id, lead_id, quote_id, contract_type, status,
          start_date, end_date, contract_amount, currency, language,
          auto_renewal, renewal_notice_days,
          template_id, version_no, parent_contract_id,
          owner_id, owner_name, notes, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         contractNo,
+        externalContractNo,
         String(body.title).slice(0, 300),
         customerId || null,
         customerName ? String(customerName).slice(0, 200) : null,
@@ -743,6 +766,8 @@ router.put('/:id', async (req, res) => {
     const fields = [];
     const values = [];
     const allowed = [
+      'contract_no', // v6.0.0 Phase A3: 자동→수동 채번 전환 시 수정 가능
+      'external_contract_no', // v6.0.0 Phase A3: 거래처 계약번호
       'title',
       'customer_id',
       'customer_name',
@@ -776,6 +801,23 @@ router.put('/:id', async (req, res) => {
       if (f === 'contract_type' && body[f] && !ALLOWED_CONTRACT_TYPES.includes(body[f])) {
         await conn.rollback();
         return res.status(400).json({ success: false, error: '유효하지 않은 계약 유형' });
+      }
+      // v6.0.0 Phase A3: contract_no 수동 변경 시 빈문자 금지 + 길이 제한
+      if (f === 'contract_no') {
+        const trimmed = body[f] === null ? null : String(body[f]).trim();
+        if (!trimmed) {
+          await conn.rollback();
+          return res.status(400).json({ success: false, error: '계약번호는 비울 수 없습니다' });
+        }
+        body[f] = trimmed.slice(0, 50);
+      }
+      // v6.0.0 Phase A3: external_contract_no 길이 제한 + 빈문자 → null
+      if (f === 'external_contract_no') {
+        if (body[f] === null || body[f] === '' || !String(body[f]).trim()) {
+          body[f] = null;
+        } else {
+          body[f] = String(body[f]).trim().slice(0, 80);
+        }
       }
       let v = body[f];
       if (DATE_FIELDS.has(f)) v = toYMD(v);
@@ -816,6 +858,9 @@ router.put('/:id', async (req, res) => {
     res.json({ success: true, data: { id } });
   } catch (err) {
     await conn.rollback();
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, error: '계약번호가 이미 존재합니다' });
+    }
     handleError(res, err);
   } finally {
     conn.release();
