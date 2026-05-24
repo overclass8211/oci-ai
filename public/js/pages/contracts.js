@@ -480,6 +480,7 @@ const ContractsPage = (() => {
         if (id) _bindFileEvents(id);
         _attachLinkComboboxes(); // v6.0.0 Step 2 Commit 4: 4개 연결 Combobox
         _bindLegalCtaBtn(id); // v6.0.0 Step 3: 메인 AI 법무 검토 CTA
+        _bindExtractedMetaCardEvents(); // v6.0.0 Phase A2-3: AI 추출 카드 [✓ 적용] 버튼
       },
     });
   }
@@ -638,7 +639,9 @@ const ContractsPage = (() => {
 
     // 결과가 있으면 결과 카드 + 재검토 안내 (재검토는 파일 행 [🤖 법무] 버튼으로)
     if (hasReview) {
+      const meta = e.latest_legal_review?.extracted_meta;
       return `<div id="ct-legal-review-wrap" style="margin-bottom:16px">
+        ${meta ? _renderExtractedMetaCard(meta, e) : ''}
         ${_renderLegalReview(e.latest_legal_review)}
       </div>`;
     }
@@ -712,6 +715,202 @@ const ContractsPage = (() => {
   function _isAnalyzable(filename) {
     if (!filename) return false;
     return /\.(pdf|png|jpe?g|webp|txt|md)$/i.test(filename);
+  }
+
+  // ── v6.0.0 Phase A2-3: AI 추출 정보 → 사용자 확인 후 적용 카드 ──
+  // AI 가 계약서에서 추출한 메타 정보 (extracted_meta) 를 표시하고
+  // 사용자가 필드별로 또는 일괄로 폼에 적용할 수 있도록.
+  //
+  // - 비어있는 폼 필드 → [✓ 적용] 보라 버튼
+  // - 이미 채워진 필드 → [⚠️ 덮어쓰기] 주황 버튼
+  // - AI 값이 null → "추출 안됨" 회색 표시
+  function _renderExtractedMetaCard(meta, _entity) {
+    // 필드 매핑 (data-meta-key → 폼 input ID + 라벨 + 표시 변환)
+    const FIELD_MAP = [
+      { key: 'title', label: '계약명', formId: 'ct-f-title', icon: '📝' },
+      {
+        key: 'counterparty_name',
+        label: '고객사명',
+        formId: 'ct-f-customer_name',
+        icon: '🏢',
+      },
+      {
+        key: 'contract_type',
+        label: '유형',
+        formId: 'ct-f-contract_type',
+        icon: '📋',
+        // select — 표시 시 라벨로 변환
+        display: v => CONTRACT_TYPE_LABELS[v] || v,
+      },
+      {
+        key: 'amount',
+        label: '계약금액',
+        formId: 'ct-f-contract_amount',
+        icon: '💰',
+        display: v => Number(v).toLocaleString('ko-KR'),
+      },
+      { key: 'currency', label: '통화', formId: 'ct-f-currency', icon: '💱' },
+      { key: 'start_date', label: '시작일', formId: 'ct-f-start_date', icon: '📅' },
+      { key: 'end_date', label: '종료일', formId: 'ct-f-end_date', icon: '📅' },
+    ];
+
+    // 비어있는 입력값 (DOM 시점 검사 — 카드는 렌더 시점이라 entity 의 값으로 비교)
+    // 단순화: render 시점엔 모두 "적용 가능" 으로 표시, 클릭 시 실제 값 비교 후 분기
+    const rows = FIELD_MAP.map(f => {
+      const v = meta[f.key];
+      if (v === null || v === undefined || v === '') {
+        // AI 가 추출 못함
+        return `<tr>
+          <td style="padding:6px 10px;font-size:12px;color:var(--text-3)">
+            ${f.icon} ${esc(f.label)}
+          </td>
+          <td style="padding:6px 10px;font-size:11px;color:var(--text-3);font-style:italic">
+            추출 안됨
+          </td>
+          <td style="padding:6px 10px;text-align:right;font-size:11px;color:var(--text-3)">
+            —
+          </td>
+        </tr>`;
+      }
+      const displayVal = f.display ? f.display(v) : v;
+      return `<tr data-meta-key="${esc(f.key)}">
+        <td style="padding:8px 10px;font-size:12px;font-weight:500">
+          ${f.icon} ${esc(f.label)}
+        </td>
+        <td style="padding:8px 10px;font-size:12px;color:#1f2937">
+          <span class="ct-meta-val">${esc(String(displayVal))}</span>
+        </td>
+        <td style="padding:8px 10px;text-align:right">
+          <button class="btn btn-sm ct-meta-apply-btn"
+            data-meta-key="${esc(f.key)}"
+            data-form-id="${esc(f.formId)}"
+            data-value="${esc(String(v))}"
+            type="button"
+            style="font-size:11px;padding:4px 10px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600">
+            ✓ 적용
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    return `<div id="ct-extracted-meta-card"
+      style="border:2px solid #0891b2;border-radius:8px;padding:14px;background:linear-gradient(135deg,#f0fdfa,#ecfeff);margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:#155e75">🤖 AI 가 추출한 정보 (검토 후 적용)</div>
+          <div style="font-size:11px;color:#0e7490;margin-top:2px">
+            계약서 본문에서 자동 추출 — 각 항목을 확인 후 [✓ 적용] 클릭 시 폼에 채워집니다
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="ct-meta-close-btn" type="button" title="닫기" style="color:#0e7490">✕</button>
+      </div>
+
+      <table style="width:100%;border-collapse:separate;border-spacing:0;background:#fff;border-radius:6px;overflow:hidden">
+        <tbody>${rows}</tbody>
+      </table>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <div style="font-size:10px;color:#0e7490">
+          ⚠️ AI 추출 결과는 100% 정확하지 않을 수 있습니다 — 적용 후 반드시 검토하세요
+        </div>
+        <button class="btn btn-primary btn-sm" id="ct-meta-apply-all-btn" type="button"
+          style="font-size:11px;padding:5px 12px">
+          ✓✓ 모두 적용
+        </button>
+      </div>
+    </div>`;
+  }
+
+  // _renderExtractedMetaCard 의 버튼 이벤트 바인딩 (모달 onOpen 에서 호출)
+  function _bindExtractedMetaCardEvents() {
+    const card = document.getElementById('ct-extracted-meta-card');
+    if (!card) return;
+
+    // 개별 [✓ 적용] 버튼
+    card.querySelectorAll('.ct-meta-apply-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const formId = btn.dataset.formId;
+        const value = btn.dataset.value;
+        const formEl = document.getElementById(formId);
+        if (!formEl) {
+          Toast.error?.(`폼 필드 ${formId} 를 찾을 수 없음`);
+          return;
+        }
+        const existing = (formEl.value || '').trim();
+        // 이미 값이 있으면 confirm
+        if (existing && existing !== value) {
+          if (!confirm(`이미 입력된 값 "${existing}"\n을(를) AI 추출값 "${value}"\n으로 덮어쓰시겠습니까?`)) {
+            return;
+          }
+        }
+        // 적용
+        formEl.value = value;
+        // change 이벤트 트리거 (select 등이 의존할 수 있음)
+        formEl.dispatchEvent(new Event('change', { bubbles: true }));
+        // 버튼 상태 변경
+        btn.innerHTML = '✅ 적용됨';
+        btn.disabled = true;
+        btn.style.background = '#9ca3af';
+        btn.style.cursor = 'default';
+        btn.style.opacity = '0.7';
+        // 폼 영역으로 시각적 피드백 (잠시 강조)
+        formEl.style.transition = 'background-color 0.5s';
+        formEl.style.backgroundColor = '#ecfeff';
+        setTimeout(() => {
+          formEl.style.backgroundColor = '';
+        }, 1200);
+      });
+    });
+
+    // [✓✓ 모두 적용] 버튼
+    const allBtn = document.getElementById('ct-meta-apply-all-btn');
+    if (allBtn) {
+      allBtn.addEventListener('click', () => {
+        const buttons = Array.from(card.querySelectorAll('.ct-meta-apply-btn:not(:disabled)'));
+        if (!buttons.length) {
+          Toast.info?.('이미 모두 적용됨');
+          return;
+        }
+        // 이미 채워진 필드가 있는지 확인 (덮어쓰기 confirm 통합)
+        const conflicts = buttons
+          .map(btn => {
+            const el = document.getElementById(btn.dataset.formId);
+            const existing = (el?.value || '').trim();
+            return existing ? btn.dataset.formId : null;
+          })
+          .filter(Boolean);
+        if (
+          conflicts.length > 0 &&
+          !confirm(
+            `이미 입력된 ${conflicts.length}개 필드가 있습니다.\n모두 AI 추출값으로 덮어쓰시겠습니까?`
+          )
+        ) {
+          return;
+        }
+        let applied = 0;
+        buttons.forEach(btn => {
+          const formEl = document.getElementById(btn.dataset.formId);
+          if (!formEl) return;
+          formEl.value = btn.dataset.value;
+          formEl.dispatchEvent(new Event('change', { bubbles: true }));
+          btn.innerHTML = '✅ 적용됨';
+          btn.disabled = true;
+          btn.style.background = '#9ca3af';
+          btn.style.cursor = 'default';
+          btn.style.opacity = '0.7';
+          applied++;
+        });
+        Toast.success?.(`${applied}개 필드 일괄 적용`);
+      });
+    }
+
+    // [✕ 닫기] 버튼
+    const closeBtn = document.getElementById('ct-meta-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        card.style.display = 'none';
+      });
+    }
   }
 
   // AI 법무 검토 결과 카드 (색상 코드 + 4섹션)
@@ -920,9 +1119,13 @@ const ContractsPage = (() => {
           );
           const wrap = document.getElementById('ct-legal-review-wrap');
           if (wrap) {
-            wrap.innerHTML = _renderLegalReview(data);
+            // v6.0.0 Phase A2-3: extracted_meta 카드 + 법무 검토 결과 카드 동시 렌더
+            wrap.innerHTML =
+              (data.extracted_meta ? _renderExtractedMetaCard(data.extracted_meta, null) : '') +
+              _renderLegalReview(data);
             wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
             _bindLegalCloseBtn();
+            _bindExtractedMetaCardEvents();
           }
         } catch (err) {
           console.error('[contracts:legal-review] failed:', err);
@@ -1031,9 +1234,13 @@ const ContractsPage = (() => {
         );
         const wrap = document.getElementById('ct-legal-review-wrap');
         if (wrap) {
-          wrap.innerHTML = _renderLegalReview(data);
+          // v6.0.0 Phase A2-3: extracted_meta 카드 + 법무 검토 결과 카드 동시 렌더
+          wrap.innerHTML =
+            (data.extracted_meta ? _renderExtractedMetaCard(data.extracted_meta, null) : '') +
+            _renderLegalReview(data);
           wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
           _bindLegalCloseBtn();
+          _bindExtractedMetaCardEvents();
         }
       } catch (err) {
         console.error('[contracts:legal-review:cta] failed:', err);
