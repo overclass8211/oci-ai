@@ -383,6 +383,11 @@ const ContractsPage = (() => {
           _loadAndRenderAlerts(id);
           const refreshBtn = document.getElementById('ct-alerts-refresh-btn');
           if (refreshBtn) refreshBtn.addEventListener('click', () => _loadAndRenderAlerts(id));
+          // Phase 5: 협상 코칭 CTA 핸들러
+          const coachBtn = document.getElementById('ct-coach-cta-btn');
+          if (coachBtn && !coachBtn.disabled) {
+            coachBtn.addEventListener('click', () => _doNegotiationCoach(id));
+          }
         }
       },
     });
@@ -525,6 +530,27 @@ const ContractsPage = (() => {
               <!-- Phase 2: AI 법무 검토 결과 카드 (최신 검토 자동 prefill) -->
               <div id="ct-legal-review-wrap" style="margin-top:14px">
                 ${e.latest_legal_review ? _renderLegalReview(e.latest_legal_review) : ''}
+              </div>
+
+              <!-- Phase 5: AI 협상 코칭 CTA + 결과 카드 -->
+              <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <strong style="font-size:13px">💼 AI 협상 코칭</strong>
+                </div>
+                <div style="margin-bottom:10px;padding:8px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:11px;color:#92400e">
+                  💡 <strong>법무 검토 결과 + 과거 유사 계약</strong>을 기반으로 협상 전략 5종 자동 생성 (우선순위 / Give-Take / 유사계약 비교 / 대안 / 시나리오). Gemini 2.5 Pro · 약 30-60초 · 약 500-1000원/회
+                </div>
+                <button class="ct-ai-cta" id="ct-coach-cta-btn" type="button"
+                  ${e.latest_legal_review ? '' : 'disabled'}
+                  style="display:block;width:100%;padding:14px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:${e.latest_legal_review ? 'pointer' : 'not-allowed'};opacity:${e.latest_legal_review ? '1' : '0.5'};transition:transform .15s">
+                  💼 AI 협상 코칭 시작 — 법무 검토 결과 기반 협상 전략 5종 자동 생성
+                </button>
+                <div style="margin-top:6px;font-size:11px;color:var(--text-3);text-align:center">
+                  ${e.latest_legal_review ? `Gemini Pro 가 우선순위 / Give-Take / 유사 계약 비교 / 대안 조항 / 시나리오 3종을 생성합니다 (약 30-60초)` : '⚠️ 먼저 AI 법무 검토 (위 [🤖 법무] 버튼) 를 실행하세요'}
+                </div>
+                <div id="ct-coach-result" style="margin-top:14px">
+                  ${e.latest_negotiation_coach ? _renderNegotiationCoach(e.latest_negotiation_coach) : ''}
+                </div>
               </div>
 
               <!-- Phase 4: 만료 알림 큐 (편집 모드만) -->
@@ -981,6 +1007,166 @@ const ContractsPage = (() => {
         }
       });
     });
+  }
+
+  // ── Phase 5: AI 협상 코칭 UI ──────────────────────────────
+  async function _doNegotiationCoach(contractId) {
+    const ok = confirm(
+      `💼 AI 협상 코칭을 실행하시겠습니까?\n\n` +
+        `법무 검토 결과 + 과거 유사 계약 (동일 유형, 금액 ±30%) 을 기반으로\n` +
+        `Gemini 2.5 Pro 가 협상 전략 5종을 생성합니다:\n\n` +
+        `• 협상 우선순위 (top 3-5)\n` +
+        `• Give-and-Take 매트릭스\n` +
+        `• 유사 계약 비교\n` +
+        `• 대안 조항 제안\n` +
+        `• 시나리오 3종 (Best/Realistic/Worst)\n\n` +
+        `• 소요 시간: 약 30-60초\n` +
+        `• 예상 비용: 약 500-1000원/회\n\n` +
+        `계속하시겠습니까?`
+    );
+    if (!ok) return;
+    const btn = document.getElementById('ct-coach-cta-btn');
+    const origText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '⏳ AI 협상 전략 생성 중... (최대 60초)';
+    }
+    try {
+      Toast.info?.('AI 협상 코칭 중... (최대 60초 소요)');
+      const res = await API.contracts.negotiationCoach(contractId);
+      const data = res?.data;
+      if (!data) throw new Error('응답 비어있음');
+      Toast.success?.(`AI 협상 코칭 완료 — 우선순위 ${data.priority_clauses?.length || 0}개`);
+      const wrap = document.getElementById('ct-coach-result');
+      if (wrap) {
+        wrap.innerHTML = _renderNegotiationCoach(data);
+        wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } catch (err) {
+      console.error('[contracts:negotiation-coach] failed:', err);
+      const detail = err?.error || err?.message || String(err);
+      Toast.error?.(`AI 협상 코칭 실패: ${detail}`, { duration: 8000 });
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+      }
+    }
+  }
+
+  function _renderNegotiationCoach(d) {
+    if (!d) return '';
+    const priorityClauses = Array.isArray(d.priority_clauses) ? d.priority_clauses : [];
+    const gtm = d.give_take_matrix || { willing_to_concede: [], must_protect: [] };
+    const scc = d.similar_contracts_comparison || {};
+    const altClauses = Array.isArray(d.alternative_clauses) ? d.alternative_clauses : [];
+    const scenarios = d.scenarios || {};
+    const positionLabels = {
+      above_avg: { label: '평균 이상', color: '#16a34a', icon: '📈' },
+      avg: { label: '평균 수준', color: '#3b82f6', icon: '📊' },
+      below_avg: { label: '평균 이하', color: '#dc2626', icon: '📉' },
+      no_data: { label: '데이터 부족', color: '#9ca3af', icon: '❓' },
+    };
+    const pos = positionLabels[scc.our_position] || positionLabels.no_data;
+    const priorityColors = { 1: '#dc2626', 2: '#ea580c', 3: '#ca8a04', 4: '#65a30d', 5: '#0ea5e9' };
+
+    return `<div class="ct-coach-card" style="border:2px solid #7c3aed;border-radius:8px;padding:14px;background:#fafafa;margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600;color:#7c3aed">💼 AI 협상 코칭 결과</div>
+        ${d.generated_at ? `<div style="font-size:10px;color:var(--text-3)">생성: ${_fmtDateTime(d.generated_at)}</div>` : ''}
+      </div>
+
+      <!-- 1. 협상 우선순위 -->
+      ${
+        priorityClauses.length > 0
+          ? `<div style="margin-bottom:14px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px">📌 협상 우선순위 (${priorityClauses.length}건)</div>
+              <ol style="margin:0;padding-left:0;list-style:none">
+                ${priorityClauses
+                  .sort((a, b) => a.priority - b.priority)
+                  .map(c => `<li style="margin-bottom:8px;padding:8px 10px;background:#fff;border-left:3px solid ${priorityColors[c.priority] || '#6b7280'};border-radius:4px">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <span style="display:inline-block;min-width:24px;height:24px;line-height:24px;text-align:center;background:${priorityColors[c.priority] || '#6b7280'};color:#fff;border-radius:50%;font-size:11px;font-weight:600">${c.priority}</span>
+                    <strong style="font-size:12px">${esc(c.clause)}</strong>
+                  </div>
+                  ${c.reason ? `<div style="font-size:11px;color:#374151;margin-top:2px;padding-left:32px">사유: ${esc(c.reason)}</div>` : ''}
+                  ${c.target_outcome ? `<div style="font-size:11px;color:#065f46;margin-top:2px;padding-left:32px">🎯 목표: ${esc(c.target_outcome)}</div>` : ''}
+                </li>`)
+                  .join('')}
+              </ol>
+            </div>`
+          : ''
+      }
+
+      <!-- 2. Give-and-Take 매트릭스 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div style="padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px">
+          <div style="font-size:12px;font-weight:600;color:#16a34a;margin-bottom:6px">🤝 양보 가능 (${gtm.willing_to_concede.length}건)</div>
+          ${gtm.willing_to_concede.length > 0
+            ? `<ul style="margin:0;padding-left:18px;font-size:11px;color:#374151">${gtm.willing_to_concede.map(c => `<li>${esc(c)}</li>`).join('')}</ul>`
+            : '<div style="font-size:11px;color:var(--text-3)">(없음)</div>'}
+        </div>
+        <div style="padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px">
+          <div style="font-size:12px;font-weight:600;color:#dc2626;margin-bottom:6px">🛡 절대 보호 (${gtm.must_protect.length}건)</div>
+          ${gtm.must_protect.length > 0
+            ? `<ul style="margin:0;padding-left:18px;font-size:11px;color:#374151">${gtm.must_protect.map(c => `<li>${esc(c)}</li>`).join('')}</ul>`
+            : '<div style="font-size:11px;color:var(--text-3)">(없음)</div>'}
+        </div>
+      </div>
+
+      <!-- 3. 유사 계약 비교 -->
+      <div style="margin-bottom:14px;padding:10px;background:#fff;border:1px solid var(--border);border-radius:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:12px;font-weight:600">📊 과거 유사 계약 비교</div>
+          <div style="font-size:11px;color:${pos.color};font-weight:600">${pos.icon} ${esc(pos.label)}</div>
+        </div>
+        <div style="font-size:11px;color:#374151;display:flex;gap:14px;margin-bottom:6px">
+          <span>샘플 <strong>${scc.samples_count || 0}건</strong></span>
+          ${scc.avg_amount ? `<span>평균 <strong>${Number(scc.avg_amount).toLocaleString('ko-KR')}원</strong></span>` : ''}
+        </div>
+        ${scc.gap_analysis ? `<div style="font-size:11px;color:#374151;line-height:1.6">${esc(scc.gap_analysis)}</div>` : ''}
+      </div>
+
+      <!-- 4. 대안 조항 -->
+      ${
+        altClauses.length > 0
+          ? `<div style="margin-bottom:14px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px">🔁 대안 조항 (${altClauses.length}건)</div>
+              ${altClauses
+                .map(c => `<div style="margin-bottom:8px;padding:10px;background:#fff;border-left:3px solid #7c3aed;border-radius:4px">
+                  ${c.original ? `<div style="font-size:11px;color:#7f1d1d;margin-bottom:4px;padding:4px 6px;background:#fee;border-radius:3px">현재: ${esc(c.original)}</div>` : ''}
+                  ${c.alternative ? `<div style="font-size:11px;color:#065f46;padding:4px 6px;background:#f0fdf4;border-radius:3px">✅ 제안: ${esc(c.alternative)}</div>` : ''}
+                  ${c.justification ? `<div style="font-size:11px;color:#374151;margin-top:4px;font-style:italic">💡 근거: ${esc(c.justification)}</div>` : ''}
+                </div>`)
+                .join('')}
+            </div>`
+          : ''
+      }
+
+      <!-- 5. 시나리오 3종 -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+        ${[
+          { key: 'best', label: '🏆 Best', color: '#16a34a', bg: '#f0fdf4' },
+          { key: 'realistic', label: '🎯 Realistic', color: '#3b82f6', bg: '#eff6ff' },
+          { key: 'worst', label: '⚠️ Worst', color: '#dc2626', bg: '#fef2f2' },
+        ]
+          .map(s => `<div style="padding:8px;background:${s.bg};border:1px solid ${s.color}44;border-radius:6px">
+            <div style="font-size:11px;font-weight:600;color:${s.color};margin-bottom:4px">${s.label}</div>
+            <div style="font-size:11px;color:#374151;white-space:pre-wrap;line-height:1.5">${esc(scenarios[s.key] || '(없음)')}</div>
+          </div>`)
+          .join('')}
+      </div>
+
+      <!-- 6. 종합 전략 -->
+      ${
+        d.overall_strategy
+          ? `<div style="padding:10px;background:#fff;border:1px solid var(--border);border-radius:6px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px">📝 종합 협상 전략</div>
+              <div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.6">${esc(d.overall_strategy)}</div>
+            </div>`
+          : ''
+      }
+    </div>`;
   }
 
   // Phase 2: 법무 검토 카드 닫기 버튼

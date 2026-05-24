@@ -909,7 +909,7 @@ proposal_v1.pdf  vs  rfp_doc.pdf
 | Phase 2 | **AI 법무 검토** ⭐⭐⭐ (독소조항/누락/한국법규) | ✅ |
 | Phase 3 | 계약 템플릿 라이브러리 (5종 표준 + 변수 치환 + 미리보기) | ✅ |
 | Phase 4 | 만료 알림 (renewal_notice_days + D-7 + cron + email 옵션) | ✅ |
-| Phase 5 | AI 협상 코칭 (불리한 조건 알림 + 카드 추천) | 예정 |
+| Phase 5 | AI 협상 코칭 (우선순위/Give-Take/유사계약/대안/시나리오) | ✅ |
 | Phase 6 | 다국어 (한/영 대조 + 영문 요약) | 예정 |
 | Phase 7 | 전자서명 (모두싸인 통합) | 예정 |
 
@@ -1361,6 +1361,7 @@ PDF로 변환: PowerPoint/Word → 파일 → 내보내기 → PDF.
 | Phase Contract 1 | 🆕 **CLM 워크플로우** — 8단계 상태 전이 매트릭스 (draft→review→negotiation→signing→active↔renewal/expired/terminated) + 빠른 액션 버튼 (모달 footer 동적) + signing→active 자동 start_date + 만료 임박 30일 ⚠️ 표시 + 잘못된 전이 거부 + history 강조 (v5.9.2) |
 | Phase Contract 3 | 🆕 **계약 템플릿 라이브러리** — 5종 표준 시드 (NDA/MSA/SLA/SOW/용역) + `{{변수명}}` 치환 + 자동 채움 (고객사/금액/날짜/담당자) + 실시간 미리보기 + 시드 보호 (STD-/USR- 접두) + 템플릿→계약 자동 생성 흐름 (v5.9.3) |
 | Phase Contract 4 | 🆕 **만료 알림 자동화** — 2회 알림 (D-`renewal_notice_days` + D-7) + cron (매일 09:00 KST) + in-app 큐 + email 옵션 (Gmail OAuth, `.env CONTRACT_ALERT_EMAIL_ENABLED=1`) + 자동 enqueue/cancel (terminated/expired/end_date 변경) + 편집 모달 알림 섹션 (예정/발송/취소 표시) (v5.9.4) |
+| Phase Contract 5 | 🆕 **AI 협상 코칭** — Gemini 2.5 Pro + 법무 검토 결과 + 과거 유사 계약 (동일 type ± 30% 금액) 기반 협상 전략 5종: 우선순위 (1-5) / Give-Take 매트릭스 / 유사 계약 비교 (above/avg/below) / 대안 조항 / 시나리오 3종 (Best/Realistic/Worst) + 종합 전략 마크다운. 신규 테이블 `contract_negotiation_coaches` + history `negotiation_coach` (v5.9.5) |
 
 ---
 

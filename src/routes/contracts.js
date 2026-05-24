@@ -38,7 +38,7 @@ const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
-const { analyzeContractLegal } = require('../services/gemini');
+const { analyzeContractLegal, coachContractNegotiation } = require('../services/gemini');
 const { CONTRACT_TEMPLATE_SEEDS, isSeedTemplateCode } = require('../data/contractTemplateSeeds');
 const contractAlerts = require('../services/contractAlerts');
 
@@ -256,6 +256,26 @@ async function ensureSchema() {
           REFERENCES contracts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // ⑦ AI 협상 코칭 결과: contract_negotiation_coaches (Phase 5 에서 사용 시작)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contract_negotiation_coaches (
+        id                          INT AUTO_INCREMENT PRIMARY KEY,
+        contract_id                 INT NOT NULL,
+        target_review_id            INT NULL,
+        priority_clauses_json       MEDIUMTEXT NULL,
+        give_take_matrix_json       MEDIUMTEXT NULL,
+        similar_contracts_json      MEDIUMTEXT NULL,
+        alternative_clauses_json    MEDIUMTEXT NULL,
+        scenarios_json              MEDIUMTEXT NULL,
+        overall_strategy            MEDIUMTEXT NULL,
+        language                    VARCHAR(10) DEFAULT 'ko',
+        generated_by                INT NULL,
+        generated_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_contract_gen (contract_id, generated_at),
+        CONSTRAINT fk_cnc_contract FOREIGN KEY (contract_id)
+          REFERENCES contracts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
   } catch (e) {
     // FK 생성 실패 시 fallback — FK 없이 재시도
     console.warn('[contracts:migration] FK 생성 실패 → fallback:', e.message);
@@ -300,6 +320,18 @@ async function ensureSchema() {
           channel VARCHAR(20) DEFAULT 'inapp',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_status_scheduled (status, scheduled_for)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_negotiation_coaches (
+          id INT AUTO_INCREMENT PRIMARY KEY, contract_id INT NOT NULL,
+          target_review_id INT NULL,
+          priority_clauses_json MEDIUMTEXT NULL, give_take_matrix_json MEDIUMTEXT NULL,
+          similar_contracts_json MEDIUMTEXT NULL, alternative_clauses_json MEDIUMTEXT NULL,
+          scenarios_json MEDIUMTEXT NULL, overall_strategy MEDIUMTEXT NULL,
+          language VARCHAR(10) DEFAULT 'ko',
+          generated_by INT NULL, generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_contract_gen (contract_id, generated_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
     } catch (_) {
@@ -955,7 +987,7 @@ router.get('/:id', async (req, res) => {
     );
     if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
 
-    const [[files], [history], [latestReview]] = await Promise.all([
+    const [[files], [history], [latestReview], [latestCoach]] = await Promise.all([
       pool.query(`SELECT * FROM contract_files WHERE contract_id = ? ORDER BY created_at DESC`, [
         id,
       ]),
@@ -973,6 +1005,13 @@ router.get('/:id', async (req, res) => {
            LEFT JOIN contract_files cf ON cf.id = clr.target_file_id
           WHERE clr.contract_id = ?
           ORDER BY clr.generated_at DESC LIMIT 1`,
+        [id]
+      ),
+      // Phase 5: 최신 협상 코칭 결과 (모달 재진입 시 자동 표시)
+      pool.query(
+        `SELECT * FROM contract_negotiation_coaches
+          WHERE contract_id = ?
+          ORDER BY generated_at DESC LIMIT 1`,
         [id]
       ),
     ]);
@@ -1006,6 +1045,35 @@ router.get('/:id', async (req, res) => {
       };
     } else {
       contract.latest_legal_review = null;
+    }
+    // Phase 5: 최신 협상 코칭 풀어서 노출 (JSON 컬럼 → 객체)
+    if (latestCoach && latestCoach[0]) {
+      const c = latestCoach[0];
+      const parseJson = (s, fallback) => {
+        if (!s) return fallback;
+        try {
+          return JSON.parse(s);
+        } catch (_) {
+          return fallback;
+        }
+      };
+      contract.latest_negotiation_coach = {
+        id: c.id,
+        target_review_id: c.target_review_id,
+        priority_clauses: parseJson(c.priority_clauses_json, []),
+        give_take_matrix: parseJson(c.give_take_matrix_json, {
+          willing_to_concede: [],
+          must_protect: [],
+        }),
+        similar_contracts_comparison: parseJson(c.similar_contracts_json, {}),
+        alternative_clauses: parseJson(c.alternative_clauses_json, []),
+        scenarios: parseJson(c.scenarios_json, {}),
+        overall_strategy: c.overall_strategy,
+        language: c.language,
+        generated_at: c.generated_at,
+      };
+    } else {
+      contract.latest_negotiation_coach = null;
     }
     res.json({ success: true, data: contract });
   } catch (err) {
@@ -1756,6 +1824,193 @@ router.post('/alerts/process', async (req, res) => {
   try {
     const result = await contractAlerts.processAlertQueue({});
     res.json({ success: true, data: result });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// =============================================================
+// Phase 5: AI 협상 코칭 (coachContractNegotiation)
+// =============================================================
+
+// POST /:id/negotiation-coach — 협상 코칭 실행 + DB 영속화
+//   - 최신 법무 검토 + 과거 유사 계약 (동일 contract_type ± 30% 금액 범위) 조회
+//   - Gemini Pro 호출 → priority/give-take/comparison/alternative/scenarios/strategy
+//   - contract_negotiation_coaches 테이블에 INSERT + history 기록
+router.post('/:id/negotiation-coach', async (req, res) => {
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    if (!contractId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+
+    // 계약 조회
+    const [[contract]] = await pool.query(`SELECT * FROM contracts WHERE id = ?`, [contractId]);
+    if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+
+    // 최신 법무 검토 결과 조회 (필수)
+    const [[latestReview]] = await pool.query(
+      `SELECT * FROM contract_legal_reviews
+        WHERE contract_id = ?
+        ORDER BY generated_at DESC LIMIT 1`,
+      [contractId]
+    );
+    if (!latestReview) {
+      return res.status(400).json({
+        success: false,
+        error: '먼저 AI 법무 검토를 실행하세요 (Phase 2). 검토 결과가 협상 코칭의 입력이 됩니다.',
+      });
+    }
+
+    // 법무 결과 파싱
+    const parseJson = (s, fallback) => {
+      if (!s) return fallback;
+      try {
+        return JSON.parse(s);
+      } catch (_) {
+        return fallback;
+      }
+    };
+    const legalReview = {
+      review_score: latestReview.review_score,
+      risk_level: latestReview.risk_level,
+      toxic_clauses: parseJson(latestReview.toxic_clauses_json, []),
+      missing_clauses: parseJson(latestReview.missing_clauses_json, []),
+      legal_compliance: parseJson(latestReview.legal_compliance_json, {}),
+    };
+
+    // 과거 유사 계약 조회 (동일 contract_type + 금액 ± 30%, 본인 제외, 최대 10건)
+    let similarContracts = [];
+    try {
+      const amt = Number(contract.contract_amount) || 0;
+      let where = `id != ? AND contract_type = ?`;
+      const params = [contractId, contract.contract_type || 'etc'];
+      if (amt > 0) {
+        where += ' AND contract_amount BETWEEN ? AND ?';
+        params.push(amt * 0.7, amt * 1.3);
+      }
+      const [rows] = await pool.query(
+        `SELECT id, contract_no, title, contract_amount, currency, status, end_date
+           FROM contracts
+          WHERE ${where}
+          ORDER BY created_at DESC LIMIT 10`,
+        params
+      );
+      similarContracts = rows;
+    } catch (e) {
+      console.warn('[contracts:negotiation-coach] 유사 계약 조회 실패:', e.message);
+    }
+
+    console.log(
+      `[contracts:negotiation-coach] start contract=${contractId} samples=${similarContracts.length}`
+    );
+    const startedAt = Date.now();
+
+    // Gemini 호출
+    const result = await coachContractNegotiation({
+      legalReview,
+      similarContracts,
+      contractMeta: {
+        contract_type: contract.contract_type,
+        contract_amount: contract.contract_amount,
+        currency: contract.currency,
+        start_date: contract.start_date,
+        end_date: contract.end_date,
+      },
+      userId,
+      endpoint: 'contract_negotiation_coach',
+    });
+
+    // DB 영속화
+    const [insertResult] = await pool.query(
+      `INSERT INTO contract_negotiation_coaches
+        (contract_id, target_review_id,
+         priority_clauses_json, give_take_matrix_json, similar_contracts_json,
+         alternative_clauses_json, scenarios_json, overall_strategy,
+         language, generated_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [
+        contractId,
+        latestReview.id,
+        JSON.stringify(result.priority_clauses || []),
+        JSON.stringify(result.give_take_matrix || {}),
+        JSON.stringify(result.similar_contracts_comparison || {}),
+        JSON.stringify(result.alternative_clauses || []),
+        JSON.stringify(result.scenarios || {}),
+        result.overall_strategy || null,
+        req.body?.language || 'ko',
+        userId || null,
+      ]
+    );
+
+    // history 기록
+    await logHistory(null, contractId, userId, 'negotiation_coach', {
+      description:
+        `AI 협상 코칭 완료 — 우선순위 ${result.priority_clauses?.length || 0}개, ` +
+        `유사 계약 ${result.similar_contracts_comparison?.samples_count || 0}건`,
+    });
+
+    console.log(
+      `[contracts:negotiation-coach] done contract=${contractId} elapsed=${Date.now() - startedAt}ms`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        id: insertResult.insertId,
+        target_review_id: latestReview.id,
+        ...result,
+        generated_at: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error('[contracts:negotiation-coach] failed:', err?.message || err);
+    handleError(res, err);
+  }
+});
+
+// GET /:id/negotiation-coaches — 협상 코칭 이력 조회 (최대 20건)
+router.get('/:id/negotiation-coaches', async (req, res) => {
+  try {
+    const contractId = parseInt(req.params.id, 10);
+    if (!contractId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+
+    const [rows] = await pool.query(
+      `SELECT cnc.*, tm.name AS generated_by_name
+         FROM contract_negotiation_coaches cnc
+         LEFT JOIN team_members tm ON tm.id = cnc.generated_by
+        WHERE cnc.contract_id = ?
+        ORDER BY cnc.generated_at DESC
+        LIMIT 20`,
+      [contractId]
+    );
+
+    const parseJson = (s, fallback) => {
+      if (!s) return fallback;
+      try {
+        return JSON.parse(s);
+      } catch (_) {
+        return fallback;
+      }
+    };
+    const data = rows.map(r => ({
+      id: r.id,
+      target_review_id: r.target_review_id,
+      priority_clauses: parseJson(r.priority_clauses_json, []),
+      give_take_matrix: parseJson(r.give_take_matrix_json, {
+        willing_to_concede: [],
+        must_protect: [],
+      }),
+      similar_contracts_comparison: parseJson(r.similar_contracts_json, {}),
+      alternative_clauses: parseJson(r.alternative_clauses_json, []),
+      scenarios: parseJson(r.scenarios_json, {}),
+      overall_strategy: r.overall_strategy,
+      language: r.language,
+      generated_by: r.generated_by,
+      generated_by_name: r.generated_by_name,
+      generated_at: r.generated_at,
+    }));
+
+    res.json({ success: true, data });
   } catch (err) {
     handleError(res, err);
   }

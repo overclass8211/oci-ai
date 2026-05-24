@@ -1114,6 +1114,298 @@ async function analyzeContractLegal({ contractPath, contractMime, userId, endpoi
   };
 }
 
+// =============================================================
+// Contract Phase 5: AI 협상 코칭 (coachContractNegotiation)
+//
+// 입력:
+//   - 법무 검토 결과 (toxic_clauses, missing_clauses, legal_compliance)
+//   - 과거 유사 계약 요약 (contract_type / customer_id / 금액 범위)
+//   - 계약 메타 (금액, 통화, 기간)
+//
+// 출력:
+//   - priority_clauses[]   협상 우선순위 top 3-5
+//   - give_take_matrix     Give-and-Take (양보 가능 vs 절대 보호)
+//   - similar_contracts_comparison  과거 평균 vs 현재
+//   - alternative_clauses[]  대안 조항 (카운터 제안)
+//   - scenarios            Best / Realistic / Worst 시나리오
+//   - overall_strategy     종합 전략 (마크다운)
+// =============================================================
+const NEGOTIATION_COACH_PROMPT = `당신은 B2B 계약 협상 전문 코치입니다.
+첨부된 법무 검토 결과와 과거 유사 계약 데이터를 분석하여, 협상 전략을 한국어로 제안하세요.
+
+규칙:
+1. 반드시 한국어로 응답.
+2. 법무 검토 결과에서 실제로 발견된 항목만 근거로 사용 (없는 조항 만들지 마세요).
+3. 과거 계약 데이터가 부족하면 "데이터 부족" 명시 (가짜 통계 X).
+4. 모든 우선순위/심각도는 객관적 근거 (법무 검토 / 과거 평균과의 차이) 에 기반.
+
+반환 필드 (JSON):
+- priority_clauses: 배열 [{ clause, priority, reason, target_outcome }] — 최대 5개
+   · clause: 조항명 (50자 이내, 예: "책임 한계", "비밀유지 기간")
+   · priority: 1~5 정수 (1=최우선)
+   · reason: 왜 우선순위인지 (법무 검토/유사 계약 근거, 100자 이내)
+   · target_outcome: 협상 목표 (구체적 결과, 100자 이내)
+- give_take_matrix: { willing_to_concede[], must_protect[] }
+   · willing_to_concede: 배열 string — 양보 가능 항목 (각 80자 이내, 최대 5개)
+   · must_protect: 배열 string — 절대 양보 불가 (각 80자 이내, 최대 5개)
+- similar_contracts_comparison: 객체
+   · samples_count: 비교 대상 계약 수 (정수, 0이면 "데이터 부족")
+   · avg_amount: 과거 평균 금액 (숫자 또는 null)
+   · our_position: 'above_avg' | 'avg' | 'below_avg' | 'no_data'
+   · gap_analysis: 차이 분석 (200자 이내)
+- alternative_clauses: 배열 [{ original, alternative, justification }] — 최대 5개
+   · original: 상대방 제시 (또는 현 조항) 100자 이내
+   · alternative: 우리 대안 제시 (200자 이내)
+   · justification: 정당화 근거 (100자 이내)
+- scenarios: 객체 { best, realistic, worst }
+   · best: Best case 시나리오 (한국어 마크다운, 300자 이내)
+   · realistic: Realistic case (300자 이내)
+   · worst: Worst case + 대응 (300자 이내)
+- overall_strategy: 종합 협상 전략 (한국어 마크다운, 500자 이내)
+   구조: ## 1. 핵심 메시지\\n## 2. 협상 순서\\n## 3. 결렬 시 대응
+
+[일관성 검증 — 응답 직전 자가 확인]
+1. priority_clauses 의 priority 값이 1-5 범위 내인가?
+2. 비교 데이터 없으면 (samples_count=0) our_position='no_data' 인가?
+3. willing_to_concede 와 must_protect 항목이 중복되지 않는가?`;
+
+async function coachContractNegotiation({
+  legalReview,
+  similarContracts,
+  contractMeta,
+  userId,
+  endpoint,
+}) {
+  // 테스트 환경 — mock 응답
+  if (process.env.NODE_ENV === 'test') {
+    return {
+      priority_clauses: [
+        {
+          clause: '__MOCK__ 책임 한계',
+          priority: 1,
+          reason: '__MOCK__ 손해배상 상한이 너무 낮음',
+          target_outcome: '__MOCK__ 계약금액 100% 한도로 협상',
+        },
+        {
+          clause: '__MOCK__ 비밀유지 기간',
+          priority: 2,
+          reason: '__MOCK__ 누락 조항',
+          target_outcome: '__MOCK__ 5년 비밀유지 조항 추가',
+        },
+      ],
+      give_take_matrix: {
+        willing_to_concede: ['__MOCK__ 가격 조정 3-5%', '__MOCK__ 지급 조건 단축'],
+        must_protect: ['__MOCK__ 손해배상 상한', '__MOCK__ 지적재산권 귀속'],
+      },
+      similar_contracts_comparison: {
+        samples_count: 2,
+        avg_amount: 50000000,
+        our_position: 'above_avg',
+        gap_analysis: '__MOCK__ 과거 평균보다 20% 높음',
+      },
+      alternative_clauses: [
+        {
+          original: '__MOCK__ 최대 1만원으로 한정',
+          alternative: '__MOCK__ 계약금액의 100%를 한도로 한다',
+          justification: '__MOCK__ 공정거래법 무효 가능성 회피',
+        },
+      ],
+      scenarios: {
+        best: '## Best\\n- __MOCK__ 모든 우선조항 관철',
+        realistic: '## Realistic\\n- __MOCK__ 책임한계 협상 성공',
+        worst: '## Worst\\n- __MOCK__ 결렬 시 백업 공급자',
+      },
+      overall_strategy:
+        '## 1. 핵심 메시지\\n- __MOCK__\\n## 2. 협상 순서\\n- __MOCK__\\n## 3. 결렬 시 대응\\n- __MOCK__',
+      _mock: true,
+    };
+  }
+
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.length < 10) {
+    throw new Error('AI 협상 코칭 서비스가 설정되지 않았습니다 (GEMINI_API_KEY 누락)');
+  }
+
+  // 입력 정리 — 컨텍스트 prompt 로 변환
+  const lr = legalReview || {};
+  const meta = contractMeta || {};
+  const samples = Array.isArray(similarContracts) ? similarContracts : [];
+
+  const contextSummary = `[계약 메타]
+- 유형: ${meta.contract_type || 'N/A'}
+- 금액: ${meta.contract_amount || 'N/A'} ${meta.currency || 'KRW'}
+- 기간: ${meta.start_date || 'N/A'} ~ ${meta.end_date || 'N/A'}
+
+[법무 검토 요약]
+- 안전성 점수: ${lr.review_score ?? 'N/A'}/100 (위험도: ${lr.risk_level || 'N/A'})
+- 독소조항 ${(lr.toxic_clauses || []).length}건:
+${
+  (lr.toxic_clauses || [])
+    .slice(0, 5)
+    .map(c => `  · [${c.severity}] ${c.clause_type}: ${c.why_problematic || ''}`)
+    .join('\n') || '  (없음)'
+}
+- 누락조항 ${(lr.missing_clauses || []).length}건:
+${
+  (lr.missing_clauses || [])
+    .slice(0, 5)
+    .map(c => `  · [${c.importance}] ${c.clause_type}`)
+    .join('\n') || '  (없음)'
+}
+- 한국법규 부합:
+  · 공정거래법: ${lr.legal_compliance?.fair_trade_act?.compliant ? '부합' : '위반 가능'}
+  · 하도급법: ${lr.legal_compliance?.subcontract_act?.compliant ? '부합' : '위반 가능'}
+  · 개인정보보호법: ${lr.legal_compliance?.privacy_act?.compliant ? '부합' : '위반 가능'}
+
+[과거 유사 계약 ${samples.length}건]
+${
+  samples.length === 0
+    ? '(데이터 부족)'
+    : samples
+        .slice(0, 10)
+        .map(
+          s =>
+            `- ${s.contract_no} | ${s.title?.slice(0, 40) || ''} | ${s.contract_amount || '-'} ${s.currency || ''} | ${s.status}`
+        )
+        .join('\n')
+}
+`;
+
+  const model = genAI.getGenerativeModel({ model: MODEL_PRO, safetySettings: SAFETY_SETTINGS });
+  let result;
+  try {
+    result = await model.generateContent({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: contextSummary }, { text: NEGOTIATION_COACH_PROMPT }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+      },
+    });
+  } catch (e) {
+    console.error('[gemini:coachContractNegotiation] generateContent failed:', e?.message || e);
+    const friendly = friendlyError(e) || e?.message || 'Gemini API 호출 실패';
+    throw new Error(`AI 협상 코칭 호출 실패: ${friendly}`);
+  }
+
+  const response = result.response;
+  await logTokenUsage(
+    endpoint || 'contract_negotiation_coach',
+    response.usageMetadata,
+    MODEL_PRO,
+    userId
+  );
+
+  if (response.promptFeedback?.blockReason) {
+    throw new Error(`AI 협상 코칭 거부됨: ${response.promptFeedback.blockReason}`);
+  }
+
+  const text = response.text();
+  if (!text || !text.trim()) {
+    throw new Error('AI 협상 코칭 응답이 비어있습니다');
+  }
+
+  // JSON 파싱 강화 (Phase 12-C 패턴)
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (_) {
+    let cleaned = String(text).trim();
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    }
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (_e2) {
+      console.error('[gemini:coachContractNegotiation] JSON parse failed:', text.slice(0, 500));
+      parsed = {
+        priority_clauses: [],
+        give_take_matrix: { willing_to_concede: [], must_protect: [] },
+        similar_contracts_comparison: {
+          samples_count: 0,
+          avg_amount: null,
+          our_position: 'no_data',
+          gap_analysis: '',
+        },
+        alternative_clauses: [],
+        scenarios: { best: '', realistic: '', worst: '' },
+        overall_strategy:
+          '⚠️ AI가 응답을 정상 형식으로 생성하지 못했습니다.\n\n다시 시도하거나 법무 검토를 먼저 수행하세요.',
+        _parseError: true,
+      };
+    }
+  }
+
+  // 사후 정규화
+  const clip = (s, n) => (typeof s === 'string' ? s.slice(0, n) : '');
+  const clipStrArr = (arr, maxItems, maxLen) =>
+    (Array.isArray(arr) ? arr : [])
+      .slice(0, maxItems)
+      .map(s => clip(s, maxLen))
+      .filter(Boolean);
+  const clampPriority = n => Math.max(1, Math.min(5, parseInt(n, 10) || 3));
+
+  const priorityClauses = (Array.isArray(parsed.priority_clauses) ? parsed.priority_clauses : [])
+    .slice(0, 5)
+    .map(c => ({
+      clause: clip(c.clause, 80),
+      priority: clampPriority(c.priority),
+      reason: clip(c.reason, 200),
+      target_outcome: clip(c.target_outcome, 200),
+    }))
+    .filter(c => c.clause);
+
+  const gtm = parsed.give_take_matrix || {};
+  const giveTakeMatrix = {
+    willing_to_concede: clipStrArr(gtm.willing_to_concede, 5, 120),
+    must_protect: clipStrArr(gtm.must_protect, 5, 120),
+  };
+
+  const scc = parsed.similar_contracts_comparison || {};
+  const validPositions = ['above_avg', 'avg', 'below_avg', 'no_data'];
+  const similarComparison = {
+    samples_count: Math.max(0, parseInt(scc.samples_count, 10) || 0),
+    avg_amount:
+      scc.avg_amount !== null && scc.avg_amount !== undefined ? Number(scc.avg_amount) : null,
+    our_position: validPositions.includes(scc.our_position) ? scc.our_position : 'no_data',
+    gap_analysis: clip(scc.gap_analysis, 400),
+  };
+
+  const alternativeClauses = (
+    Array.isArray(parsed.alternative_clauses) ? parsed.alternative_clauses : []
+  )
+    .slice(0, 5)
+    .map(c => ({
+      original: clip(c.original, 200),
+      alternative: clip(c.alternative, 300),
+      justification: clip(c.justification, 200),
+    }))
+    .filter(c => c.original || c.alternative);
+
+  const sc = parsed.scenarios || {};
+  const scenarios = {
+    best: clip(sc.best, 500),
+    realistic: clip(sc.realistic, 500),
+    worst: clip(sc.worst, 500),
+  };
+
+  return {
+    priority_clauses: priorityClauses,
+    give_take_matrix: giveTakeMatrix,
+    similar_contracts_comparison: similarComparison,
+    alternative_clauses: alternativeClauses,
+    scenarios,
+    overall_strategy: clip(parsed.overall_strategy, 3000),
+  };
+}
+
 async function runStream(res, params) {
   if (process.env.NODE_ENV === 'test') {
     res.write('data: {"text":"[TEST] mock AI response"}\n\n');
@@ -1207,5 +1499,6 @@ module.exports = {
   analyzeProposalRFP,
   evaluateProposalAgainstRFP,
   analyzeContractLegal,
+  coachContractNegotiation,
   friendlyError,
 };

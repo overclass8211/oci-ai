@@ -4,7 +4,111 @@
 
 ---
 
-## v5.9.4 (2026.05.24) — 현재 ⭐
+## v5.9.5 (2026.05.24) — 현재 ⭐⭐
+
+### 🎯 메인 — **계약 모듈 Phase 5: AI 협상 코칭**
+
+법무 검토 + 과거 유사 계약 → 협상 전략 5종 자동 생성.
+
+#### 🚀 사용자 가치
+
+```
+[Phase 2 법무 검토 완료]
+        ↓
+[💼 AI 협상 코칭] 큰 CTA 클릭 (모달 하단)
+        ↓
+30-60초 대기 (Gemini Pro · 약 500-1000원/회)
+        ↓
+협상 전략 5종 즉시 표시:
+  📌 우선순위 (top 1-5, 색상 코드)
+  🤝 Give-and-Take (양보 가능 vs 절대 보호)
+  📊 유사 계약 비교 (above/avg/below)
+  🔁 대안 조항 (현재 → 제안 → 근거)
+  🎬 시나리오 3종 (Best/Realistic/Worst)
+  📝 종합 전략 (마크다운)
+```
+
+#### 🛠 기술 변경
+
+##### 신규 DB 테이블 (1개)
+```sql
+contract_negotiation_coaches (
+  id, contract_id (FK CASCADE), target_review_id,
+  priority_clauses_json, give_take_matrix_json, similar_contracts_json,
+  alternative_clauses_json, scenarios_json, overall_strategy,
+  language, generated_by, generated_at,
+  INDEX (contract_id, generated_at)
+)
+```
+자가 마이그레이션 (Phase 0 패턴 — idempotent CREATE IF NOT EXISTS).
+
+##### 신규 helper (`src/services/gemini.js`)
+- `coachContractNegotiation({ legalReview, similarContracts, contractMeta, userId, endpoint })`
+  - NEGOTIATION_COACH_PROMPT (한국어 + B2B 협상 전문)
+  - 컨텍스트 prompt 변환 (계약 메타 + 법무 요약 + 과거 계약 목록)
+  - JSON 파싱 fallback (Phase 12-C 패턴)
+  - 사후 정규화: priority 1-5 강제 + position 4종 검증
+  - NODE_ENV=test mock 응답
+
+##### 신규 endpoint (2개)
+- `POST /api/contracts/:id/negotiation-coach` — 코칭 실행
+  - 사전 검증: 최신 `contract_legal_reviews` 필수 (없으면 400)
+  - 과거 유사 계약 자동 조회: 동일 `contract_type` + 금액 ± 30%, 본인 제외, 최대 10건
+  - `contract_negotiation_coaches` INSERT + history `negotiation_coach` 기록
+- `GET /api/contracts/:id/negotiation-coaches` — 이력 조회 (최대 20건)
+- `GET /api/contracts/:id` 응답 확장 — `latest_negotiation_coach` 필드 신규 (모달 prefill)
+
+##### 프론트 UI (`public/js/pages/contracts.js`)
+- 법무 결과 카드 다음에 💼 협상 코칭 섹션 추가
+- 보라색 그라데이션 큰 CTA 버튼 (Phase 2 패턴 재사용)
+- 법무 검토 없으면 disabled + 안내
+- confirm 다이얼로그 (비용/시간/생성 항목 5종 안내)
+- 결과 카드 — 6섹션 (우선순위/Give-Take/비교/대안/시나리오/전략)
+- 모달 재진입 시 `latest_negotiation_coach` 자동 표시
+
+##### 신규 헬퍼 (`public/js/api.js`)
+- `API.contracts.negotiationCoach(id)` / `negotiationCoaches(id)`
+
+#### 🛡 신뢰성 가드
+
+**입력 검증**:
+- 법무 검토 없으면 400 — 사용자에게 [🤖 법무] 먼저 실행 안내
+- 과거 유사 계약 조회 실패해도 (DB 오류) 진행 — 빈 배열로 대체
+
+**환각 방지**:
+- priority 값 1-5 강제 보정 (clampPriority)
+- our_position 4종 검증 (above_avg/avg/below_avg/no_data)
+- JSON 파싱 실패 → markdown fence/brace 추출 후 재시도 → friendly fallback
+
+**컨텍스트 정확도**:
+- 법무 검토 toxic/missing/compliance 모두 prompt 에 명시적 포함
+- 과거 계약 N건 contract_no/title/amount/status 요약 (가짜 통계 X)
+
+#### 📊 회귀 테스트
+- vitest: **신규 +3건 (총 34/34 contracts)**, 전체 **407+/407+ (33 files)** — 기존 0건 회귀
+- lint: 0 errors / 0 warnings
+
+#### 🛡 시스템 영향
+- 신규 DB 테이블 1개 (`contract_negotiation_coaches`) — 자가 마이그레이션
+- 신규 endpoint 2개 + GET /:id 응답 확장
+- 기존 모듈 영향 0건
+- Gemini API 호출 비용 발생 (사용자 confirm 후만)
+
+#### 🚀 운영 배포
+```bash
+cd ~/oci-ai && git pull origin master && pm2 restart oci-ai --update-env
+```
+
+배포 후:
+- DB 에 `contract_negotiation_coaches` 자동 생성
+- 계약 편집 모달 하단에 [💼 AI 협상 코칭] CTA 표시 (법무 검토 후 활성)
+
+#### 📅 다음 단계
+Phase 6 (다국어 한/영) 또는 Phase 7 (전자서명 - 모두싸인) 권장.
+
+---
+
+## v5.9.4 (2026.05.24) — 직전 ⭐
 
 ### 🎯 메인 — **계약 모듈 Phase 4: 만료 알림 자동화 (cron + email)**
 

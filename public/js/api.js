@@ -334,6 +334,9 @@ const API = {
     alerts: id => API.get(`/contracts/${id}/alerts`),
     cancelAlert: alertId => API.del(`/contracts/alerts/${alertId}`),
     processAlerts: () => API.post('/contracts/alerts/process', {}),
+    // Phase 5 — AI 협상 코칭 (Gemini Pro · 1회 약 500-1000원)
+    negotiationCoach: id => API.post(`/contracts/${id}/negotiation-coach`, {}),
+    negotiationCoaches: id => API.get(`/contracts/${id}/negotiation-coaches`),
   },
 
   // 견적서 (crm.quotes)

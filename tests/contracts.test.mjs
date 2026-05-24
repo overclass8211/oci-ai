@@ -278,6 +278,120 @@ describe('Contracts API — Phase 0', () => {
     expect(historyAfter.length).toBe(0);
   });
 
+  // ── Phase 5: AI 협상 코칭 ─────────────────────────────────
+  it('POST /:id/negotiation-coach — 법무 검토 없으면 400', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__coach_no_review',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    const res = await api()
+      .post(`/api/contracts/${id}/negotiation-coach`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('AI 법무 검토');
+  });
+
+  it('POST /:id/negotiation-coach — 법무 검토 후 코칭 + DB 영속 + history', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__coach_full',
+        customer_name: '__TEST__',
+        contract_type: 'MSA',
+        contract_amount: 50000000,
+        currency: 'KRW',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    // 파일 + 법무 검토 (mock)
+    const up = await api()
+      .post(`/api/contracts/${id}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'contract')
+      .attach('files', TEST_FILE);
+    const fileId = up.body.data.uploaded[0].id;
+    await api()
+      .post(`/api/contracts/${id}/files/${fileId}/legal-review`)
+      .set('X-User-Id', String(TEST_USER_ID));
+
+    // 협상 코칭 실행
+    const res = await api()
+      .post(`/api/contracts/${id}/negotiation-coach`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data.priority_clauses)).toBe(true);
+    expect(res.body.data.priority_clauses.length).toBeGreaterThan(0);
+    expect(res.body.data.priority_clauses[0].priority).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.priority_clauses[0].priority).toBeLessThanOrEqual(5);
+    expect(res.body.data.give_take_matrix).toBeDefined();
+    expect(Array.isArray(res.body.data.give_take_matrix.willing_to_concede)).toBe(true);
+    expect(Array.isArray(res.body.data.give_take_matrix.must_protect)).toBe(true);
+    expect(res.body.data.similar_contracts_comparison).toBeDefined();
+    expect(res.body.data.scenarios.best).toBeDefined();
+    expect(res.body.data.scenarios.realistic).toBeDefined();
+    expect(res.body.data.scenarios.worst).toBeDefined();
+    expect(res.body.data.overall_strategy).toBeDefined();
+    expect(res.body.data.target_review_id).toBeGreaterThan(0);
+
+    // GET /:id 응답에 latest_negotiation_coach 포함
+    const detail = await api()
+      .get(`/api/contracts/${id}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(detail.body.data.latest_negotiation_coach).toBeDefined();
+    expect(detail.body.data.latest_negotiation_coach).not.toBeNull();
+    expect(detail.body.data.latest_negotiation_coach.id).toBe(res.body.data.id);
+    // history 에 negotiation_coach 액션
+    expect(detail.body.data.history.some(h => h.action_type === 'negotiation_coach')).toBe(true);
+  });
+
+  it('GET /:id/negotiation-coaches — 이력 조회 (다중 버전)', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__coach_history',
+        customer_name: '__TEST__',
+        contract_type: 'service',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    // 파일 + 법무 검토 + 코칭 2번 실행
+    const up = await api()
+      .post(`/api/contracts/${id}/files`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .field('file_type', 'contract')
+      .attach('files', TEST_FILE);
+    const fileId = up.body.data.uploaded[0].id;
+    await api()
+      .post(`/api/contracts/${id}/files/${fileId}/legal-review`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    await api()
+      .post(`/api/contracts/${id}/negotiation-coach`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    await api()
+      .post(`/api/contracts/${id}/negotiation-coach`)
+      .set('X-User-Id', String(TEST_USER_ID));
+
+    const list = await api()
+      .get(`/api/contracts/${id}/negotiation-coaches`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(list.status).toBe(200);
+    expect(list.body.data.length).toBe(2);
+    expect(list.body.data[0].priority_clauses).toBeDefined();
+    expect(list.body.data[0].give_take_matrix).toBeDefined();
+    expect(list.body.data[0].scenarios).toBeDefined();
+  });
+
   // ── Phase 4: 만료 알림 큐 ─────────────────────────────────
   it('POST / — end_date 있는 계약 생성 시 알림 자동 enqueue (1차 + D-7)', async () => {
     // 미래의 종료일 (예: 60일 후)

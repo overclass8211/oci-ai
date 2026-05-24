@@ -1,6 +1,6 @@
 # 🔌 OCI CRM AI — API 문서
 
-> **버전**: 2026.05 (Phase G3 + Contract Phase 0/1/2/3/4)
+> **버전**: 2026.05 (Phase G3 + Contract Phase 0/1/2/3/4/5)
 > **Base URL**: `https://<your-domain>/api` (Production) / `http://localhost:3001/api` (Dev)
 > **인증 방식**: JWT Bearer Token + HttpOnly Refresh Cookie
 
@@ -1497,7 +1497,72 @@ CASCADE 삭제 (파일 디스크 + history 자동 정리).
 **Phase 2** (v5.9.1): `legal_review` — AI 법무 검토 실행 시 자동 기록
 **Phase 3** (v5.9.3): `template_apply` — 템플릿 기반 계약 생성 시 자동 기록 (description: `템플릿 적용: ⃝⃝ (STD-NDA) — C-2026-NNNN`)
 **Phase 4** (v5.9.4): 알림 이력은 별도 `contract_alerts` 테이블에 영속 (history 와 분리). cron 처리 결과는 서버 로그 (`[contractAlerts] 처리: N건`)
-**Phase 5+** 향후 예정: `esign_request` / `esign_signed` 등
+**Phase 5** (v5.9.5): `negotiation_coach` — AI 협상 코칭 실행 시 자동 기록. 결과는 별도 `contract_negotiation_coaches` 테이블에 영속
+**Phase 6+** 향후 예정: `esign_request` / `esign_signed` 등
+
+---
+
+### 22-A.18 AI 협상 코칭 (v5.9.5 — Phase 5)
+
+**비용**: 약 500-1000원/회 (Gemini 2.5 Pro)
+**소요 시간**: 30-60초
+**전제조건**: 최신 `contract_legal_reviews` 1건 이상 (없으면 400)
+
+#### POST `/contracts/:id/negotiation-coach`
+협상 코칭 실행.
+
+**자동 동작**:
+- 최신 법무 검토 결과 조회 → toxic_clauses + missing_clauses + legal_compliance 추출
+- 과거 유사 계약 조회: 동일 `contract_type` + `contract_amount` ± 30%, 본인 제외, 최대 10건
+- Gemini 호출 → priority_clauses / give_take_matrix / similar_contracts_comparison / alternative_clauses / scenarios / overall_strategy
+- `contract_negotiation_coaches` INSERT (target_review_id 로 법무 결과와 연결)
+- `contract_history` 에 `negotiation_coach` 액션 자동 기록
+
+**Response**:
+```json
+{ "success": true, "data": {
+  "id": 5, "target_review_id": 12,
+  "priority_clauses": [
+    { "clause": "책임 한계", "priority": 1, "reason": "...", "target_outcome": "..." }
+  ],
+  "give_take_matrix": {
+    "willing_to_concede": ["가격 조정 3-5%", ...],
+    "must_protect": ["손해배상 상한", ...]
+  },
+  "similar_contracts_comparison": {
+    "samples_count": 3,
+    "avg_amount": 50000000,
+    "our_position": "above_avg",
+    "gap_analysis": "..."
+  },
+  "alternative_clauses": [
+    { "original": "...", "alternative": "...", "justification": "..." }
+  ],
+  "scenarios": { "best": "...", "realistic": "...", "worst": "..." },
+  "overall_strategy": "## 1. 핵심 메시지...",
+  "generated_at": "2026-05-24T08:30:00.000Z"
+}}
+```
+
+**에러 응답**:
+| HTTP | 사유 |
+|------|------|
+| 400 | "먼저 AI 법무 검토를 실행하세요" |
+| 404 | 계약 없음 |
+| 500 | Gemini API 실패 |
+
+#### GET `/contracts/:id/negotiation-coaches`
+협상 코칭 이력 조회 (최대 20건).
+
+#### GET `/contracts/:id` 응답 확장
+- `latest_negotiation_coach` 필드 신규 (없으면 null)
+- 모달 재진입 시 자동 prefill
+
+#### 신뢰성 가드 (v5.9.5)
+- priority 1-5 강제 (clampPriority)
+- our_position 4종 검증 (above_avg/avg/below_avg/no_data)
+- JSON 파싱 fallback (Phase 12-C 패턴)
+- 과거 계약 조회 실패 시 빈 배열로 진행 (best-effort)
 
 ---
 
