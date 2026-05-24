@@ -757,7 +757,8 @@ const ContractsPage = (() => {
       { key: 'title', label: '계약명', formId: 'ct-f-title', icon: '📝' },
       {
         key: 'counterparty_name',
-        label: '고객사명',
+        // v6.0.0 Phase A4: 매칭 모달 분기 안내 (단순 텍스트 입력이 아님)
+        label: '상대방 회사 (매칭)',
         formId: 'ct-f-customer_name',
         icon: '🏢',
       },
@@ -919,18 +920,31 @@ const ContractsPage = (() => {
 
     // 개별 [✓ 적용] 버튼
     card.querySelectorAll('.ct-meta-apply-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const formId = btn.dataset.formId;
         const value = btn.dataset.value;
+        const metaKey = btn.dataset.metaKey;
         const formEl = document.getElementById(formId);
         if (!formEl) {
           Toast.error?.(`폼 필드 ${formId} 를 찾을 수 없음`);
           return;
         }
+
+        // v6.0.0 Phase A4: counterparty_name → 정규화 매칭 모달 분기
+        // 단순 텍스트 적용 대신, 기존 customers 와 매칭 후 ID 자동 연결
+        if (metaKey === 'counterparty_name') {
+          await _openCounterpartyMatchModal(value, btn);
+          return;
+        }
+
         const existing = (formEl.value || '').trim();
         // 이미 값이 있으면 confirm
         if (existing && existing !== value) {
-          if (!confirm(`이미 입력된 값 "${existing}"\n을(를) AI 추출값 "${value}"\n으로 덮어쓰시겠습니까?`)) {
+          if (
+            !confirm(
+              `이미 입력된 값 "${existing}"\n을(를) AI 추출값 "${value}"\n으로 덮어쓰시겠습니까?`
+            )
+          ) {
             return;
           }
         }
@@ -939,11 +953,7 @@ const ContractsPage = (() => {
         // change 이벤트 트리거 (select 등이 의존할 수 있음)
         formEl.dispatchEvent(new Event('change', { bubbles: true }));
         // 버튼 상태 변경
-        btn.innerHTML = '✅ 적용됨';
-        btn.disabled = true;
-        btn.style.background = '#9ca3af';
-        btn.style.cursor = 'default';
-        btn.style.opacity = '0.7';
+        _markMetaBtnApplied(btn);
         // 폼 영역으로 시각적 피드백 (잠시 강조)
         formEl.style.transition = 'background-color 0.5s';
         formEl.style.backgroundColor = '#ecfeff';
@@ -979,19 +989,24 @@ const ContractsPage = (() => {
           return;
         }
         let applied = 0;
+        let skippedCounterparty = false;
         buttons.forEach(btn => {
+          // v6.0.0 Phase A4: counterparty_name 은 매칭 모달이 필요하므로 일괄에서 제외
+          if (btn.dataset.metaKey === 'counterparty_name') {
+            skippedCounterparty = true;
+            return;
+          }
           const formEl = document.getElementById(btn.dataset.formId);
           if (!formEl) return;
           formEl.value = btn.dataset.value;
           formEl.dispatchEvent(new Event('change', { bubbles: true }));
-          btn.innerHTML = '✅ 적용됨';
-          btn.disabled = true;
-          btn.style.background = '#9ca3af';
-          btn.style.cursor = 'default';
-          btn.style.opacity = '0.7';
+          _markMetaBtnApplied(btn);
           applied++;
         });
         Toast.success?.(`${applied}개 필드 일괄 적용`);
+        if (skippedCounterparty) {
+          Toast.info?.('상대방 회사명은 별도로 매칭/등록이 필요합니다 (개별 [✓ 적용])');
+        }
       });
     }
 
@@ -1002,6 +1017,176 @@ const ContractsPage = (() => {
         card.style.display = 'none';
       });
     }
+  }
+
+  // v6.0.0 Phase A4: 적용 완료 버튼 시각화 (공통 헬퍼)
+  function _markMetaBtnApplied(btn) {
+    if (!btn) return;
+    btn.innerHTML = '✅ 적용됨';
+    btn.disabled = true;
+    btn.style.background = '#9ca3af';
+    btn.style.cursor = 'default';
+    btn.style.opacity = '0.7';
+  }
+
+  // v6.0.0 Phase A4: AI 추출 상대방 회사명 → 매칭 모달
+  // 1) API.customers.match 호출 → exact/partial 후보 표시
+  // 2) 사용자가 후보 선택 시 → ct-f-customer_id + ct-f-customer_name + ct-f-customer-search 자동 채움
+  // 3) 매칭 없거나 사용자가 [신규 등록] 선택 시 → 빠른 등록 미니 폼
+  async function _openCounterpartyMatchModal(rawName, sourceBtn) {
+    if (!rawName) return;
+    if (typeof Modal === 'undefined' || typeof Modal.show !== 'function') {
+      Toast.error?.('Modal 컴포넌트를 찾을 수 없습니다');
+      return;
+    }
+    let matchResp;
+    try {
+      matchResp = await API.customers.match(rawName);
+    } catch (e) {
+      Toast.error?.('고객사 매칭 조회 실패: ' + (e.message || e));
+      return;
+    }
+    const data = matchResp?.data || {};
+    const exact = Array.isArray(data.exact) ? data.exact : [];
+    const partial = Array.isArray(data.partial) ? data.partial : [];
+    const normalized = data.normalized_query || rawName;
+
+    const renderCandidate = (c, type) => {
+      const isExact = type === 'exact';
+      const bg = isExact ? '#dcfce7' : '#fef3c7';
+      const border = isExact ? '#16a34a' : '#d97706';
+      const icon = isExact ? '✅' : '⚠️';
+      const label = isExact ? '정확 일치' : '유사';
+      return `<div class="ct-match-card" data-cid="${c.id}" data-cname="${esc(c.name)}"
+        style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:${bg};border:1px solid ${border};border-radius:6px;margin-bottom:6px;cursor:pointer">
+        <div>
+          <div style="font-weight:600;font-size:13px;color:#111">${icon} ${esc(c.name)}
+            <span style="font-size:10px;padding:1px 6px;background:${border};color:#fff;border-radius:8px;margin-left:6px">${label}</span>
+          </div>
+          <div style="font-size:11px;color:#374151;margin-top:2px">
+            ${c.industry ? esc(c.industry) + ' · ' : ''}${c.region ? esc(c.region) + ' · ' : ''}${c.contact_person ? '👤 ' + esc(c.contact_person) : ''}
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm ct-match-select-btn" type="button"
+          data-cid="${c.id}" data-cname="${esc(c.name)}"
+          style="font-size:11px;padding:5px 12px">선택</button>
+      </div>`;
+    };
+
+    const allCandidates = [
+      ...exact.map(c => renderCandidate(c, 'exact')),
+      ...partial.map(c => renderCandidate(c, 'partial')),
+    ].join('');
+
+    const body = `
+      <div style="padding:16px">
+        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:10px 12px;margin-bottom:14px">
+          <div style="font-size:11px;color:#0369a1;margin-bottom:2px">AI 추출 회사명</div>
+          <div style="font-weight:600;font-size:14px;color:#0c4a6e">${esc(rawName)}</div>
+          ${
+            normalized !== rawName
+              ? `<div style="font-size:10px;color:#0369a1;margin-top:4px">정규화: <code style="background:#fff;padding:1px 4px;border-radius:3px">${esc(normalized)}</code> (법인 접미사 제거 후 검색)</div>`
+              : ''
+          }
+        </div>
+
+        ${
+          allCandidates
+            ? `<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">📋 기존 고객사 매칭 결과 ${exact.length + partial.length}건</div>
+               <div style="max-height:280px;overflow-y:auto;margin-bottom:14px">${allCandidates}</div>`
+            : `<div style="text-align:center;padding:24px;color:#6b7280;font-size:13px;background:#f9fafb;border-radius:6px;margin-bottom:14px">
+                 🔍 매칭되는 기존 고객사가 없습니다
+               </div>`
+        }
+
+        <div style="border-top:1px dashed var(--border);padding-top:12px;margin-top:8px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">매칭이 없거나 새로운 고객사라면</div>
+          <button class="btn btn-secondary" id="ct-match-create-btn" type="button" style="width:100%">
+            ➕ "${esc(rawName)}" 을(를) 신규 고객사로 등록
+          </button>
+        </div>
+      </div>`;
+
+    const footer = `
+      <button class="btn btn-ghost" id="ct-match-cancel-btn" type="button">취소</button>`;
+
+    Modal.show({
+      title: '🏢 상대방 회사 매칭',
+      body,
+      footer,
+      size: 'md',
+      bind: {
+        '#ct-match-cancel-btn': () => Modal.close(),
+      },
+      onOpen: () => {
+        // 후보 선택
+        document.querySelectorAll('.ct-match-select-btn').forEach(btn => {
+          btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const cid = parseInt(btn.dataset.cid, 10);
+            const cname = btn.dataset.cname;
+            _applyCustomerMatch(cid, cname, sourceBtn);
+            Modal.close();
+          });
+        });
+        // 카드 전체 클릭도 선택으로 동작
+        document.querySelectorAll('.ct-match-card').forEach(card => {
+          card.addEventListener('click', e => {
+            if (e.target.closest('button')) return;
+            const cid = parseInt(card.dataset.cid, 10);
+            const cname = card.dataset.cname;
+            _applyCustomerMatch(cid, cname, sourceBtn);
+            Modal.close();
+          });
+        });
+        // 신규 등록
+        const createBtn = document.getElementById('ct-match-create-btn');
+        if (createBtn) {
+          createBtn.addEventListener('click', async () => {
+            createBtn.disabled = true;
+            createBtn.innerHTML = '⏳ 등록 중...';
+            try {
+              const res = await API.customers.create({ name: rawName, region: '국내' });
+              const newId = res?.data?.id || res?.id;
+              if (!newId) throw new Error('생성된 ID 응답 없음');
+              Toast.success?.(`신규 고객사 "${rawName}" 등록 완료 (#${newId})`);
+              _applyCustomerMatch(newId, rawName, sourceBtn);
+              Modal.close();
+            } catch (e) {
+              createBtn.disabled = false;
+              createBtn.innerHTML = `➕ "${esc(rawName)}" 을(를) 신규 고객사로 등록`;
+              Toast.error?.('신규 등록 실패: ' + (e.message || e));
+            }
+          });
+        }
+      },
+    });
+  }
+
+  // v6.0.0 Phase A4: 매칭된 customer_id 를 폼에 적용 (3개 필드 동기화)
+  function _applyCustomerMatch(customerId, customerName, sourceBtn) {
+    if (!customerId || !customerName) return;
+    // 1) hidden customer_id
+    const idField = document.getElementById('ct-f-customer_id');
+    if (idField) idField.value = String(customerId);
+    // 2) display customer_name (텍스트 input)
+    const nameField = document.getElementById('ct-f-customer_name');
+    if (nameField) {
+      nameField.value = customerName;
+      nameField.style.transition = 'background-color 0.5s';
+      nameField.style.backgroundColor = '#ecfeff';
+      setTimeout(() => {
+        nameField.style.backgroundColor = '';
+      }, 1200);
+    }
+    // 3) Combobox 검색 input (있으면)
+    const searchField = document.getElementById('ct-f-customer-search');
+    if (searchField) searchField.value = customerName;
+
+    // 4) 소스 버튼 (AI 추출 카드의 적용 버튼) 상태 변경
+    _markMetaBtnApplied(sourceBtn);
+
+    Toast.success?.(`고객사 연결: ${customerName} (#${customerId})`);
   }
 
   // AI 법무 검토 결과 카드 (색상 코드 + 4섹션)

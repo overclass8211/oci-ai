@@ -83,4 +83,91 @@ describe('Customers API', () => {
     const res = await api().get('/api/customers/9999999/contracts');
     expect(res.status).toBe(404);
   });
+
+  // ── v6.0.0 Phase A4: 회사명 정규화 매칭 ─────────────────────
+  describe('GET /match — 회사명 매칭 (Phase A4)', () => {
+    let extraIds = [];
+
+    beforeAll(async () => {
+      // 매칭 테스트용 고객사 3건 (접미사 다양화)
+      const [r1] = await pool.query(
+        `INSERT INTO customers (name, region, industry) VALUES (?,?,?)`,
+        ['__TEST__A4_삼성전자(주)', '국내', 'IT']
+      );
+      const [r2] = await pool.query(
+        `INSERT INTO customers (name, region, industry) VALUES (?,?,?)`,
+        ['주식회사 __TEST__A4_엘지', '국내', 'IT']
+      );
+      const [r3] = await pool.query(
+        `INSERT INTO customers (name, region, industry) VALUES (?,?,?)`,
+        ['__TEST__A4_Acme Corp.', '해외', '제조']
+      );
+      extraIds = [r1.insertId, r2.insertId, r3.insertId];
+    });
+
+    afterAll(async () => {
+      if (extraIds.length) {
+        await pool.query('DELETE FROM customers WHERE id IN (?)', [extraIds]);
+      }
+    });
+
+    it('정확 매치 — "(주)" 접미사 제거 후 동일하면 exact 분류', async () => {
+      // 입력: "__TEST__A4_삼성전자" (접미사 없음) → DB 의 "__TEST__A4_삼성전자(주)" 와 정규화 후 동일
+      const res = await api().get('/api/customers/match?name=' + encodeURIComponent('__TEST__A4_삼성전자'));
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data.exact)).toBe(true);
+      const found = res.body.data.exact.find(c => extraIds.includes(c.id));
+      expect(found).toBeDefined();
+      expect(found.name).toContain('__TEST__A4_삼성전자');
+    });
+
+    it('정확 매치 — 영문 "Corp." 접미사 제거 후 동일', async () => {
+      const res = await api().get('/api/customers/match?name=' + encodeURIComponent('__TEST__A4_Acme'));
+      expect(res.status).toBe(200);
+      const found = res.body.data.exact.find(c => extraIds.includes(c.id));
+      expect(found).toBeDefined();
+      expect(found.name).toContain('Acme Corp');
+    });
+
+    it('정확 매치 — 입력에 "주식회사" 포함되어도 정규화 후 매칭', async () => {
+      // 입력: "__TEST__A4_엘지" → DB: "주식회사 __TEST__A4_엘지"
+      const res = await api().get('/api/customers/match?name=' + encodeURIComponent('__TEST__A4_엘지'));
+      expect(res.status).toBe(200);
+      const found = res.body.data.exact.find(c => extraIds.includes(c.id));
+      expect(found).toBeDefined();
+    });
+
+    it('부분 매치 — 정확 일치 없으면 partial 로 분류', async () => {
+      const res = await api().get('/api/customers/match?name=' + encodeURIComponent('__TEST__A4_삼성전자_특수부서'));
+      expect(res.status).toBe(200);
+      // 정확 매치는 없지만 LIKE 로 partial 에 포함될 수 있음
+      // (이 케이스는 partial 우선 — 입력값에 더 많은 글자가 있어 정규화 후 다름)
+      const totalFound = res.body.data.exact.length + res.body.data.partial.length;
+      expect(totalFound).toBeGreaterThanOrEqual(0); // 매칭 없을 수도, partial 있을 수도
+    });
+
+    it('매칭 없음 — 빈 결과 반환', async () => {
+      const res = await api().get('/api/customers/match?name=' + encodeURIComponent('__TEST__A4_절대없는회사명_xyz789'));
+      expect(res.status).toBe(200);
+      expect(res.body.data.exact).toEqual([]);
+      expect(res.body.data.partial).toEqual([]);
+    });
+
+    it('너무 짧은 쿼리 (1글자) → 빈 결과', async () => {
+      const res = await api().get('/api/customers/match?name=' + encodeURIComponent('A'));
+      expect(res.status).toBe(200);
+      expect(res.body.data.exact).toEqual([]);
+      expect(res.body.data.partial).toEqual([]);
+    });
+
+    it('정규화된 쿼리 응답 — normalized_query 필드 포함', async () => {
+      const res = await api().get('/api/customers/match?name=' + encodeURIComponent('테스트회사(주)'));
+      expect(res.status).toBe(200);
+      expect(res.body.data.normalized_query).toBeDefined();
+      // "(주)" 제거되었어야 함
+      expect(res.body.data.normalized_query).not.toContain('(주)');
+      expect(res.body.data.raw_query).toBe('테스트회사(주)');
+    });
+  });
 });

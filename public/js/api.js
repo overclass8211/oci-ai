@@ -225,6 +225,8 @@ const API = {
       API.get(`/customers?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
     // v6.0.0 Step 2: 연결된 계약 역방향 조회
     contracts: id => API.get(`/customers/${id}/contracts`),
+    // v6.0.0 Phase A4: AI 추출 회사명 → 정규화 매칭 (계약 등록 시 자동 연결용)
+    match: name => API.get(`/customers/match?name=${encodeURIComponent(name)}`),
   },
 
   // 활동

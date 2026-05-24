@@ -144,6 +144,80 @@ async function findDuplicate(name, contact_person, phone) {
   return dup || null;
 }
 
+// ── v6.0.0 Phase A4: 회사명 정규화 + 매칭 헬퍼 ─────────────────
+// 한국/영문 법인 접미사 제거 + 공백/특수문자 정규화 → LIKE 매칭 정확도 향상
+function normalizeCompanyName(name) {
+  if (!name) return '';
+  let s = String(name).trim();
+  // 한국 법인 접미사 제거: (주), ㈜, 주식회사, (유), 유한회사, (재단), 재단법인 등
+  s = s.replace(/[(〔（]\s*(주식회사|유한회사|재단법인|사단법인|주|유)\s*[)〕）]/gi, '');
+  s = s.replace(/㈜|㈕|㈐|㉾/g, '');
+  s = s.replace(/(주식회사|유한회사|재단법인|사단법인)\s*/gi, '');
+  // 영문 접미사 제거: Inc., Co., Ltd., Corp., LLC, GmbH, S.A., etc.
+  s = s.replace(
+    /\s*[,.]?\s*(Inc\.?|Co\.?|Ltd\.?|Corp\.?|LLC|GmbH|S\.A\.?|Limited|Corporation|Company)\b\.?/gi,
+    ''
+  );
+  // 다중 공백 → 단일 공백, trim
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+// ── GET /match — AI 추출 회사명 → 기존 고객사 매칭 (Phase A4) ─
+// Query: ?name=쿼리
+// Response: { exact: [...], partial: [...], normalized_query: "..." }
+router.get('/match', async (req, res) => {
+  try {
+    const raw = String(req.query.name || '').trim();
+    if (!raw || raw.length < 2) {
+      return res.json({
+        success: true,
+        data: { exact: [], partial: [], normalized_query: raw, raw_query: raw },
+      });
+    }
+    const normalized = normalizeCompanyName(raw);
+    if (!normalized || normalized.length < 1) {
+      return res.json({
+        success: true,
+        data: { exact: [], partial: [], normalized_query: normalized, raw_query: raw },
+      });
+    }
+    const escaped = `%${normalized.replace(/[%_]/g, '\\$&')}%`;
+
+    // 1) 정확 매치 (정규화 후 비교) — 모든 candidates 의 정규화된 이름과 비교는 SQL 만으로 불가
+    //    → LIKE 로 후보군을 잡고 JS 에서 정규화 비교
+    const [rows] = await pool.query(
+      `SELECT id, name, industry, region, country, contact_person, phone, email
+         FROM customers
+        WHERE name LIKE ?
+        ORDER BY CHAR_LENGTH(name) ASC
+        LIMIT 50`,
+      [escaped]
+    );
+    const exact = [];
+    const partial = [];
+    for (const r of rows) {
+      const rn = normalizeCompanyName(r.name);
+      if (rn.toLowerCase() === normalized.toLowerCase()) {
+        exact.push(r);
+      } else {
+        partial.push(r);
+      }
+      if (exact.length + partial.length >= 10) break;
+    }
+    res.json({
+      success: true,
+      data: {
+        exact: exact.slice(0, 3),
+        partial: partial.slice(0, 5),
+        normalized_query: normalized,
+        raw_query: raw,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── 일괄 등록 (Copy & Paste import) ──────────────────────────
 router.post('/bulk', async (req, res) => {
   const { customers } = req.body;
