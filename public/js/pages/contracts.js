@@ -1821,38 +1821,49 @@ const ContractsPage = (() => {
   // - Toast 에는 모듈 기준 명확한 안내
   function _showFriendlyError(action, err) {
     const raw = err?.error || err?.message || err?.toString?.() || '알 수 없는 오류';
+    const status = err?.status || (raw.match(/HTTP (\d+)/)?.[1] || '');
     console.error(`[contracts] ${action} 실패:`, raw, err);
-    // 404/500 등 패턴별 친화 메시지
     let msg = `${action} 중 오류가 발생했습니다`;
-    if (/404|Not Found|찾을 수 없습니다/i.test(raw)) {
-      msg += ' — 기능이 아직 활성화되지 않았거나 서버 업데이트가 필요할 수 있습니다. 잠시 후 다시 시도하세요';
-    } else if (/401|403|권한|인증/i.test(raw)) {
-      msg += ' — 권한이 없습니다. 다시 로그인 후 시도하세요';
-    } else if (/500|서버 오류|Internal/i.test(raw)) {
+    if (status === '404' || /404|Not Found|찾을 수 없습니다/i.test(raw)) {
+      msg +=
+        ' — 신규 기능 라우트입니다. 서버 업데이트(git pull + pm2 restart)가 필요할 수 있습니다';
+    } else if (status === '401' || /401|인증이 필요|로그인이 필요/i.test(raw)) {
+      msg += ' — 인증이 만료되었습니다. 다시 로그인 후 시도하세요';
+    } else if (status === '403' || /403|권한이 없|기능은 현재 비활성/i.test(raw)) {
+      msg += ' — 권한이 없거나 기능이 비활성화 상태입니다 (관리자 확인 필요)';
+    } else if (status === '500' || /500|서버 오류|Internal/i.test(raw)) {
       msg += ' — 서버 일시적 오류. 잠시 후 다시 시도하세요';
-    } else if (/network|fetch|connect/i.test(raw)) {
-      msg += ' — 네트워크 연결을 확인하세요';
+    } else if (/network|fetch|connect|TypeError/i.test(raw)) {
+      msg += ' — 네트워크 연결 확인 또는 페이지 새로고침';
+    } else if (raw.length < 100 && !/\{|\[|undefined|null/.test(raw)) {
+      msg += `: ${raw}`;
     } else {
-      // raw 메시지가 비교적 짧고 깨끗하면 노출, 아니면 일반화
-      if (raw.length < 100 && !/\{|\[|undefined|null/.test(raw)) {
-        msg += `: ${raw}`;
-      } else {
-        msg += ' — 자세한 내용은 브라우저 콘솔 (F12) 을 확인하세요';
-      }
+      msg += ' — 자세한 내용은 브라우저 콘솔 (F12) 을 확인하세요';
     }
-    Toast.error?.(msg, { duration: 6000 });
+    Toast.error?.(msg, { duration: 7000 });
   }
 
   // v6.0.0 fix: 카드/섹션 안에 표시하는 친화 에러 HTML
   function _renderFriendlyErrorBox(action, err) {
     const raw = err?.error || err?.message || '';
+    const status = err?.status || (raw.match(/HTTP (\d+)/)?.[1] || '');
     console.error(`[contracts] ${action} 실패 (섹션):`, raw, err);
+    let detailMsg;
+    if (status === '404' || /404|Not Found|찾을 수 없습니다/i.test(raw)) {
+      detailMsg = `이 기능은 최근 추가된 신규 라우트입니다.<br>
+        <strong>서버 재시작</strong>(git pull + pm2 restart)이 필요할 수 있습니다.<br>
+        브라우저는 <strong>Ctrl+Shift+R</strong> 로 캐시 비우기 후 재시도하세요.`;
+    } else if (status === '401' || /401|인증/i.test(raw)) {
+      detailMsg = `인증이 만료되었습니다. 다시 로그인 후 시도하세요.`;
+    } else if (status === '403' || /기능은 현재 비활성/i.test(raw)) {
+      detailMsg = `기능이 비활성화 상태입니다. 관리자에게 활성화 요청하세요.`;
+    } else {
+      detailMsg = `잠시 후 다시 시도하시거나, 페이지 새로고침 (Ctrl+Shift+R) 후 재시도하세요.<br>
+        문제가 지속되면 운영 담당자에게 문의 (자세한 내용은 브라우저 콘솔 F12 참고).`;
+    }
     return `<div style="padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:12px;color:#7f1d1d">
-      <div style="font-weight:600;margin-bottom:4px">⚠️ ${esc(action)} 기능을 사용할 수 없습니다</div>
-      <div style="font-size:11px;color:#991b1b;line-height:1.6">
-        잠시 후 다시 시도하시거나, 페이지 새로고침 (Ctrl+Shift+R) 후 재시도하세요.<br>
-        문제가 지속되면 운영 담당자에게 문의 (자세한 내용은 브라우저 콘솔 F12 참고).
-      </div>
+      <div style="font-weight:600;margin-bottom:6px">⚠️ ${esc(action)} 기능을 사용할 수 없습니다</div>
+      <div style="font-size:11px;color:#991b1b;line-height:1.7">${detailMsg}</div>
     </div>`;
   }
 
@@ -2356,20 +2367,34 @@ const ContractsPage = (() => {
     });
     _bindLegalCloseBtn();
 
-    // 다운로드 (인증 헤더 fetch)
+    // 다운로드 (인증 헤더 fetch) — v6.0.0 fix: localStorage + sessionStorage fallback
     document.querySelectorAll('[data-ct-file-download]').forEach(a => {
       a.addEventListener('click', async ev => {
         ev.preventDefault();
         const fileId = parseInt(a.dataset.ctFileDownload, 10);
         try {
-          const token = localStorage.getItem('oci_token');
-          const userId = localStorage.getItem('current_user_id');
+          // v6.0.0 fix: 토큰 + userId 양쪽 storage 확인 (login 옵션에 따라 다름)
+          const token =
+            localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token') || '';
+          const userId =
+            localStorage.getItem('current_user_id') ||
+            sessionStorage.getItem('current_user_id') ||
+            '';
+          if (!token && !userId) {
+            Toast.error?.('인증 정보가 없습니다 — 다시 로그인 후 시도하세요');
+            return;
+          }
           const res = await fetch(API.contracts.downloadFileUrl(contractId, fileId), {
             headers: {
               ...(token ? { Authorization: `Bearer ${token}` } : {}),
               ...(userId ? { 'X-User-Id': userId } : {}),
             },
+            credentials: 'include',
           });
+          if (res.status === 401) {
+            Toast.error?.('인증이 만료되었습니다 — 다시 로그인하세요');
+            return;
+          }
           if (!res.ok) throw new Error('HTTP ' + res.status);
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
@@ -2383,7 +2408,7 @@ const ContractsPage = (() => {
           aDl.remove();
           setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch (err) {
-          Toast.error?.('다운로드 실패: ' + (err.message || err));
+          _showFriendlyError('파일 다운로드', err);
         }
       });
     });
