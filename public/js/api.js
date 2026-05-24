@@ -183,6 +183,8 @@ const API = {
     update: (id, body) => API.put(`/leads/${id}`, body),
     setStage: (id, stage) => API.patch(`/leads/${id}/stage`, { stage }),
     delete: id => API.del(`/leads/${id}`),
+    // v6.0.0 Step 2: 연결된 계약 역방향 조회
+    contracts: id => API.get(`/leads/${id}/contracts`),
   },
 
   // 상품/원가
@@ -218,6 +220,8 @@ const API = {
     // 자동완성 (Smart Ranking 포함) — 캘린더 등에서 사용
     autocomplete: (q, limit = 10) =>
       API.get(`/customers?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
+    // v6.0.0 Step 2: 연결된 계약 역방향 조회
+    contracts: id => API.get(`/customers/${id}/contracts`),
   },
 
   // 활동
@@ -289,6 +293,8 @@ const API = {
     evaluations: id => API.get(`/proposals/${id}/evaluations`),
     // Phase 9-3 — AI 제안전략 요약 Word(.docx) 다운로드 URL (브라우저가 직접 다운로드)
     aiStrategyWordUrl: id => `/api/proposals/${id}/ai-strategy/word`,
+    // v6.0.0 Step 2: 연결된 계약 역방향 조회
+    contracts: id => API.get(`/proposals/${id}/contracts`),
   },
 
   // 계약 (crm.contracts) — v6.0.0 슬림화: CRUD + 파일 + AI 법무 검토 + 4단계 상태
@@ -333,6 +339,8 @@ const API = {
     nextQuoteNo: year => API.get(`/quotes/next-quote-no${year ? '?year=' + year : ''}`),
     revisions: id => API.get(`/quotes/${id}/revisions`),
     setStatus: (id, status) => API.patch(`/quotes/${id}/status`, { status }),
+    // v6.0.0 Step 2: 연결된 계약 역방향 조회
+    contracts: id => API.get(`/quotes/${id}/contracts`),
   },
 
   // 게시판
