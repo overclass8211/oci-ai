@@ -434,6 +434,7 @@ router.get('/', async (req, res) => {
       customer_id,
       proposal_id,
       lead_id,
+      quote_id,
       date_from,
       date_to,
       expiring_soon,
@@ -467,6 +468,10 @@ router.get('/', async (req, res) => {
       where += ' AND c.lead_id = ?';
       params.push(parseInt(lead_id, 10));
     }
+    if (quote_id) {
+      where += ' AND c.quote_id = ?';
+      params.push(parseInt(quote_id, 10));
+    }
     if (date_from) {
       where += ' AND c.start_date >= ?';
       params.push(date_from);
@@ -486,7 +491,7 @@ router.get('/', async (req, res) => {
       pool.query(`SELECT COUNT(*) AS total FROM contracts c ${where}`, params),
       pool.query(
         `SELECT c.id, c.contract_no, c.title, c.customer_id, c.customer_name,
-                c.proposal_id, c.lead_id, c.contract_type, c.status,
+                c.proposal_id, c.lead_id, c.quote_id, c.contract_type, c.status,
                 c.start_date, c.end_date, c.contract_amount, c.currency,
                 c.auto_renewal, c.renewal_notice_days,
                 c.legal_review_score, c.version_no, c.owner_id, c.owner_name,
@@ -650,12 +655,12 @@ router.post('/', async (req, res) => {
     const [result] = await conn.query(
       `INSERT INTO contracts
         (contract_no, title, customer_id, customer_name,
-         proposal_id, lead_id, contract_type, status,
+         proposal_id, lead_id, quote_id, contract_type, status,
          start_date, end_date, contract_amount, currency, language,
          auto_renewal, renewal_notice_days,
          template_id, version_no, parent_contract_id,
          owner_id, owner_name, notes, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         contractNo,
         String(body.title).slice(0, 300),
@@ -663,6 +668,7 @@ router.post('/', async (req, res) => {
         customerName ? String(customerName).slice(0, 200) : null,
         body.proposal_id || null,
         body.lead_id || null,
+        body.quote_id || null,
         contractType,
         status,
         startDate,
@@ -731,6 +737,7 @@ router.put('/:id', async (req, res) => {
       'customer_name',
       'proposal_id',
       'lead_id',
+      'quote_id',
       'contract_type',
       'status',
       'start_date',

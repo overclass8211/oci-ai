@@ -647,4 +647,49 @@ describe('Quotes API', () => {
     expect(get.body.data.supplier_business_no).toBe('999-88-77777');
     expect(get.body.data.sales_rep_email).toBe('new@oci.com');
   });
+
+  // ── v6.0.0 Step 2: 연결된 계약 역방향 조회 ────────────────
+  it('GET /:id/contracts — quote_id 로 연결된 계약 조회', async () => {
+    // 신규 견적 생성
+    const qr = await api()
+      .post('/api/quotes')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        name: '__TEST__견적_for_contracts',
+        customer_name: '__TEST__고객사_Q',
+        quote_date: '2026-05-24',
+        items: [{ item_name: '품목A', unit_price: 1000000, quantity: 1 }],
+      });
+    const quoteId = qr.body.id;
+    createdQuoteIds.push(quoteId);
+
+    // 계약 생성 (quote_id 연결)
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__contracts_by_quote',
+        quote_id: quoteId,
+        customer_name: '__TEST__고객사_Q',
+        contract_type: 'service',
+      });
+    const contractId = cr.body.id;
+
+    const res = await api()
+      .get(`/api/quotes/${quoteId}/contracts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    const found = res.body.data.find(c => c.id === contractId);
+    expect(found).toBeDefined();
+    expect(found.title).toBe('__TEST__contracts_by_quote');
+
+    await pool.query('DELETE FROM contracts WHERE id = ?', [contractId]);
+  });
+
+  it('GET /:id/contracts — 존재하지 않는 견적 → 404', async () => {
+    const res = await api()
+      .get('/api/quotes/9999999/contracts')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(404);
+  });
 });

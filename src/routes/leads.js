@@ -1055,4 +1055,27 @@ ${contextText}
   }
 });
 
+// ── v6.0.0 Step 2: 연결된 계약 역방향 조회 ─────────────────
+// GET /api/leads/:id/contracts → contracts WHERE lead_id = ?
+// 영업리드 상세 모달에서 "🔗 연결된 계약" 섹션 렌더링용
+router.get('/:id/contracts', validateId, async (req, res) => {
+  try {
+    const [[lead]] = await pool.query('SELECT id FROM leads WHERE id = ?', [req.params.id]);
+    if (!lead) return res.status(404).json({ success: false, error: '리드 없음' });
+    const [contracts] = await pool.query(
+      `SELECT id, contract_no, title, status, contract_type,
+              contract_amount, currency, start_date, end_date,
+              customer_name, created_at
+         FROM contracts
+        WHERE lead_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: contracts });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 module.exports = router;

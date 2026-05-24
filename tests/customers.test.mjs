@@ -53,4 +53,34 @@ describe('Customers API', () => {
     const res = await api().post('/api/customers/ocr');
     expect(res.status).toBe(400);
   });
+
+  // ── v6.0.0 Step 2: 연결된 계약 역방향 조회 ────────────────
+  it('GET /:id/contracts — customer_id 로 연결된 계약 조회', async () => {
+    // 계약 1건 생성 (customer_id = createdId)
+    const cr = await api().post('/api/contracts').set('X-User-Id', '1').send({
+      title: '__TEST__contracts_by_customer',
+      customer_id: createdId,
+      customer_name: '__TEST__OCI고객',
+      contract_type: 'NDA',
+    });
+    expect(cr.status).toBe(200);
+    const contractId = cr.body.id;
+
+    const res = await api().get(`/api/customers/${createdId}/contracts`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    const found = res.body.data.find(c => c.id === contractId);
+    expect(found).toBeDefined();
+    expect(found.title).toBe('__TEST__contracts_by_customer');
+    expect(found.contract_no).toMatch(/^C-\d{4}-\d{4}$/);
+
+    // 정리
+    await pool.query('DELETE FROM contracts WHERE id = ?', [contractId]);
+  });
+
+  it('GET /:id/contracts — 존재하지 않는 고객사 → 404', async () => {
+    const res = await api().get('/api/customers/9999999/contracts');
+    expect(res.status).toBe(404);
+  });
 });

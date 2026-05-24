@@ -1410,4 +1410,48 @@ describe('Proposals API — Phase 1', () => {
     const r = await api().delete('/api/proposals/9999999').set('X-User-Id', String(TEST_USER_ID));
     expect(r.status).toBe(404);
   });
+
+  // ── v6.0.0 Step 2: 연결된 계약 역방향 조회 ────────────────
+  it('GET /:id/contracts — proposal_id 로 연결된 계약 조회', async () => {
+    // 신규 제안 생성
+    const pr = await api()
+      .post('/api/proposals')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        proposal_title: '__TEST__제안_for_contracts',
+        customer_name: '__TEST__고객사_C',
+        proposal_date: '2026-05-24',
+      });
+    const proposalId = pr.body.id;
+    createdIds.push(proposalId);
+
+    // 계약 생성 (proposal_id 연결)
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__contracts_by_proposal',
+        proposal_id: proposalId,
+        customer_name: '__TEST__고객사_C',
+        contract_type: 'MSA',
+      });
+    const contractId = cr.body.id;
+
+    const res = await api()
+      .get(`/api/proposals/${proposalId}/contracts`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    const found = res.body.data.find(c => c.id === contractId);
+    expect(found).toBeDefined();
+    expect(found.title).toBe('__TEST__contracts_by_proposal');
+
+    await pool.query('DELETE FROM contracts WHERE id = ?', [contractId]);
+  });
+
+  it('GET /:id/contracts — 존재하지 않는 제안 → 404', async () => {
+    const res = await api()
+      .get('/api/proposals/9999999/contracts')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(404);
+  });
 });

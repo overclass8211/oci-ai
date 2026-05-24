@@ -63,4 +63,30 @@ describe('Leads API', () => {
     expect(res.body.data.id).toBe(createdLeadId);
     expect(Array.isArray(res.body.data.activities)).toBe(true);
   });
+
+  // ── v6.0.0 Step 2: 연결된 계약 역방향 조회 ────────────────
+  it('GET /:id/contracts — lead_id 로 연결된 계약 조회', async () => {
+    const cr = await api().post('/api/contracts').set('X-User-Id', '1').send({
+      title: '__TEST__contracts_by_lead',
+      lead_id: createdLeadId,
+      customer_name: '__TEST__고객사',
+      contract_type: 'service',
+    });
+    expect(cr.status).toBe(200);
+    const contractId = cr.body.id;
+
+    const res = await api().get(`/api/leads/${createdLeadId}/contracts`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    const found = res.body.data.find(c => c.id === contractId);
+    expect(found).toBeDefined();
+    expect(found.title).toBe('__TEST__contracts_by_lead');
+
+    await pool.query('DELETE FROM contracts WHERE id = ?', [contractId]);
+  });
+
+  it('GET /:id/contracts — 존재하지 않는 리드 → 404', async () => {
+    const res = await api().get('/api/leads/9999999/contracts');
+    expect(res.status).toBe(404);
+  });
 });

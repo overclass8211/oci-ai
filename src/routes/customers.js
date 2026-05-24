@@ -757,4 +757,27 @@ router.post('/import', upload.memory.single('file'), async (req, res) => {
   }
 });
 
+// ── v6.0.0 Step 2: 연결된 계약 역방향 조회 ─────────────────
+// GET /api/customers/:id/contracts → contracts WHERE customer_id = ?
+// 고객사 상세 모달에서 "🔗 연결된 계약" 섹션 렌더링용
+router.get('/:id/contracts', validateId, async (req, res) => {
+  try {
+    const [[c]] = await pool.query('SELECT id FROM customers WHERE id = ?', [req.params.id]);
+    if (!c) return res.status(404).json({ success: false, error: '고객사 없음' });
+    const [contracts] = await pool.query(
+      `SELECT id, contract_no, title, status, contract_type,
+              contract_amount, currency, start_date, end_date,
+              customer_name, created_at
+         FROM contracts
+        WHERE customer_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: contracts });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 module.exports = router;

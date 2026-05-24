@@ -636,5 +636,30 @@ router.post('/:id/duplicate', async (req, res) => {
   }
 });
 
+// ── v6.0.0 Step 2: 연결된 계약 역방향 조회 ─────────────────
+// GET /api/quotes/:id/contracts → contracts WHERE quote_id = ?
+// 견적 상세 모달에서 "🔗 연결된 계약" 섹션 렌더링용
+router.get('/:id/contracts', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [[q]] = await pool.query('SELECT id FROM quotes WHERE id = ?', [id]);
+    if (!q) return res.status(404).json({ success: false, error: '견적 없음' });
+    const [contracts] = await pool.query(
+      `SELECT id, contract_no, title, status, contract_type,
+              contract_amount, currency, start_date, end_date,
+              customer_name, created_at
+         FROM contracts
+        WHERE quote_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [id]
+    );
+    res.json({ success: true, data: contracts });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 module.exports = router;
 module.exports._migrationPromise = _migrationPromise;
