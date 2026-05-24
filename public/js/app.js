@@ -720,6 +720,15 @@ const App = {
             <textarea class="form-input" name="notes" rows="3">${esc(lead?.notes || '')}</textarea>
           </div>
         </form>
+
+        ${
+          lead
+            ? `<!-- v6.0.0 Step 2: 연결된 계약 -->
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div id="lc-lead"></div>
+        </div>`
+            : ''
+        }
       `,
       footer: `
         ${lead ? `<button class="btn btn-ghost text-danger" id="lf-delete" data-label="common.delete">삭제</button>` : ''}
@@ -825,6 +834,11 @@ const App = {
             allowCustom: true,
             customLabel: '+ "X" 그대로 등록 (신규 고객사)',
           });
+        }
+
+        // v6.0.0 Step 2: 연결된 계약 (편집 모드만, 신규 등록 시 lead.id 없음)
+        if (lead && lead.id && typeof LinkedContracts !== 'undefined') {
+          LinkedContracts.render('#lc-lead', 'lead', lead.id).catch(() => {});
         }
       },
     });

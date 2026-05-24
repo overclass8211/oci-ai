@@ -547,6 +547,10 @@ const QuotesPage = (() => {
         }
         _renderItems();
         _recalcTotals();
+        // v6.0.0 Step 2: 연결된 계약 (편집 모드만, best-effort)
+        if (e.id && typeof LinkedContracts !== 'undefined') {
+          LinkedContracts.render('#lc-quote', 'quote', e.id).catch(() => {});
+        }
       },
     });
   }
@@ -739,6 +743,15 @@ const QuotesPage = (() => {
           <label class="form-label" style="display:block;margin-bottom:4px">📝 조건사항 / Remark <span style="color:var(--text-3);font-weight:400;font-size:11px">— PDF 품목 하단에 출력됨</span></label>
           <textarea class="form-input" id="qt-f-terms_conditions" rows="4" placeholder="예) 1. 본 견적의 유효기간은 발행일로부터 30일 입니다.&#10;2. 부가세 별도&#10;3. 납기: 발주 후 4주" style="resize:vertical;font-family:inherit;line-height:1.5">${esc(e.terms_conditions || '')}</textarea>
         </div>
+
+        ${
+          e.id
+            ? `<!-- v6.0.0 Step 2: 연결된 계약 -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <div id="lc-quote"></div>
+        </div>`
+            : ''
+        }
       </div>
     `;
   }

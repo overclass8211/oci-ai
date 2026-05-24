@@ -553,7 +553,11 @@ const ProposalsPage = (() => {
               done: step2Done,
               open: open[2],
               body: _renderBasicTab(e),
-            });
+            }) +
+            // v6.0.0 Step 2: 연결된 계약 (편집 모드만)
+            `<div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border)">
+              <div id="lc-proposal"></div>
+            </div>`;
         } else {
           // 신규 모드 (임시 제안 생성 실패 시 fallback) — 기본정보 폼만
           wrap.innerHTML = _renderBasicTab(e);
@@ -564,6 +568,10 @@ const ProposalsPage = (() => {
           _bindFileEvents(e, 'rfp');
           _bindAiTabEvents(e); // RFP 섹션의 AI 분석 버튼 + AI 요약 섹션의 복사/Word
           _bindSectionToggle(); // Phase 10-2: 섹션 헤더 클릭 시 접기/펼치기
+          // v6.0.0 Step 2: 연결된 계약 (편집 모드만, best-effort)
+          if (typeof LinkedContracts !== 'undefined') {
+            LinkedContracts.render('#lc-proposal', 'proposal', e.id).catch(() => {});
+          }
         }
         break;
       }

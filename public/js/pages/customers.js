@@ -1019,6 +1019,13 @@ const CustomersPage = {
             </div>
           </div>
 
+          <!-- v6.0.0 Step 2: 연결된 계약 -->
+          <div class="card" style="margin-top:14px">
+            <div class="card-body">
+              <div id="lc-customer"></div>
+            </div>
+          </div>
+
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" id="cm-delete-btn" style="margin-right:auto;color:var(--oci-red)">🗑 삭제</button>
             <button class="btn btn-ghost" id="cm-email-btn" title="이메일 보내기">✉️ 이메일</button>
@@ -1107,6 +1114,11 @@ const CustomersPage = {
     this._loadModalDeals(id);
     this._loadModalGroup(id);
     this._loadCachedBrief(id); // ← 저장된 최신 브리핑 자동 표시
+
+    // v6.0.0 Step 2: 연결된 계약 목록 (best-effort, 실패해도 모달 동작 영향 X)
+    if (typeof LinkedContracts !== 'undefined') {
+      LinkedContracts.render('#lc-customer', 'customer', id).catch(() => {});
+    }
   },
 
   // ── 카카오 우편번호 SDK 동적 로드 ─────────────────────────
