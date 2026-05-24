@@ -436,6 +436,17 @@ describe('Contracts API — Phase 0', () => {
     expect(res.body.data.legal_compliance).toBeDefined();
     expect(res.body.data.legal_compliance.fair_trade_act).toBeDefined();
 
+    // v6.0.0 Phase A1: extracted_meta 검증 (계약 등록 폼 자동 채움용)
+    expect(res.body.data.extracted_meta).toBeDefined();
+    expect(res.body.data.extracted_meta).not.toBeNull();
+    expect(res.body.data.extracted_meta.title).toContain('__MOCK__');
+    expect(res.body.data.extracted_meta.counterparty_name).toContain('__MOCK__');
+    expect(res.body.data.extracted_meta.contract_type).toBe('NDA');
+    expect(res.body.data.extracted_meta.amount).toBe(30000000);
+    expect(res.body.data.extracted_meta.currency).toBe('KRW');
+    expect(res.body.data.extracted_meta.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(res.body.data.extracted_meta.end_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
     // DB 에 영속화 됐는지 + GET /:id 응답에 latest_legal_review 포함되는지
     const detail = await api()
       .get(`/api/contracts/${id}`)
@@ -444,6 +455,11 @@ describe('Contracts API — Phase 0', () => {
     expect(detail.body.data.latest_legal_review).not.toBeNull();
     expect(detail.body.data.latest_legal_review.target_file_id).toBe(fileId);
     expect(detail.body.data.latest_legal_review.review_score).toBe(res.body.data.review_score);
+    // extracted_meta 도 GET 응답에 포함
+    expect(detail.body.data.latest_legal_review.extracted_meta).toBeDefined();
+    expect(detail.body.data.latest_legal_review.extracted_meta).not.toBeNull();
+    expect(detail.body.data.latest_legal_review.extracted_meta.contract_type).toBe('NDA');
+    expect(detail.body.data.latest_legal_review.extracted_meta.amount).toBe(30000000);
     // history 에 legal_review 액션 기록
     expect(detail.body.data.history.some(h => h.action_type === 'legal_review')).toBe(true);
     // 메인 테이블에도 score 반영

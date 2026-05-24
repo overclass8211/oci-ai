@@ -172,6 +172,16 @@ async function ensureSchema() {
       /* 이미 존재 */
     }
 
+    // v6.0.0 Phase A1: extracted_meta_json — AI 법무 검토에서 추출한 메타 (등록 폼 자동 채움용)
+    try {
+      await pool.query(
+        `ALTER TABLE contract_legal_reviews ADD COLUMN extracted_meta_json MEDIUMTEXT NULL`
+      );
+      console.log('[contracts:migration] extracted_meta_json 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+
     // ② 파일: contract_files
     await pool.query(`
       CREATE TABLE IF NOT EXISTS contract_files (
@@ -574,6 +584,7 @@ router.get('/:id', async (req, res) => {
         legal_compliance: parseJson(r.legal_compliance_json, {}),
         improvement_suggestions: parseJson(r.improvement_suggestions_json, []),
         overall_assessment: r.overall_assessment,
+        extracted_meta: parseJson(r.extracted_meta_json, null), // v6.0.0+
         language: r.language,
         generated_at: r.generated_at,
       };
@@ -1144,8 +1155,9 @@ router.post('/:id/files/:fileId/legal-review', async (req, res) => {
       `INSERT INTO contract_legal_reviews
         (contract_id, target_file_id, review_score, risk_level,
          toxic_clauses_json, missing_clauses_json, legal_compliance_json,
-         improvement_suggestions_json, overall_assessment, language, generated_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+         improvement_suggestions_json, overall_assessment, extracted_meta_json,
+         language, generated_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         contractId,
         fileId,
@@ -1156,6 +1168,7 @@ router.post('/:id/files/:fileId/legal-review', async (req, res) => {
         JSON.stringify(result.legal_compliance || {}),
         JSON.stringify(result.improvement_suggestions || []),
         result.overall_assessment || null,
+        result.extracted_meta ? JSON.stringify(result.extracted_meta) : null,
         req.body?.language || 'ko',
         userId || null,
       ]
@@ -1231,6 +1244,7 @@ router.get('/:id/legal-reviews', async (req, res) => {
       legal_compliance: parseJson(r.legal_compliance_json, {}),
       improvement_suggestions: parseJson(r.improvement_suggestions_json, []),
       overall_assessment: r.overall_assessment,
+      extracted_meta: parseJson(r.extracted_meta_json, null), // v6.0.0+
       language: r.language,
       generated_by: r.generated_by,
       generated_by_name: r.generated_by_name,
