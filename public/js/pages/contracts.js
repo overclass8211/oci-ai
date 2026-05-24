@@ -764,23 +764,27 @@ const ContractsPage = (() => {
       </div>
 
       ${
-        e.id
-          ? `<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+        e.id && (e.files || []).length > 0
+          ? `<!-- v6.0.0 UX 개선: 파일 추가는 상단 AI 검토 카드에서, 여기는 목록(다운로드/삭제/재검토)만 -->
+            <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <strong style="font-size:13px">📎 첨부 파일 (${(e.files || []).length}건)</strong>
-                <button class="btn btn-ghost btn-sm" id="ct-file-add-btn" type="button">+ 파일 추가</button>
+                <span style="font-size:10px;color:var(--text-3)">파일 추가는 ↑ 상단 AI 카드에서</span>
               </div>
               <div style="margin-bottom:10px;padding:6px 10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:11px;color:#075985">
-                💡 파일 행의 <strong>🤖 법무</strong> 버튼으로 개별 파일에 대해 AI 법무 검토 실행 가능 (PDF/이미지/텍스트만)
+                💡 파일 행의 <strong>🤖 법무</strong> 버튼으로 개별 파일에 대해 AI 법무 검토 재실행 가능
               </div>
-              <input type="file" id="ct-file-input" multiple style="display:none"
-                accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg,.txt,.md">
               ${_renderFileList(e.files || [], e.id)}
 
               <!-- 변경 이력 (최근 10건) -->
               ${_renderHistorySection(e.history || [])}
             </div>`
-          : '<div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">💡 계약 등록 후 파일 첨부 + AI 법무 검토가 가능합니다</div>'
+          : e.id
+            ? `<!-- 파일 없음 — 변경 이력만 -->
+              <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+                ${_renderHistorySection(e.history || [])}
+              </div>`
+            : '<div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">💡 계약 등록 후 파일 첨부 + AI 법무 검토가 가능합니다</div>'
       }
     `;
   }
@@ -801,9 +805,9 @@ const ContractsPage = (() => {
         </div>
       </div>
       <ol style="margin:6px 0 0 24px;padding:0;font-size:12px;color:#6b21a8;line-height:1.8">
-        <li>${hasFile ? '✅' : '<strong>①</strong>'} 아래 <strong>[+ 파일 추가]</strong> 로 계약서 첨부 (PDF/이미지/TXT)</li>
-        <li>${hasFile ? '<strong>②</strong>' : '⬜'} 상단 <strong>[🤖 AI 법무 검토 시작]</strong> 클릭 → 30-60초 대기</li>
-        <li>⬜ AI 추출 정보 확인 후 적용 → 필요 시 수정 → 💾 저장</li>
+        <li>${hasFile ? '✅' : '<strong>①</strong>'} 아래 카드의 <strong>[📎 계약서 파일 첨부]</strong> 로 업로드 (PDF/이미지/TXT)</li>
+        <li>${hasFile ? '<strong>②</strong>' : '⬜'} <strong>[🤖 AI 법무 검토 시작]</strong> 클릭 → AI 가 검토 + 기본정보 자동 채움</li>
+        <li>⬜ 상대방 회사 매칭 + 필요 시 수정 → 💾 저장</li>
       </ol>
       <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #c4b5fd;font-size:10px;color:#7c3aed">
         💡 미저장 상태로 [취소] 시 임시 계약 자동 삭제 · 정식 저장 시 정상 계약으로 전환
@@ -828,9 +832,9 @@ const ContractsPage = (() => {
       </div>`;
     }
 
-    // 결과 없음 → 안내 카드
+    // 결과 없음 → 안내 카드 (분석 가능한 파일 유무에 따라 분기)
     return `<div id="ct-legal-review-wrap" style="margin-bottom:16px">
-      <div style="border:2px dashed #7c3aed;border-radius:10px;padding:18px;background:linear-gradient(135deg,#faf5ff,#f3e8ff);text-align:center">
+      <div id="ct-legal-cta-card" style="border:2px dashed #7c3aed;border-radius:10px;padding:18px;background:linear-gradient(135deg,#faf5ff,#f3e8ff);text-align:center;transition:background 0.2s">
         <div style="font-size:32px;line-height:1;margin-bottom:8px">🤖</div>
         <div style="font-size:15px;font-weight:700;color:#5b21b6;margin-bottom:6px">
           AI 법무 검토 ${hasAnalyzable ? '준비됨' : '대기'}
@@ -839,21 +843,34 @@ const ContractsPage = (() => {
           hasAnalyzable
             ? `<div style="font-size:12px;color:#6b21a8;margin-bottom:12px;line-height:1.6">
                 Gemini 2.5 Pro 가 한국법(공정거래법·하도급법·개인정보보호법) 관점에서<br>
-                <strong>독소조항·누락조항·수정안</strong>을 자동 생성합니다 (약 30-60초 · 1회 약 500-1000원)
+                <strong>독소조항·누락조항·수정안</strong>을 자동 생성하고 계약 정보도 자동 채워줍니다 (약 30-60초)
               </div>
               <button id="ct-legal-cta-btn" type="button"
                 style="padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(124,58,237,0.3);transition:transform .15s">
                 🤖 AI 법무 검토 시작 (${analyzableFiles.length}건 파일 사용 가능)
               </button>
-              <div style="margin-top:8px;font-size:10px;color:#6b21a8">
-                파일이 여러 개인 경우 가장 최근에 업로드한 분석 가능한 파일이 자동 선택됩니다
+              <div style="margin-top:10px;display:flex;justify-content:center;gap:8px;align-items:center">
+                <button id="ct-cta-file-add-btn-more" type="button"
+                  style="font-size:11px;padding:4px 10px;background:#fff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:5px;cursor:pointer">
+                  📎 파일 추가/교체
+                </button>
+                <span style="font-size:10px;color:#6b21a8">최근 업로드된 분석 가능 파일이 자동 선택됩니다</span>
               </div>`
-            : `<div style="font-size:12px;color:#6b21a8;line-height:1.6">
-                ⚠️ <strong>분석 가능한 파일 없음</strong><br>
-                아래 [+ 파일 추가] 로 계약서를 첨부하세요 (PDF · 이미지 · TXT)
+            : `<!-- v6.0.0 UX 개선: 파일 첨부 UI 를 카드 안에 직접 통합 -->
+              <div style="font-size:13px;color:#6b21a8;margin-bottom:14px;line-height:1.6">
+                계약서 파일을 첨부하면 AI 가 자동으로 검토하고 정보를 추출합니다
+              </div>
+              <button id="ct-cta-file-add-btn" type="button"
+                style="padding:14px 32px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(124,58,237,0.3);transition:transform .15s">
+                📎 계약서 파일 첨부
+              </button>
+              <div style="margin-top:10px;font-size:11px;color:#6b21a8">
+                또는 이 영역에 파일을 <strong>드래그&드롭</strong> · 지원: PDF · 이미지(PNG/JPG) · TXT
               </div>`
         }
       </div>
+      <input type="file" id="ct-cta-file-input" multiple style="display:none"
+        accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md">
     </div>`;
   }
 
@@ -1184,6 +1201,53 @@ const ContractsPage = (() => {
     btn.style.opacity = '0.7';
   }
 
+  // v6.0.0 UX 개선: AI 추출 정보를 즉시 폼에 자동 적용 (counterparty_name 제외)
+  // - counterparty_name 은 매칭 모달이 필요하므로 사용자 액션 유지
+  // - 자동 적용된 필드는 시각적 강조 (1.5초 잠시 노란 배경)
+  // - 카드의 해당 [✓ 적용] 버튼도 "적용됨" 상태로 전환
+  // - 반환: { applied: N, needsAction: ['counterparty_name'] }
+  function _autoApplyExtractedMeta(meta) {
+    if (!meta) return { applied: 0, needsAction: [] };
+
+    // FIELD_MAP 과 동일한 매핑 (counterparty_name 제외)
+    const AUTO_FIELDS = [
+      { key: 'title', formId: 'ct-f-title' },
+      { key: 'contract_type', formId: 'ct-f-contract_type' },
+      { key: 'amount', formId: 'ct-f-contract_amount' },
+      { key: 'currency', formId: 'ct-f-currency' },
+      { key: 'start_date', formId: 'ct-f-start_date' },
+      { key: 'end_date', formId: 'ct-f-end_date' },
+    ];
+
+    let applied = 0;
+    AUTO_FIELDS.forEach(f => {
+      const v = meta[f.key];
+      if (v === null || v === undefined || v === '') return;
+      const el = document.getElementById(f.formId);
+      if (!el) return;
+      el.value = v;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      // 시각적 강조 (1.5초)
+      el.style.transition = 'background-color 0.5s';
+      el.style.backgroundColor = '#fef3c7'; // 노란 강조
+      setTimeout(() => {
+        el.style.backgroundColor = '';
+      }, 1500);
+      // 카드의 해당 [✓ 적용] 버튼도 "적용됨" 처리
+      const cardBtn = document.querySelector(
+        `.ct-meta-apply-btn[data-meta-key="${f.key}"]`
+      );
+      if (cardBtn) _markMetaBtnApplied(cardBtn);
+      applied++;
+    });
+
+    // counterparty_name 추출이 있으면 사용자에게 매칭 모달 안내
+    const needsAction = [];
+    if (meta.counterparty_name) needsAction.push('counterparty_name');
+
+    return { applied, needsAction };
+  }
+
   // v6.0.0 Phase A4: AI 추출 상대방 회사명 → 매칭 모달
   // 1) API.customers.match 호출 → exact/partial 후보 표시
   // 2) 사용자가 후보 선택 시 → ct-f-customer_id + ct-f-customer_name + ct-f-customer-search 자동 채움
@@ -1488,27 +1552,8 @@ const ContractsPage = (() => {
   }
 
   function _bindFileEvents(contractId) {
-    const addBtn = document.getElementById('ct-file-add-btn');
-    const input = document.getElementById('ct-file-input');
-    if (addBtn && input) {
-      addBtn.addEventListener('click', () => input.click());
-      input.addEventListener('change', async ev => {
-        const files = Array.from(ev.target.files || []);
-        if (!files.length) return;
-        const fd = new FormData();
-        files.forEach(f => fd.append('files', f));
-        fd.append('file_type', 'contract');
-        try {
-          Toast.info?.(`${files.length}개 파일 업로드 중...`);
-          await API.contracts.uploadFile(contractId, fd);
-          Toast.success?.(`${files.length}개 파일 업로드 완료`);
-          await _reopenModalFresh(contractId);
-        } catch (err) {
-          Toast.error?.('업로드 실패: ' + (err.message || err));
-        }
-        ev.target.value = '';
-      });
-    }
+    // v6.0.0 UX 개선: 하단 [+ 파일 추가] 버튼은 제거됨 (AI 카드에서 직접 첨부)
+    // 파일 행의 삭제/다운로드/법무 검토 핸들러는 그대로 유지
     document.querySelectorAll('.ct-file-del').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('이 파일을 삭제하시겠습니까?')) return;
@@ -1557,6 +1602,20 @@ const ContractsPage = (() => {
             wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
             _bindLegalCloseBtn();
             _bindExtractedMetaCardEvents();
+
+            // v6.0.0 UX 개선: AI 추출 정보 즉시 자동 채움 (counterparty 제외)
+            if (data.extracted_meta) {
+              const { applied, needsAction } = _autoApplyExtractedMeta(data.extracted_meta);
+              if (applied > 0) {
+                Toast.success?.(`AI 추출 정보 ${applied}개 자동 채움됨`);
+              }
+              if (needsAction.includes('counterparty_name')) {
+                Toast.info?.(
+                  `상대방 회사명 "${data.extracted_meta.counterparty_name}" — 카드에서 [✓ 적용] 클릭 시 매칭/신규 등록 가능`,
+                  { duration: 7000 }
+                );
+              }
+            }
           }
         } catch (err) {
           console.error('[contracts:legal-review] failed:', err);
@@ -1614,7 +1673,80 @@ const ContractsPage = (() => {
 
   // Step 3: 메인 AI 법무 검토 CTA 버튼 핸들러
   // 모달 상단의 큰 CTA — 가장 최근에 업로드한 분석 가능 파일을 자동 선택
+  // v6.0.0 UX 개선: AI 검토 카드 내부에서 파일 첨부 (메인 흐름)
+  // - [📎 계약서 파일 첨부] 버튼 클릭 → 파일 다이얼로그
+  // - 카드 영역에 파일 드래그&드롭
+  // - 업로드 완료 후 모달 재오픈 (검토 가능 상태로 전환)
+  function _bindCtaFileAttach(contractId) {
+    const input = document.getElementById('ct-cta-file-input');
+    const mainBtn = document.getElementById('ct-cta-file-add-btn'); // 분석 가능 파일 없을 때
+    const moreBtn = document.getElementById('ct-cta-file-add-btn-more'); // 이미 있을 때 추가/교체
+    const card = document.getElementById('ct-legal-cta-card');
+    if (!input) return;
+
+    const openPicker = () => input.click();
+    if (mainBtn) mainBtn.addEventListener('click', openPicker);
+    if (moreBtn) moreBtn.addEventListener('click', openPicker);
+
+    const doUpload = async fileList => {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+      const fd = new FormData();
+      files.forEach(f => fd.append('files', f));
+      fd.append('file_type', 'contract');
+      try {
+        Toast.info?.(`${files.length}개 파일 업로드 중...`);
+        await API.contracts.uploadFile(contractId, fd);
+        Toast.success?.(`${files.length}개 파일 업로드 완료 — AI 검토 가능`);
+        await _reopenModalFresh(contractId);
+      } catch (err) {
+        Toast.error?.('업로드 실패: ' + (err.message || err));
+      }
+    };
+
+    input.addEventListener('change', async ev => {
+      await doUpload(ev.target.files);
+      ev.target.value = '';
+    });
+
+    // 드래그&드롭 (분석 가능 파일 없을 때만 강조)
+    if (card && mainBtn) {
+      const setDragStyle = active => {
+        card.style.background = active
+          ? 'linear-gradient(135deg,#ddd6fe,#c4b5fd)'
+          : 'linear-gradient(135deg,#faf5ff,#f3e8ff)';
+        card.style.borderColor = active ? '#7c3aed' : '#7c3aed';
+        card.style.borderStyle = active ? 'solid' : 'dashed';
+      };
+      ['dragenter', 'dragover'].forEach(evt => {
+        card.addEventListener(evt, e => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragStyle(true);
+        });
+      });
+      ['dragleave', 'dragend'].forEach(evt => {
+        card.addEventListener(evt, e => {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragStyle(false);
+        });
+      });
+      card.addEventListener('drop', async e => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragStyle(false);
+        if (e.dataTransfer?.files?.length) {
+          await doUpload(e.dataTransfer.files);
+        }
+      });
+    }
+  }
+
   function _bindLegalCtaBtn(contractId) {
+    // v6.0.0 UX 개선: 카드 내부 [📎 파일 첨부] 버튼 + 드래그앤드롭 바인딩
+    _bindCtaFileAttach(contractId);
+
     const btn = document.getElementById('ct-legal-cta-btn');
     if (!btn) return;
     btn.addEventListener('mouseenter', () => {
@@ -1672,6 +1804,20 @@ const ContractsPage = (() => {
           wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
           _bindLegalCloseBtn();
           _bindExtractedMetaCardEvents();
+
+          // v6.0.0 UX 개선: AI 추출 정보 즉시 자동 채움 (counterparty 제외)
+          if (data.extracted_meta) {
+            const { applied, needsAction } = _autoApplyExtractedMeta(data.extracted_meta);
+            if (applied > 0) {
+              Toast.success?.(`AI 추출 정보 ${applied}개 자동 채움됨`);
+            }
+            if (needsAction.includes('counterparty_name')) {
+              Toast.info?.(
+                `상대방 회사명 "${data.extracted_meta.counterparty_name}" — 카드에서 [✓ 적용] 클릭 시 매칭/신규 등록 가능`,
+                { duration: 7000 }
+              );
+            }
+          }
         }
       } catch (err) {
         console.error('[contracts:legal-review:cta] failed:', err);
