@@ -26,6 +26,8 @@ const ContractsPage = (() => {
     approved: '#16a34a',
     completed: '#0891b2',
   };
+  // v6.0.0 Phase C: 진척률 바 단계 순서 (0=초안 → 3=계약완료)
+  const STATUS_ORDER = ['draft', 'review', 'approved', 'completed'];
 
   // CLM 빠른 액션 (4단계 + 수정 액션)
   // { to, label, kind } — kind: primary/ghost/danger
@@ -117,6 +119,9 @@ const ContractsPage = (() => {
         </div>
       </div>
 
+      <!-- v6.0.0 Phase C: KPI 대시보드 카드 (만료 임박 + 상태별) -->
+      <div id="ct-kpi-wrap" style="margin-bottom:14px"></div>
+
       <!-- 필터 -->
       <div class="filter-bar" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
         <input class="form-input" id="ct-search" placeholder="🔎 계약번호/제목/고객사 검색"
@@ -136,7 +141,152 @@ const ContractsPage = (() => {
     `;
 
     _bindHeaderEvents();
+    // KPI 와 목록 병렬 로딩 (KPI 실패해도 목록은 보여줌)
+    _refreshKpi();
     await _refreshList();
+  }
+
+  // v6.0.0 Phase C: KPI 카드 fetch + 렌더
+  async function _refreshKpi() {
+    const wrap = document.getElementById('ct-kpi-wrap');
+    if (!wrap) return;
+    try {
+      const res = await API.contracts.dashboard();
+      const d = res?.data || {};
+      _renderKpiCards(wrap, d);
+    } catch (e) {
+      console.warn('[contracts] dashboard fetch failed:', e?.message);
+      wrap.innerHTML = '';
+    }
+  }
+
+  function _renderKpiCards(wrap, d) {
+    const by = d.by_status || {};
+    const expiring30 = d.expiring_30 || 0;
+    const overdue = d.overdue || 0;
+    // 카드 정의: { icon, label, value, sub, color, filter }
+    const cards = [
+      {
+        icon: overdue > 0 ? '⛔' : '🔥',
+        label: overdue > 0 ? '만료 경과' : '만료 임박',
+        value: overdue > 0 ? overdue : expiring30,
+        sub: overdue > 0 ? '계약 갱신/종료 필요' : '30일 이내 (승인 단계)',
+        color: overdue > 0 ? '#dc2626' : '#f59e0b',
+        filter: { status: 'approved' },
+      },
+      {
+        icon: '📋',
+        label: '검토중',
+        value: by.review || 0,
+        sub: '법무/내부 검토 단계',
+        color: '#3b82f6',
+        filter: { status: 'review' },
+      },
+      {
+        icon: '✅',
+        label: '진행중',
+        value: by.approved || 0,
+        sub: '승인 완료 + 발효',
+        color: '#16a34a',
+        filter: { status: 'approved' },
+      },
+      {
+        icon: '✏️',
+        label: '초안',
+        value: by.draft || 0,
+        sub: '작성중',
+        color: '#6b7280',
+        filter: { status: 'draft' },
+      },
+    ];
+    wrap.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+        ${cards
+          .map(
+            (c, idx) => `
+          <div class="ct-kpi-card" data-kpi-idx="${idx}"
+            style="background:#fff;border:1px solid var(--border);border-left:4px solid ${c.color};border-radius:6px;padding:12px 14px;cursor:pointer;transition:box-shadow 0.15s,transform 0.1s"
+            onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)';this.style.transform='translateY(-1px)'"
+            onmouseout="this.style.boxShadow='';this.style.transform=''">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="font-size:12px;color:var(--text-3);font-weight:500">
+                ${c.icon} ${esc(c.label)}
+              </div>
+              <div style="font-size:22px;font-weight:700;color:${c.color}">${c.value}</div>
+            </div>
+            <div style="font-size:10px;color:var(--text-3);margin-top:4px">${esc(c.sub)}</div>
+          </div>`
+          )
+          .join('')}
+      </div>`;
+
+    // 카드 클릭 → 해당 필터 적용
+    wrap.querySelectorAll('.ct-kpi-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const idx = parseInt(card.dataset.kpiIdx, 10);
+        const filter = cards[idx]?.filter || {};
+        if (filter.status) {
+          _filters.status = filter.status;
+          const sel = document.getElementById('ct-filter-status');
+          if (sel) sel.value = filter.status;
+          _refreshList();
+        }
+      });
+    });
+  }
+
+  // v6.0.0 Phase C: 진척률 바 (4단계) + 종료까지 일수 (D-N)
+  function _renderProgressBar(status, endDate) {
+    const currentIdx = STATUS_ORDER.indexOf(status);
+    const safeIdx = currentIdx < 0 ? 0 : currentIdx;
+    const stepHtml = STATUS_ORDER.map((s, i) => {
+      const isDone = i < safeIdx;
+      const isCurrent = i === safeIdx;
+      const bg = isCurrent
+        ? STATUS_COLORS[s]
+        : isDone
+          ? STATUS_COLORS[s] + '99'
+          : '#e5e7eb';
+      const fg = isCurrent || isDone ? '#fff' : '#9ca3af';
+      const sym = isDone ? '✓' : isCurrent ? '●' : '○';
+      return `<div title="${esc(STATUS_LABELS[s])}"
+        style="flex:1;display:flex;align-items:center;gap:2px">
+        <div style="width:16px;height:16px;border-radius:50%;background:${bg};color:${fg};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;flex-shrink:0">${sym}</div>
+        ${
+          i < STATUS_ORDER.length - 1
+            ? `<div style="flex:1;height:2px;background:${i < safeIdx ? STATUS_COLORS[STATUS_ORDER[i + 1]] + '99' : '#e5e7eb'}"></div>`
+            : ''
+        }
+      </div>`;
+    }).join('');
+
+    // D-N 일수 계산 (approved 단계 + end_date 있을 때만)
+    let dayInfo = '';
+    if (status === 'approved' && endDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(0, 0, 0, 0);
+      const diffMs = end.getTime() - today.getTime();
+      const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      let dColor, dLabel;
+      if (days < 0) {
+        dColor = '#dc2626';
+        dLabel = `⛔ ${Math.abs(days)}일 경과`;
+      } else if (days <= 30) {
+        dColor = '#f59e0b';
+        dLabel = `🔥 D-${days}`;
+      } else if (days <= 90) {
+        dColor = '#0891b2';
+        dLabel = `D-${days}`;
+      } else {
+        dColor = '#6b7280';
+        dLabel = `D-${days}`;
+      }
+      dayInfo = `<div style="font-size:9px;color:${dColor};font-weight:600;margin-top:2px;text-align:right">${dLabel}</div>`;
+    }
+
+    return `<div style="display:flex;align-items:center;gap:0;width:100%">${stepHtml}</div>${dayInfo}`;
   }
 
   function _bindHeaderEvents() {
@@ -177,6 +327,8 @@ const ContractsPage = (() => {
       const res = await API.contracts.list(params);
       _list = res?.data || [];
       _renderList(wrap);
+      // v6.0.0 Phase C: KPI 도 동기화 (CRUD 후 자동 갱신용 — best-effort)
+      _refreshKpi();
     } catch (err) {
       wrap.innerHTML = `<div class="error-message" style="padding:20px;color:#d93025">목록 조회 실패: ${esc(err.message || err)}</div>`;
     }
@@ -199,7 +351,7 @@ const ContractsPage = (() => {
           <th style="width:110px">시작일</th>
           <th style="width:110px">종료일</th>
           <th style="width:130px;text-align:right">금액</th>
-          <th style="width:100px">상태</th>
+          <th style="width:160px">진척 · 상태</th>
           <th style="width:60px;text-align:center">파일</th>
           <th style="width:100px;text-align:center">작업</th>
         </tr></thead>
@@ -225,7 +377,10 @@ const ContractsPage = (() => {
               <td style="font-size:11px">${_fmtDate(c.start_date)}</td>
               <td style="font-size:11px">${_fmtDate(c.end_date)}</td>
               <td style="text-align:right;font-family:monospace">${c.contract_amount ? _fmtKRW(c.contract_amount) + ' ' + (c.currency || 'KRW') : '-'}</td>
-              <td>${_statusBadge(c.status)}</td>
+              <td style="vertical-align:middle">
+                ${_renderProgressBar(c.status, c.end_date)}
+                <div style="margin-top:3px">${_statusBadge(c.status)}</div>
+              </td>
               <td style="text-align:center;color:var(--text-3);font-size:11px">${c.file_count > 0 ? `📎 ${c.file_count}` : '-'}</td>
               <td style="text-align:center;white-space:nowrap">
                 <button class="btn btn-ghost btn-sm ct-edit" data-id="${c.id}" type="button" style="font-size:11px;padding:2px 6px">편집</button>

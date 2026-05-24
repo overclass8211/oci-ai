@@ -429,6 +429,62 @@ const ALLOWED_CONTRACT_TYPES = [
   'etc', // 기타
 ];
 
+// ── GET /dashboard — KPI 대시보드 (Phase C) ─────────────────
+// ⚠️ /:id 보다 먼저 선언
+// Response: {
+//   total, by_status: {draft, review, approved, completed},
+//   expiring_30: N,  // approved 단계 + end_date <= today+30
+//   expiring_60: N,  // approved 단계 + end_date > today+30 && <= today+60
+//   expiring_90: N,  // ...
+//   no_end_date_active: N,  // approved 인데 end_date 없음 (관리 필요)
+// }
+router.get('/dashboard', async (req, res) => {
+  try {
+    // by_status 집계
+    const [statusRows] = await pool.query(
+      `SELECT status, COUNT(*) AS cnt FROM contracts GROUP BY status`
+    );
+    const by_status = { draft: 0, review: 0, approved: 0, completed: 0 };
+    let total = 0;
+    for (const r of statusRows) {
+      const s = r.status;
+      const cnt = Number(r.cnt) || 0;
+      if (by_status[s] !== undefined) by_status[s] = cnt;
+      total += cnt;
+    }
+
+    // 만료 임박 (approved 단계 + end_date 구간별)
+    const [[expRow]] = await pool.query(
+      `SELECT
+         SUM(CASE WHEN end_date IS NOT NULL AND end_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+                  AND end_date >= CURDATE() THEN 1 ELSE 0 END) AS expiring_30,
+         SUM(CASE WHEN end_date IS NOT NULL AND end_date > DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+                  AND end_date <= DATE_ADD(CURDATE(), INTERVAL 60 DAY) THEN 1 ELSE 0 END) AS expiring_60,
+         SUM(CASE WHEN end_date IS NOT NULL AND end_date > DATE_ADD(CURDATE(), INTERVAL 60 DAY)
+                  AND end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) THEN 1 ELSE 0 END) AS expiring_90,
+         SUM(CASE WHEN end_date IS NULL THEN 1 ELSE 0 END) AS no_end_date_active,
+         SUM(CASE WHEN end_date IS NOT NULL AND end_date < CURDATE() THEN 1 ELSE 0 END) AS overdue
+       FROM contracts
+       WHERE status = 'approved'`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        total,
+        by_status,
+        expiring_30: Number(expRow.expiring_30) || 0,
+        expiring_60: Number(expRow.expiring_60) || 0,
+        expiring_90: Number(expRow.expiring_90) || 0,
+        no_end_date_active: Number(expRow.no_end_date_active) || 0,
+        overdue: Number(expRow.overdue) || 0,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── GET /next-contract-no — 다음 자동 채번 미리보기 ─────────
 // ⚠️ /:id 보다 먼저 선언
 router.get('/next-contract-no', async (req, res) => {

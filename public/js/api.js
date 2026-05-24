@@ -318,6 +318,8 @@ const API = {
     update: (id, body) => API.put(`/contracts/${id}`, body),
     delete: id => API.del(`/contracts/${id}`),
     nextContractNo: year => API.get(`/contracts/next-contract-no${year ? '?year=' + year : ''}`),
+    // v6.0.0 Phase C: KPI 대시보드 (만료 임박 + 상태별 카운트)
+    dashboard: () => API.get('/contracts/dashboard'),
     // 파일
     uploadFile: (id, formData) => API._upload(`/contracts/${id}/files`, formData),
     deleteFile: (id, fileId) => API.del(`/contracts/${id}/files/${fileId}`),

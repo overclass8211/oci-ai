@@ -49,6 +49,71 @@ describe('Contracts API — Phase 0', () => {
   let createdId;
   let createdNo;
 
+  // ── v6.0.0 Phase C: KPI 대시보드 ─────────────────────────
+  it('GET /dashboard — 4단계 카운트 + 만료 임박 분류', async () => {
+    // 만료 임박 시드 (approved + 25일 후 종료)
+    const today = new Date();
+    const in25Days = new Date(today.getTime() + 25 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const in45Days = new Date(today.getTime() + 45 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const yesterday = new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+    // 3건 시드: expiring_30, expiring_60, overdue
+    for (const [date, label] of [
+      [in25Days, '__TEST__C_expiring30'],
+      [in45Days, '__TEST__C_expiring60'],
+      [yesterday, '__TEST__C_overdue'],
+    ]) {
+      const cr = await api()
+        .post('/api/contracts')
+        .set('X-User-Id', String(TEST_USER_ID))
+        .send({
+          title: label,
+          customer_name: '__TEST__',
+          contract_type: 'NDA',
+          start_date: '2026-01-01',
+          end_date: date,
+        });
+      createdIds.push(cr.body.id);
+      // status 를 approved 로 전이 (draft → review → approved)
+      await api()
+        .patch(`/api/contracts/${cr.body.id}/status`)
+        .set('X-User-Id', String(TEST_USER_ID))
+        .send({ status: 'review' });
+      await api()
+        .patch(`/api/contracts/${cr.body.id}/status`)
+        .set('X-User-Id', String(TEST_USER_ID))
+        .send({ status: 'approved' });
+    }
+
+    const res = await api()
+      .get('/api/contracts/dashboard')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const d = res.body.data;
+    expect(d).toBeDefined();
+    expect(typeof d.total).toBe('number');
+    expect(d.by_status).toBeDefined();
+    expect(typeof d.by_status.draft).toBe('number');
+    expect(typeof d.by_status.review).toBe('number');
+    expect(typeof d.by_status.approved).toBe('number');
+    expect(typeof d.by_status.completed).toBe('number');
+    expect(typeof d.expiring_30).toBe('number');
+    expect(typeof d.expiring_60).toBe('number');
+    expect(typeof d.expiring_90).toBe('number');
+    expect(typeof d.overdue).toBe('number');
+    // 시드한 만큼 최소치는 충족해야 함
+    expect(d.expiring_30).toBeGreaterThanOrEqual(1);
+    expect(d.expiring_60).toBeGreaterThanOrEqual(1);
+    expect(d.overdue).toBeGreaterThanOrEqual(1);
+  });
+
   it('GET /next-contract-no — C-YYYY-NNNN 패턴', async () => {
     const res = await api()
       .get('/api/contracts/next-contract-no?year=2026')
