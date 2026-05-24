@@ -47,6 +47,76 @@ const SettingsPage = {
         </div>
       </div>
 
+      <!-- v6.0.0 Step 4-2: 전자계약 (eSign) 연동 — 모두싸인 OAuth 통합 (구현 준비 중) -->
+      <div class="card mb-3" data-feature="crm.contracts">
+        <div class="card-header">
+          <div class="card-title">🖋 전자계약 연동 (eSign)</div>
+          <span class="badge badge-gray" style="font-size:10px">v6.0.0 Step 4 — 구현 준비 중</span>
+        </div>
+        <div class="card-body">
+          <div class="grid-2">
+            <div class="integration-card">
+              <div class="integration-header">
+                <div>
+                  <div class="integration-name">🇰🇷 모두싸인 (modusign)</div>
+                  <div class="integration-desc">국내 표준 전자서명 솔루션 · OAuth 2.0 + Webhook</div>
+                </div>
+                <span class="badge badge-orange">🚧 준비 중</span>
+              </div>
+              <div class="integration-body">
+                <div class="kv-row"><span class="kv-key">인증 방식</span><span class="kv-val">OAuth 2.0 (사용자별 본인 계정)</span></div>
+                <div class="kv-row"><span class="kv-key">지원 기능</span><span class="kv-val">서명 요청 / 진행률 추적 / 서명본 PDF 다운로드</span></div>
+                <div class="kv-row"><span class="kv-key">Webhook</span><span class="kv-val">HMAC-SHA256 서명 검증</span></div>
+                <div class="kv-row"><span class="kv-key">예상 비용</span><span class="kv-val">문서당 또는 월정액 (모두싸인 플랜)</span></div>
+                <div class="kv-row"><span class="kv-key">상태</span><span class="kv-val text-muted">사전 설계 완료 (Step 4-1) · OAuth/UI 구현 대기</span></div>
+              </div>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.6;cursor:not-allowed">
+                ⏳ 구현 후 사용 가능
+              </button>
+              <a href="https://developers.modusign.co.kr" target="_blank" rel="noopener"
+                 class="btn btn-ghost btn-sm" style="margin-left:6px;text-decoration:none">
+                📘 모두싸인 개발자 문서 →
+              </a>
+            </div>
+
+            <div class="integration-card" style="opacity:0.55">
+              <div class="integration-header">
+                <div>
+                  <div class="integration-name">🌐 DocuSign (글로벌)</div>
+                  <div class="integration-desc">국제 표준 전자서명 솔루션 · 해외 거래용</div>
+                </div>
+                <span class="badge badge-gray">검토 중</span>
+              </div>
+              <div class="integration-body">
+                <div class="kv-row"><span class="kv-key">상태</span><span class="kv-val text-muted">국내 모두싸인 우선 도입 후 검토</span></div>
+                <div class="kv-row"><span class="kv-key">비고</span><span class="kv-val text-muted">해외 고객사 계약 발생 시 추가 검토</span></div>
+              </div>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.5;cursor:not-allowed">
+                미지원
+              </button>
+            </div>
+          </div>
+
+          <!-- 진행 상태 안내 박스 -->
+          <div style="margin-top:14px;padding:12px 14px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412;line-height:1.6">
+            <strong>📋 진행 상태:</strong>
+            <ul style="margin:6px 0 0 18px;padding:0">
+              <li>✅ <strong>Step 4-1 (사전 설계)</strong> 완료 — DB 스키마 / Endpoint / Webhook 설계서 작성</li>
+              <li>📋 <strong>Step 4-2 (OAuth 백엔드)</strong> 대기 — 사용자 측 모두싸인 계정 + OAuth Client 발급 필요</li>
+              <li>📋 <strong>Step 4-3 (서명 요청 + Webhook)</strong> 대기</li>
+              <li>📋 <strong>Step 4-4 (프론트 UI 통합)</strong> 대기</li>
+            </ul>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #fdba74">
+              💡 사용자 측 사전 준비: <a href="https://developers.modusign.co.kr" target="_blank" rel="noopener" style="color:#9a3412;font-weight:600">개발자 콘솔 가입</a>
+              → OAuth 클라이언트 생성 → CLIENT_ID/SECRET 발급 → Webhook URL 등록 후 Step 4-2 본격 진행 가능
+            </div>
+            <div style="margin-top:6px;font-size:11px;color:#9a3412">
+              자세한 설계는 <code style="background:#fed7aa;padding:1px 6px;border-radius:3px">src/docs/MODUSIGN_INTEGRATION_DESIGN.md</code> 참고
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-header">
           <div class="card-title">데이터베이스 상태</div>
