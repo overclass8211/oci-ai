@@ -314,12 +314,14 @@ const ContractsPage = (() => {
         });
         if (id) _bindFileEvents(id);
         _attachLinkComboboxes(); // v6.0.0 Step 2 Commit 4: 4개 연결 Combobox
+        _bindLegalCtaBtn(id); // v6.0.0 Step 3: 메인 AI 법무 검토 CTA
       },
     });
   }
 
   function _formHtml(e) {
     return `
+      ${e.id ? _renderLegalCtaSection(e) : ''}
       <div class="form-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
         <div class="form-row">
           <label class="form-label">계약번호</label>
@@ -418,17 +420,12 @@ const ContractsPage = (() => {
                 <strong style="font-size:13px">📎 첨부 파일 (${(e.files || []).length}건)</strong>
                 <button class="btn btn-ghost btn-sm" id="ct-file-add-btn" type="button">+ 파일 추가</button>
               </div>
-              <div style="margin-bottom:10px;padding:8px 12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;font-size:11px;color:#92400e">
-                💡 <strong>🤖 AI 법무 검토</strong> — 계약서 PDF/이미지/텍스트 파일에서 사용 가능. Gemini 2.5 Pro 가 한국법(공정거래법·하도급법·개인정보보호법) 관점에서 독소조항·누락조항·수정안을 자동 생성합니다 (약 30-60초 · 1회 약 500-1000원)
+              <div style="margin-bottom:10px;padding:6px 10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:11px;color:#075985">
+                💡 파일 행의 <strong>🤖 법무</strong> 버튼으로 개별 파일에 대해 AI 법무 검토 실행 가능 (PDF/이미지/텍스트만)
               </div>
               <input type="file" id="ct-file-input" multiple style="display:none"
                 accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg,.txt,.md">
               ${_renderFileList(e.files || [], e.id)}
-
-              <!-- AI 법무 검토 결과 카드 (최신 검토 자동 prefill) -->
-              <div id="ct-legal-review-wrap" style="margin-top:14px">
-                ${e.latest_legal_review ? _renderLegalReview(e.latest_legal_review) : ''}
-              </div>
 
               <!-- 변경 이력 (최근 10건) -->
               ${_renderHistorySection(e.history || [])}
@@ -436,6 +433,50 @@ const ContractsPage = (() => {
           : '<div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">💡 계약 등록 후 파일 첨부 + AI 법무 검토가 가능합니다</div>'
       }
     `;
+  }
+
+  // Step 3: AI 법무 검토 메인 CTA + 결과 카드 (모달 상단)
+  // 파일 없음 → 안내, 파일 있음 + 미검토 → 큰 CTA, 검토 완료 → 결과 카드 + 재검토 버튼
+  function _renderLegalCtaSection(e) {
+    const files = Array.isArray(e.files) ? e.files : [];
+    const analyzableFiles = files.filter(f => _isAnalyzable(f.original_filename));
+    const hasReview = !!e.latest_legal_review;
+    const hasAnalyzable = analyzableFiles.length > 0;
+
+    // 결과가 있으면 결과 카드 + 재검토 안내 (재검토는 파일 행 [🤖 법무] 버튼으로)
+    if (hasReview) {
+      return `<div id="ct-legal-review-wrap" style="margin-bottom:16px">
+        ${_renderLegalReview(e.latest_legal_review)}
+      </div>`;
+    }
+
+    // 결과 없음 → 안내 카드
+    return `<div id="ct-legal-review-wrap" style="margin-bottom:16px">
+      <div style="border:2px dashed #7c3aed;border-radius:10px;padding:18px;background:linear-gradient(135deg,#faf5ff,#f3e8ff);text-align:center">
+        <div style="font-size:32px;line-height:1;margin-bottom:8px">🤖</div>
+        <div style="font-size:15px;font-weight:700;color:#5b21b6;margin-bottom:6px">
+          AI 법무 검토 ${hasAnalyzable ? '준비됨' : '대기'}
+        </div>
+        ${
+          hasAnalyzable
+            ? `<div style="font-size:12px;color:#6b21a8;margin-bottom:12px;line-height:1.6">
+                Gemini 2.5 Pro 가 한국법(공정거래법·하도급법·개인정보보호법) 관점에서<br>
+                <strong>독소조항·누락조항·수정안</strong>을 자동 생성합니다 (약 30-60초 · 1회 약 500-1000원)
+              </div>
+              <button id="ct-legal-cta-btn" type="button"
+                style="padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(124,58,237,0.3);transition:transform .15s">
+                🤖 AI 법무 검토 시작 (${analyzableFiles.length}건 파일 사용 가능)
+              </button>
+              <div style="margin-top:8px;font-size:10px;color:#6b21a8">
+                파일이 여러 개인 경우 가장 최근에 업로드한 분석 가능한 파일이 자동 선택됩니다
+              </div>`
+            : `<div style="font-size:12px;color:#6b21a8;line-height:1.6">
+                ⚠️ <strong>분석 가능한 파일 없음</strong><br>
+                아래 [+ 파일 추가] 로 계약서를 첨부하세요 (PDF · 이미지 · TXT)
+              </div>`
+        }
+      </div>
+    </div>`;
   }
 
   // 변경 이력 (Audit Trail) — 최근 10건
@@ -741,6 +782,73 @@ const ContractsPage = (() => {
     closeBtn.addEventListener('click', () => {
       const wrap = document.getElementById('ct-legal-review-wrap');
       if (wrap) wrap.innerHTML = '';
+    });
+  }
+
+  // Step 3: 메인 AI 법무 검토 CTA 버튼 핸들러
+  // 모달 상단의 큰 CTA — 가장 최근에 업로드한 분석 가능 파일을 자동 선택
+  function _bindLegalCtaBtn(contractId) {
+    const btn = document.getElementById('ct-legal-cta-btn');
+    if (!btn) return;
+    btn.addEventListener('mouseenter', () => {
+      btn.style.transform = 'translateY(-2px)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.transform = 'translateY(0)';
+    });
+    btn.addEventListener('click', async () => {
+      // _list 에는 목록 행이 있지만, files 는 모달 진입 시 entity 에서만 받음
+      // 가장 안전한 방법: API.contracts.get 으로 재조회 → 최신 파일 선택
+      let entity;
+      try {
+        const r = await API.contracts.get(contractId);
+        entity = r?.data;
+      } catch (err) {
+        Toast.error?.('계약 정보 조회 실패: ' + (err.message || err));
+        return;
+      }
+      const files = Array.isArray(entity?.files) ? entity.files : [];
+      const analyzable = files.filter(f => _isAnalyzable(f.original_filename));
+      if (!analyzable.length) {
+        Toast.error?.('분석 가능한 파일이 없습니다 (PDF/이미지/TXT)');
+        return;
+      }
+      // 최신 첨부 파일 선택 (목록은 created_at DESC 정렬)
+      const target = analyzable[0];
+      const ok = confirm(
+        `🤖 AI 법무 검토를 실행하시겠습니까?\n\n` +
+          `대상 파일: ${target.original_filename}\n\n` +
+          `Gemini 2.5 Pro 가 한국법(공정거래법·하도급법·개인정보보호법) 관점에서 ` +
+          `독소조항·누락조항·수정안을 분석합니다.\n\n` +
+          `• 소요 시간: 약 30-60초\n` +
+          `• 예상 비용: 약 500-1000원/회\n\n` +
+          `계속하시겠습니까?`
+      );
+      if (!ok) return;
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ AI 분석 중... (최대 60초)';
+      try {
+        Toast.info?.('AI 법무 검토 중... (최대 60초 소요)');
+        const res = await API.contracts.legalReview(contractId, target.id);
+        const data = res?.data;
+        if (!data) throw new Error('응답 비어있음');
+        Toast.success?.(
+          `AI 법무 검토 완료 — 점수 ${data.review_score}, 위험도 ${data.risk_level}`
+        );
+        const wrap = document.getElementById('ct-legal-review-wrap');
+        if (wrap) {
+          wrap.innerHTML = _renderLegalReview(data);
+          wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          _bindLegalCloseBtn();
+        }
+      } catch (err) {
+        console.error('[contracts:legal-review:cta] failed:', err);
+        const detail = err?.error || err?.message || String(err);
+        Toast.error?.('AI 법무 검토 실패: ' + detail, { duration: 8000 });
+        btn.disabled = false;
+        btn.innerHTML = origText;
+      }
     });
   }
 
