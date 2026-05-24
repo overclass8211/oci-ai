@@ -298,6 +298,10 @@ app.get('/api/config/public', (_req, res) => {
 // ※ authenticate 미들웨어보다 먼저 등록 (Phase 5-C)
 app.use('/api/proposals/share', require('./src/routes/proposalShare'));
 
+// 계약 공유 링크 — 인증 불필요 (외부 접근, contract_share_links.token 기반 보안 + 역할 검증)
+// ※ authenticate 미들웨어보다 먼저 등록 (v6.0.0 Phase B)
+app.use('/api/contracts/share', require('./src/routes/contractShare'));
+
 // 모두싸인 Webhook — 인증 불필요 (외부 호출, HMAC-SHA256 서명 검증)
 // ※ authenticate 미들웨어보다 먼저 등록 (v6.0.0 Step 4)
 app.use('/api/webhooks', require('./src/routes/modusignWebhook'));

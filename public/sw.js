@@ -81,6 +81,11 @@ self.addEventListener('fetch', event => {
       url.pathname.startsWith('/js/pages/proposal-share')) {
     return;
   }
+  // v6.0.0 Phase B: 계약 공유 페이지 (contract-share)
+  if (url.pathname === '/contract-share.html' ||
+      url.pathname === '/js/contract-share.js') {
+    return;
+  }
 
   // HTML 요청 (navigation) — network-first
   const isNavigation = req.mode === 'navigate' ||

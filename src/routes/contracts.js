@@ -294,6 +294,150 @@ async function ensureSchema() {
       `);
     }
 
+    // v6.0.0 Phase B: 공유 링크 + 수신자
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_share_links (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          token          VARCHAR(64) NOT NULL UNIQUE,
+          contract_id    INT NOT NULL,
+          created_by     INT NULL,
+          role           VARCHAR(20) DEFAULT 'viewer'
+                         COMMENT 'viewer|commenter|approver',
+          expires_at     DATETIME NULL,
+          revoked_at     DATETIME NULL,
+          note           VARCHAR(500) NULL,
+          created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_contract (contract_id, revoked_at),
+          INDEX idx_token (token),
+          CONSTRAINT fk_csl_contract FOREIGN KEY (contract_id)
+            REFERENCES contracts(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (_) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_share_links (
+          id INT AUTO_INCREMENT PRIMARY KEY, token VARCHAR(64) NOT NULL UNIQUE,
+          contract_id INT NOT NULL, created_by INT NULL,
+          role VARCHAR(20) DEFAULT 'viewer',
+          expires_at DATETIME NULL, revoked_at DATETIME NULL,
+          note VARCHAR(500) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_contract (contract_id, revoked_at), INDEX idx_token (token)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_share_recipients (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          share_link_id  INT NOT NULL,
+          email          VARCHAR(200) NOT NULL,
+          name           VARCHAR(100) NULL,
+          notified_at    DATETIME NULL,
+          viewed_at      DATETIME NULL,
+          responded_at   DATETIME NULL,
+          created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_share_email (share_link_id, email),
+          CONSTRAINT fk_csr_share FOREIGN KEY (share_link_id)
+            REFERENCES contract_share_links(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (_) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_share_recipients (
+          id INT AUTO_INCREMENT PRIMARY KEY, share_link_id INT NOT NULL,
+          email VARCHAR(200) NOT NULL, name VARCHAR(100) NULL,
+          notified_at DATETIME NULL, viewed_at DATETIME NULL, responded_at DATETIME NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_share_email (share_link_id, email)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+
+    // v6.0.0 Phase D: 댓글 (1단계 스레드)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_comments (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          contract_id    INT NOT NULL,
+          share_link_id  INT NULL,
+          user_id        INT NULL,
+          parent_id      INT NULL,
+          comment_type   VARCHAR(20) DEFAULT 'general'
+                         COMMENT 'general|revise|approve|reject',
+          body           TEXT NOT NULL,
+          author_email   VARCHAR(200) NULL,
+          author_name    VARCHAR(100) NULL,
+          created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_contract_created (contract_id, created_at),
+          CONSTRAINT fk_cc_contract FOREIGN KEY (contract_id)
+            REFERENCES contracts(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (_) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_comments (
+          id INT AUTO_INCREMENT PRIMARY KEY, contract_id INT NOT NULL,
+          share_link_id INT NULL, user_id INT NULL, parent_id INT NULL,
+          comment_type VARCHAR(20) DEFAULT 'general',
+          body TEXT NOT NULL,
+          author_email VARCHAR(200) NULL, author_name VARCHAR(100) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_contract_created (contract_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+
+    // v6.0.0 Phase E: 알림 발송 이력 (디바운싱 + 재시도)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_notifications (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          contract_id    INT NOT NULL,
+          event_type     VARCHAR(50) NOT NULL
+                         COMMENT 'comment|status_change|share_invite|deadline_alert',
+          recipient_email VARCHAR(200) NOT NULL,
+          channel        VARCHAR(20) DEFAULT 'email'
+                         COMMENT 'email|inapp',
+          status         VARCHAR(20) DEFAULT 'pending'
+                         COMMENT 'pending|sent|failed|skipped',
+          payload_json   MEDIUMTEXT NULL,
+          attempts       INT DEFAULT 0,
+          last_error     VARCHAR(500) NULL,
+          created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          sent_at        DATETIME NULL,
+          INDEX idx_contract (contract_id, created_at),
+          INDEX idx_status (status),
+          CONSTRAINT fk_cn_contract FOREIGN KEY (contract_id)
+            REFERENCES contracts(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (_) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_notifications (
+          id INT AUTO_INCREMENT PRIMARY KEY, contract_id INT NOT NULL,
+          event_type VARCHAR(50) NOT NULL, recipient_email VARCHAR(200) NOT NULL,
+          channel VARCHAR(20) DEFAULT 'email', status VARCHAR(20) DEFAULT 'pending',
+          payload_json MEDIUMTEXT NULL, attempts INT DEFAULT 0,
+          last_error VARCHAR(500) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sent_at DATETIME NULL,
+          INDEX idx_contract (contract_id, created_at), INDEX idx_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+
+    // v6.0.0 Phase C: 검토 D-Day
+    try {
+      await pool.query(`ALTER TABLE contracts ADD COLUMN review_deadline DATE NULL`);
+      await pool.query(`ALTER TABLE contracts ADD INDEX idx_review_deadline (review_deadline)`);
+      console.log('[contracts:migration] review_deadline 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+
     // ② 파일: contract_files
     await pool.query(`
       CREATE TABLE IF NOT EXISTS contract_files (
@@ -945,8 +1089,9 @@ router.put('/:id', async (req, res) => {
       'owner_id',
       'owner_name',
       'notes',
+      'review_deadline', // v6.0.0 Phase C: 검토 D-Day
     ];
-    const DATE_FIELDS = new Set(['start_date', 'end_date']);
+    const DATE_FIELDS = new Set(['start_date', 'end_date', 'review_deadline']);
     const BOOL_FIELDS = new Set(['auto_renewal']);
     for (const f of allowed) {
       if (body[f] === undefined) continue;
@@ -1160,6 +1305,21 @@ router.patch('/:id/status', async (req, res) => {
         auto_start_date: extraSql ? extraParams[0] : null,
       },
     });
+
+    // v6.0.0 Phase E: 상태 변경 알림 (best-effort, 비동기 — 응답 차단 안함)
+    try {
+      const notifySvc = require('../services/contractNotifier');
+      if (notifySvc?.notifyStatusChange) {
+        notifySvc.notifyStatusChange({
+          contractId: id,
+          fromStatus,
+          toStatus: newStatus,
+          changedByUserId: userId,
+        });
+      }
+    } catch (_) {
+      /* skip */
+    }
   } catch (err) {
     await conn.rollback();
     handleError(res, err);
@@ -1390,6 +1550,17 @@ router.post('/:id/files/:fileId/legal-review', async (req, res) => {
     console.log(
       `[contracts:legal-review] done contract=${contractId} score=${result.review_score} risk=${result.risk_level} elapsed=${Date.now() - startedAt}ms`
     );
+    // v6.0.0 fix: extracted_meta 명시적 로깅 (자동 채움 디버깅용)
+    if (result.extracted_meta) {
+      const filled = Object.entries(result.extracted_meta)
+        .filter(([, v]) => v !== null && v !== undefined && v !== '')
+        .map(([k]) => k);
+      console.log(
+        `[contracts:legal-review] extracted_meta filled=${filled.length}/7 [${filled.join(',')}]`
+      );
+    } else {
+      console.log(`[contracts:legal-review] extracted_meta=null (AI 추출 실패)`);
+    }
 
     res.json({
       success: true,
@@ -1887,6 +2058,250 @@ router.post('/:id/esign/cancel', esignGuard, async (req, res) => {
     handleError(res, err);
   } finally {
     conn.release();
+  }
+});
+
+// =============================================================
+// v6.0.0 Phase B: 공유 링크 관리 (인증 필요 — 등록자가 토큰 발급/회수)
+// =============================================================
+const crypto = require('crypto');
+
+function _generateToken() {
+  // 32 bytes = 256-bit, base64url 43 chars (안전한 권장값)
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+const ALLOWED_ROLES = ['viewer', 'commenter', 'approver'];
+
+// POST /:id/share — 공유 링크 발급
+router.post('/:id/share', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+    const body = req.body || {};
+
+    // 역할 검증
+    const role = ALLOWED_ROLES.includes(body.role) ? body.role : 'viewer';
+    // 만료 (기본 14일)
+    const expiresDays = Math.max(1, Math.min(365, parseInt(body.expires_days, 10) || 14));
+    const expiresAt = new Date(Date.now() + expiresDays * 24 * 60 * 60 * 1000);
+    // 수신자
+    const recipients = Array.isArray(body.recipients) ? body.recipients : [];
+    if (recipients.length === 0) {
+      return res.status(400).json({ success: false, error: '수신자 1명 이상 필요' });
+    }
+    for (const r of recipients) {
+      if (!r.email || !/^[^@]+@[^@]+\.[^@]+$/.test(r.email)) {
+        return res
+          .status(400)
+          .json({ success: false, error: `유효하지 않은 이메일: ${r.email || '-'}` });
+      }
+    }
+
+    const [[contract]] = await pool.query(`SELECT id, title FROM contracts WHERE id = ?`, [id]);
+    if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+
+    const token = _generateToken();
+    const [insRes] = await pool.query(
+      `INSERT INTO contract_share_links
+        (token, contract_id, created_by, role, expires_at, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        token,
+        id,
+        userId || null,
+        role,
+        expiresAt,
+        body.note ? String(body.note).slice(0, 500) : null,
+      ]
+    );
+    const linkId = insRes.insertId;
+
+    // 수신자 일괄 등록
+    for (const r of recipients) {
+      try {
+        await pool.query(
+          `INSERT INTO contract_share_recipients (share_link_id, email, name)
+           VALUES (?, ?, ?)`,
+          [
+            linkId,
+            String(r.email).toLowerCase().slice(0, 200),
+            r.name ? String(r.name).slice(0, 100) : null,
+          ]
+        );
+      } catch (_) {
+        /* 중복 등 무시 */
+      }
+    }
+
+    await logHistory(null, id, userId, 'share_create', {
+      description: `공유 링크 발급: role=${role}, 수신자=${recipients.length}명, 만료=${expiresDays}일`,
+      newValue: token.slice(0, 12) + '...',
+    });
+
+    // 알림 발송 (best-effort)
+    try {
+      const notifySvc = require('../services/contractNotifier');
+      if (notifySvc?.notifyShareInvite) {
+        notifySvc.notifyShareInvite({
+          contractId: id,
+          shareLinkId: linkId,
+          token,
+          role,
+          recipients,
+        });
+      }
+    } catch (_) {
+      /* notifier 없으면 skip */
+    }
+
+    res.json({
+      success: true,
+      data: { id: linkId, token, role, expires_at: expiresAt, recipients_count: recipients.length },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /:id/share — 활성 공유 링크 목록
+router.get('/:id/share', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [links] = await pool.query(
+      `SELECT csl.id, csl.token, csl.role, csl.expires_at, csl.revoked_at,
+              csl.note, csl.created_at, tm.name AS created_by_name,
+              (SELECT COUNT(*) FROM contract_share_recipients csr
+                WHERE csr.share_link_id = csl.id) AS recipients_count,
+              (SELECT COUNT(*) FROM contract_share_recipients csr
+                WHERE csr.share_link_id = csl.id AND csr.viewed_at IS NOT NULL) AS viewed_count
+         FROM contract_share_links csl
+         LEFT JOIN team_members tm ON tm.id = csl.created_by
+        WHERE csl.contract_id = ?
+        ORDER BY csl.created_at DESC`,
+      [id]
+    );
+    res.json({ success: true, data: links });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /:id/share/:linkId/recipients — 수신자 상세
+router.get('/:id/share/:linkId/recipients', async (req, res) => {
+  try {
+    const linkId = parseInt(req.params.linkId, 10);
+    if (!linkId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [recipients] = await pool.query(
+      `SELECT email, name, notified_at, viewed_at, responded_at
+         FROM contract_share_recipients
+        WHERE share_link_id = ?
+        ORDER BY created_at ASC`,
+      [linkId]
+    );
+    res.json({ success: true, data: recipients });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// DELETE /:id/share/:linkId — 회수
+router.delete('/:id/share/:linkId', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const linkId = parseInt(req.params.linkId, 10);
+    if (!id || !linkId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+    await pool.query(
+      `UPDATE contract_share_links SET revoked_at = NOW()
+        WHERE id = ? AND contract_id = ? AND revoked_at IS NULL`,
+      [linkId, id]
+    );
+    await logHistory(null, id, userId, 'share_revoke', {
+      description: `공유 링크 회수 (#${linkId})`,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// =============================================================
+// v6.0.0 Phase D: 댓글 (인증된 사용자용)
+// =============================================================
+const ALLOWED_COMMENT_TYPES = ['general', 'revise', 'approve', 'reject'];
+
+// GET /:id/comments — 댓글 목록
+router.get('/:id/comments', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [comments] = await pool.query(
+      `SELECT cc.id, cc.parent_id, cc.comment_type, cc.body, cc.created_at,
+              cc.author_email, cc.author_name, cc.user_id,
+              tm.name AS internal_author_name
+         FROM contract_comments cc
+         LEFT JOIN team_members tm ON tm.id = cc.user_id
+        WHERE cc.contract_id = ?
+        ORDER BY cc.created_at ASC`,
+      [id]
+    );
+    res.json({ success: true, data: comments });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST /:id/comments — 댓글 작성 (등록자/관리자)
+router.post('/:id/comments', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+    const body = req.body || {};
+    const text = String(body.body || '').trim();
+    if (!text) return res.status(400).json({ success: false, error: '댓글 내용 필요' });
+    const commentType = ALLOWED_COMMENT_TYPES.includes(body.comment_type)
+      ? body.comment_type
+      : 'general';
+    const parentId = body.parent_id ? parseInt(body.parent_id, 10) : null;
+
+    const [[contract]] = await pool.query(`SELECT id FROM contracts WHERE id = ?`, [id]);
+    if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+
+    const [r] = await pool.query(
+      `INSERT INTO contract_comments
+        (contract_id, share_link_id, user_id, parent_id, comment_type, body)
+       VALUES (?, NULL, ?, ?, ?, ?)`,
+      [id, userId || null, parentId, commentType, text.slice(0, 5000)]
+    );
+
+    await logHistory(null, id, userId, 'comment', {
+      description: `댓글: ${commentType} — ${text.slice(0, 80)}`,
+    });
+
+    // 알림 (best-effort)
+    try {
+      const notifySvc = require('../services/contractNotifier');
+      if (notifySvc?.notifyComment) {
+        notifySvc.notifyComment({
+          contractId: id,
+          commentId: r.insertId,
+          authorEmail: null,
+          authorName: null,
+          authorUserId: userId,
+          body: text,
+        });
+      }
+    } catch (_) {
+      /* skip */
+    }
+
+    res.json({ success: true, data: { id: r.insertId, comment_type: commentType } });
+  } catch (err) {
+    handleError(res, err);
   }
 });
 

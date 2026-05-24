@@ -458,8 +458,8 @@ const ContractsPage = (() => {
           </button>
         </div>
 
-        <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e">
-          💡 <strong>둘 중 어떤 모드로 시작하든</strong> 등록 후 파일 추가/삭제, AI 법무 검토 재실행, 정보 수정 모두 가능합니다.
+        <div style="margin-top:10px;font-size:10px;color:var(--text-3);text-align:center">
+          💡 어떤 모드로 시작하든 등록 후 변경 가능
         </div>
       `,
       footer: `<button class="btn btn-ghost" id="ct-mode-cancel">취소</button>`,
@@ -641,7 +641,10 @@ const ContractsPage = (() => {
         _bindLegalCtaBtn(id); // v6.0.0 Step 3: 메인 AI 법무 검토 CTA
         _bindExtractedMetaCardEvents(); // v6.0.0 Phase A2-3: AI 추출 카드 [✓ 적용] 버튼
         _bindContractNoModeToggle(); // v6.0.0 Phase A3: 자동/수동 채번 토글
+        _bindTempIntroToggle(); // v6.0.0 UX: 가이드 카드 접기/dismiss
+        _bindLegalSectionToggles(); // v6.0.0 UX: AI 결과 섹션별 접기
         if (id) _bindEsignEvents(id); // v6.0.0 Step 4: 전자서명 섹션 이벤트
+        if (id) _bindShareCommentsEvents(id); // v6.0.0 Phase B+D: 공유 + 댓글
       },
     });
   }
@@ -724,6 +727,13 @@ const ContractsPage = (() => {
             value="${e.contract_amount !== null && e.contract_amount !== undefined ? e.contract_amount : ''}" placeholder="0">
         </div>
 
+        <!-- v6.0.0 Phase C: 검토 기한 (D-Day) -->
+        <div class="form-row" style="grid-column:1 / span 3">
+          <label class="form-label">📅 검토 기한 (D-Day) <span style="font-weight:400;color:var(--text-3);font-size:11px">(선택 — 공유받은 검토자에게 표시)</span></label>
+          <input class="form-input" id="ct-f-review_deadline" type="date"
+            value="${e.review_deadline ? _toInputDate(e.review_deadline) : ''}">
+        </div>
+
         <!-- 연결: 고객/리드/제안/견적 (Combobox 자동완성) -->
         <div class="form-row">
           <label class="form-label">🔗 고객사</label>
@@ -767,6 +777,10 @@ const ContractsPage = (() => {
       <!-- v6.0.0 Step 4: 전자서명 (Modusign) 섹션 — 편집 모드 + status=approved 또는 이미 요청됨 -->
       ${e.id && (e.status === 'approved' || e.esign_request_id) ? _renderEsignSection(e) : ''}
 
+      <!-- v6.0.0 Phase B+D: 공유 링크 + 댓글 (편집 모드만) -->
+      ${e.id ? _renderShareSection(e) : ''}
+      ${e.id ? _renderCommentsSection(e) : ''}
+
       ${
         e.id && (e.files || []).length > 0
           ? `<!-- v6.0.0 UX 개선: 파일 추가는 상단 AI 검토 카드에서, 여기는 목록(다운로드/삭제/재검토)만 -->
@@ -794,29 +808,82 @@ const ContractsPage = (() => {
   }
 
   // v6.0.0 Phase A2-2: 임시 모드 인트로 (파일 우선 등록 안내)
+  // v6.0.0 UX 개선: 미니멀 헤더 + "도움말 보기" 토글 + localStorage "다시 안 보기"
   function _renderTempModeIntro(e) {
+    const dontShow = localStorage.getItem('ct_temp_intro_dismissed') === '1';
+    // "다시 안 보기" 사용자 → 최소 헤더만 (1줄)
+    if (dontShow) {
+      return `<div style="padding:8px 14px;background:#faf5ff;border:1px solid #ddd6fe;border-radius:6px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:12px;color:#5b21b6">
+          📎 임시 계약 <code style="background:#fff;padding:1px 6px;border-radius:3px;font-family:monospace;font-size:11px">${esc(e.contract_no || '')}</code> · 저장 시 확정
+        </div>
+        <button id="ct-intro-show-btn" type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:#7c3aed;padding:2px 8px">❔ 가이드 보기</button>
+      </div>`;
+    }
     const hasFile = Array.isArray(e.files) && e.files.length > 0;
-    return `<div style="border:2px solid #7c3aed;border-radius:10px;padding:14px 18px;background:linear-gradient(135deg,#faf5ff,#f3e8ff);margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        <div style="font-size:24px;line-height:1">📎</div>
-        <div>
-          <div style="font-size:14px;font-weight:700;color:#5b21b6">
-            파일 첨부 → AI 법무 분석 → 자동 채움
-          </div>
-          <div style="font-size:11px;color:#7c3aed;margin-top:2px">
-            임시 계약번호 <code style="background:#fff;padding:1px 6px;border-radius:3px;font-family:monospace">${esc(e.contract_no || '')}</code> 자동 발급됨 (저장 시 확정)
+    return `<div id="ct-temp-intro-wrap" style="border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;background:linear-gradient(135deg,#faf5ff,#f3e8ff);margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+          <span style="font-size:18px;line-height:1">📎</span>
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:600;color:#5b21b6">파일 첨부 모드</div>
+            <div style="font-size:10px;color:#7c3aed;margin-top:1px">
+              임시 <code style="background:#fff;padding:0 4px;border-radius:2px;font-family:monospace">${esc(e.contract_no || '')}</code> · 저장 시 확정 · 취소 시 자동 삭제
+            </div>
           </div>
         </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button id="ct-intro-toggle-btn" type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:#7c3aed;padding:3px 8px" title="3단계 가이드 보기">
+            <span class="ct-intro-toggle-label">▼ 가이드</span>
+          </button>
+          <button id="ct-intro-dismiss-btn" type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:#7c3aed;padding:3px 8px" title="다시 안 보기">✕</button>
+        </div>
       </div>
-      <ol style="margin:6px 0 0 24px;padding:0;font-size:12px;color:#6b21a8;line-height:1.8">
-        <li>${hasFile ? '✅' : '<strong>①</strong>'} 아래 카드의 <strong>[📎 계약서 파일 첨부]</strong> 로 업로드 (PDF/이미지/TXT)</li>
-        <li>${hasFile ? '<strong>②</strong>' : '⬜'} <strong>[🤖 AI 법무 검토 시작]</strong> 클릭 → AI 가 검토 + 기본정보 자동 채움</li>
-        <li>⬜ 상대방 회사 매칭 + 필요 시 수정 → 💾 저장</li>
-      </ol>
-      <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #c4b5fd;font-size:10px;color:#7c3aed">
-        💡 미저장 상태로 [취소] 시 임시 계약 자동 삭제 · 정식 저장 시 정상 계약으로 전환
+      <div id="ct-intro-steps" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #c4b5fd">
+        <ol style="margin:0 0 0 20px;padding:0;font-size:11px;color:#6b21a8;line-height:1.7">
+          <li>${hasFile ? '✅' : '①'} 아래 카드 [📎 계약서 파일 첨부]</li>
+          <li>${hasFile ? '②' : '⬜'} [🤖 AI 법무 검토 시작] → 자동 채움</li>
+          <li>⬜ 상대방 매칭 + 수정 → 💾 저장</li>
+        </ol>
       </div>
     </div>`;
+  }
+
+  // v6.0.0 UX 개선: 임시 모드 인트로 토글/dismiss 핸들러
+  function _bindTempIntroToggle() {
+    const toggleBtn = document.getElementById('ct-intro-toggle-btn');
+    const dismissBtn = document.getElementById('ct-intro-dismiss-btn');
+    const showBtn = document.getElementById('ct-intro-show-btn');
+    const steps = document.getElementById('ct-intro-steps');
+    const label = document.querySelector('.ct-intro-toggle-label');
+    if (toggleBtn && steps && label) {
+      toggleBtn.addEventListener('click', () => {
+        const isHidden = steps.style.display === 'none';
+        steps.style.display = isHidden ? '' : 'none';
+        label.textContent = isHidden ? '▲ 접기' : '▼ 가이드';
+      });
+    }
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        localStorage.setItem('ct_temp_intro_dismissed', '1');
+        const wrap = document.getElementById('ct-temp-intro-wrap');
+        if (wrap) {
+          // 미니 헤더로 즉시 교체 (모달 재오픈 없이)
+          wrap.outerHTML = `<div style="padding:8px 14px;background:#faf5ff;border:1px solid #ddd6fe;border-radius:6px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:12px;color:#5b21b6">📎 임시 계약 · 저장 시 확정</div>
+            <button id="ct-intro-show-btn" type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:#7c3aed;padding:2px 8px">❔ 가이드 보기</button>
+          </div>`;
+          Toast.info?.('가이드를 숨겼습니다 (모달 재진입 시 ❔ 버튼으로 다시 보기)');
+          _bindTempIntroToggle(); // 새 [❔ 보기] 버튼 핸들러 재바인딩
+        }
+      });
+    }
+    if (showBtn) {
+      showBtn.addEventListener('click', () => {
+        localStorage.removeItem('ct_temp_intro_dismissed');
+        Toast.info?.('다음 모달 진입 시 가이드 카드가 다시 표시됩니다');
+      });
+    }
   }
 
   // Step 3: AI 법무 검토 메인 CTA + 결과 카드 (모달 상단)
@@ -1151,6 +1218,274 @@ const ContractsPage = (() => {
     });
   }
 
+  // ── v6.0.0 Phase B: 공유 링크 섹션 ─────────────────────────
+  function _renderShareSection(_e) {
+    return `<div style="margin-top:16px;border:1px solid var(--border);border-radius:8px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <div style="font-size:14px;font-weight:700">🔗 공유 링크</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:2px">
+            검토자에게 안전한 링크 발급 (만료 기한 + 권한별: viewer/commenter/approver)
+          </div>
+        </div>
+        <button id="ct-share-new-btn" type="button" class="btn btn-primary btn-sm">+ 새 공유 링크</button>
+      </div>
+      <div id="ct-share-list" style="font-size:12px"><div class="loading" style="padding:10px;color:var(--text-3);text-align:center">불러오는 중...</div></div>
+    </div>`;
+  }
+
+  async function _loadShareLinks(contractId) {
+    const wrap = document.getElementById('ct-share-list');
+    if (!wrap) return;
+    try {
+      const r = await API.contracts.share.list(contractId);
+      const links = r?.data || [];
+      if (!links.length) {
+        wrap.innerHTML = `<div style="padding:14px;text-align:center;color:var(--text-3)">등록된 공유 링크가 없습니다 — 우측 [+ 새 공유 링크] 클릭</div>`;
+        return;
+      }
+      wrap.innerHTML = `<table class="data-table" style="font-size:11px">
+        <thead><tr>
+          <th>발급일</th><th>권한</th><th>수신자</th><th>조회</th><th>만료</th><th>상태</th><th>링크</th><th>작업</th>
+        </tr></thead>
+        <tbody>${links
+          .map(l => {
+            const isRevoked = !!l.revoked_at;
+            const isExpired = l.expires_at && new Date(l.expires_at) < new Date();
+            const statusBadge = isRevoked
+              ? '<span class="badge badge-gray">❌ 회수</span>'
+              : isExpired
+                ? '<span class="badge badge-gray">⏰ 만료</span>'
+                : '<span class="badge badge-green">✅ 활성</span>';
+            const shareUrl = `${window.location.origin}/contract-share.html?token=${encodeURIComponent(l.token)}`;
+            return `<tr>
+              <td>${_fmtDate(l.created_at)}</td>
+              <td><span class="badge badge-blue">${esc(l.role)}</span></td>
+              <td>${l.recipients_count}명</td>
+              <td>${l.viewed_count || 0}/${l.recipients_count}</td>
+              <td>${l.expires_at ? _fmtDate(l.expires_at) : '-'}</td>
+              <td>${statusBadge}</td>
+              <td style="font-family:monospace;font-size:10px">
+                <button type="button" class="btn btn-ghost btn-sm ct-share-copy-btn" data-url="${esc(shareUrl)}" style="font-size:10px;padding:2px 6px">📋 복사</button>
+              </td>
+              <td>
+                ${!isRevoked ? `<button type="button" class="btn btn-ghost btn-sm ct-share-revoke-btn" data-id="${l.id}" style="font-size:10px;color:#dc2626;padding:2px 6px">회수</button>` : '-'}
+              </td>
+            </tr>`;
+          })
+          .join('')}</tbody>
+      </table>`;
+
+      // 이벤트 바인딩
+      wrap.querySelectorAll('.ct-share-copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          navigator.clipboard
+            .writeText(btn.dataset.url)
+            .then(() => Toast.success?.('링크 복사됨'));
+        });
+      });
+      wrap.querySelectorAll('.ct-share-revoke-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('공유 링크를 회수하시겠습니까?')) return;
+          try {
+            await API.contracts.share.revoke(contractId, parseInt(btn.dataset.id, 10));
+            Toast.success?.('회수 완료');
+            _loadShareLinks(contractId);
+          } catch (e) {
+            Toast.error?.('회수 실패: ' + (e.message || e));
+          }
+        });
+      });
+    } catch (e) {
+      wrap.innerHTML = `<div style="padding:10px;color:#d93025">조회 실패: ${esc(e.message || '')}</div>`;
+    }
+  }
+
+  // 새 공유 링크 발급 모달
+  function _openShareCreateModal(contractId) {
+    const body = `<div style="padding:16px">
+      <div style="margin-bottom:12px;padding:10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:11px;color:#075985">
+        💡 발급된 링크가 수신자 이메일로 자동 발송됩니다 (Gmail OAuth 연결 시). 검토자는 해당 링크로 read-only 접근 + 권한별 댓글 작성 가능.
+      </div>
+      <div class="form-row">
+        <label class="form-label">권한</label>
+        <select class="form-input" id="ct-share-role">
+          <option value="viewer">viewer — 읽기 전용</option>
+          <option value="commenter" selected>commenter — 댓글 작성 가능</option>
+          <option value="approver">approver — 승인/거부 추천 가능</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="form-label">만료 (일)</label>
+        <input class="form-input" id="ct-share-expires" type="number" min="1" max="365" value="14">
+      </div>
+      <div class="form-row">
+        <label class="form-label">수신자 (이름 + 이메일)</label>
+        <div id="ct-share-recipients" style="margin-bottom:6px"></div>
+        <button type="button" id="ct-share-add-recipient" class="btn btn-ghost btn-sm" style="font-size:11px">+ 수신자 추가</button>
+      </div>
+      <div class="form-row">
+        <label class="form-label">메모 (선택)</label>
+        <input class="form-input" id="ct-share-note" maxlength="500" placeholder="(예: 1차 법무 검토 요청)">
+      </div>
+    </div>`;
+    const footer = `
+      <button class="btn btn-ghost" id="ct-share-cancel">취소</button>
+      <button class="btn btn-primary" id="ct-share-submit">🔗 발급 + 메일 발송</button>`;
+
+    const addRow = () => {
+      const wrap = document.getElementById('ct-share-recipients');
+      if (!wrap) return;
+      const row = document.createElement('div');
+      row.className = 'ct-share-recipient-row';
+      row.style.cssText = 'display:grid;grid-template-columns:1fr 1.5fr auto;gap:8px;margin-bottom:6px';
+      row.innerHTML = `
+        <input class="form-input ct-share-r-name" placeholder="이름" style="font-size:12px;padding:6px 10px">
+        <input class="form-input ct-share-r-email" type="email" placeholder="이메일" style="font-size:12px;padding:6px 10px">
+        <button type="button" class="btn btn-ghost btn-sm ct-share-r-del" style="color:#dc2626;font-size:11px">×</button>`;
+      wrap.appendChild(row);
+      row.querySelector('.ct-share-r-del').addEventListener('click', () => row.remove());
+    };
+
+    Modal.show({
+      title: '🔗 새 공유 링크 발급',
+      body,
+      footer,
+      size: 'md',
+      onOpen: () => {
+        addRow();
+        document.getElementById('ct-share-add-recipient')?.addEventListener('click', addRow);
+        document.getElementById('ct-share-cancel')?.addEventListener('click', () => Modal.close());
+        document.getElementById('ct-share-submit')?.addEventListener('click', async () => {
+          const role = document.getElementById('ct-share-role').value;
+          const expiresDays = parseInt(document.getElementById('ct-share-expires').value, 10) || 14;
+          const note = document.getElementById('ct-share-note').value.trim();
+          const rows = Array.from(document.querySelectorAll('.ct-share-recipient-row'));
+          const recipients = rows
+            .map(r => ({
+              name: r.querySelector('.ct-share-r-name')?.value.trim() || '',
+              email: r.querySelector('.ct-share-r-email')?.value.trim() || '',
+            }))
+            .filter(r => r.email);
+          if (!recipients.length) {
+            Toast.error?.('수신자 이메일 1명 이상 입력 필요');
+            return;
+          }
+          const btn = document.getElementById('ct-share-submit');
+          btn.disabled = true;
+          btn.innerHTML = '⏳ 발급 중...';
+          try {
+            const r = await API.contracts.share.create(contractId, {
+              role,
+              expires_days: expiresDays,
+              note,
+              recipients,
+            });
+            Toast.success?.(
+              `공유 링크 발급 완료 — ${r?.data?.recipients_count || recipients.length}명에게 메일 발송`
+            );
+            Modal.close();
+            _loadShareLinks(contractId);
+          } catch (e) {
+            btn.disabled = false;
+            btn.innerHTML = '🔗 발급 + 메일 발송';
+            Toast.error?.('발급 실패: ' + (e?.error || e?.message || e));
+          }
+        });
+      },
+    });
+  }
+
+  // ── v6.0.0 Phase D: 댓글 섹션 ─────────────────────────────
+  function _renderCommentsSection(_e) {
+    return `<div style="margin-top:16px;border:1px solid var(--border);border-radius:8px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:14px;font-weight:700">💬 검토 코멘트</div>
+      </div>
+      <div id="ct-comments-list" style="font-size:12px;margin-bottom:10px"><div class="loading" style="padding:10px;color:var(--text-3);text-align:center">불러오는 중...</div></div>
+      <div style="padding-top:10px;border-top:1px solid var(--border)">
+        <div style="display:flex;gap:6px;align-items:flex-start">
+          <select id="ct-comment-type" class="form-input" style="width:140px;font-size:12px">
+            <option value="general">의견</option>
+            <option value="revise">수정 요청</option>
+            <option value="approve">승인 추천</option>
+            <option value="reject">거부 추천</option>
+          </select>
+          <textarea id="ct-comment-body" class="form-input" rows="2" placeholder="검토 의견을 입력하세요..." style="flex:1;font-size:12px"></textarea>
+          <button id="ct-comment-submit" type="button" class="btn btn-primary btn-sm">💬 등록</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  async function _loadComments(contractId) {
+    const wrap = document.getElementById('ct-comments-list');
+    if (!wrap) return;
+    try {
+      const r = await API.contracts.comments.list(contractId);
+      const comments = r?.data || [];
+      if (!comments.length) {
+        wrap.innerHTML = `<div style="padding:10px;text-align:center;color:var(--text-3)">아직 등록된 댓글이 없습니다</div>`;
+        return;
+      }
+      const TYPE_LABELS = {
+        general: { label: '의견', color: '#6b7280' },
+        revise: { label: '수정 요청', color: '#d97706' },
+        approve: { label: '승인 추천', color: '#16a34a' },
+        reject: { label: '거부 추천', color: '#dc2626' },
+      };
+      wrap.innerHTML = comments
+        .map(c => {
+          const t = TYPE_LABELS[c.comment_type] || TYPE_LABELS.general;
+          const author = c.author_name || c.internal_author_name || c.author_email || '익명';
+          return `<div style="padding:10px;background:#fafafa;border-left:3px solid ${t.color};border-radius:4px;margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin-bottom:4px">
+              <span><strong>${esc(author)}</strong>
+                <span style="display:inline-block;margin-left:6px;padding:1px 6px;background:${t.color};color:#fff;border-radius:8px;font-size:9px">${esc(t.label)}</span>
+              </span>
+              <span>${_fmtDateTime(c.created_at)}</span>
+            </div>
+            <div style="font-size:12px;white-space:pre-wrap">${esc(c.body)}</div>
+          </div>`;
+        })
+        .join('');
+    } catch (e) {
+      wrap.innerHTML = `<div style="padding:10px;color:#d93025">조회 실패: ${esc(e.message || '')}</div>`;
+    }
+  }
+
+  function _bindShareCommentsEvents(contractId) {
+    document
+      .getElementById('ct-share-new-btn')
+      ?.addEventListener('click', () => _openShareCreateModal(contractId));
+    const cBtn = document.getElementById('ct-comment-submit');
+    if (cBtn) {
+      cBtn.addEventListener('click', async () => {
+        const body = document.getElementById('ct-comment-body').value.trim();
+        const commentType = document.getElementById('ct-comment-type').value;
+        if (!body) {
+          Toast.error?.('댓글 내용을 입력하세요');
+          return;
+        }
+        cBtn.disabled = true;
+        cBtn.textContent = '⏳';
+        try {
+          await API.contracts.comments.create(contractId, { body, comment_type: commentType });
+          Toast.success?.('댓글 등록됨 — 관련자에게 알림 발송 (30초 디바운싱)');
+          document.getElementById('ct-comment-body').value = '';
+          _loadComments(contractId);
+        } catch (e) {
+          Toast.error?.('등록 실패: ' + (e.message || e));
+        } finally {
+          cBtn.disabled = false;
+          cBtn.textContent = '💬 등록';
+        }
+      });
+    }
+    _loadShareLinks(contractId);
+    _loadComments(contractId);
+  }
+
   // 변경 이력 (Audit Trail) — 최근 10건
   function _renderHistorySection(history) {
     if (!history.length) return '';
@@ -1201,6 +1536,22 @@ const ContractsPage = (() => {
   // - 이미 채워진 필드 → [⚠️ 덮어쓰기] 주황 버튼
   // - AI 값이 null → "추출 안됨" 회색 표시
   function _renderExtractedMetaCard(meta, _entity) {
+    // v6.0.0 fix: meta=null 일 때도 카드 렌더 (추출 실패 안내)
+    if (!meta) {
+      return `<div id="ct-extracted-meta-card"
+        style="border:2px dashed #d97706;border-radius:8px;padding:14px;background:linear-gradient(135deg,#fffbeb,#fef3c7);margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#92400e">🤖 AI 추출 결과 — 정보 없음</div>
+            <div style="font-size:11px;color:#92400e;margin-top:4px;line-height:1.6">
+              계약서 본문에서 자동 채움 정보를 추출하지 못했습니다.<br>
+              <strong>아래 폼 필드를 수동으로 입력</strong>하시거나, 더 선명한 PDF/이미지로 [📎 파일 추가/교체] 후 다시 분석해보세요.
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="ct-meta-close-btn" type="button" title="닫기" style="color:#92400e">✕</button>
+        </div>
+      </div>`;
+    }
     // 필드 매핑 (data-meta-key → 폼 input ID + 라벨 + 표시 변환)
     const FIELD_MAP = [
       { key: 'title', label: '계약명', formId: 'ct-f-title', icon: '📝' },
@@ -1484,7 +1835,12 @@ const ContractsPage = (() => {
   // - 카드의 해당 [✓ 적용] 버튼도 "적용됨" 상태로 전환
   // - 반환: { applied: N, needsAction: ['counterparty_name'] }
   function _autoApplyExtractedMeta(meta) {
-    if (!meta) return { applied: 0, needsAction: [] };
+    // v6.0.0 fix: 디버깅 로그 + null 케이스 명확화 + 적용 결과 상세 반환
+    console.log('[contracts:autoApply] meta=', meta);
+    if (!meta) {
+      console.warn('[contracts:autoApply] meta is null/undefined — skip');
+      return { applied: 0, skipped: 6, needsAction: [], details: { reason: 'null' } };
+    }
 
     // FIELD_MAP 과 동일한 매핑 (counterparty_name 제외)
     const AUTO_FIELDS = [
@@ -1496,33 +1852,66 @@ const ContractsPage = (() => {
       { key: 'end_date', formId: 'ct-f-end_date' },
     ];
 
-    let applied = 0;
-    AUTO_FIELDS.forEach(f => {
-      const v = meta[f.key];
-      if (v === null || v === undefined || v === '') return;
-      const el = document.getElementById(f.formId);
-      if (!el) return;
-      el.value = v;
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      // 시각적 강조 (1.5초)
-      el.style.transition = 'background-color 0.5s';
-      el.style.backgroundColor = '#fef3c7'; // 노란 강조
-      setTimeout(() => {
-        el.style.backgroundColor = '';
-      }, 1500);
-      // 카드의 해당 [✓ 적용] 버튼도 "적용됨" 처리
-      const cardBtn = document.querySelector(
-        `.ct-meta-apply-btn[data-meta-key="${f.key}"]`
+    // v6.0.0 fix: DOM 준비 대기 (모달 렌더 직후일 수 있음)
+    // — 폼 필드가 없으면 50ms 후 재시도 (최대 5회)
+    const _doApply = retries => {
+      let applied = 0;
+      let skipped = 0;
+      const appliedList = [];
+      const skippedList = [];
+      AUTO_FIELDS.forEach(f => {
+        const v = meta[f.key];
+        if (v === null || v === undefined || v === '') {
+          skipped++;
+          skippedList.push({ key: f.key, reason: 'no-value' });
+          return;
+        }
+        const el = document.getElementById(f.formId);
+        if (!el) {
+          skipped++;
+          skippedList.push({ key: f.key, reason: 'no-element' });
+          return;
+        }
+        el.value = v;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        // 시각적 강조 (3초 — 사용자 인지 시간 충분히)
+        el.style.transition = 'background-color 0.5s';
+        el.style.backgroundColor = '#fef3c7';
+        setTimeout(() => {
+          el.style.backgroundColor = '';
+        }, 3000);
+        // 카드의 해당 [✓ 적용] 버튼도 "적용됨" 처리
+        const cardBtn = document.querySelector(`.ct-meta-apply-btn[data-meta-key="${f.key}"]`);
+        if (cardBtn) _markMetaBtnApplied(cardBtn);
+        applied++;
+        appliedList.push({ key: f.key, value: v, formId: f.formId });
+      });
+
+      console.log(
+        `[contracts:autoApply] applied=${applied} skipped=${skipped}`,
+        { appliedList, skippedList }
       );
-      if (cardBtn) _markMetaBtnApplied(cardBtn);
-      applied++;
-    });
+
+      // 모든 필드가 no-element 이면 DOM 미준비 가능성 → 재시도
+      const allNoElement =
+        skippedList.length > 0 &&
+        skippedList.every(s => s.reason === 'no-element' || s.reason === 'no-value');
+      const hasValues = AUTO_FIELDS.some(f => meta[f.key] !== null && meta[f.key] !== undefined);
+      if (applied === 0 && allNoElement && hasValues && retries < 5) {
+        console.log(`[contracts:autoApply] DOM not ready — retry ${retries + 1}/5`);
+        setTimeout(() => _doApply(retries + 1), 100);
+      }
+
+      return { applied, skipped, appliedList, skippedList };
+    };
+
+    const result = _doApply(0);
 
     // counterparty_name 추출이 있으면 사용자에게 매칭 모달 안내
     const needsAction = [];
     if (meta.counterparty_name) needsAction.push('counterparty_name');
 
-    return { applied, needsAction };
+    return { applied: result.applied, skipped: result.skipped, needsAction, details: result };
   }
 
   // v6.0.0 Phase A4: AI 추출 상대방 회사명 → 매칭 모달
@@ -1741,17 +2130,8 @@ const ContractsPage = (() => {
         </div>
       </div>
 
-      <!-- 한국 법규 부합 -->
-      <div style="margin-bottom:14px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px">🇰🇷 한국 법규 부합 여부</div>
-        ${lawRow('공정거래법', 'fair_trade_act')}
-        ${lawRow('하도급법', 'subcontract_act')}
-        ${lawRow('개인정보보호법', 'privacy_act')}
-      </div>
-
-      <!-- 독소조항 -->
-      ${toxic.length > 0 ? `<div style="margin-bottom:14px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#dc2626">🔴 독소조항 (${toxic.length}건)</div>
+      <!-- v6.0.0 UX 개선: 4섹션 collapsible (toxic/missing 기본 펼침, 나머지 접힘) -->
+      ${_renderLegalSection('toxic', '🔴', '독소조항', toxic.length, 'dc2626', toxic.length > 0, `
         <ul style="margin:0;padding-left:0;list-style:none">
           ${toxic.map(c => `<li style="margin-bottom:10px;padding:10px;background:#fef2f2;border-left:3px solid ${sevColors[c.severity] || '#dc2626'};border-radius:4px">
             <div style="display:flex;justify-content:space-between;margin-bottom:4px">
@@ -1762,12 +2142,9 @@ const ContractsPage = (() => {
             ${c.why_problematic ? `<div style="font-size:11px;color:#374151;margin:4px 0">⚠️ ${esc(c.why_problematic)}</div>` : ''}
             ${c.suggested_fix ? `<div style="font-size:11px;color:#065f46;margin-top:4px;padding:6px 8px;background:#f0fdf4;border-radius:4px">💡 <strong>수정안:</strong> ${esc(c.suggested_fix)}</div>` : ''}
           </li>`).join('')}
-        </ul>
-      </div>` : ''}
+        </ul>`)}
 
-      <!-- 누락조항 -->
-      ${missing.length > 0 ? `<div style="margin-bottom:14px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#ca8a04">🟡 누락 조항 (${missing.length}건)</div>
+      ${_renderLegalSection('missing', '🟡', '누락 조항', missing.length, 'ca8a04', missing.length > 0, `
         <ul style="margin:0;padding-left:0;list-style:none">
           ${missing.map(m => `<li style="margin-bottom:8px;padding:8px 10px;background:#fffbeb;border-left:3px solid ${sevColors[m.importance] || '#ca8a04'};border-radius:4px">
             <div style="display:flex;justify-content:space-between;margin-bottom:4px">
@@ -1776,23 +2153,59 @@ const ContractsPage = (() => {
             </div>
             ${m.suggested_addition ? `<div style="font-size:11px;color:#374151">${esc(m.suggested_addition)}</div>` : ''}
           </li>`).join('')}
-        </ul>
-      </div>` : ''}
+        </ul>`)}
 
-      <!-- 개선 제안 -->
-      ${improve.length > 0 ? `<div style="margin-bottom:14px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px">💡 개선 제안 (${improve.length}건)</div>
+      ${_renderLegalSection('compliance', '🇰🇷', '한국 법규 부합', 3, '0891b2', false, `
+        ${lawRow('공정거래법', 'fair_trade_act')}
+        ${lawRow('하도급법', 'subcontract_act')}
+        ${lawRow('개인정보보호법', 'privacy_act')}`)}
+
+      ${_renderLegalSection('improve', '💡', '개선 제안', improve.length, '6b7280', false, `
         <ul style="margin:0;padding-left:18px;font-size:12px">
           ${improve.map(s => `<li><strong>${esc(s.section)}</strong>: ${esc(s.suggestion)}</li>`).join('')}
-        </ul>
-      </div>` : ''}
+        </ul>`)}
 
-      <!-- 종합 평가 -->
-      ${d.overall_assessment ? `<div style="margin-top:14px;padding:10px;background:#fff;border:1px solid var(--border);border-radius:6px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px">📝 종합 평가</div>
-        <div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.6">${esc(d.overall_assessment)}</div>
-      </div>` : ''}
+      ${_renderLegalSection('overall', '📝', '종합 평가', d.overall_assessment ? 1 : 0, '6b7280', false, `
+        <div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.6">${esc(d.overall_assessment || '')}</div>`)}
     </div>`;
+  }
+
+  // v6.0.0 UX: AI 결과 섹션 collapsible 렌더 헬퍼
+  // - id: 섹션 식별자 (data-legal-section)
+  // - count: 헤더에 표시할 건수 (0 이면 회색)
+  // - defaultOpen: 기본 펼침 여부 (true 면 펼쳐서 시작)
+  function _renderLegalSection(id, icon, title, count, color, defaultOpen, contentHtml) {
+    if (count === 0) {
+      // 0건이면 섹션 자체 안 보임
+      return '';
+    }
+    const display = defaultOpen ? '' : 'none';
+    const symbol = defaultOpen ? '▼' : '▶';
+    return `<div style="margin-bottom:10px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+      <button type="button" class="ct-legal-section-toggle" data-legal-section="${id}"
+        style="width:100%;text-align:left;padding:8px 12px;background:#f9fafb;border:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600;color:#${color}">
+        <span>${icon} ${esc(title)} <span style="font-weight:400;color:var(--text-3)">(${count}건)</span></span>
+        <span class="ct-legal-section-arrow" data-section="${id}">${symbol}</span>
+      </button>
+      <div class="ct-legal-section-body" data-section="${id}" style="display:${display};padding:10px;background:#fff">
+        ${contentHtml}
+      </div>
+    </div>`;
+  }
+
+  // 섹션 토글 이벤트 바인딩 (모달 onOpen + AI 검토 완료 후 호출)
+  function _bindLegalSectionToggles() {
+    document.querySelectorAll('.ct-legal-section-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.legalSection;
+        const body = document.querySelector(`.ct-legal-section-body[data-section="${id}"]`);
+        const arrow = document.querySelector(`.ct-legal-section-arrow[data-section="${id}"]`);
+        if (!body || !arrow) return;
+        const isHidden = body.style.display === 'none';
+        body.style.display = isHidden ? '' : 'none';
+        arrow.textContent = isHidden ? '▼' : '▶';
+      });
+    });
   }
 
   function _renderFileList(files, contractId) {
@@ -2074,19 +2487,22 @@ const ContractsPage = (() => {
         );
         const wrap = document.getElementById('ct-legal-review-wrap');
         if (wrap) {
-          // v6.0.0 Phase A2-3: extracted_meta 카드 + 법무 검토 결과 카드 동시 렌더
+          // v6.0.0 fix: extracted_meta 카드는 항상 렌더 (null 이어도 추출 실패 안내)
           wrap.innerHTML =
-            (data.extracted_meta ? _renderExtractedMetaCard(data.extracted_meta, null) : '') +
+            _renderExtractedMetaCard(data.extracted_meta || null, null) +
             _renderLegalReview(data);
           wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
           _bindLegalCloseBtn();
           _bindExtractedMetaCardEvents();
+          _bindLegalSectionToggles(); // v6.0.0 신규: AI 결과 섹션별 접기
 
           // v6.0.0 UX 개선: AI 추출 정보 즉시 자동 채움 (counterparty 제외)
           if (data.extracted_meta) {
-            const { applied, needsAction } = _autoApplyExtractedMeta(data.extracted_meta);
+            const { applied, needsAction, skipped } = _autoApplyExtractedMeta(data.extracted_meta);
             if (applied > 0) {
               Toast.success?.(`AI 추출 정보 ${applied}개 자동 채움됨`);
+            } else if (skipped === 6) {
+              Toast.info?.('AI가 추출한 정보가 없습니다 — 수동 입력하세요');
             }
             if (needsAction.includes('counterparty_name')) {
               Toast.info?.(
@@ -2094,6 +2510,11 @@ const ContractsPage = (() => {
                 { duration: 7000 }
               );
             }
+          } else {
+            Toast.warning?.(
+              'AI 가 계약서에서 정보를 추출하지 못했습니다 — 수동 입력 후 저장하세요',
+              { duration: 6000 }
+            );
           }
         }
       } catch (err) {
@@ -2317,6 +2738,8 @@ const ContractsPage = (() => {
       start_date: document.getElementById('ct-f-start_date')?.value || null,
       end_date: document.getElementById('ct-f-end_date')?.value || null,
       contract_amount: document.getElementById('ct-f-contract_amount')?.value || null,
+      // v6.0.0 Phase C: 검토 기한
+      review_deadline: document.getElementById('ct-f-review_deadline')?.value || null,
       // 연결 (선택적)
       customer_id: parseInt(document.getElementById('ct-f-customer_id')?.value, 10) || null,
       lead_id: parseInt(document.getElementById('ct-f-lead_id')?.value, 10) || null,

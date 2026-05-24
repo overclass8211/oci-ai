@@ -340,6 +340,18 @@ const API = {
       signedPdfUrl: id => `/api/contracts/${id}/esign/signed-pdf`,
       cancel: id => API.post(`/contracts/${id}/esign/cancel`, {}),
     },
+    // v6.0.0 Phase B: 공유 링크 (등록자용 — 내부 인증)
+    share: {
+      create: (id, body) => API.post(`/contracts/${id}/share`, body),
+      list: id => API.get(`/contracts/${id}/share`),
+      recipients: (id, linkId) => API.get(`/contracts/${id}/share/${linkId}/recipients`),
+      revoke: (id, linkId) => API.del(`/contracts/${id}/share/${linkId}`),
+    },
+    // v6.0.0 Phase D: 댓글 (내부 인증)
+    comments: {
+      list: id => API.get(`/contracts/${id}/comments`),
+      create: (id, body) => API.post(`/contracts/${id}/comments`, body),
+    },
   },
 
   // 견적서 (crm.quotes)
