@@ -1786,23 +1786,23 @@ const ContractsPage = (() => {
           return;
         }
         let applied = 0;
-        let skippedCounterparty = false;
+        let counterpartyName = null;
         buttons.forEach(btn => {
-          // v6.0.0 Phase A4: counterparty_name 은 매칭 모달이 필요하므로 일괄에서 제외
-          if (btn.dataset.metaKey === 'counterparty_name') {
-            skippedCounterparty = true;
-            return;
-          }
           const formEl = document.getElementById(btn.dataset.formId);
           if (!formEl) return;
           formEl.value = btn.dataset.value;
           formEl.dispatchEvent(new Event('change', { bubbles: true }));
           _markMetaBtnApplied(btn);
           applied++;
+          // v6.0.0 fix: counterparty_name 도 적용됨 → 백그라운드 매칭 트리거
+          if (btn.dataset.metaKey === 'counterparty_name') {
+            counterpartyName = btn.dataset.value;
+          }
         });
         Toast.success?.(`${applied}개 필드 일괄 적용`);
-        if (skippedCounterparty) {
-          Toast.info?.('상대방 회사명은 별도로 매칭/등록이 필요합니다 (개별 [✓ 적용])');
+        // v6.0.0 fix: counterparty 채워졌으면 백그라운드 매칭 시도
+        if (counterpartyName) {
+          _backgroundMatchCustomer(counterpartyName).catch(() => {});
         }
       });
     }
@@ -1883,16 +1883,18 @@ const ContractsPage = (() => {
   // - 카드의 해당 [✓ 적용] 버튼도 "적용됨" 상태로 전환
   // - 반환: { applied: N, needsAction: ['counterparty_name'] }
   function _autoApplyExtractedMeta(meta) {
-    // v6.0.0 fix: 디버깅 로그 + null 케이스 명확화 + 적용 결과 상세 반환
+    // v6.0.0 fix (옵션 D): counterparty_name 도 즉시 텍스트 자동 채움
+    // + 백그라운드 customers.match 호출 → 정확 매치 시 customer_id 자동 할당
     console.log('[contracts:autoApply] meta=', meta);
     if (!meta) {
       console.warn('[contracts:autoApply] meta is null/undefined — skip');
-      return { applied: 0, skipped: 6, needsAction: [], details: { reason: 'null' } };
+      return { applied: 0, skipped: 7, needsAction: [], details: { reason: 'null' } };
     }
 
-    // FIELD_MAP 과 동일한 매핑 (counterparty_name 제외)
+    // FIELD_MAP (counterparty_name 포함 — 7개)
     const AUTO_FIELDS = [
       { key: 'title', formId: 'ct-f-title' },
+      { key: 'counterparty_name', formId: 'ct-f-customer_name' }, // v6.0.0 fix: 텍스트 즉시 채움
       { key: 'contract_type', formId: 'ct-f-contract_type' },
       { key: 'amount', formId: 'ct-f-contract_amount' },
       { key: 'currency', formId: 'ct-f-currency' },
@@ -1900,8 +1902,7 @@ const ContractsPage = (() => {
       { key: 'end_date', formId: 'ct-f-end_date' },
     ];
 
-    // v6.0.0 fix: DOM 준비 대기 (모달 렌더 직후일 수 있음)
-    // — 폼 필드가 없으면 50ms 후 재시도 (최대 5회)
+    // DOM 준비 대기 (모달 렌더 직후일 수 있음) — 폼 필드가 없으면 100ms 후 재시도 (최대 5회)
     const _doApply = retries => {
       let applied = 0;
       let skipped = 0;
@@ -1922,7 +1923,7 @@ const ContractsPage = (() => {
         }
         el.value = v;
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        // 시각적 강조 (3초 — 사용자 인지 시간 충분히)
+        // 시각적 강조 (3초)
         el.style.transition = 'background-color 0.5s';
         el.style.backgroundColor = '#fef3c7';
         setTimeout(() => {
@@ -1935,10 +1936,10 @@ const ContractsPage = (() => {
         appliedList.push({ key: f.key, value: v, formId: f.formId });
       });
 
-      console.log(
-        `[contracts:autoApply] applied=${applied} skipped=${skipped}`,
-        { appliedList, skippedList }
-      );
+      console.log(`[contracts:autoApply] applied=${applied} skipped=${skipped}`, {
+        appliedList,
+        skippedList,
+      });
 
       // 모든 필드가 no-element 이면 DOM 미준비 가능성 → 재시도
       const allNoElement =
@@ -1955,11 +1956,57 @@ const ContractsPage = (() => {
 
     const result = _doApply(0);
 
-    // counterparty_name 추출이 있으면 사용자에게 매칭 모달 안내
-    const needsAction = [];
-    if (meta.counterparty_name) needsAction.push('counterparty_name');
+    // v6.0.0 fix: counterparty_name 채움 후 → 백그라운드 customers.match 호출
+    // 정확 매치 1건 → customer_id 자동 할당 + Toast
+    // 매치 없음 → customer_id null 유지 (사용자가 명시적 [✓ 적용] 클릭 시 매칭 모달)
+    if (meta.counterparty_name) {
+      _backgroundMatchCustomer(meta.counterparty_name).catch(e =>
+        console.warn('[contracts:autoApply] 백그라운드 매칭 실패:', e?.message)
+      );
+    }
 
-    return { applied: result.applied, skipped: result.skipped, needsAction, details: result };
+    return { applied: result.applied, skipped: result.skipped, needsAction: [], details: result };
+  }
+
+  // v6.0.0 fix: 백그라운드 고객사 매칭 (자동 customer_id 할당)
+  async function _backgroundMatchCustomer(name) {
+    if (!name || !API?.customers?.match) return;
+    try {
+      const r = await API.customers.match(name);
+      const exact = Array.isArray(r?.data?.exact) ? r.data.exact : [];
+      const partial = Array.isArray(r?.data?.partial) ? r.data.partial : [];
+      const idField = document.getElementById('ct-f-customer_id');
+
+      if (exact.length === 1) {
+        // 정확 매치 1건 → 자동 customer_id 할당
+        const matched = exact[0];
+        if (idField) idField.value = String(matched.id);
+        Toast.success?.(
+          `🏢 고객사 자동 연결: ${matched.name} (#${matched.id})`,
+          { duration: 5000 }
+        );
+      } else if (exact.length > 1) {
+        // 여러 정확 매치 → 사용자 선택 필요 (모달 자동 오픈)
+        Toast.info?.(
+          `🏢 정확 일치 ${exact.length}건 발견 — 카드 [✓ 적용]으로 선택하세요`,
+          { duration: 6000 }
+        );
+      } else if (partial.length > 0) {
+        // 유사 매치만 있음 → 사용자 확인 필요
+        Toast.info?.(
+          `🏢 유사 고객사 ${partial.length}건 발견 — 카드 [✓ 적용]으로 매칭/신규 등록`,
+          { duration: 6000 }
+        );
+      } else {
+        // 매치 없음 → 텍스트만 유지 (사용자가 원하면 매칭 모달에서 신규 등록)
+        Toast.info?.(
+          `🆕 "${name}" — 기존 고객사 없음 (필요 시 [✓ 적용]으로 신규 등록)`,
+          { duration: 5000 }
+        );
+      }
+    } catch (e) {
+      console.warn('[contracts:bgMatch] 실패:', e?.message);
+    }
   }
 
   // v6.0.0 Phase A4: AI 추출 상대방 회사명 → 매칭 모달
