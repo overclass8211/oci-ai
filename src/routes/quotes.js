@@ -186,8 +186,25 @@ function calcTotals(items, vatIncluded) {
 router.get('/', async (req, res) => {
   try {
     const userId = getUserId(req);
-    const { search, status } = req.query;
+    const { search, status, autocomplete } = req.query;
     const { page, limit, offset } = parsePage(req.query);
+
+    // v6.0.0 Step 2: Autocomplete 모드 (계약 모달의 견적 Combobox 용)
+    if (autocomplete === '1' && search) {
+      const q = String(search).trim();
+      if (q.length < 2) return res.json({ success: true, data: [], query: q });
+      const acLimit = Math.min(20, parseInt(req.query.limit) || 10);
+      const [rows] = await pool.query(
+        `SELECT id, quote_no, name, customer_id, customer_name, lead_id,
+                total_amount, status
+           FROM quotes
+          WHERE (quote_no LIKE ? OR name LIKE ? OR customer_name LIKE ?)
+          ORDER BY updated_at DESC
+          LIMIT ?`,
+        [`%${q}%`, `%${q}%`, `%${q}%`, acLimit]
+      );
+      return res.json({ success: true, data: rows, query: q });
+    }
 
     // manager 스코프 — 본인 작성 견적만 보임 (간소화: role 체크는 추후 추가)
     let where = 'WHERE 1=1';

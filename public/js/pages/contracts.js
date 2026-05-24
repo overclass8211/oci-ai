@@ -313,6 +313,7 @@ const ContractsPage = (() => {
           });
         });
         if (id) _bindFileEvents(id);
+        _attachLinkComboboxes(); // v6.0.0 Step 2 Commit 4: 4개 연결 Combobox
       },
     });
   }
@@ -370,26 +371,30 @@ const ContractsPage = (() => {
             value="${e.contract_amount !== null && e.contract_amount !== undefined ? e.contract_amount : ''}" placeholder="0">
         </div>
 
-        <!-- 연결: 고객/리드/제안/견적 (ID 직접 입력, 향후 Combobox 강화) -->
+        <!-- 연결: 고객/리드/제안/견적 (Combobox 자동완성) -->
         <div class="form-row">
-          <label class="form-label">🔗 고객사 ID</label>
-          <input class="form-input" id="ct-f-customer_id" type="number" min="1"
-            value="${e.customer_id || ''}" placeholder="(선택) customers.id">
+          <label class="form-label">🔗 고객사</label>
+          <input class="form-input" id="ct-f-customer-search" type="text" autocomplete="off"
+            value="${esc(e.customer_name || '')}" placeholder="고객사명 2글자 이상 입력">
+          <input type="hidden" id="ct-f-customer_id" value="${e.customer_id || ''}">
         </div>
         <div class="form-row">
-          <label class="form-label">🔗 영업리드 ID</label>
-          <input class="form-input" id="ct-f-lead_id" type="number" min="1"
-            value="${e.lead_id || ''}" placeholder="(선택) leads.id">
+          <label class="form-label">🔗 영업리드</label>
+          <input class="form-input" id="ct-f-lead-search" type="text" autocomplete="off"
+            value="${e.lead_id ? '#' + e.lead_id : ''}" placeholder="리드 검색 (프로젝트명/고객사)">
+          <input type="hidden" id="ct-f-lead_id" value="${e.lead_id || ''}">
         </div>
         <div class="form-row">
-          <label class="form-label">🔗 제안 ID</label>
-          <input class="form-input" id="ct-f-proposal_id" type="number" min="1"
-            value="${e.proposal_id || ''}" placeholder="(선택) proposals.id">
+          <label class="form-label">🔗 제안</label>
+          <input class="form-input" id="ct-f-proposal-search" type="text" autocomplete="off"
+            value="${e.proposal_id ? '#' + e.proposal_id : ''}" placeholder="제안 검색 (번호/제목/고객사)">
+          <input type="hidden" id="ct-f-proposal_id" value="${e.proposal_id || ''}">
         </div>
         <div class="form-row">
-          <label class="form-label">🔗 견적 ID</label>
-          <input class="form-input" id="ct-f-quote_id" type="number" min="1"
-            value="${e.quote_id || ''}" placeholder="(선택) quotes.id">
+          <label class="form-label">🔗 견적</label>
+          <input class="form-input" id="ct-f-quote-search" type="text" autocomplete="off"
+            value="${e.quote_id ? '#' + e.quote_id : ''}" placeholder="견적 검색 (번호/이름/고객사)">
+          <input type="hidden" id="ct-f-quote_id" value="${e.quote_id || ''}">
         </div>
         <div class="form-row" style="grid-column:span 2">
           <label class="form-label">언어</label>
@@ -743,6 +748,180 @@ const ContractsPage = (() => {
     Modal.close();
     await _refreshList();
     await _openModal(contractId);
+  }
+
+  // v6.0.0 Step 2 Commit 4: 4개 연결 Combobox 부착
+  // - hidden #ct-f-{type}_id 가 실제 저장값, 표시는 #ct-f-{type}-search 텍스트
+  // - 사용자가 텍스트 직접 수정 시 hidden id 해제 (정확한 선택만 저장)
+  // - Combobox 미로드 시 graceful skip (이전 ID 그대로 유지)
+  function _attachLinkComboboxes() {
+    if (typeof Combobox === 'undefined') return;
+
+    const setup = ({ inputId, hiddenId, fetchFn, renderItem, onSelect }) => {
+      const inp = document.getElementById(inputId);
+      const hid = document.getElementById(hiddenId);
+      if (!inp || !hid) return;
+      inp.addEventListener('input', () => {
+        // 사용자가 텍스트 수정 시 hidden id 해제
+        if (hid.value) hid.value = '';
+      });
+      Combobox.attach({
+        inputEl: inp,
+        fetchFn,
+        renderItem,
+        onSelect: item => {
+          hid.value = item.id;
+          onSelect(item);
+        },
+        minChars: 2,
+        debounceMs: 250,
+        allowCustom: false,
+        customLabel: '(검색 결과만 선택 가능)',
+      });
+    };
+
+    // 🏢 고객사
+    setup({
+      inputId: 'ct-f-customer-search',
+      hiddenId: 'ct-f-customer_id',
+      fetchFn: async q => {
+        try {
+          const r = await API.customers.autocomplete(q, 10);
+          return r.data || [];
+        } catch (_) {
+          return [];
+        }
+      },
+      renderItem: (item, q, { highlightMatch }) => {
+        const meta = [item.industry, item.region].filter(Boolean).join(' · ');
+        return `<div class="combobox-item-content">
+          <div class="combobox-item-title">🏢 ${highlightMatch(item.name, q)}</div>
+          ${meta ? `<div class="combobox-item-meta">${esc(meta)}</div>` : ''}
+        </div>`;
+      },
+      onSelect: item => {
+        document.getElementById('ct-f-customer-search').value = item.name;
+        // 고객사명도 함께 자동 채움
+        const nameField = document.getElementById('ct-f-customer_name');
+        if (nameField) nameField.value = item.name;
+      },
+    });
+
+    // 📌 영업리드
+    setup({
+      inputId: 'ct-f-lead-search',
+      hiddenId: 'ct-f-lead_id',
+      fetchFn: async q => {
+        try {
+          const r = await API.leads.autocomplete(q, 10);
+          return r.data || [];
+        } catch (_) {
+          return [];
+        }
+      },
+      renderItem: (item, q, { highlightMatch }) => {
+        const meta = [item.customer_name, item.stage].filter(Boolean).join(' · ');
+        return `<div class="combobox-item-content">
+          <div class="combobox-item-title">📌 ${highlightMatch(item.project_name || `리드 #${item.id}`, q)}</div>
+          ${meta ? `<div class="combobox-item-meta">${esc(meta)}</div>` : ''}
+        </div>`;
+      },
+      onSelect: item => {
+        document.getElementById('ct-f-lead-search').value =
+          item.project_name || `리드 #${item.id}`;
+        // 고객사 자동 채움 (비어있을 때만)
+        if (item.customer_id && !document.getElementById('ct-f-customer_id').value) {
+          document.getElementById('ct-f-customer_id').value = item.customer_id;
+          if (item.customer_name) {
+            document.getElementById('ct-f-customer-search').value = item.customer_name;
+            const nameField = document.getElementById('ct-f-customer_name');
+            if (nameField) nameField.value = item.customer_name;
+          }
+        }
+      },
+    });
+
+    // 📝 제안
+    setup({
+      inputId: 'ct-f-proposal-search',
+      hiddenId: 'ct-f-proposal_id',
+      fetchFn: async q => {
+        try {
+          const r = await API.proposals.autocomplete(q, 10);
+          return r.data || [];
+        } catch (_) {
+          return [];
+        }
+      },
+      renderItem: (item, q, { highlightMatch }) => {
+        const meta = [item.customer_name, item.status].filter(Boolean).join(' · ');
+        return `<div class="combobox-item-content">
+          <div class="combobox-item-title">📝 ${esc(item.proposal_no)} — ${highlightMatch(item.proposal_title, q)}</div>
+          ${meta ? `<div class="combobox-item-meta">${esc(meta)}</div>` : ''}
+        </div>`;
+      },
+      onSelect: item => {
+        document.getElementById('ct-f-proposal-search').value =
+          `${item.proposal_no} — ${item.proposal_title}`;
+        // lead_id / customer_id 자동 채움 (비어있을 때만)
+        if (item.lead_id && !document.getElementById('ct-f-lead_id').value) {
+          document.getElementById('ct-f-lead_id').value = item.lead_id;
+        }
+        if (item.customer_id && !document.getElementById('ct-f-customer_id').value) {
+          document.getElementById('ct-f-customer_id').value = item.customer_id;
+          if (item.customer_name) {
+            document.getElementById('ct-f-customer-search').value = item.customer_name;
+            const nameField = document.getElementById('ct-f-customer_name');
+            if (nameField) nameField.value = item.customer_name;
+          }
+        }
+      },
+    });
+
+    // 📊 견적
+    setup({
+      inputId: 'ct-f-quote-search',
+      hiddenId: 'ct-f-quote_id',
+      fetchFn: async q => {
+        try {
+          const r = await API.quotes.autocomplete(q, 10);
+          return r.data || [];
+        } catch (_) {
+          return [];
+        }
+      },
+      renderItem: (item, q, { highlightMatch }) => {
+        const meta = [item.customer_name, item.status].filter(Boolean).join(' · ');
+        const amount = item.total_amount
+          ? Number(item.total_amount).toLocaleString('ko-KR') + ' 원'
+          : '';
+        return `<div class="combobox-item-content">
+          <div class="combobox-item-title">📊 ${esc(item.quote_no)} — ${highlightMatch(item.name, q)}</div>
+          ${meta || amount ? `<div class="combobox-item-meta">${esc(meta)}${amount ? ` · ${amount}` : ''}</div>` : ''}
+        </div>`;
+      },
+      onSelect: item => {
+        document.getElementById('ct-f-quote-search').value =
+          `${item.quote_no} — ${item.name}`;
+        // lead_id / customer_id 자동 채움 (비어있을 때만)
+        if (item.lead_id && !document.getElementById('ct-f-lead_id').value) {
+          document.getElementById('ct-f-lead_id').value = item.lead_id;
+        }
+        if (item.customer_id && !document.getElementById('ct-f-customer_id').value) {
+          document.getElementById('ct-f-customer_id').value = item.customer_id;
+          if (item.customer_name) {
+            document.getElementById('ct-f-customer-search').value = item.customer_name;
+            const nameField = document.getElementById('ct-f-customer_name');
+            if (nameField) nameField.value = item.customer_name;
+          }
+        }
+        // 금액 자동 채움 (비어있을 때만)
+        if (item.total_amount) {
+          const amtField = document.getElementById('ct-f-contract_amount');
+          if (amtField && !amtField.value) amtField.value = item.total_amount;
+        }
+      },
+    });
   }
 
   function _collectForm() {

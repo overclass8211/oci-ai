@@ -424,9 +424,35 @@ router.get('/next-proposal-no', async (req, res) => {
 // ── GET / — 목록 (페이징 + 필터) ────────────────────────────
 router.get('/', async (req, res) => {
   try {
-    const { search, status, customer_id, lead_id, quote_id, date_from, date_to, due_soon } =
-      req.query;
+    const {
+      search,
+      status,
+      customer_id,
+      lead_id,
+      quote_id,
+      date_from,
+      date_to,
+      due_soon,
+      autocomplete,
+    } = req.query;
     const { page, limit, offset } = parsePage(req.query);
+
+    // v6.0.0 Step 2: Autocomplete 모드 (계약 모달의 제안 Combobox 용)
+    if (autocomplete === '1' && search) {
+      const q = String(search).trim();
+      if (q.length < 2) return res.json({ success: true, data: [], query: q });
+      const acLimit = Math.min(20, parseInt(req.query.limit) || 10);
+      const [rows] = await pool.query(
+        `SELECT id, proposal_no, proposal_title, customer_id, customer_name,
+                lead_id, status, expected_amount, currency
+           FROM proposals
+          WHERE (proposal_no LIKE ? OR proposal_title LIKE ? OR customer_name LIKE ?)
+          ORDER BY updated_at DESC
+          LIMIT ?`,
+        [`%${q}%`, `%${q}%`, `%${q}%`, acLimit]
+      );
+      return res.json({ success: true, data: rows, query: q });
+    }
 
     let where = 'WHERE 1=1';
     const params = [];

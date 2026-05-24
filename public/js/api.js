@@ -185,6 +185,9 @@ const API = {
     delete: id => API.del(`/leads/${id}`),
     // v6.0.0 Step 2: 연결된 계약 역방향 조회
     contracts: id => API.get(`/leads/${id}/contracts`),
+    // v6.0.0 Step 2: 자동완성 (계약 모달 Combobox 용)
+    autocomplete: (q, limit = 10) =>
+      API.get(`/leads?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
   // 상품/원가
@@ -295,6 +298,9 @@ const API = {
     aiStrategyWordUrl: id => `/api/proposals/${id}/ai-strategy/word`,
     // v6.0.0 Step 2: 연결된 계약 역방향 조회
     contracts: id => API.get(`/proposals/${id}/contracts`),
+    // v6.0.0 Step 2: 자동완성 (계약 모달 Combobox 용)
+    autocomplete: (q, limit = 10) =>
+      API.get(`/proposals?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
   // 계약 (crm.contracts) — v6.0.0 슬림화: CRUD + 파일 + AI 법무 검토 + 4단계 상태
@@ -341,6 +347,9 @@ const API = {
     setStatus: (id, status) => API.patch(`/quotes/${id}/status`, { status }),
     // v6.0.0 Step 2: 연결된 계약 역방향 조회
     contracts: id => API.get(`/quotes/${id}/contracts`),
+    // v6.0.0 Step 2: 자동완성 (계약 모달 Combobox 용)
+    autocomplete: (q, limit = 10) =>
+      API.get(`/quotes?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
   },
 
   // 게시판

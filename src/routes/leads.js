@@ -48,9 +48,35 @@ pool
 
 router.get('/', sanitizeQuery, async (req, res) => {
   try {
-    const { stage, region, assigned_to, business_type, search, date_from, date_to, date_field } =
-      req.query;
+    const {
+      stage,
+      region,
+      assigned_to,
+      business_type,
+      search,
+      date_from,
+      date_to,
+      date_field,
+      autocomplete,
+    } = req.query;
     const { page, limit, offset } = parsePage(req.query);
+
+    // v6.0.0 Step 2: Autocomplete 모드 (계약 모달의 영업리드 Combobox 용)
+    if (autocomplete === '1' && search) {
+      const q = String(search).trim();
+      if (q.length < 2) return res.json({ success: true, data: [], query: q });
+      const acLimit = Math.min(20, parseInt(req.query.limit) || 10);
+      const [rows] = await pool.query(
+        `SELECT id, customer_id, customer_name, project_name, stage,
+                business_type, region, expected_amount, currency
+           FROM leads
+          WHERE (customer_name LIKE ? OR project_name LIKE ?)
+          ORDER BY updated_at DESC
+          LIMIT ?`,
+        [`%${q}%`, `%${q}%`, acLimit]
+      );
+      return res.json({ success: true, data: rows, query: q });
+    }
 
     // date_field: 'stage'(기본) = stage_changed_at, 'created' = created_at,
     //             'close' = expected_close_date, 'updated' = updated_at
