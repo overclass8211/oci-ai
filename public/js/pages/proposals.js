@@ -56,6 +56,8 @@ const ProposalsPage = (() => {
     { id: 'basic', label: '📋 기본정보', alwaysOn: true },
     { id: 'content', label: '📊 제안평가', editOnly: true },
     { id: 'send', label: '📤 발송 & 이력', editOnly: true },
+    // v6.0.0 Phase B: 계약 탭 (LinkedContracts 컴포넌트 활용)
+    { id: 'contracts', label: '📜 계약', editOnly: true },
   ];
 
   // ── 유틸 ─────────────────────────────────────────────────
@@ -553,11 +555,8 @@ const ProposalsPage = (() => {
               done: step2Done,
               open: open[2],
               body: _renderBasicTab(e),
-            }) +
-            // v6.0.0 Step 2: 연결된 계약 (편집 모드만)
-            `<div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border)">
-              <div id="lc-proposal"></div>
-            </div>`;
+            });
+          // v6.0.0 Phase B: 기존 basic 탭 LinkedContracts 섹션은 별도 [📜 계약] 탭으로 이동
         } else {
           // 신규 모드 (임시 제안 생성 실패 시 fallback) — 기본정보 폼만
           wrap.innerHTML = _renderBasicTab(e);
@@ -568,13 +567,16 @@ const ProposalsPage = (() => {
           _bindFileEvents(e, 'rfp');
           _bindAiTabEvents(e); // RFP 섹션의 AI 분석 버튼 + AI 요약 섹션의 복사/Word
           _bindSectionToggle(); // Phase 10-2: 섹션 헤더 클릭 시 접기/펼치기
-          // v6.0.0 Step 2: 연결된 계약 (편집 모드만, best-effort)
-          if (typeof LinkedContracts !== 'undefined') {
-            LinkedContracts.render('#lc-proposal', 'proposal', e.id).catch(() => {});
-          }
         }
         break;
       }
+      // v6.0.0 Phase B: 계약 탭 (LinkedContracts 컴포넌트 활용)
+      case 'contracts':
+        wrap.innerHTML = `<div id="lc-proposal"><div class="loading" style="padding:30px;text-align:center">불러오는 중...</div></div>`;
+        if (typeof LinkedContracts !== 'undefined' && e && e.id) {
+          LinkedContracts.render('#lc-proposal', 'proposal', e.id).catch(() => {});
+        }
+        break;
       // ── 탭 2: 제안평가 (Phase 13-3: 2섹션으로 단순화) ──
       //   ① 📦 제안 자료 (파일 업로드 + 목록 + 큰 [📊 AI 제안평가] CTA)
       //   ② 📊 AI 평가 결과 (수주확률 + 정량 메트릭 + 승리/리스크 요인)

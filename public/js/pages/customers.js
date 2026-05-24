@@ -943,6 +943,12 @@ const CustomersPage = {
                    border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-3)">
             👥 소속 고객 <span id="cm-group-cnt" class="badge badge-blue" style="font-size:10px">…</span>
           </button>
+          <!-- v6.0.0 Phase B: 계약 탭 (LinkedContracts 컴포넌트 활용) -->
+          <button class="cust-mtab" data-mtab="contracts"
+            style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;
+                   border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-3)">
+            📜 계약 <span id="cm-contracts-cnt" class="badge badge-blue" style="font-size:10px">…</span>
+          </button>
         </div>
 
         <!-- ⚠️ 탭 전환 시 모달 크기 변동 방지: 고정 높이 + 내부 스크롤 -->
@@ -1019,13 +1025,6 @@ const CustomersPage = {
             </div>
           </div>
 
-          <!-- v6.0.0 Step 2: 연결된 계약 -->
-          <div class="card" style="margin-top:14px">
-            <div class="card-body">
-              <div id="lc-customer"></div>
-            </div>
-          </div>
-
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" id="cm-delete-btn" style="margin-right:auto;color:var(--oci-red)">🗑 삭제</button>
             <button class="btn btn-ghost" id="cm-email-btn" title="이메일 보내기">✉️ 이메일</button>
@@ -1057,6 +1056,11 @@ const CustomersPage = {
           <div id="cm-group-list"><div class="loading" style="padding:30px;text-align:center">불러오는 중...</div></div>
         </div>
 
+        <!-- v6.0.0 Phase B: 계약 탭 -->
+        <div id="cm-tab-contracts" style="display:none">
+          <div id="lc-customer"><div class="loading" style="padding:30px;text-align:center">불러오는 중...</div></div>
+        </div>
+
         </div><!-- /cm-tab-wrap : 고정 높이 wrapper 닫기 -->
       `,
     });
@@ -1072,7 +1076,7 @@ const CustomersPage = {
         t.classList.add('active');
         t.style.color = 'var(--oci-red)';
         t.style.borderBottomColor = 'var(--oci-red)';
-        ['info', 'deals', 'brief', 'group'].forEach(k => {
+        ['info', 'deals', 'brief', 'group', 'contracts'].forEach(k => {
           const el = document.getElementById('cm-tab-' + k);
           if (el) el.style.display = k === t.dataset.mtab ? '' : 'none';
         });
@@ -1115,9 +1119,18 @@ const CustomersPage = {
     this._loadModalGroup(id);
     this._loadCachedBrief(id); // ← 저장된 최신 브리핑 자동 표시
 
-    // v6.0.0 Step 2: 연결된 계약 목록 (best-effort, 실패해도 모달 동작 영향 X)
+    // v6.0.0 Step 2 + Phase B: 연결된 계약 목록 (best-effort)
+    // Phase B: 탭 카운트 배지 갱신 (#cm-contracts-cnt)
     if (typeof LinkedContracts !== 'undefined') {
-      LinkedContracts.render('#lc-customer', 'customer', id).catch(() => {});
+      LinkedContracts.render('#lc-customer', 'customer', id)
+        .then(result => {
+          const badge = document.getElementById('cm-contracts-cnt');
+          if (badge) badge.textContent = String(result?.count || 0);
+        })
+        .catch(() => {
+          const badge = document.getElementById('cm-contracts-cnt');
+          if (badge) badge.textContent = '0';
+        });
     }
   },
 
