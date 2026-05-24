@@ -38,9 +38,7 @@ const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
-const { analyzeContractLegal, coachContractNegotiation } = require('../services/gemini');
-const { CONTRACT_TEMPLATE_SEEDS, isSeedTemplateCode } = require('../data/contractTemplateSeeds');
-const contractAlerts = require('../services/contractAlerts');
+const { analyzeContractLegal } = require('../services/gemini');
 
 router.use(requireFeature('crm.contracts'));
 
@@ -116,7 +114,9 @@ function collectFiles(req) {
   return [...(req.files.file || []), ...(req.files.files || [])];
 }
 
-// ── 자가 마이그레이션 (idempotent) — Phase 0 6개 테이블 ─────
+// ── 자가 마이그레이션 (idempotent) — v6.0.0 슬림화: 4개 핵심 테이블만 ──
+// v6.0.0 변경: 8개 → 4개 테이블 (templates / alerts / negotiation / translations 제거)
+// 기존 데이터는 DROP TABLE 로 안전하게 삭제 (사용자 승인 완료)
 async function ensureSchema() {
   try {
     // ① 메인: contracts
@@ -129,6 +129,7 @@ async function ensureSchema() {
         customer_name         VARCHAR(200) NULL,
         proposal_id           INT NULL,
         lead_id               INT NULL,
+        quote_id              INT NULL,
         contract_type         VARCHAR(50) DEFAULT 'etc',
         status                VARCHAR(30) DEFAULT 'draft',
         start_date            DATE NULL,
@@ -156,11 +157,21 @@ async function ensureSchema() {
         INDEX idx_customer_id     (customer_id),
         INDEX idx_proposal_id     (proposal_id),
         INDEX idx_lead_id         (lead_id),
+        INDEX idx_quote_id        (quote_id),
         INDEX idx_status          (status),
         INDEX idx_end_date        (end_date),
         INDEX idx_parent_contract (parent_contract_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // 기존 contracts 에 quote_id 컬럼 추가 (idempotent — 이미 있으면 무시)
+    try {
+      await pool.query(`ALTER TABLE contracts ADD COLUMN quote_id INT NULL`);
+      await pool.query(`ALTER TABLE contracts ADD INDEX idx_quote_id (quote_id)`);
+      console.log('[contracts:migration] quote_id 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+
     // ② 파일: contract_files
     await pool.query(`
       CREATE TABLE IF NOT EXISTS contract_files (
@@ -200,25 +211,7 @@ async function ensureSchema() {
           REFERENCES contracts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
-    // ④ 템플릿: contract_templates (Phase 3 에서 사용 시작)
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contract_templates (
-        id              INT AUTO_INCREMENT PRIMARY KEY,
-        template_code   VARCHAR(50) UNIQUE,
-        name            VARCHAR(255) NOT NULL,
-        contract_type   VARCHAR(50) DEFAULT 'etc',
-        language        VARCHAR(10) DEFAULT 'ko',
-        body_md         MEDIUMTEXT NULL,
-        variables_json  TEXT NULL,
-        version_no      INT DEFAULT 1,
-        is_active       TINYINT(1) DEFAULT 1,
-        created_by      INT NULL,
-        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_type_active (contract_type, is_active)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-    // ⑤ AI 법무 검토 결과: contract_legal_reviews (Phase 2 에서 사용 시작)
+    // ④ AI 법무 검토 결과: contract_legal_reviews
     await pool.query(`
       CREATE TABLE IF NOT EXISTS contract_legal_reviews (
         id                          INT AUTO_INCREMENT PRIMARY KEY,
@@ -236,43 +229,6 @@ async function ensureSchema() {
         generated_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_contract_gen (contract_id, generated_at),
         CONSTRAINT fk_clr_contract FOREIGN KEY (contract_id)
-          REFERENCES contracts(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-    // ⑥ 알림 큐: contract_alerts (Phase 4 에서 사용 시작)
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contract_alerts (
-        id            INT AUTO_INCREMENT PRIMARY KEY,
-        contract_id   INT NOT NULL,
-        alert_type    VARCHAR(30) NOT NULL,
-        scheduled_for DATE NOT NULL,
-        sent_at       DATETIME NULL,
-        status        VARCHAR(20) DEFAULT 'pending',
-        channel       VARCHAR(20) DEFAULT 'inapp',
-        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_status_scheduled (status, scheduled_for),
-        INDEX idx_contract (contract_id),
-        CONSTRAINT fk_ca_contract FOREIGN KEY (contract_id)
-          REFERENCES contracts(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-    // ⑦ AI 협상 코칭 결과: contract_negotiation_coaches (Phase 5 에서 사용 시작)
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contract_negotiation_coaches (
-        id                          INT AUTO_INCREMENT PRIMARY KEY,
-        contract_id                 INT NOT NULL,
-        target_review_id            INT NULL,
-        priority_clauses_json       MEDIUMTEXT NULL,
-        give_take_matrix_json       MEDIUMTEXT NULL,
-        similar_contracts_json      MEDIUMTEXT NULL,
-        alternative_clauses_json    MEDIUMTEXT NULL,
-        scenarios_json              MEDIUMTEXT NULL,
-        overall_strategy            MEDIUMTEXT NULL,
-        language                    VARCHAR(10) DEFAULT 'ko',
-        generated_by                INT NULL,
-        generated_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_contract_gen (contract_id, generated_at),
-        CONSTRAINT fk_cnc_contract FOREIGN KEY (contract_id)
           REFERENCES contracts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
@@ -312,79 +268,44 @@ async function ensureSchema() {
           INDEX idx_contract_gen (contract_id, generated_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS contract_alerts (
-          id INT AUTO_INCREMENT PRIMARY KEY, contract_id INT NOT NULL,
-          alert_type VARCHAR(30) NOT NULL, scheduled_for DATE NOT NULL,
-          sent_at DATETIME NULL, status VARCHAR(20) DEFAULT 'pending',
-          channel VARCHAR(20) DEFAULT 'inapp',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          INDEX idx_status_scheduled (status, scheduled_for)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-      `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS contract_negotiation_coaches (
-          id INT AUTO_INCREMENT PRIMARY KEY, contract_id INT NOT NULL,
-          target_review_id INT NULL,
-          priority_clauses_json MEDIUMTEXT NULL, give_take_matrix_json MEDIUMTEXT NULL,
-          similar_contracts_json MEDIUMTEXT NULL, alternative_clauses_json MEDIUMTEXT NULL,
-          scenarios_json MEDIUMTEXT NULL, overall_strategy MEDIUMTEXT NULL,
-          language VARCHAR(10) DEFAULT 'ko',
-          generated_by INT NULL, generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          INDEX idx_contract_gen (contract_id, generated_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-      `);
     } catch (_) {
       /* 이미 존재 — 무시 */
     }
   }
-}
-// Phase 3: 표준 시드 템플릿 idempotent UPSERT (서버 부팅 시)
-async function ensureTemplateSeeds() {
-  for (const seed of CONTRACT_TEMPLATE_SEEDS) {
-    try {
-      const [[exist]] = await pool.query(
-        `SELECT id FROM contract_templates WHERE template_code = ?`,
-        [seed.template_code]
-      );
-      if (exist) {
-        // 기존 시드 — body_md / variables_json / name 만 갱신 (version_no 증가 X)
-        await pool.query(
-          `UPDATE contract_templates
-              SET name = ?, contract_type = ?, language = ?,
-                  body_md = ?, variables_json = ?
-            WHERE template_code = ?`,
-          [
-            seed.name,
-            seed.contract_type,
-            seed.language,
-            seed.body_md,
-            JSON.stringify(seed.variables || []),
-            seed.template_code,
-          ]
-        );
-      } else {
-        await pool.query(
-          `INSERT INTO contract_templates
-            (template_code, name, contract_type, language, body_md, variables_json, version_no, is_active)
-           VALUES (?,?,?,?,?,?,1,1)`,
-          [
-            seed.template_code,
-            seed.name,
-            seed.contract_type,
-            seed.language,
-            seed.body_md,
-            JSON.stringify(seed.variables || []),
-          ]
-        );
-      }
-    } catch (e) {
-      console.warn(`[contracts:template-seed] ${seed.template_code} 시드 실패:`, e.message);
+
+  // v6.0.0 슬림화: 구 Phase 3-6 테이블 DROP (사용자 승인 완료)
+  // 기존 데이터 보존이 필요한 경우, 본 블록을 주석 처리하고 별도 백업 후 진행.
+  try {
+    await pool.query(`DROP TABLE IF EXISTS contract_translations`);
+    await pool.query(`DROP TABLE IF EXISTS contract_negotiation_coaches`);
+    await pool.query(`DROP TABLE IF EXISTS contract_alerts`);
+    await pool.query(`DROP TABLE IF EXISTS contract_templates`);
+  } catch (e) {
+    console.warn('[contracts:migration] 구 테이블 DROP 실패 (무시):', e.message);
+  }
+
+  // 기존 8단계 상태 → 4단계 매핑 (idempotent, 최초 1회)
+  // negotiation/renewal → review, signing/active → approved, expired/terminated → completed
+  try {
+    const [r1] = await pool.query(
+      `UPDATE contracts SET status='review' WHERE status IN ('negotiation','renewal')`
+    );
+    const [r2] = await pool.query(
+      `UPDATE contracts SET status='approved' WHERE status IN ('signing','active')`
+    );
+    const [r3] = await pool.query(
+      `UPDATE contracts SET status='completed' WHERE status IN ('expired','terminated')`
+    );
+    const total = (r1.affectedRows || 0) + (r2.affectedRows || 0) + (r3.affectedRows || 0);
+    if (total > 0) {
+      console.log(`[contracts:migration] 상태 4단계 변환: ${total}건`);
     }
+  } catch (e) {
+    console.warn('[contracts:migration] 상태 변환 실패 (무시):', e.message);
   }
 }
 
-const _migrationPromise = ensureSchema().then(() => ensureTemplateSeeds());
+const _migrationPromise = ensureSchema();
 
 router.use(async (req, res, next) => {
   try {
@@ -439,45 +360,31 @@ async function logHistory(conn, contractId, userId, actionType, opts = {}) {
   }
 }
 
-// 허용 상태값 (CLM 워크플로우 — Phase 1 전이 검증 활성화)
+// 허용 상태값 (v6.0.0 슬림화 — 4단계 CLM)
 const ALLOWED_STATUS = [
   'draft', // 초안
-  'review', // 검토중
-  'negotiation', // 협상중
-  'signing', // 서명 진행
-  'active', // 발효
-  'renewal', // 갱신중
-  'expired', // 만료
-  'terminated', // 해지
+  'review', // 검토
+  'approved', // 승인
+  'completed', // 계약완료
 ];
 
-// Phase 1: 상태 전이 매트릭스 (사용자 승인 받은 8단계 워크플로우)
-// 정방향: draft → review → negotiation → signing → active
-// 되돌리기: review→draft / negotiation→review / signing→negotiation (1단계만)
-// 갱신 사이클: active ↔ renewal
-// 종료: active/renewal → expired or terminated
-// 해지: 어디서든 → terminated (단, expired/terminated 자신 제외, 그리고 terminated 에서는 어디로도 못 감)
+// v6.0.0: 4단계 상태 전이 매트릭스
+// 정방향: draft → review → approved → completed
+// 회귀(수정 요청): review → draft (검토 단계에서만 가능)
+// 종료: 임의 단계에서 → completed (관리자 강제 종료 허용)
 const STATUS_TRANSITIONS = {
-  draft: ['review', 'terminated'],
-  review: ['draft', 'negotiation', 'terminated'],
-  negotiation: ['review', 'signing', 'terminated'],
-  signing: ['negotiation', 'active', 'terminated'],
-  active: ['renewal', 'expired', 'terminated'],
-  renewal: ['active', 'expired', 'terminated'],
-  expired: ['terminated'],
-  terminated: [],
+  draft: ['review', 'completed'],
+  review: ['draft', 'approved', 'completed'],
+  approved: ['review', 'completed'],
+  completed: [],
 };
 
 // 상태 라벨 (history 메시지용 — 한글)
 const STATUS_LABELS_KO = {
   draft: '초안',
-  review: '검토중',
-  negotiation: '협상중',
-  signing: '서명진행',
-  active: '발효',
-  renewal: '갱신중',
-  expired: '만료',
-  terminated: '해지',
+  review: '검토',
+  approved: '승인',
+  completed: '계약완료',
 };
 
 // 전이가 유효한지 검증
@@ -514,377 +421,6 @@ router.get('/next-contract-no', async (req, res) => {
     }
   } catch (err) {
     handleError(res, err);
-  }
-});
-
-// =============================================================
-// Phase 3: 계약 템플릿 라이브러리 (CRUD + 변수 치환)
-// ⚠️ /:id 보다 먼저 선언해야 함 (Express 라우트 매칭 순서)
-// =============================================================
-
-// JSON 컬럼 파싱 헬퍼 (null/잘못된 형식 안전)
-function _parseTplJson(s, fallback) {
-  if (!s) return fallback;
-  try {
-    return JSON.parse(s);
-  } catch (_) {
-    return fallback;
-  }
-}
-
-// 변수 치환 — {{변수명}} → 사용자 입력값
-// XSS 방지: 결과를 HTML 로 렌더할 때는 클라이언트가 escape 처리
-function _substituteVariables(bodyMd, vars) {
-  if (!bodyMd) return '';
-  const safeVars = vars && typeof vars === 'object' ? vars : {};
-  return String(bodyMd).replace(/\{\{([^}]+)\}\}/g, (m, name) => {
-    const key = String(name).trim();
-    const v = safeVars[key];
-    if (v === undefined || v === null || v === '') return m; // 미정의는 {{변수명}} 그대로 유지
-    return String(v);
-  });
-}
-
-// 자동 채움 — 컨텍스트(계약/사용자/시스템 설정)에서 변수 기본값 도출
-async function _resolveAutofill(varDefs, ctx) {
-  const result = {};
-  // ctx: { customerName, startDate, endDate, amount, currency, userId }
-  let supplier = null;
-  for (const def of varDefs || []) {
-    if (def.default !== undefined && def.default !== null) {
-      result[def.name] = def.default;
-    }
-    switch (def.autofill) {
-      case 'customer_name':
-        if (ctx.customerName) result[def.name] = ctx.customerName;
-        break;
-      case 'start_date':
-        if (ctx.startDate) result[def.name] = ctx.startDate;
-        break;
-      case 'end_date':
-        if (ctx.endDate) result[def.name] = ctx.endDate;
-        break;
-      case 'amount':
-        if (ctx.amount !== undefined && ctx.amount !== null) result[def.name] = ctx.amount;
-        break;
-      case 'currency':
-        if (ctx.currency) result[def.name] = ctx.currency;
-        break;
-      case 'today': {
-        const d = new Date();
-        const p = n => String(n).padStart(2, '0');
-        result[def.name] = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-        break;
-      }
-      case 'user_name':
-        if (ctx.userId) {
-          try {
-            const [[tm]] = await pool.query(`SELECT name FROM team_members WHERE id = ?`, [
-              ctx.userId,
-            ]);
-            if (tm?.name) result[def.name] = tm.name;
-          } catch (_) {
-            /* 무시 */
-          }
-        }
-        break;
-      case 'supplier':
-        // system_settings 의 supplier_company_name (있으면)
-        if (supplier === null) {
-          try {
-            const [[row]] = await pool.query(
-              `SELECT setting_value FROM system_settings WHERE setting_key = 'supplier_company_name'`
-            );
-            supplier = row?.setting_value || '';
-          } catch (_) {
-            supplier = '';
-          }
-        }
-        if (supplier) result[def.name] = supplier;
-        break;
-    }
-  }
-  return result;
-}
-
-// GET /templates — 템플릿 목록
-router.get('/templates', async (req, res) => {
-  try {
-    const { contract_type, is_active } = req.query;
-    let where = 'WHERE 1=1';
-    const params = [];
-    if (contract_type) {
-      where += ' AND contract_type = ?';
-      params.push(contract_type);
-    }
-    if (is_active === '1' || is_active === 'true') {
-      where += ' AND is_active = 1';
-    } else if (is_active === '0' || is_active === 'false') {
-      where += ' AND is_active = 0';
-    }
-    const [rows] = await pool.query(
-      `SELECT id, template_code, name, contract_type, language,
-              version_no, is_active, created_at, updated_at,
-              variables_json
-         FROM contract_templates
-         ${where}
-        ORDER BY (template_code LIKE 'STD-%') DESC, contract_type ASC, name ASC`,
-      params
-    );
-    const data = rows.map(r => ({
-      ...r,
-      variables: _parseTplJson(r.variables_json, []),
-      is_seed: isSeedTemplateCode(r.template_code),
-    }));
-    res.json({ success: true, data });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// GET /templates/:templateId — 템플릿 단건 (body_md 포함)
-router.get('/templates/:templateId', async (req, res) => {
-  try {
-    const templateId = parseInt(req.params.templateId, 10);
-    if (!templateId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    const [[row]] = await pool.query(`SELECT * FROM contract_templates WHERE id = ?`, [templateId]);
-    if (!row) return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
-    res.json({
-      success: true,
-      data: {
-        ...row,
-        variables: _parseTplJson(row.variables_json, []),
-        is_seed: isSeedTemplateCode(row.template_code),
-      },
-    });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// POST /templates — 신규 템플릿
-router.post('/templates', async (req, res) => {
-  try {
-    const userId = getUserId(req);
-    const body = req.body || {};
-    if (!body.name || !String(body.name).trim()) {
-      return res.status(400).json({ success: false, error: '템플릿 이름이 필요합니다' });
-    }
-    if (!body.body_md) {
-      return res.status(400).json({ success: false, error: '템플릿 본문이 필요합니다' });
-    }
-    // template_code 자동 생성 (사용자 입력 없을 때) — USR-<timestamp>
-    let templateCode = body.template_code && String(body.template_code).trim();
-    if (!templateCode) {
-      templateCode = `USR-${Date.now()}`;
-    }
-    if (isSeedTemplateCode(templateCode)) {
-      return res.status(400).json({
-        success: false,
-        error: 'STD- 로 시작하는 template_code 는 시스템 시드 예약입니다',
-      });
-    }
-    const variables = Array.isArray(body.variables) ? body.variables : [];
-    const [result] = await pool.query(
-      `INSERT INTO contract_templates
-        (template_code, name, contract_type, language, body_md, variables_json, version_no, is_active, created_by)
-       VALUES (?,?,?,?,?,?,1,1,?)`,
-      [
-        templateCode,
-        String(body.name).slice(0, 255),
-        body.contract_type || 'etc',
-        body.language || 'ko',
-        body.body_md,
-        JSON.stringify(variables),
-        userId || null,
-      ]
-    );
-    res.json({
-      success: true,
-      id: result.insertId,
-      data: { id: result.insertId, template_code: templateCode },
-    });
-  } catch (err) {
-    if (err.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ success: false, error: 'template_code 가 이미 존재합니다' });
-    }
-    handleError(res, err);
-  }
-});
-
-// PUT /templates/:templateId — 수정
-router.put('/templates/:templateId', async (req, res) => {
-  try {
-    const templateId = parseInt(req.params.templateId, 10);
-    if (!templateId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    const body = req.body || {};
-    const [[prev]] = await pool.query(`SELECT * FROM contract_templates WHERE id = ?`, [
-      templateId,
-    ]);
-    if (!prev) return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
-
-    const fields = [];
-    const values = [];
-    const allowed = ['name', 'contract_type', 'language', 'body_md', 'is_active'];
-    for (const f of allowed) {
-      if (body[f] === undefined) continue;
-      let v = body[f];
-      if (f === 'is_active') v = v ? 1 : 0;
-      fields.push(`${f} = ?`);
-      values.push(v);
-    }
-    if (Array.isArray(body.variables)) {
-      fields.push('variables_json = ?');
-      values.push(JSON.stringify(body.variables));
-    }
-    if (fields.length === 0) {
-      return res.status(400).json({ success: false, error: '수정할 항목이 없습니다' });
-    }
-    // 시드 템플릿 — 일부 필드만 수정 가능 (사용자 변경 보호 — body_md 는 시드가 우선)
-    // 본 endpoint 는 사용자 직접 수정이므로 시드의 body_md/name 변경도 허용 (서버 재시작 시 시드가 다시 덮어씀)
-    values.push(templateId);
-    await pool.query(`UPDATE contract_templates SET ${fields.join(', ')} WHERE id = ?`, values);
-    res.json({ success: true, data: { id: templateId } });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// DELETE /templates/:templateId — 삭제 (시드 보호)
-router.delete('/templates/:templateId', async (req, res) => {
-  try {
-    const templateId = parseInt(req.params.templateId, 10);
-    if (!templateId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    const [[prev]] = await pool.query(`SELECT template_code FROM contract_templates WHERE id = ?`, [
-      templateId,
-    ]);
-    if (!prev) return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
-    if (isSeedTemplateCode(prev.template_code)) {
-      return res.status(403).json({
-        success: false,
-        error: `시스템 시드 템플릿 (${prev.template_code}) 은 삭제할 수 없습니다. is_active=0 으로 비활성화하세요.`,
-      });
-    }
-    await pool.query(`DELETE FROM contract_templates WHERE id = ?`, [templateId]);
-    res.json({ success: true });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// POST /from-template/:templateId — 템플릿 기반 계약 생성 + 변수 치환
-// Body: { variables: {...}, title, customer_name, start_date, end_date, contract_amount, currency, ... }
-router.post('/from-template/:templateId', async (req, res) => {
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-    const templateId = parseInt(req.params.templateId, 10);
-    if (!templateId) {
-      await conn.rollback();
-      return res.status(400).json({ success: false, error: '유효한 templateId 필요' });
-    }
-    const userId = getUserId(req);
-    const body = req.body || {};
-
-    const [[tpl]] = await conn.query(`SELECT * FROM contract_templates WHERE id = ?`, [templateId]);
-    if (!tpl) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, error: '템플릿을 찾을 수 없음' });
-    }
-    if (!tpl.is_active) {
-      await conn.rollback();
-      return res.status(400).json({ success: false, error: '비활성 템플릿입니다' });
-    }
-
-    // 변수 자동 채움 + 사용자 입력 병합
-    const varDefs = _parseTplJson(tpl.variables_json, []);
-    const autofilled = await _resolveAutofill(varDefs, {
-      customerName: body.customer_name,
-      startDate: body.start_date,
-      endDate: body.end_date,
-      amount: body.contract_amount,
-      currency: body.currency || 'KRW',
-      userId,
-    });
-    const userVars = body.variables && typeof body.variables === 'object' ? body.variables : {};
-    const mergedVars = { ...autofilled, ...userVars }; // 사용자 입력이 우선
-
-    // 변수 치환된 본문
-    const renderedBody = _substituteVariables(tpl.body_md, mergedVars);
-
-    // 새 계약 생성 — 자동채번 + 메타정보
-    const startDate = toYMD(body.start_date);
-    const endDate = toYMD(body.end_date);
-    const year = startDate ? new Date(startDate).getFullYear() : new Date().getFullYear();
-    let contractNo = body.contract_no && String(body.contract_no).trim();
-    if (!contractNo) contractNo = await generateContractNo(conn, year);
-
-    const title = body.title || `[${tpl.name}] ${body.customer_name || ''}`.trim();
-    const contractType =
-      body.contract_type && ALLOWED_CONTRACT_TYPES.includes(body.contract_type)
-        ? body.contract_type
-        : tpl.contract_type || 'etc';
-
-    const [result] = await conn.query(
-      `INSERT INTO contracts
-        (contract_no, title, customer_id, customer_name,
-         contract_type, status, start_date, end_date,
-         contract_amount, currency, language,
-         template_id, version_no, notes, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        contractNo,
-        String(title).slice(0, 300),
-        body.customer_id || null,
-        body.customer_name ? String(body.customer_name).slice(0, 200) : null,
-        contractType,
-        'draft',
-        startDate,
-        endDate,
-        body.contract_amount || null,
-        body.currency || tpl.language === 'ko' ? 'KRW' : body.currency || 'KRW',
-        body.language || tpl.language || 'ko',
-        templateId,
-        1,
-        renderedBody, // 치환된 본문을 notes 에 저장
-        userId || null,
-      ]
-    );
-    const contractId = result.insertId;
-    await logHistory(conn, contractId, userId, 'template_apply', {
-      description: `템플릿 적용: ${tpl.name} (${tpl.template_code}) — ${contractNo}`,
-      newValue: tpl.template_code,
-    });
-
-    await conn.commit();
-
-    // Phase 4: end_date 있으면 알림 enqueue (best-effort)
-    if (endDate) {
-      const noticeDays = Number(body.renewal_notice_days) || 30;
-      contractAlerts
-        .enqueueExpiryAlerts(contractId, endDate, noticeDays)
-        .catch(e => console.warn('[contracts:from-template] alert enqueue failed:', e.message));
-    }
-
-    res.json({
-      success: true,
-      id: contractId,
-      data: {
-        id: contractId,
-        contract_no: contractNo,
-        template_id: templateId,
-        template_code: tpl.template_code,
-        applied_variables: mergedVars,
-      },
-    });
-  } catch (err) {
-    await conn.rollback();
-    if (err.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({ success: false, error: '계약번호가 이미 존재합니다' });
-    }
-    handleError(res, err);
-  } finally {
-    conn.release();
   }
 });
 
@@ -987,7 +523,7 @@ router.get('/:id', async (req, res) => {
     );
     if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
 
-    const [[files], [history], [latestReview], [latestCoach]] = await Promise.all([
+    const [[files], [history], [latestReview]] = await Promise.all([
       pool.query(`SELECT * FROM contract_files WHERE contract_id = ? ORDER BY created_at DESC`, [
         id,
       ]),
@@ -998,7 +534,7 @@ router.get('/:id', async (req, res) => {
           WHERE ch.contract_id = ? ORDER BY ch.created_at DESC LIMIT 200`,
         [id]
       ),
-      // Phase 2: 최신 AI 법무 검토 결과 (모달 재진입 시 자동 표시)
+      // 최신 AI 법무 검토 결과 (모달 재진입 시 자동 표시)
       pool.query(
         `SELECT clr.*, cf.original_filename AS target_filename
            FROM contract_legal_reviews clr
@@ -1007,18 +543,11 @@ router.get('/:id', async (req, res) => {
           ORDER BY clr.generated_at DESC LIMIT 1`,
         [id]
       ),
-      // Phase 5: 최신 협상 코칭 결과 (모달 재진입 시 자동 표시)
-      pool.query(
-        `SELECT * FROM contract_negotiation_coaches
-          WHERE contract_id = ?
-          ORDER BY generated_at DESC LIMIT 1`,
-        [id]
-      ),
     ]);
 
     contract.files = files;
     contract.history = history;
-    // Phase 2: 최신 법무 검토 풀어서 노출 (JSON 컬럼 → 객체)
+    // 최신 법무 검토 풀어서 노출 (JSON 컬럼 → 객체)
     if (latestReview && latestReview[0]) {
       const r = latestReview[0];
       const parseJson = (s, fallback) => {
@@ -1045,35 +574,6 @@ router.get('/:id', async (req, res) => {
       };
     } else {
       contract.latest_legal_review = null;
-    }
-    // Phase 5: 최신 협상 코칭 풀어서 노출 (JSON 컬럼 → 객체)
-    if (latestCoach && latestCoach[0]) {
-      const c = latestCoach[0];
-      const parseJson = (s, fallback) => {
-        if (!s) return fallback;
-        try {
-          return JSON.parse(s);
-        } catch (_) {
-          return fallback;
-        }
-      };
-      contract.latest_negotiation_coach = {
-        id: c.id,
-        target_review_id: c.target_review_id,
-        priority_clauses: parseJson(c.priority_clauses_json, []),
-        give_take_matrix: parseJson(c.give_take_matrix_json, {
-          willing_to_concede: [],
-          must_protect: [],
-        }),
-        similar_contracts_comparison: parseJson(c.similar_contracts_json, {}),
-        alternative_clauses: parseJson(c.alternative_clauses_json, []),
-        scenarios: parseJson(c.scenarios_json, {}),
-        overall_strategy: c.overall_strategy,
-        language: c.language,
-        generated_at: c.generated_at,
-      };
-    } else {
-      contract.latest_negotiation_coach = null;
     }
     res.json({ success: true, data: contract });
   } catch (err) {
@@ -1188,14 +688,6 @@ router.post('/', async (req, res) => {
 
     await conn.commit();
 
-    // Phase 4: end_date 있으면 만료 알림 자동 enqueue (best-effort, 계약 생성 성공에 영향 X)
-    if (endDate) {
-      const noticeDays = Number(body.renewal_notice_days) || 30;
-      contractAlerts
-        .enqueueExpiryAlerts(contractId, endDate, noticeDays)
-        .catch(e => console.warn('[contracts:create] alert enqueue failed:', e.message));
-    }
-
     res.json({
       success: true,
       id: contractId,
@@ -1302,31 +794,6 @@ router.put('/:id', async (req, res) => {
     }
 
     await conn.commit();
-
-    // Phase 4: end_date 또는 renewal_notice_days 변경 시 알림 reschedule
-    const endDateChanged =
-      body.end_date !== undefined &&
-      String(prev.end_date || '').slice(0, 10) !== String(body.end_date || '').slice(0, 10);
-    const noticeDaysChanged =
-      body.renewal_notice_days !== undefined &&
-      Number(prev.renewal_notice_days) !== Number(body.renewal_notice_days);
-    if (endDateChanged || noticeDaysChanged) {
-      const newEnd = body.end_date !== undefined ? toYMD(body.end_date) : prev.end_date;
-      const newNotice =
-        body.renewal_notice_days !== undefined
-          ? Number(body.renewal_notice_days) || 30
-          : prev.renewal_notice_days || 30;
-      if (newEnd) {
-        contractAlerts
-          .enqueueExpiryAlerts(id, newEnd, newNotice)
-          .catch(e => console.warn('[contracts:update] alert reschedule failed:', e.message));
-      } else {
-        // end_date 가 비워지면 모두 cancel
-        contractAlerts
-          .cancelAlerts(id, 'end_date_removed')
-          .catch(e => console.warn('[contracts:update] alert cancel failed:', e.message));
-      }
-    }
 
     res.json({ success: true, data: { id } });
   } catch (err) {
@@ -1464,13 +931,6 @@ router.patch('/:id/status', async (req, res) => {
     });
 
     await conn.commit();
-
-    // Phase 4: terminated / expired 로 전이 시 pending 알림 cancel
-    if (newStatus === 'terminated' || newStatus === 'expired') {
-      contractAlerts
-        .cancelAlerts(id, `status_change_to_${newStatus}`)
-        .catch(e => console.warn('[contracts:status] alert cancel failed:', e.message));
-    }
 
     res.json({
       success: true,
@@ -1764,246 +1224,6 @@ router.get('/:id/legal-reviews', async (req, res) => {
       legal_compliance: parseJson(r.legal_compliance_json, {}),
       improvement_suggestions: parseJson(r.improvement_suggestions_json, []),
       overall_assessment: r.overall_assessment,
-      language: r.language,
-      generated_by: r.generated_by,
-      generated_by_name: r.generated_by_name,
-      generated_at: r.generated_at,
-    }));
-
-    res.json({ success: true, data });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// =============================================================
-// Phase 4: 만료 알림 큐 API
-// =============================================================
-
-// GET /:id/alerts — 계약별 알림 조회 (pending + sent + cancelled 전체)
-router.get('/:id/alerts', async (req, res) => {
-  try {
-    const contractId = parseInt(req.params.id, 10);
-    if (!contractId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    const [rows] = await pool.query(
-      `SELECT * FROM contract_alerts
-        WHERE contract_id = ?
-        ORDER BY scheduled_for ASC, id ASC`,
-      [contractId]
-    );
-    res.json({ success: true, data: rows });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// DELETE /alerts/:alertId — 개별 알림 취소 (pending → cancelled)
-router.delete('/alerts/:alertId', async (req, res) => {
-  try {
-    const alertId = parseInt(req.params.alertId, 10);
-    if (!alertId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    const [[alert]] = await pool.query(`SELECT id, status FROM contract_alerts WHERE id = ?`, [
-      alertId,
-    ]);
-    if (!alert) return res.status(404).json({ success: false, error: '알림을 찾을 수 없음' });
-    if (alert.status !== 'pending') {
-      return res
-        .status(400)
-        .json({ success: false, error: `${alert.status} 상태의 알림은 취소할 수 없습니다` });
-    }
-    await pool.query(`UPDATE contract_alerts SET status = 'cancelled' WHERE id = ?`, [alertId]);
-    res.json({ success: true, data: { id: alertId } });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// POST /alerts/process — 알림 큐 수동 처리 (cron 대신 트리거)
-// Commit 2 에서 cron 등록 시 자동 실행되지만, 관리자/테스트용 수동 트리거 유지
-router.post('/alerts/process', async (req, res) => {
-  try {
-    const result = await contractAlerts.processAlertQueue({});
-    res.json({ success: true, data: result });
-  } catch (err) {
-    handleError(res, err);
-  }
-});
-
-// =============================================================
-// Phase 5: AI 협상 코칭 (coachContractNegotiation)
-// =============================================================
-
-// POST /:id/negotiation-coach — 협상 코칭 실행 + DB 영속화
-//   - 최신 법무 검토 + 과거 유사 계약 (동일 contract_type ± 30% 금액 범위) 조회
-//   - Gemini Pro 호출 → priority/give-take/comparison/alternative/scenarios/strategy
-//   - contract_negotiation_coaches 테이블에 INSERT + history 기록
-router.post('/:id/negotiation-coach', async (req, res) => {
-  try {
-    const contractId = parseInt(req.params.id, 10);
-    if (!contractId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-    const userId = getUserId(req);
-
-    // 계약 조회
-    const [[contract]] = await pool.query(`SELECT * FROM contracts WHERE id = ?`, [contractId]);
-    if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
-
-    // 최신 법무 검토 결과 조회 (필수)
-    const [[latestReview]] = await pool.query(
-      `SELECT * FROM contract_legal_reviews
-        WHERE contract_id = ?
-        ORDER BY generated_at DESC LIMIT 1`,
-      [contractId]
-    );
-    if (!latestReview) {
-      return res.status(400).json({
-        success: false,
-        error: '먼저 AI 법무 검토를 실행하세요 (Phase 2). 검토 결과가 협상 코칭의 입력이 됩니다.',
-      });
-    }
-
-    // 법무 결과 파싱
-    const parseJson = (s, fallback) => {
-      if (!s) return fallback;
-      try {
-        return JSON.parse(s);
-      } catch (_) {
-        return fallback;
-      }
-    };
-    const legalReview = {
-      review_score: latestReview.review_score,
-      risk_level: latestReview.risk_level,
-      toxic_clauses: parseJson(latestReview.toxic_clauses_json, []),
-      missing_clauses: parseJson(latestReview.missing_clauses_json, []),
-      legal_compliance: parseJson(latestReview.legal_compliance_json, {}),
-    };
-
-    // 과거 유사 계약 조회 (동일 contract_type + 금액 ± 30%, 본인 제외, 최대 10건)
-    let similarContracts = [];
-    try {
-      const amt = Number(contract.contract_amount) || 0;
-      let where = `id != ? AND contract_type = ?`;
-      const params = [contractId, contract.contract_type || 'etc'];
-      if (amt > 0) {
-        where += ' AND contract_amount BETWEEN ? AND ?';
-        params.push(amt * 0.7, amt * 1.3);
-      }
-      const [rows] = await pool.query(
-        `SELECT id, contract_no, title, contract_amount, currency, status, end_date
-           FROM contracts
-          WHERE ${where}
-          ORDER BY created_at DESC LIMIT 10`,
-        params
-      );
-      similarContracts = rows;
-    } catch (e) {
-      console.warn('[contracts:negotiation-coach] 유사 계약 조회 실패:', e.message);
-    }
-
-    console.log(
-      `[contracts:negotiation-coach] start contract=${contractId} samples=${similarContracts.length}`
-    );
-    const startedAt = Date.now();
-
-    // Gemini 호출
-    const result = await coachContractNegotiation({
-      legalReview,
-      similarContracts,
-      contractMeta: {
-        contract_type: contract.contract_type,
-        contract_amount: contract.contract_amount,
-        currency: contract.currency,
-        start_date: contract.start_date,
-        end_date: contract.end_date,
-      },
-      userId,
-      endpoint: 'contract_negotiation_coach',
-    });
-
-    // DB 영속화
-    const [insertResult] = await pool.query(
-      `INSERT INTO contract_negotiation_coaches
-        (contract_id, target_review_id,
-         priority_clauses_json, give_take_matrix_json, similar_contracts_json,
-         alternative_clauses_json, scenarios_json, overall_strategy,
-         language, generated_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [
-        contractId,
-        latestReview.id,
-        JSON.stringify(result.priority_clauses || []),
-        JSON.stringify(result.give_take_matrix || {}),
-        JSON.stringify(result.similar_contracts_comparison || {}),
-        JSON.stringify(result.alternative_clauses || []),
-        JSON.stringify(result.scenarios || {}),
-        result.overall_strategy || null,
-        req.body?.language || 'ko',
-        userId || null,
-      ]
-    );
-
-    // history 기록
-    await logHistory(null, contractId, userId, 'negotiation_coach', {
-      description:
-        `AI 협상 코칭 완료 — 우선순위 ${result.priority_clauses?.length || 0}개, ` +
-        `유사 계약 ${result.similar_contracts_comparison?.samples_count || 0}건`,
-    });
-
-    console.log(
-      `[contracts:negotiation-coach] done contract=${contractId} elapsed=${Date.now() - startedAt}ms`
-    );
-
-    res.json({
-      success: true,
-      data: {
-        id: insertResult.insertId,
-        target_review_id: latestReview.id,
-        ...result,
-        generated_at: new Date().toISOString(),
-      },
-    });
-  } catch (err) {
-    console.error('[contracts:negotiation-coach] failed:', err?.message || err);
-    handleError(res, err);
-  }
-});
-
-// GET /:id/negotiation-coaches — 협상 코칭 이력 조회 (최대 20건)
-router.get('/:id/negotiation-coaches', async (req, res) => {
-  try {
-    const contractId = parseInt(req.params.id, 10);
-    if (!contractId) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
-
-    const [rows] = await pool.query(
-      `SELECT cnc.*, tm.name AS generated_by_name
-         FROM contract_negotiation_coaches cnc
-         LEFT JOIN team_members tm ON tm.id = cnc.generated_by
-        WHERE cnc.contract_id = ?
-        ORDER BY cnc.generated_at DESC
-        LIMIT 20`,
-      [contractId]
-    );
-
-    const parseJson = (s, fallback) => {
-      if (!s) return fallback;
-      try {
-        return JSON.parse(s);
-      } catch (_) {
-        return fallback;
-      }
-    };
-    const data = rows.map(r => ({
-      id: r.id,
-      target_review_id: r.target_review_id,
-      priority_clauses: parseJson(r.priority_clauses_json, []),
-      give_take_matrix: parseJson(r.give_take_matrix_json, {
-        willing_to_concede: [],
-        must_protect: [],
-      }),
-      similar_contracts_comparison: parseJson(r.similar_contracts_json, {}),
-      alternative_clauses: parseJson(r.alternative_clauses_json, []),
-      scenarios: parseJson(r.scenarios_json, {}),
-      overall_strategy: r.overall_strategy,
       language: r.language,
       generated_by: r.generated_by,
       generated_by_name: r.generated_by_name,

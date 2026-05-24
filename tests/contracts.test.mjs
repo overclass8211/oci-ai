@@ -278,394 +278,16 @@ describe('Contracts API — Phase 0', () => {
     expect(historyAfter.length).toBe(0);
   });
 
-  // ── Phase 5: AI 협상 코칭 ─────────────────────────────────
-  it('POST /:id/negotiation-coach — 법무 검토 없으면 400', async () => {
+  // v6.0.0 슬림화: Phase 4 (만료 알림) / Phase 3 (템플릿) / Phase 5 (협상 코칭) / Phase 6 (번역) 제거됨
+  // 향후 부활 시 본 블록에 시나리오 복원
+
+  // ── Phase 1: CLM 4단계 워크플로우 (draft → review → approved → completed) ─────────────────
+  it('PATCH /:id/status — 정상 전이 (draft → review → approved → completed)', async () => {
     const cr = await api()
       .post('/api/contracts')
       .set('X-User-Id', String(TEST_USER_ID))
       .send({
-        title: '__TEST__coach_no_review',
-        customer_name: '__TEST__',
-        contract_type: 'NDA',
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    const res = await api()
-      .post(`/api/contracts/${id}/negotiation-coach`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('AI 법무 검토');
-  });
-
-  it('POST /:id/negotiation-coach — 법무 검토 후 코칭 + DB 영속 + history', async () => {
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__coach_full',
-        customer_name: '__TEST__',
-        contract_type: 'MSA',
-        contract_amount: 50000000,
-        currency: 'KRW',
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    // 파일 + 법무 검토 (mock)
-    const up = await api()
-      .post(`/api/contracts/${id}/files`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .field('file_type', 'contract')
-      .attach('files', TEST_FILE);
-    const fileId = up.body.data.uploaded[0].id;
-    await api()
-      .post(`/api/contracts/${id}/files/${fileId}/legal-review`)
-      .set('X-User-Id', String(TEST_USER_ID));
-
-    // 협상 코칭 실행
-    const res = await api()
-      .post(`/api/contracts/${id}/negotiation-coach`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.data.priority_clauses)).toBe(true);
-    expect(res.body.data.priority_clauses.length).toBeGreaterThan(0);
-    expect(res.body.data.priority_clauses[0].priority).toBeGreaterThanOrEqual(1);
-    expect(res.body.data.priority_clauses[0].priority).toBeLessThanOrEqual(5);
-    expect(res.body.data.give_take_matrix).toBeDefined();
-    expect(Array.isArray(res.body.data.give_take_matrix.willing_to_concede)).toBe(true);
-    expect(Array.isArray(res.body.data.give_take_matrix.must_protect)).toBe(true);
-    expect(res.body.data.similar_contracts_comparison).toBeDefined();
-    expect(res.body.data.scenarios.best).toBeDefined();
-    expect(res.body.data.scenarios.realistic).toBeDefined();
-    expect(res.body.data.scenarios.worst).toBeDefined();
-    expect(res.body.data.overall_strategy).toBeDefined();
-    expect(res.body.data.target_review_id).toBeGreaterThan(0);
-
-    // GET /:id 응답에 latest_negotiation_coach 포함
-    const detail = await api()
-      .get(`/api/contracts/${id}`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(detail.body.data.latest_negotiation_coach).toBeDefined();
-    expect(detail.body.data.latest_negotiation_coach).not.toBeNull();
-    expect(detail.body.data.latest_negotiation_coach.id).toBe(res.body.data.id);
-    // history 에 negotiation_coach 액션
-    expect(detail.body.data.history.some(h => h.action_type === 'negotiation_coach')).toBe(true);
-  });
-
-  it('GET /:id/negotiation-coaches — 이력 조회 (다중 버전)', async () => {
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__coach_history',
-        customer_name: '__TEST__',
-        contract_type: 'service',
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    // 파일 + 법무 검토 + 코칭 2번 실행
-    const up = await api()
-      .post(`/api/contracts/${id}/files`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .field('file_type', 'contract')
-      .attach('files', TEST_FILE);
-    const fileId = up.body.data.uploaded[0].id;
-    await api()
-      .post(`/api/contracts/${id}/files/${fileId}/legal-review`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    await api()
-      .post(`/api/contracts/${id}/negotiation-coach`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    await api()
-      .post(`/api/contracts/${id}/negotiation-coach`)
-      .set('X-User-Id', String(TEST_USER_ID));
-
-    const list = await api()
-      .get(`/api/contracts/${id}/negotiation-coaches`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(list.status).toBe(200);
-    expect(list.body.data.length).toBe(2);
-    expect(list.body.data[0].priority_clauses).toBeDefined();
-    expect(list.body.data[0].give_take_matrix).toBeDefined();
-    expect(list.body.data[0].scenarios).toBeDefined();
-  });
-
-  // ── Phase 4: 만료 알림 큐 ─────────────────────────────────
-  it('POST / — end_date 있는 계약 생성 시 알림 자동 enqueue (1차 + D-7)', async () => {
-    // 미래의 종료일 (예: 60일 후)
-    const future = new Date();
-    future.setDate(future.getDate() + 60);
-    const endDateStr = future.toISOString().slice(0, 10);
-
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__alert_enqueue',
-        customer_name: '__TEST__',
-        contract_type: 'service',
-        start_date: '2026-05-24',
-        end_date: endDateStr,
-        renewal_notice_days: 30,
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    // 알림 enqueue 는 비동기 (catch 만 등록) — 약간 대기
-    await new Promise(r => setTimeout(r, 200));
-
-    const alerts = await api()
-      .get(`/api/contracts/${id}/alerts`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(alerts.status).toBe(200);
-    expect(alerts.body.data.length).toBe(2); // 30일 전 + 7일 전
-    const types = alerts.body.data.map(a => a.alert_type);
-    expect(types).toContain('notice_30');
-    expect(types).toContain('notice_7');
-    expect(alerts.body.data.every(a => a.status === 'pending')).toBe(true);
-  });
-
-  it('POST / — renewal_notice_days=7 시 중복 방지 (D-7 1건만)', async () => {
-    const future = new Date();
-    future.setDate(future.getDate() + 30);
-    const endDateStr = future.toISOString().slice(0, 10);
-
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__alert_dedup',
-        customer_name: '__TEST__',
-        contract_type: 'NDA',
-        end_date: endDateStr,
-        renewal_notice_days: 7,
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    await new Promise(r => setTimeout(r, 200));
-
-    const alerts = await api()
-      .get(`/api/contracts/${id}/alerts`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(alerts.body.data.length).toBe(1); // 중복 제거
-    expect(alerts.body.data[0].alert_type).toBe('notice_7');
-  });
-
-  it('PATCH /:id/status — terminated 전이 시 pending 알림 모두 cancel', async () => {
-    const future = new Date();
-    future.setDate(future.getDate() + 90);
-    const endDateStr = future.toISOString().slice(0, 10);
-
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__alert_cancel',
-        customer_name: '__TEST__',
-        contract_type: 'MSA',
-        end_date: endDateStr,
-        renewal_notice_days: 30,
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    await new Promise(r => setTimeout(r, 200));
-
-    // 해지로 전이
-    await api()
-      .patch(`/api/contracts/${id}/status`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'terminated' });
-
-    await new Promise(r => setTimeout(r, 200));
-
-    const alerts = await api()
-      .get(`/api/contracts/${id}/alerts`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(alerts.body.data.every(a => a.status === 'cancelled')).toBe(true);
-  });
-
-  it('DELETE /alerts/:alertId — 개별 pending 알림 취소', async () => {
-    const future = new Date();
-    future.setDate(future.getDate() + 60);
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__alert_del',
-        customer_name: '__TEST__',
-        contract_type: 'NDA',
-        end_date: future.toISOString().slice(0, 10),
-        renewal_notice_days: 30,
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    await new Promise(r => setTimeout(r, 200));
-
-    const alerts = await api()
-      .get(`/api/contracts/${id}/alerts`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    const alertId = alerts.body.data[0].id;
-    const del = await api()
-      .delete(`/api/contracts/alerts/${alertId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(del.status).toBe(200);
-
-    const after = await api()
-      .get(`/api/contracts/${id}/alerts`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    const target = after.body.data.find(a => a.id === alertId);
-    expect(target.status).toBe('cancelled');
-  });
-
-  it('POST /alerts/process — 큐 처리 (scheduled_for ≤ today 인 알림만 sent 로 갱신)', async () => {
-    // 과거 종료일 → 모든 알림이 이미 scheduled_for 가 지난 상태
-    const past = new Date();
-    past.setDate(past.getDate() - 1); // 어제 만료
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__alert_process',
-        customer_name: '__TEST__',
-        contract_type: 'service',
-        end_date: past.toISOString().slice(0, 10),
-        renewal_notice_days: 30,
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    await new Promise(r => setTimeout(r, 200));
-
-    const process = await api()
-      .post('/api/contracts/alerts/process')
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(process.status).toBe(200);
-    expect(process.body.data.processed).toBeGreaterThanOrEqual(2);
-
-    const after = await api()
-      .get(`/api/contracts/${id}/alerts`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(after.body.data.every(a => a.status === 'sent')).toBe(true);
-    expect(after.body.data.every(a => a.sent_at !== null)).toBe(true);
-  });
-
-  // ── Phase 3: 계약 템플릿 라이브러리 ──────────────────────────
-  it('GET /templates — 시드 템플릿 5종 + is_seed=true 마크', async () => {
-    const res = await api()
-      .get('/api/contracts/templates?is_active=1')
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.data)).toBe(true);
-    const codes = res.body.data.map(t => t.template_code);
-    expect(codes).toContain('STD-NDA');
-    expect(codes).toContain('STD-MSA');
-    expect(codes).toContain('STD-SLA');
-    expect(codes).toContain('STD-SOW');
-    expect(codes).toContain('STD-SERVICE');
-    const nda = res.body.data.find(t => t.template_code === 'STD-NDA');
-    expect(nda.is_seed).toBe(true);
-    expect(Array.isArray(nda.variables)).toBe(true);
-    expect(nda.variables.length).toBeGreaterThan(0);
-  });
-
-  it('GET /templates/:id — body_md + variables 포함', async () => {
-    const list = await api()
-      .get('/api/contracts/templates?is_active=1')
-      .set('X-User-Id', String(TEST_USER_ID));
-    const ndaId = list.body.data.find(t => t.template_code === 'STD-NDA').id;
-    const res = await api()
-      .get(`/api/contracts/templates/${ndaId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(res.status).toBe(200);
-    expect(res.body.data.body_md).toContain('비밀유지계약서');
-    expect(res.body.data.body_md).toContain('{{을_회사명}}');
-    expect(res.body.data.is_seed).toBe(true);
-  });
-
-  it('POST /templates — 신규 사용자 템플릿 생성', async () => {
-    const res = await api()
-      .post('/api/contracts/templates')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        name: '__TEST__나만의템플릿',
-        contract_type: 'etc',
-        body_md: '# 테스트 템플릿\n안녕 {{회사명}}',
-        variables: [{ name: '회사명', label: '회사명', type: 'text', required: true }],
-      });
-    expect(res.status).toBe(200);
-    expect(res.body.data.template_code).toMatch(/^USR-/);
-
-    // 정리
-    await pool.query('DELETE FROM contract_templates WHERE id = ?', [res.body.id]);
-  });
-
-  it('DELETE /templates/:id — 시드 템플릿 삭제 거부 (403)', async () => {
-    const list = await api()
-      .get('/api/contracts/templates?is_active=1')
-      .set('X-User-Id', String(TEST_USER_ID));
-    const stdId = list.body.data.find(t => t.template_code === 'STD-NDA').id;
-    const res = await api()
-      .delete(`/api/contracts/templates/${stdId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(res.status).toBe(403);
-    expect(res.body.error).toContain('시스템 시드');
-  });
-
-  it('POST /from-template/:id — 변수 치환 + 계약 자동 생성 + history', async () => {
-    const list = await api()
-      .get('/api/contracts/templates?is_active=1')
-      .set('X-User-Id', String(TEST_USER_ID));
-    const ndaTemplate = list.body.data.find(t => t.template_code === 'STD-NDA');
-
-    const res = await api()
-      .post(`/api/contracts/from-template/${ndaTemplate.id}`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__템플릿_적용_A사',
-        customer_name: '__TEST__A주식회사',
-        contract_type: 'NDA',
-        start_date: '2026-05-23',
-        end_date: '2027-05-22',
-        variables: {
-          비밀유지_기간_년: 5,
-          갑_회사명: '__TEST__우리회사',
-        },
-      });
-    expect(res.status).toBe(200);
-    expect(res.body.data.contract_no).toMatch(/^C-\d{4}-\d{4}$/);
-    expect(res.body.data.template_id).toBe(ndaTemplate.id);
-    expect(res.body.data.applied_variables.비밀유지_기간_년).toBe(5);
-    expect(res.body.data.applied_variables.갑_회사명).toBe('__TEST__우리회사');
-    expect(res.body.data.applied_variables.을_회사명).toBe('__TEST__A주식회사'); // autofill
-
-    const contractId = res.body.id;
-    createdIds.push(contractId);
-
-    // 계약 본문에 변수 치환되었는지 확인
-    const detail = await api()
-      .get(`/api/contracts/${contractId}`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    expect(detail.body.data.notes).toContain('__TEST__우리회사');
-    expect(detail.body.data.notes).toContain('__TEST__A주식회사');
-    expect(detail.body.data.notes).toContain('5년간 존속'); // {{비밀유지_기간_년}} → 5
-    expect(detail.body.data.notes).not.toContain('{{비밀유지_기간_년}}'); // 미치환 없음
-    expect(detail.body.data.template_id).toBe(ndaTemplate.id);
-    // history 에 template_apply 액션
-    expect(detail.body.data.history.some(h => h.action_type === 'template_apply')).toBe(true);
-  });
-
-  // ── Phase 1: CLM 워크플로우 (상태 전이 검증) ─────────────────
-  it('PATCH /:id/status — 정상 전이 (draft → review → negotiation → signing → active)', async () => {
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__CLM_normal',
+        title: '__TEST__CLM_v6_normal',
         customer_name: '__TEST__',
         contract_type: 'MSA',
       });
@@ -681,45 +303,62 @@ describe('Contracts API — Phase 0', () => {
     expect(res.body.data.from).toBe('draft');
     expect(res.body.data.to).toBe('review');
 
-    // review → negotiation
+    // review → approved
     res = await api()
       .patch(`/api/contracts/${id}/status`)
       .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'negotiation' });
+      .send({ status: 'approved' });
     expect(res.status).toBe(200);
 
-    // negotiation → signing
+    // approved → completed
     res = await api()
       .patch(`/api/contracts/${id}/status`)
       .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'signing' });
+      .send({ status: 'completed' });
     expect(res.status).toBe(200);
 
-    // signing → active (start_date 자동 채움 검증 — 미리 비워둠)
-    await pool.query('UPDATE contracts SET start_date = NULL WHERE id = ?', [id]);
-    res = await api()
-      .patch(`/api/contracts/${id}/status`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'active' });
-    expect(res.status).toBe(200);
-    expect(res.body.data.auto_start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-
-    // 최종 상태 + history 검증
     const detail = await api()
       .get(`/api/contracts/${id}`)
       .set('X-User-Id', String(TEST_USER_ID));
-    expect(detail.body.data.status).toBe('active');
-    expect(detail.body.data.start_date).toBeDefined();
+    expect(detail.body.data.status).toBe('completed');
     const historyChanges = detail.body.data.history.filter(h => h.action_type === 'status_change');
-    expect(historyChanges.length).toBe(4); // 4번의 전이
+    expect(historyChanges.length).toBe(3); // 3번의 전이
   });
 
-  it('PATCH /:id/status — 잘못된 전이 (draft → active 직접 점프 금지) → 400', async () => {
+  it('PATCH /:id/status — 수정 요청 (review → draft 회귀 액션)', async () => {
     const cr = await api()
       .post('/api/contracts')
       .set('X-User-Id', String(TEST_USER_ID))
       .send({
-        title: '__TEST__CLM_invalid',
+        title: '__TEST__CLM_v6_revise',
+        customer_name: '__TEST__',
+        contract_type: 'NDA',
+      });
+    const id = cr.body.id;
+    createdIds.push(id);
+
+    // draft → review
+    await api()
+      .patch(`/api/contracts/${id}/status`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'review' });
+
+    // review → draft (수정 요청 액션)
+    const res = await api()
+      .patch(`/api/contracts/${id}/status`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'draft' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.from).toBe('review');
+    expect(res.body.data.to).toBe('draft');
+  });
+
+  it('PATCH /:id/status — 잘못된 전이 (draft → approved 직접 점프 금지) → 400', async () => {
+    const cr = await api()
+      .post('/api/contracts')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        title: '__TEST__CLM_v6_invalid',
         customer_name: '__TEST__',
         contract_type: 'NDA',
       });
@@ -729,101 +368,39 @@ describe('Contracts API — Phase 0', () => {
     const res = await api()
       .patch(`/api/contracts/${id}/status`)
       .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'active' });
+      .send({ status: 'approved' });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('잘못된 전이');
-    expect(res.body.error).toContain('초안');
-    expect(res.body.error).toContain('발효');
   });
 
-  it('PATCH /:id/status — terminated 에서는 어디로도 전이 불가', async () => {
+  it('PATCH /:id/status — completed 에서는 어디로도 전이 불가', async () => {
     const cr = await api()
       .post('/api/contracts')
       .set('X-User-Id', String(TEST_USER_ID))
       .send({
-        title: '__TEST__CLM_terminated',
+        title: '__TEST__CLM_v6_completed',
         customer_name: '__TEST__',
         contract_type: 'NDA',
       });
     const id = cr.body.id;
     createdIds.push(id);
 
-    // draft → terminated (해지 가능)
+    // draft → completed (강제 종료 허용)
     let res = await api()
       .patch(`/api/contracts/${id}/status`)
       .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'terminated' });
+      .send({ status: 'completed' });
     expect(res.status).toBe(200);
 
-    // terminated 에서 어디로도 전이 시도 → 400
+    // completed 에서 어디로도 전이 시도 → 400
     res = await api()
       .patch(`/api/contracts/${id}/status`)
       .set('X-User-Id', String(TEST_USER_ID))
       .send({ status: 'draft' });
     expect(res.status).toBe(400);
-
-    res = await api()
-      .patch(`/api/contracts/${id}/status`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'active' });
-    expect(res.status).toBe(400);
   });
 
-  it('PATCH /:id/status — active ↔ renewal 갱신 사이클 + 동일 상태 거부', async () => {
-    // 상태를 active 까지 직접 (PUT 으로 셋업 — PUT 은 전이 검증 안함)
-    const cr = await api()
-      .post('/api/contracts')
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({
-        title: '__TEST__CLM_renewal',
-        customer_name: '__TEST__',
-        contract_type: 'service',
-        status: 'active', // PUT 으로 active 시작
-      });
-    const id = cr.body.id;
-    createdIds.push(id);
-
-    // active → renewal
-    let res = await api()
-      .patch(`/api/contracts/${id}/status`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'renewal' });
-    expect(res.status).toBe(200);
-
-    // renewal → active (갱신 완료)
-    res = await api()
-      .patch(`/api/contracts/${id}/status`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'active' });
-    expect(res.status).toBe(200);
-
-    // 동일 상태 거부 (active → active)
-    res = await api()
-      .patch(`/api/contracts/${id}/status`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'active' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('이미');
-
-    // active → expired (종료)
-    res = await api()
-      .patch(`/api/contracts/${id}/status`)
-      .set('X-User-Id', String(TEST_USER_ID))
-      .send({ status: 'expired' });
-    expect(res.status).toBe(200);
-
-    // history 강조 메시지 검증
-    const detail = await api()
-      .get(`/api/contracts/${id}`)
-      .set('X-User-Id', String(TEST_USER_ID));
-    const expiredLog = detail.body.data.history.find(
-      h => h.action_type === 'status_change' && h.new_value === 'expired'
-    );
-    expect(expiredLog).toBeDefined();
-    expect(expiredLog.description).toContain('만료');
-  });
-
-  // ── Phase 2: AI 법무 검토 ─────────────────────────────────
+  // ── Phase 2: AI 법무 검토 (유지 — 핵심 자산) ───────────────
   it('POST /:id/files/:fileId/legal-review — AI 법무 검토 실행 + DB 영속화 + history', async () => {
     // 새 계약 + 파일 1건 업로드
     const cr = await api()

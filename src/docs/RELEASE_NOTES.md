@@ -4,7 +4,112 @@
 
 ---
 
-## v5.9.5 (2026.05.24) — 현재 ⭐⭐
+## v6.0.0 (2026.05.24) — 현재 ⭐⭐⭐ **계약 모듈 슬림화 (메이저)**
+
+### 🎯 메인 — **실무 친화 재설계 (Heavy → Lean)**
+
+사용자 피드백: "현재 구현된 계약 관리는 너무 헤비함. 실제 실무에 적합한 모듈로 재구현 요청"
+
+#### 🚀 핵심 변경
+
+```
+[변경 전 — v5.9.x]                       [변경 후 — v6.0.0]
+─────────────────────────────         ──────────────────────────────
+8개 DB 테이블 + Phase 0~6 기능       4개 핵심 테이블 + 5개 핵심 기능
+8단계 상태 워크플로우                 4단계 상태 (수정은 액션)
+복잡한 모달 (템플릿/알림/코칭/번역)  단순 모달 (핵심 정보만)
+500-1500원/회 AI 비용 누적           AI 법무 검토 1종만 (필요시만)
+```
+
+#### 🧩 핵심 5기능 (사용자 요구)
+
+1. **계약서 아카이빙 + 4단계 상태**
+   - 초안 → 검토 → 승인 → 계약완료
+   - "수정 요청" 은 별도 상태가 아닌 액션 (review → draft 회귀)
+2. **선택적 연결**
+   - 고객정보 / 영업리드 / 제안 / **견적 (신규 quote_id)** — ID 입력 (향후 Combobox 강화)
+3. **상호 추적 링크** (Step 2 예정)
+   - 고객/리드/제안/견적 페이지에서 연결된 계약 표시
+4. **AI 법무 검토** (기존 자산 유지)
+   - Gemini 2.5 Pro · 한국법 특화 (공정거래법/하도급법/개인정보보호법)
+   - 독소조항/누락조항/한국법규/수정안 4섹션 결과
+5. **전자서명 — 모두싸인 OAuth** (Step 4 예정)
+
+#### 🛠 기술 변경 (Backward-Incompatible — 메이저)
+
+##### DB 스키마
+- ✅ **유지**: `contracts`, `contract_files`, `contract_history`, `contract_legal_reviews`
+- ❌ **DROP**: `contract_templates`, `contract_alerts`, `contract_negotiation_coaches`, `contract_translations`
+- ➕ **신규**: `contracts.quote_id INT NULL` + INDEX (idempotent ALTER)
+- 🔄 **자동 마이그레이션**: 기존 8단계 상태 → 4단계 매핑
+  - `negotiation/renewal` → `review`
+  - `signing/active` → `approved`
+  - `expired/terminated` → `completed`
+  - 서버 부팅 시 1회 자동 수행 (로그: `[contracts:migration] 상태 4단계 변환: N건`)
+
+##### 백엔드 (`src/routes/contracts.js`)
+- 라우트 제거: `/templates/*`, `/from-template/:id`, `/:id/alerts`, `/alerts/*`, `/:id/negotiation-coach(es)`, `/:id/files/:fileId/translate`, `/:id/translations`
+- `STATUS_TRANSITIONS` 4단계로 단순화 + ALLOWED_STATUS 4종
+- POST/PUT/PATCH 에서 `contractAlerts.enqueueExpiryAlerts/cancelAlerts` 호출 모두 제거
+- GET `/:id` 응답에서 `latest_negotiation_coach`, `latest_translation` 필드 제거 (`latest_legal_review` 유지)
+- 약 2222 라인 → 1360 라인 (-39%)
+
+##### 백엔드 (기타)
+- `src/services/gemini.js`: `coachContractNegotiation` + `translateContract` helper 제거 (~470 라인 감축, 1666 → 1196)
+- `src/services/contractAlerts.js`: 파일 삭제
+- `src/data/contractTemplateSeeds.js`: 파일 삭제
+- `server.js`: `scheduleContractAlerts()` cron 블록 제거
+- `.env.example`: `CONTRACT_ALERT_EMAIL_ENABLED` 환경변수 제거
+- `src/data/featureRegistry.js`: `crm.contracts` 의 `affects_tables` / description 갱신
+
+##### 프론트 (`public/js/pages/contracts.js`)
+- 1673 라인 → ~570 라인 (-66%)
+- 4단계 STATUS_LABELS / QUICK_ACTIONS + "수정 요청" 액션
+- 모달 슬림화: 핵심 필드 + 4개 연결 ID + 첨부파일 + AI 법무 + 변경 이력 (최근 10건)
+- 행 클릭 시 편집 모달 진입 (기존 동작 유지)
+- 연결 배지: 목록 행에 🔗N (연결된 ID 개수) 표시
+- 제거: 템플릿 선택 모달, 만료 알림 큐 섹션, 협상 코칭 CTA, 번역 결과 카드
+
+##### 프론트 (`public/js/api.js`)
+- `API.contracts.*` 슬림화: `templates`, `fromTemplate`, `alerts`, `cancelAlert`, `processAlerts`, `negotiationCoach(es)`, `translate(s)` 제거
+- 유지: list/get/create/update/delete/nextContractNo/upload-/delete-/downloadFileUrl/legalReview(s)/setStatus
+
+##### 테스트 (`tests/contracts.test.mjs`)
+- Phase 3 (템플릿) / 4 (알림) / 5 (코칭) / 6 (번역) 시나리오 제거
+- Phase 1 CLM 시나리오를 4단계로 재작성 (정상 전이 / 수정 요청 / 잘못된 전이 / completed 종착)
+- Phase 2 (법무 검토) 시나리오 + 기본 CRUD 시나리오 유지
+- 37 tests → 21 tests, **전체 397 passed**
+
+#### 🛡 안전 가드
+- 서버 부팅 시 자동 상태 변환 (기존 데이터 손실 없음 — 매핑만)
+- DROP TABLE 은 IF EXISTS 로 idempotent
+- 운영 환경 재기동만으로 자동 반영 (수동 SQL 불필요)
+
+#### 📁 변경 파일 요약
+| 파일 | 변경 |
+|------|------|
+| `src/routes/contracts.js` | -862 lines (2222 → 1360) |
+| `src/services/gemini.js` | -470 lines (1666 → 1196) |
+| `src/services/contractAlerts.js` | **삭제** |
+| `src/data/contractTemplateSeeds.js` | **삭제** |
+| `public/js/pages/contracts.js` | -1100 lines (1673 → ~570) |
+| `public/js/api.js` | API.contracts 슬림화 |
+| `server.js` | scheduleContractAlerts() 제거 |
+| `.env.example` | CONTRACT_ALERT_EMAIL_ENABLED 제거 |
+| `tests/contracts.test.mjs` | 37 → 21 tests |
+| `src/data/featureRegistry.js` | description / affects_tables 갱신 |
+| `src/docs/RELEASE_NOTES.md` | v6.0.0 entry |
+| `src/docs/USER_MANUAL.md` | Phase 3-6 섹션 제거 + 슬림화 안내 |
+| `src/docs/API_DOCUMENTATION.md` | 22-A.16~19 (templates/alerts/coach/translate) 섹션 제거 표시 |
+
+#### 🔮 다음 단계 (사용자 승인 후 진행)
+- **Step 2**: 고객/리드/제안/견적 Combobox 강화 + 상호 추적 (각 페이지에 "연결된 계약" 섹션)
+- **Step 3**: AI 법무 검토 UX 정제 (메인 CTA 승격)
+- **Step 4**: 전자서명 (모두싸인 OAuth + 진행률 추적)
+
+---
+
+## v5.9.5 (2026.05.24) ⭐⭐
 
 ### 🎯 메인 — **계약 모듈 Phase 5: AI 협상 코칭**
 

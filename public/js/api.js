@@ -291,7 +291,7 @@ const API = {
     aiStrategyWordUrl: id => `/api/proposals/${id}/ai-strategy/word`,
   },
 
-  // 계약 (crm.contracts) — Phase 0: 기반 CRUD + 파일
+  // 계약 (crm.contracts) — v6.0.0 슬림화: CRUD + 파일 + AI 법무 검토 + 4단계 상태
   contracts: {
     list: (params = {}) => {
       const qs = new URLSearchParams(
@@ -308,35 +308,12 @@ const API = {
     uploadFile: (id, formData) => API._upload(`/contracts/${id}/files`, formData),
     deleteFile: (id, fileId) => API.del(`/contracts/${id}/files/${fileId}`),
     downloadFileUrl: (id, fileId) => `/api/contracts/${id}/files/${fileId}/download`,
-    // Phase 2 — AI 법무 검토 (Gemini 2.5 Pro · 약 500-1000원/회)
+    // AI 법무 검토 (Gemini 2.5 Pro · 약 500-1000원/회)
     legalReview: (id, fileId) =>
       API.post(`/contracts/${id}/files/${fileId}/legal-review`, {}),
     legalReviews: id => API.get(`/contracts/${id}/legal-reviews`),
-    // Phase 1 — CLM 상태 전이 (검증 + 자동 timestamp + history 강조)
+    // CLM 4단계 상태 전이 (draft → review → approved → completed)
     setStatus: (id, status) => API.patch(`/contracts/${id}/status`, { status }),
-    // Phase 3 — 계약 템플릿 라이브러리
-    templates: {
-      list: (params = {}) => {
-        const qs = new URLSearchParams(
-          Object.entries(params).filter(([, v]) => v !== undefined && v !== '')
-        ).toString();
-        return API.get('/contracts/templates' + (qs ? '?' + qs : ''));
-      },
-      get: id => API.get(`/contracts/templates/${id}`),
-      create: body => API.post('/contracts/templates', body),
-      update: (id, body) => API.put(`/contracts/templates/${id}`, body),
-      delete: id => API.del(`/contracts/templates/${id}`),
-    },
-    // 템플릿 → 계약 자동 생성 (변수 치환 포함)
-    fromTemplate: (templateId, body) =>
-      API.post(`/contracts/from-template/${templateId}`, body),
-    // Phase 4 — 만료 알림 큐
-    alerts: id => API.get(`/contracts/${id}/alerts`),
-    cancelAlert: alertId => API.del(`/contracts/alerts/${alertId}`),
-    processAlerts: () => API.post('/contracts/alerts/process', {}),
-    // Phase 5 — AI 협상 코칭 (Gemini Pro · 1회 약 500-1000원)
-    negotiationCoach: id => API.post(`/contracts/${id}/negotiation-coach`, {}),
-    negotiationCoaches: id => API.get(`/contracts/${id}/negotiation-coaches`),
   },
 
   // 견적서 (crm.quotes)

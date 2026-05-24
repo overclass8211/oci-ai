@@ -292,13 +292,12 @@ const FEATURE_REGISTRY = [
     key: 'crm.contracts',
     name: '계약 (계약관리 + AI 법무 검토)',
     description:
-      '계약 라이프사이클(CLM) + AI 법무 검토(독소조항/누락/한국법규) + 템플릿 + 만료 알림 + 전자서명',
+      '계약 아카이빙 (4단계 상태) + 첨부 파일 + 고객/리드/제안/견적 연결 + AI 법무 검토 (한국법 특화) + 감사 추적',
     category: 'crm',
     risk_level: 'medium',
     required_features: [],
     affects_routes: '/api/contracts',
-    affects_tables:
-      'contracts,contract_files,contract_history,contract_templates,contract_legal_reviews,contract_alerts',
+    affects_tables: 'contracts,contract_files,contract_history,contract_legal_reviews',
     is_experimental: false,
     default_enabled: true,
   },

@@ -1497,8 +1497,102 @@ CASCADE 삭제 (파일 디스크 + history 자동 정리).
 **Phase 2** (v5.9.1): `legal_review` — AI 법무 검토 실행 시 자동 기록
 **Phase 3** (v5.9.3): `template_apply` — 템플릿 기반 계약 생성 시 자동 기록 (description: `템플릿 적용: ⃝⃝ (STD-NDA) — C-2026-NNNN`)
 **Phase 4** (v5.9.4): 알림 이력은 별도 `contract_alerts` 테이블에 영속 (history 와 분리). cron 처리 결과는 서버 로그 (`[contractAlerts] 처리: N건`)
-**Phase 5** (v5.9.5): `negotiation_coach` — AI 협상 코칭 실행 시 자동 기록. 결과는 별도 `contract_negotiation_coaches` 테이블에 영속
-**Phase 6+** 향후 예정: `esign_request` / `esign_signed` 등
+**Phase 5** (v5.9.5): `negotiation_coach` — ❌ v6.0.0 에서 제거됨
+**Phase 6** (v5.9.6): `translate` — ❌ v6.0.0 에서 제거됨
+**v6.0.0** (2026.05.24): 4단계 상태로 슬림화 — `negotiation_coach`/`translate` 액션 제거, 기존 `status_change` 만 유지
+
+---
+
+## ⚠️ v6.0.0 슬림화 — 제거된 endpoint (아래 22-A.16 ~ 22-A.19 는 모두 제거됨)
+
+| 구 endpoint | 상태 | 비고 |
+|------------|:----:|------|
+| `GET /contracts/templates` 외 (계약 템플릿 CRUD) | ❌ | `contract_templates` 테이블 DROP |
+| `POST /contracts/from-template/:id` | ❌ | 변수 치환 + 자동 생성 제거 |
+| `GET /contracts/:id/alerts` 외 (만료 알림 큐) | ❌ | `contract_alerts` 테이블 DROP |
+| `POST /contracts/:id/negotiation-coach` 외 (AI 협상 코칭) | ❌ | `contract_negotiation_coaches` 테이블 DROP |
+| `POST /contracts/:id/files/:fileId/translate` 외 (다국어 번역) | ❌ | `contract_translations` 테이블 DROP |
+
+신규: `contracts.quote_id INT NULL` (견적 연결 컬럼)
+4단계 상태 (`draft` / `review` / `approved` / `completed`) + 자동 마이그레이션 (서버 부팅 시 1회)
+
+아래 섹션은 참고용으로 유지 — 향후 부활 시 갱신.
+
+---
+
+### 22-A.19 ❌ (제거됨) AI 다국어 번역 (v5.9.6 ~ v5.9.6)
+
+**비용**: 약 500-1500원/회 (Gemini 2.5 Pro)
+**소요 시간**: 30-60초
+**지원 형식**: PDF / PNG / JPG / WEBP / TXT / MD
+**지원 언어**: ko (한국어) / en (English)
+
+#### POST `/contracts/:id/files/:fileId/translate`
+AI 번역 실행.
+
+**Request Body**:
+```json
+{ "target_language": "ko" }
+```
+- `target_language`: "ko" | "en" (기본 "ko")
+- `source_language`: (선택) 원문 언어 힌트 — 미지정 시 Gemini 자동 감지
+
+**자동 동작**:
+- Gemini 호출 → detected_language / summary_md / key_clauses / full_translation_md
+- `contract_translations` INSERT (target_file_id 로 원본 파일과 연결)
+- `contract_history` 에 `translate` 액션 자동 기록
+
+**Response**:
+```json
+{ "success": true, "data": {
+  "id": 7, "target_file_id": 42, "target_filename": "NDA_eng.pdf",
+  "target_language": "ko",
+  "detected_language": "en",
+  "summary_md": "## 1. 계약 개요\n- NDA 양방향\n\n## 2. 주요 당사자 및 의무\n...",
+  "key_clauses": [
+    {
+      "original": "Both parties shall maintain strict confidentiality.",
+      "translated": "양 당사자는 엄격한 비밀유지 의무를 부담한다.",
+      "section": "비밀유지",
+      "importance": "high"
+    }
+  ],
+  "full_translation_md": "## 비밀유지계약서\n\n본 계약은...",
+  "generated_at": "2026-05-24T08:30:00.000Z"
+}}
+```
+
+**에러 응답**:
+| HTTP | 사유 |
+|------|------|
+| 400 | 유효하지 않은 ID |
+| 404 | 계약 / 파일 없음 |
+| 500 | Gemini API 실패 |
+
+#### GET `/contracts/:id/translations`
+번역 이력 조회 (최대 20건).
+
+**Response**:
+```json
+{ "success": true, "data": [
+  { "id": 7, "target_file_id": 42, "target_filename": "NDA_eng.pdf",
+    "source_language": null, "target_language": "ko",
+    "detected_language": "en", "summary_md": "...",
+    "full_translation_md": "...", "key_clauses": [...],
+    "generated_by": 1, "generated_by_name": "관리자",
+    "generated_at": "2026-05-24T08:30:00.000Z" }
+]}
+```
+
+#### GET `/contracts/:id` 응답 확장
+- `latest_translation` 필드 신규 (없으면 null)
+- 모달 재진입 시 자동 prefill
+
+#### 신뢰성 가드 (v5.9.6)
+- key_clauses 최대 10개 + importance 3종(high/medium/low) 강제
+- summary_md 3000자 / full_translation_md 10000자 clip
+- JSON 파싱 fallback (Phase 12-C 패턴 재사용)
+- 빈 응답·파싱 실패 시 `_parseError: true` + 친절한 안내문
 
 ---
 
