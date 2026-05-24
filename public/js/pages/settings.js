@@ -47,36 +47,31 @@ const SettingsPage = {
         </div>
       </div>
 
-      <!-- v6.0.0 Step 4-2: 전자계약 (eSign) 연동 — 모두싸인 OAuth 통합 (구현 준비 중) -->
+      <!-- v6.0.0 Step 4: 전자계약 (eSign) 연동 — 모두싸인 OAuth 통합 -->
       <div class="card mb-3" data-feature="crm.contracts">
         <div class="card-header">
           <div class="card-title">🖋 전자계약 연동 (eSign)</div>
-          <span class="badge badge-gray" style="font-size:10px">v6.0.0 Step 4 — 구현 준비 중</span>
+          <span class="badge badge-blue" style="font-size:10px">v6.0.0 Step 4 — 통합 완료</span>
         </div>
         <div class="card-body">
           <div class="grid-2">
-            <div class="integration-card">
+            <div class="integration-card" id="esign-modusign-card">
               <div class="integration-header">
                 <div>
                   <div class="integration-name">🇰🇷 모두싸인 (modusign)</div>
                   <div class="integration-desc">국내 표준 전자서명 솔루션 · OAuth 2.0 + Webhook</div>
                 </div>
-                <span class="badge badge-orange">🚧 준비 중</span>
+                <span class="badge" id="esign-modusign-badge" style="font-size:10px">조회 중...</span>
               </div>
-              <div class="integration-body">
-                <div class="kv-row"><span class="kv-key">인증 방식</span><span class="kv-val">OAuth 2.0 (사용자별 본인 계정)</span></div>
-                <div class="kv-row"><span class="kv-key">지원 기능</span><span class="kv-val">서명 요청 / 진행률 추적 / 서명본 PDF 다운로드</span></div>
-                <div class="kv-row"><span class="kv-key">Webhook</span><span class="kv-val">HMAC-SHA256 서명 검증</span></div>
-                <div class="kv-row"><span class="kv-key">예상 비용</span><span class="kv-val">문서당 또는 월정액 (모두싸인 플랜)</span></div>
-                <div class="kv-row"><span class="kv-key">상태</span><span class="kv-val text-muted">사전 설계 완료 (Step 4-1) · OAuth/UI 구현 대기</span></div>
+              <div class="integration-body" id="esign-modusign-body">
+                <div class="kv-row"><span class="kv-key">상태</span><span class="kv-val text-muted">⏳ 연결 상태 조회 중...</span></div>
               </div>
-              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.6;cursor:not-allowed">
-                ⏳ 구현 후 사용 가능
-              </button>
-              <a href="https://developers.modusign.co.kr" target="_blank" rel="noopener"
-                 class="btn btn-ghost btn-sm" style="margin-left:6px;text-decoration:none">
-                📘 모두싸인 개발자 문서 →
-              </a>
+              <div id="esign-modusign-actions" style="display:flex;gap:6px;flex-wrap:wrap">
+                <a href="https://developers.modusign.co.kr" target="_blank" rel="noopener"
+                   class="btn btn-ghost btn-sm" style="text-decoration:none">
+                  📘 개발자 문서 →
+                </a>
+              </div>
             </div>
 
             <div class="integration-card" style="opacity:0.55">
@@ -89,7 +84,6 @@ const SettingsPage = {
               </div>
               <div class="integration-body">
                 <div class="kv-row"><span class="kv-key">상태</span><span class="kv-val text-muted">국내 모두싸인 우선 도입 후 검토</span></div>
-                <div class="kv-row"><span class="kv-key">비고</span><span class="kv-val text-muted">해외 고객사 계약 발생 시 추가 검토</span></div>
               </div>
               <button class="btn btn-ghost btn-sm" disabled style="opacity:0.5;cursor:not-allowed">
                 미지원
@@ -97,21 +91,19 @@ const SettingsPage = {
             </div>
           </div>
 
-          <!-- 진행 상태 안내 박스 -->
-          <div style="margin-top:14px;padding:12px 14px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412;line-height:1.6">
-            <strong>📋 진행 상태:</strong>
-            <ul style="margin:6px 0 0 18px;padding:0">
-              <li>✅ <strong>Step 4-1 (사전 설계)</strong> 완료 — DB 스키마 / Endpoint / Webhook 설계서 작성</li>
-              <li>📋 <strong>Step 4-2 (OAuth 백엔드)</strong> 대기 — 사용자 측 모두싸인 계정 + OAuth Client 발급 필요</li>
-              <li>📋 <strong>Step 4-3 (서명 요청 + Webhook)</strong> 대기</li>
-              <li>📋 <strong>Step 4-4 (프론트 UI 통합)</strong> 대기</li>
-            </ul>
-            <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #fdba74">
-              💡 사용자 측 사전 준비: <a href="https://developers.modusign.co.kr" target="_blank" rel="noopener" style="color:#9a3412;font-weight:600">개발자 콘솔 가입</a>
-              → OAuth 클라이언트 생성 → CLIENT_ID/SECRET 발급 → Webhook URL 등록 후 Step 4-2 본격 진행 가능
-            </div>
-            <div style="margin-top:6px;font-size:11px;color:#9a3412">
-              자세한 설계는 <code style="background:#fed7aa;padding:1px 6px;border-radius:3px">src/docs/MODUSIGN_INTEGRATION_DESIGN.md</code> 참고
+          <!-- 운영 셋업 안내 박스 -->
+          <div style="margin-top:14px;padding:12px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;color:#075985;line-height:1.6">
+            <strong>📋 운영 셋업 가이드:</strong>
+            <ol style="margin:6px 0 0 18px;padding:0">
+              <li><a href="https://developers.modusign.co.kr" target="_blank" rel="noopener" style="color:#0369a1;font-weight:600">모두싸인 개발자 콘솔</a> 가입</li>
+              <li>OAuth 클라이언트 생성 → CLIENT_ID / SECRET 발급</li>
+              <li>Redirect URI 등록: <code style="background:#fff;padding:1px 6px;border-radius:3px;font-size:11px">/api/contracts/esign/oauth/callback</code></li>
+              <li>Webhook URL 등록: <code style="background:#fff;padding:1px 6px;border-radius:3px;font-size:11px">/api/webhooks/modusign</code></li>
+              <li><code style="background:#fff;padding:1px 6px;border-radius:3px;font-size:11px">.env</code> 에 MODUSIGN_CLIENT_ID / SECRET / WEBHOOK_SECRET 입력 → pm2 restart</li>
+              <li>본 화면에서 [모두싸인 연결] 버튼 클릭 → OAuth 인가</li>
+            </ol>
+            <div style="margin-top:6px;font-size:11px">
+              💡 환경변수 미설정 시 <strong>Mock 모드</strong> — 실제 외부 호출 없이 UI/흐름만 테스트 가능
             </div>
           </div>
         </div>
@@ -297,7 +289,142 @@ const SettingsPage = {
       ?.addEventListener('click', () => this.openWebhookForm());
     this.loadWebhooks();
 
+    // v6.0.0 Step 4: 모두싸인 OAuth 연결 상태 로드
+    this.loadEsignStatus();
+
     this.checkDb();
+  },
+
+  // ─── v6.0.0 Step 4: 모두싸인 OAuth 연결 관리 ──────────────
+  async loadEsignStatus() {
+    const badge = document.getElementById('esign-modusign-badge');
+    const body = document.getElementById('esign-modusign-body');
+    const actions = document.getElementById('esign-modusign-actions');
+    if (!badge || !body || !actions) return;
+    try {
+      const r = await API.contracts.esign.status();
+      const d = r?.data || {};
+      const connected = !!d.connected;
+      const mock = !!d.mock;
+      const configured = !!d.configured;
+
+      // 배지
+      if (mock && !configured) {
+        badge.className = 'badge badge-orange';
+        badge.style.fontSize = '10px';
+        badge.textContent = '🧪 Mock 모드';
+      } else if (connected) {
+        badge.className = 'badge badge-green';
+        badge.style.fontSize = '10px';
+        badge.textContent = '✅ 연결됨';
+      } else {
+        badge.className = 'badge badge-gray';
+        badge.style.fontSize = '10px';
+        badge.textContent = '⚪ 미연결';
+      }
+
+      // 본문
+      const rows = [];
+      rows.push(
+        `<div class="kv-row"><span class="kv-key">상태</span><span class="kv-val">${
+          connected ? '✅ 연결됨' : mock && !configured ? '🧪 Mock 모드 (환경변수 미설정)' : '⚪ 미연결'
+        }</span></div>`
+      );
+      if (connected) {
+        rows.push(
+          `<div class="kv-row"><span class="kv-key">계정</span><span class="kv-val">${
+            d.modusign_email || d.modusign_user_id || '-'
+          }</span></div>`
+        );
+        if (d.expires_at) {
+          rows.push(
+            `<div class="kv-row"><span class="kv-key">토큰 만료</span><span class="kv-val text-muted">${new Date(d.expires_at).toLocaleString('ko-KR')}</span></div>`
+          );
+        }
+      }
+      rows.push(
+        `<div class="kv-row"><span class="kv-key">인증 방식</span><span class="kv-val">OAuth 2.0</span></div>`
+      );
+      rows.push(
+        `<div class="kv-row"><span class="kv-key">Webhook</span><span class="kv-val">HMAC-SHA256 검증</span></div>`
+      );
+      body.innerHTML = rows.join('');
+
+      // 액션 버튼
+      const docLink = `<a href="https://developers.modusign.co.kr" target="_blank" rel="noopener"
+                         class="btn btn-ghost btn-sm" style="text-decoration:none">📘 개발자 문서 →</a>`;
+      if (connected) {
+        actions.innerHTML =
+          `<button class="btn btn-ghost btn-sm" id="esign-modusign-disconnect-btn" style="color:#dc2626">🔌 연결 해제</button>${docLink}`;
+        document
+          .getElementById('esign-modusign-disconnect-btn')
+          ?.addEventListener('click', () => this.disconnectEsign());
+      } else {
+        actions.innerHTML =
+          `<button class="btn btn-primary btn-sm" id="esign-modusign-connect-btn">🔗 모두싸인 연결</button>${docLink}`;
+        document
+          .getElementById('esign-modusign-connect-btn')
+          ?.addEventListener('click', () => this.connectEsign());
+      }
+    } catch (e) {
+      body.innerHTML = `<div class="kv-row"><span class="kv-key">상태</span><span class="kv-val text-muted">조회 실패: ${e.message || '-'}</span></div>`;
+      badge.textContent = '⚠️ 오류';
+      badge.className = 'badge badge-red';
+    }
+  },
+
+  async connectEsign() {
+    try {
+      const r = await API.contracts.esign.connect();
+      const url = r?.data?.auth_url;
+      const mock = r?.data?.mock;
+      if (mock) {
+        // Mock 모드: 자동으로 콜백 호출 (개발 편의)
+        if (
+          confirm(
+            '🧪 Mock 모드 — 실제 외부 호출 없이 가짜 토큰을 즉시 발급합니다.\n계속하시겠습니까?'
+          )
+        ) {
+          const params = new URLSearchParams({ code: '__MOCK_CODE__' });
+          const cbRes = await fetch(
+            `/api/contracts/esign/oauth/callback?${params.toString()}`,
+            {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('oci_token') || ''}`,
+                'X-User-Id': localStorage.getItem('current_user_id') || '',
+              },
+            }
+          );
+          const cbJson = await cbRes.json();
+          if (cbJson?.success) {
+            Toast.success?.('Mock 연결 완료');
+            this.loadEsignStatus();
+          } else {
+            Toast.error?.('Mock 연결 실패');
+          }
+          return;
+        }
+      }
+      if (url) {
+        window.open(url, '_blank', 'width=600,height=700');
+        Toast.info?.('새 창에서 모두싸인 인가 진행 후 본 화면 새로고침해주세요');
+      } else {
+        Toast.error?.('인가 URL 응답 없음');
+      }
+    } catch (e) {
+      Toast.error?.('연결 실패: ' + (e.message || e));
+    }
+  },
+
+  async disconnectEsign() {
+    if (!confirm('모두싸인 연결을 해제하시겠습니까?')) return;
+    try {
+      await API.contracts.esign.disconnect();
+      Toast.success?.('연결 해제됨');
+      this.loadEsignStatus();
+    } catch (e) {
+      Toast.error?.('해제 실패: ' + (e.message || e));
+    }
   },
 
   // ─── Webhook 관리 ───────────────────────────────────────

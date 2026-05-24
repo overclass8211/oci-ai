@@ -298,6 +298,10 @@ app.get('/api/config/public', (_req, res) => {
 // ※ authenticate 미들웨어보다 먼저 등록 (Phase 5-C)
 app.use('/api/proposals/share', require('./src/routes/proposalShare'));
 
+// 모두싸인 Webhook — 인증 불필요 (외부 호출, HMAC-SHA256 서명 검증)
+// ※ authenticate 미들웨어보다 먼저 등록 (v6.0.0 Step 4)
+app.use('/api/webhooks', require('./src/routes/modusignWebhook'));
+
 // 공개 기능 플래그 — 인증 불필요 (로그인 페이지에서 토큰 없이 사용)
 // ※ authenticate 미들웨어보다 먼저 등록해야 로그인 전에도 접근 가능
 app.get('/api/admin/dev/features/public', async (_req, res) => {

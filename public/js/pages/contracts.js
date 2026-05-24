@@ -641,6 +641,7 @@ const ContractsPage = (() => {
         _bindLegalCtaBtn(id); // v6.0.0 Step 3: 메인 AI 법무 검토 CTA
         _bindExtractedMetaCardEvents(); // v6.0.0 Phase A2-3: AI 추출 카드 [✓ 적용] 버튼
         _bindContractNoModeToggle(); // v6.0.0 Phase A3: 자동/수동 채번 토글
+        if (id) _bindEsignEvents(id); // v6.0.0 Step 4: 전자서명 섹션 이벤트
       },
     });
   }
@@ -763,6 +764,9 @@ const ContractsPage = (() => {
         </div>
       </div>
 
+      <!-- v6.0.0 Step 4: 전자서명 (Modusign) 섹션 — 편집 모드 + status=approved 또는 이미 요청됨 -->
+      ${e.id && (e.status === 'approved' || e.esign_request_id) ? _renderEsignSection(e) : ''}
+
       ${
         e.id && (e.files || []).length > 0
           ? `<!-- v6.0.0 UX 개선: 파일 추가는 상단 AI 검토 카드에서, 여기는 목록(다운로드/삭제/재검토)만 -->
@@ -872,6 +876,279 @@ const ContractsPage = (() => {
       <input type="file" id="ct-cta-file-input" multiple style="display:none"
         accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md">
     </div>`;
+  }
+
+  // ── v6.0.0 Step 4: 전자서명 (Modusign) 섹션 ──────────────
+  // 상태별 분기:
+  //   1. esign_request_id 없음 → [✍ 서명 요청 시작] (status=approved 필수)
+  //   2. status=requested/in_progress → 진행 상황 + [🔔 재전송] [❌ 취소]
+  //   3. status=signed → [📄 서명본 PDF 다운로드]
+  //   4. status=rejected/expired/cancelled → 결과 표시
+  function _renderEsignSection(e) {
+    const status = e.esign_status; // null / 'requested' / 'in_progress' / 'signed' / 'rejected' / 'expired' / 'cancelled'
+    const docId = e.esign_request_id;
+    const signers = (() => {
+      if (!e.esign_signers_json) return [];
+      try {
+        return typeof e.esign_signers_json === 'string'
+          ? JSON.parse(e.esign_signers_json)
+          : e.esign_signers_json;
+      } catch (_) {
+        return [];
+      }
+    })();
+
+    // 색상 + 라벨
+    const STATUS_META = {
+      requested: { color: '#3b82f6', label: '요청됨', icon: '📨' },
+      in_progress: { color: '#0891b2', label: '서명 진행 중', icon: '✍️' },
+      signed: { color: '#16a34a', label: '서명 완료', icon: '✅' },
+      rejected: { color: '#dc2626', label: '거부됨', icon: '❌' },
+      expired: { color: '#6b7280', label: '만료됨', icon: '⏰' },
+      cancelled: { color: '#6b7280', label: '취소됨', icon: '✕' },
+    };
+    const meta = STATUS_META[status] || null;
+
+    // 1. 미요청
+    if (!docId) {
+      return `<div id="ct-esign-wrap" style="margin-top:16px;padding:16px;background:linear-gradient(135deg,#fff7ed,#fed7aa);border:2px dashed #ea580c;border-radius:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:#9a3412">✍ 전자서명 (모두싸인)</div>
+            <div style="font-size:11px;color:#c2410c;margin-top:2px">계약 상태가 <strong>승인</strong> 단계이므로 서명 요청을 시작할 수 있습니다</div>
+          </div>
+          <button id="ct-esign-request-btn" type="button" class="btn btn-primary" style="padding:8px 18px;background:#ea580c;border:none">
+            ✍ 서명 요청 시작
+          </button>
+        </div>
+      </div>`;
+    }
+
+    // 2-4. 요청 후
+    return `<div id="ct-esign-wrap" style="margin-top:16px;padding:16px;background:#fff;border:1px solid ${meta?.color || '#e5e7eb'};border-left:4px solid ${meta?.color || '#6b7280'};border-radius:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:${meta?.color || '#111'}">
+            ${meta?.icon || '📨'} 전자서명: ${esc(meta?.label || status || '-')}
+          </div>
+          <div style="font-size:10px;color:var(--text-3);margin-top:2px">
+            문서 ID: <code style="font-family:monospace;background:#f3f4f6;padding:1px 4px;border-radius:3px">${esc(docId)}</code>
+            ${e.esign_requested_at ? ` · 요청: ${_fmtDateTime(e.esign_requested_at)}` : ''}
+            ${e.esign_signed_at ? ` · 완료: ${_fmtDateTime(e.esign_signed_at)}` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${
+            status === 'signed'
+              ? `<button id="ct-esign-download-btn" type="button" class="btn btn-primary btn-sm">📄 서명본 PDF</button>`
+              : ''
+          }
+          ${
+            status === 'requested' || status === 'in_progress'
+              ? `<button id="ct-esign-refresh-btn" type="button" class="btn btn-ghost btn-sm">🔄 상태 새로고침</button>
+                 <button id="ct-esign-cancel-btn" type="button" class="btn btn-ghost btn-sm" style="color:#dc2626">❌ 취소</button>`
+              : ''
+          }
+        </div>
+      </div>
+
+      ${
+        signers.length > 0
+          ? `<div style="margin-top:8px;padding-top:10px;border-top:1px solid var(--border)">
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">서명자 ${signers.length}명</div>
+              <ul style="margin:0;padding:0 0 0 18px;font-size:12px">
+                ${signers
+                  .map(
+                    s => `<li style="margin-bottom:4px">
+                  <strong>${esc(s.name || '-')}</strong>
+                  <span style="color:var(--text-3)">&lt;${esc(s.email || '-')}&gt;</span>
+                  ${s.phone ? `<span style="color:var(--text-3);font-size:10px"> · 📱 ${esc(s.phone)}</span>` : ''}
+                </li>`
+                  )
+                  .join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+    </div>`;
+  }
+
+  // 전자서명 섹션 이벤트 바인딩
+  function _bindEsignEvents(contractId) {
+    const requestBtn = document.getElementById('ct-esign-request-btn');
+    if (requestBtn) {
+      requestBtn.addEventListener('click', () => _openEsignRequestModal(contractId));
+    }
+    const downloadBtn = document.getElementById('ct-esign-download-btn');
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', async () => {
+        try {
+          const token = localStorage.getItem('oci_token');
+          const userId = localStorage.getItem('current_user_id');
+          const res = await fetch(API.contracts.esign.signedPdfUrl(contractId), {
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              ...(userId ? { 'X-User-Id': userId } : {}),
+            },
+          });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `contract_${contractId}_signed.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          Toast.success?.('서명본 PDF 다운로드 완료');
+        } catch (err) {
+          Toast.error?.('다운로드 실패: ' + (err.message || err));
+        }
+      });
+    }
+    const refreshBtn = document.getElementById('ct-esign-refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        refreshBtn.disabled = true;
+        try {
+          await API.contracts.esign.getStatus(contractId);
+          Toast.info?.('상태 새로고침 완료');
+          await _reopenModalFresh(contractId);
+        } catch (err) {
+          Toast.error?.('상태 조회 실패: ' + (err.message || err));
+          refreshBtn.disabled = false;
+        }
+      });
+    }
+    const cancelBtn = document.getElementById('ct-esign-cancel-btn');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', async () => {
+        if (!confirm('전자서명 요청을 취소하시겠습니까?')) return;
+        try {
+          await API.contracts.esign.cancel(contractId);
+          Toast.success?.('서명 요청 취소됨');
+          await _reopenModalFresh(contractId);
+        } catch (err) {
+          Toast.error?.('취소 실패: ' + (err?.error || err?.message || err));
+        }
+      });
+    }
+  }
+
+  // 서명 요청 모달 (서명자 입력)
+  async function _openEsignRequestModal(contractId) {
+    // 먼저 OAuth 연결 상태 확인 (mock 모드면 skip)
+    let oauthOk = false;
+    let oauthInfo = null;
+    try {
+      const r = await API.contracts.esign.status();
+      oauthInfo = r?.data;
+      oauthOk = !!oauthInfo?.connected || !!oauthInfo?.mock;
+    } catch (_) {
+      // 미연결 또는 기능 비활성
+    }
+
+    if (!oauthOk) {
+      Toast.error?.(
+        '모두싸인 미연결 — [설정] 화면에서 [모두싸인 연결] 후 재시도하세요',
+        { duration: 7000 }
+      );
+      return;
+    }
+
+    const body = `<div style="padding:16px">
+      ${
+        oauthInfo?.mock
+          ? `<div style="padding:8px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e;margin-bottom:12px">
+              ⚠️ Mock 모드 — 실제 모두싸인 호출이 일어나지 않습니다 (환경변수 미설정)
+            </div>`
+          : `<div style="padding:8px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:11px;color:#075985;margin-bottom:12px">
+              연결된 계정: <strong>${esc(oauthInfo?.modusign_email || oauthInfo?.modusign_user_id || '-')}</strong>
+            </div>`
+      }
+
+      <div style="font-size:12px;color:var(--text-3);margin-bottom:10px">
+        서명자를 입력하세요. 최근 업로드된 PDF 파일이 자동으로 사용됩니다.
+      </div>
+
+      <div id="ct-esign-signers" style="margin-bottom:10px"></div>
+
+      <button id="ct-esign-add-signer-btn" type="button" class="btn btn-ghost btn-sm" style="margin-bottom:14px">
+        + 서명자 추가
+      </button>
+
+      <div class="form-row">
+        <label class="form-label">메시지 (선택)</label>
+        <textarea class="form-input" id="ct-esign-message" rows="2" placeholder="(서명자에게 전달할 메시지)" style="resize:vertical"></textarea>
+      </div>
+    </div>`;
+
+    const footer = `
+      <button class="btn btn-ghost" id="ct-esign-cancel-modal-btn" type="button">취소</button>
+      <button class="btn btn-primary" id="ct-esign-submit-btn" type="button" style="background:#ea580c">✍ 서명 요청 시작</button>`;
+
+    const addSignerRow = () => {
+      const wrap = document.getElementById('ct-esign-signers');
+      if (!wrap) return;
+      const div = document.createElement('div');
+      div.className = 'ct-esign-signer-row';
+      div.style.cssText =
+        'display:grid;grid-template-columns:1fr 1.5fr 1fr auto;gap:8px;margin-bottom:6px;align-items:center';
+      div.innerHTML = `
+        <input class="form-input ct-esign-name" placeholder="이름" style="font-size:12px;padding:6px 10px">
+        <input class="form-input ct-esign-email" type="email" placeholder="이메일" style="font-size:12px;padding:6px 10px">
+        <input class="form-input ct-esign-phone" placeholder="휴대폰 (선택)" style="font-size:12px;padding:6px 10px">
+        <button type="button" class="btn btn-ghost btn-sm ct-esign-del" style="color:#dc2626;font-size:11px">×</button>`;
+      wrap.appendChild(div);
+      div.querySelector('.ct-esign-del').addEventListener('click', () => div.remove());
+    };
+
+    Modal.show({
+      title: '✍ 전자서명 요청',
+      body,
+      footer,
+      size: 'md',
+      onOpen: () => {
+        addSignerRow(); // 첫 행 자동 추가
+        document
+          .getElementById('ct-esign-add-signer-btn')
+          ?.addEventListener('click', addSignerRow);
+        document
+          .getElementById('ct-esign-cancel-modal-btn')
+          ?.addEventListener('click', () => Modal.close());
+        document
+          .getElementById('ct-esign-submit-btn')
+          ?.addEventListener('click', async () => {
+            const rows = Array.from(document.querySelectorAll('.ct-esign-signer-row'));
+            const signers = rows
+              .map(r => ({
+                name: r.querySelector('.ct-esign-name')?.value?.trim() || '',
+                email: r.querySelector('.ct-esign-email')?.value?.trim() || '',
+                phone: r.querySelector('.ct-esign-phone')?.value?.trim() || undefined,
+              }))
+              .filter(s => s.name && s.email);
+            if (!signers.length) {
+              Toast.error?.('서명자 1명 이상 입력 필요 (이름 + 이메일)');
+              return;
+            }
+            const message = document.getElementById('ct-esign-message')?.value?.trim() || '';
+            const btn = document.getElementById('ct-esign-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ 요청 중...';
+            try {
+              await API.contracts.esign.request(contractId, { signers, message });
+              Toast.success?.('전자서명 요청 완료 — 서명자에게 이메일 발송됨');
+              Modal.close();
+              await _reopenModalFresh(contractId);
+            } catch (err) {
+              btn.disabled = false;
+              btn.innerHTML = '✍ 서명 요청 시작';
+              Toast.error?.('요청 실패: ' + (err?.error || err?.message || err));
+            }
+          });
+      },
+    });
   }
 
   // 변경 이력 (Audit Trail) — 최근 10건

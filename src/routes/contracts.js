@@ -39,6 +39,29 @@ const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { analyzeContractLegal } = require('../services/gemini');
+const modusign = require('../services/modusign');
+
+// 토큰 암호화 — ENCRYPTION_KEY 미설정 시 best-effort (mock 모드에서만 안전)
+let _crypto;
+try {
+  _crypto = require('../utils/crypto');
+} catch (_) {
+  _crypto = { encrypt: v => v, decrypt: v => v };
+}
+function _safeEncrypt(v) {
+  try {
+    return _crypto.encrypt(v);
+  } catch (_) {
+    return v;
+  }
+}
+function _safeDecrypt(v) {
+  try {
+    return _crypto.decrypt(v);
+  } catch (_) {
+    return v;
+  }
+}
 
 router.use(requireFeature('crm.contracts'));
 
@@ -192,6 +215,83 @@ async function ensureSchema() {
       console.log('[contracts:migration] external_contract_no 컬럼 추가 완료');
     } catch (_) {
       /* 이미 존재 */
+    }
+
+    // v6.0.0 Step 4 (Modusign): 전자서명 추가 컬럼 (esign_provider/request_id/status 는 이미 존재)
+    try {
+      await pool.query(`ALTER TABLE contracts ADD COLUMN esign_requested_at DATETIME NULL`);
+      console.log('[contracts:migration] esign_requested_at 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+    try {
+      await pool.query(`ALTER TABLE contracts ADD COLUMN esign_signed_at DATETIME NULL`);
+      console.log('[contracts:migration] esign_signed_at 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+    try {
+      await pool.query(`ALTER TABLE contracts ADD COLUMN esign_signed_pdf_path VARCHAR(500) NULL`);
+      console.log('[contracts:migration] esign_signed_pdf_path 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+    try {
+      await pool.query(`ALTER TABLE contracts ADD COLUMN esign_signers_json MEDIUMTEXT NULL`);
+      console.log('[contracts:migration] esign_signers_json 컬럼 추가 완료');
+    } catch (_) {
+      /* 이미 존재 */
+    }
+
+    // ⑤ 전자서명 OAuth 토큰 (사용자별 1건)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS esign_oauth_tokens (
+        id               INT AUTO_INCREMENT PRIMARY KEY,
+        user_id          INT NOT NULL,
+        provider         VARCHAR(20) DEFAULT 'modusign',
+        access_token     TEXT NOT NULL COMMENT 'AES-256-GCM 암호화',
+        refresh_token    TEXT NULL COMMENT 'AES-256-GCM 암호화',
+        token_type       VARCHAR(20) DEFAULT 'Bearer',
+        expires_at       DATETIME NULL,
+        scope            VARCHAR(255) NULL,
+        modusign_user_id VARCHAR(100) NULL,
+        modusign_email   VARCHAR(200) NULL,
+        created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_user_provider (user_id, provider),
+        INDEX idx_user_id (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // ⑥ 전자서명 이벤트 로그 (Webhook 수신 감사 추적)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS esign_events (
+          id             INT AUTO_INCREMENT PRIMARY KEY,
+          contract_id    INT NOT NULL,
+          provider       VARCHAR(20) DEFAULT 'modusign',
+          external_id    VARCHAR(100) NOT NULL,
+          event_type     VARCHAR(50) NOT NULL,
+          event_payload  MEDIUMTEXT NULL,
+          signer_email   VARCHAR(200) NULL,
+          received_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_contract (contract_id, received_at),
+          INDEX idx_external (external_id),
+          CONSTRAINT fk_ee_contract FOREIGN KEY (contract_id)
+            REFERENCES contracts(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (_) {
+      // FK 실패 → fallback
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS esign_events (
+          id INT AUTO_INCREMENT PRIMARY KEY, contract_id INT NOT NULL,
+          provider VARCHAR(20) DEFAULT 'modusign', external_id VARCHAR(100) NOT NULL,
+          event_type VARCHAR(50) NOT NULL, event_payload MEDIUMTEXT NULL,
+          signer_email VARCHAR(200) NULL, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_contract (contract_id, received_at), INDEX idx_external (external_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
     }
 
     // ② 파일: contract_files
@@ -1355,6 +1455,438 @@ router.get('/:id/legal-reviews', async (req, res) => {
     res.json({ success: true, data });
   } catch (err) {
     handleError(res, err);
+  }
+});
+
+// =============================================================
+// v6.0.0 Step 4: Modusign 전자서명 통합
+//
+// OAuth 흐름:
+//   GET /esign/oauth/connect   — 사용자를 모두싸인 인가 페이지로 redirect
+//   GET /esign/oauth/callback  — 인가 코드 → access_token 교환 + DB 저장
+//   GET /esign/status          — 현재 사용자 OAuth 연결 상태
+//   DELETE /esign/disconnect   — OAuth 토큰 무효화
+//
+// 서명 워크플로우:
+//   POST /:id/esign/request    — 계약서 서명 요청 시작
+//   GET  /:id/esign/status     — 모두싸인 실시간 상태 조회
+//   GET  /:id/esign/signed-pdf — 서명 완료 PDF 다운로드
+//   POST /:id/esign/cancel     — 요청 취소
+//
+// 정책: requireFeature('crm.contracts.esign') — 별도 토글 (기본 비활성)
+// =============================================================
+const { requireFeature: _reqFeature } = require('../middleware/featureGuard');
+const esignGuard = _reqFeature('crm.contracts.esign');
+
+// 사용자 OAuth 토큰 조회 (복호화) — 없으면 null
+async function _getUserEsignToken(userId) {
+  if (!userId) return null;
+  const [[row]] = await pool.query(
+    `SELECT * FROM esign_oauth_tokens WHERE user_id = ? AND provider = 'modusign' LIMIT 1`,
+    [userId]
+  );
+  if (!row) return null;
+  return {
+    ...row,
+    access_token: _safeDecrypt(row.access_token),
+    refresh_token: row.refresh_token ? _safeDecrypt(row.refresh_token) : null,
+  };
+}
+
+// ── GET /esign/oauth/connect — 인가 페이지 redirect ──────────
+router.get('/esign/oauth/connect', esignGuard, (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: '인증 필요' });
+    // state 에 userId 인코딩 (콜백 시 매칭용)
+    const state = Buffer.from(JSON.stringify({ uid: userId, ts: Date.now() })).toString(
+      'base64url'
+    );
+    const url = modusign.getAuthUrl(state);
+    res.json({ success: true, data: { auth_url: url, mock: modusign.isMockMode() } });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── GET /esign/oauth/callback — 코드 → 토큰 교환 ─────────────
+router.get('/esign/oauth/callback', esignGuard, async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (!code) {
+      return res.status(400).json({ success: false, error: '인가 코드 누락' });
+    }
+    let userId;
+    try {
+      const decoded = JSON.parse(Buffer.from(String(state), 'base64url').toString('utf8'));
+      userId = decoded.uid;
+    } catch (_) {
+      userId = getUserId(req);
+    }
+    if (!userId) return res.status(401).json({ success: false, error: '사용자 식별 실패' });
+
+    const token = await modusign.exchangeCodeForToken(String(code));
+    const expiresAt = token.expires_in ? new Date(Date.now() + token.expires_in * 1000) : null;
+
+    await pool.query(
+      `INSERT INTO esign_oauth_tokens
+        (user_id, provider, access_token, refresh_token, token_type,
+         expires_at, scope, modusign_user_id, modusign_email)
+       VALUES (?, 'modusign', ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         access_token = VALUES(access_token),
+         refresh_token = VALUES(refresh_token),
+         token_type = VALUES(token_type),
+         expires_at = VALUES(expires_at),
+         scope = VALUES(scope),
+         modusign_user_id = VALUES(modusign_user_id),
+         modusign_email = VALUES(modusign_email),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        userId,
+        _safeEncrypt(token.access_token),
+        token.refresh_token ? _safeEncrypt(token.refresh_token) : null,
+        token.token_type || 'Bearer',
+        expiresAt,
+        token.scope || null,
+        token.modusign_user_id || null,
+        token.modusign_email || null,
+      ]
+    );
+
+    // 사용자 경험: JSON 응답 또는 redirect (프론트에서 처리)
+    res.json({
+      success: true,
+      data: {
+        connected: true,
+        modusign_user_id: token.modusign_user_id || null,
+        modusign_email: token.modusign_email || null,
+        mock: modusign.isMockMode(),
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── GET /esign/status — 현재 사용자 연결 상태 ────────────────
+router.get('/esign/status', esignGuard, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: '인증 필요' });
+    const token = await _getUserEsignToken(userId);
+    res.json({
+      success: true,
+      data: {
+        connected: !!token,
+        modusign_user_id: token?.modusign_user_id || null,
+        modusign_email: token?.modusign_email || null,
+        expires_at: token?.expires_at || null,
+        mock: modusign.isMockMode(),
+        configured: modusign.isConfigured(),
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── DELETE /esign/disconnect — OAuth 토큰 삭제 ────────────────
+router.delete('/esign/disconnect', esignGuard, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: '인증 필요' });
+    await pool.query(`DELETE FROM esign_oauth_tokens WHERE user_id = ? AND provider = 'modusign'`, [
+      userId,
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── POST /:id/esign/request — 서명 요청 시작 ─────────────────
+router.post('/:id/esign/request', esignGuard, async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    const userId = getUserId(req);
+    const body = req.body || {};
+    const { file_id, signers, message } = body;
+
+    if (!Array.isArray(signers) || signers.length === 0) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '서명자(signers) 1명 이상 필요' });
+    }
+    for (const s of signers) {
+      if (!s.name || !s.email) {
+        await conn.rollback();
+        return res.status(400).json({ success: false, error: '서명자 name/email 필수' });
+      }
+    }
+
+    const [[contract]] = await conn.query(`SELECT * FROM contracts WHERE id = ?`, [id]);
+    if (!contract) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+    }
+    if (contract.status !== 'approved') {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: '서명 요청은 "승인" 단계 계약만 가능합니다',
+      });
+    }
+    if (contract.esign_request_id) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: `이미 서명 요청됨 (${contract.esign_status || 'requested'})`,
+      });
+    }
+
+    // OAuth 토큰 확인 (mock 모드에서는 임시 토큰 허용)
+    const token = await _getUserEsignToken(userId);
+    if (!token && !modusign.isMockMode()) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: '모두싸인 연결 필요 — 설정에서 [모두싸인 연결] 후 재시도하세요',
+      });
+    }
+
+    // 대상 파일 결정
+    let targetFile;
+    if (file_id) {
+      const [[f]] = await conn.query(
+        `SELECT * FROM contract_files WHERE id = ? AND contract_id = ?`,
+        [parseInt(file_id, 10), id]
+      );
+      if (!f) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, error: '파일을 찾을 수 없음' });
+      }
+      targetFile = f;
+    } else {
+      // 최신 분석 가능 파일 자동 선택
+      const [files] = await conn.query(
+        `SELECT * FROM contract_files WHERE contract_id = ?
+           ORDER BY created_at DESC`,
+        [id]
+      );
+      targetFile = files.find(f => /\.(pdf)$/i.test(f.original_filename));
+      if (!targetFile) {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          error: '서명 가능한 PDF 파일이 없습니다',
+        });
+      }
+    }
+
+    // 모두싸인 호출
+    const result = await modusign.createSignatureRequest({
+      accessToken: token?.access_token || '__MOCK__',
+      filePath: targetFile.file_path,
+      fileName: targetFile.original_filename,
+      signers,
+      message: message || `${contract.title} 계약서 서명 요청`,
+    });
+
+    if (!result?.document_id) {
+      await conn.rollback();
+      return res.status(502).json({
+        success: false,
+        error: 'Modusign 응답에 document_id 없음',
+      });
+    }
+
+    // contracts 업데이트
+    await conn.query(
+      `UPDATE contracts SET
+         esign_provider = 'modusign',
+         esign_request_id = ?,
+         esign_status = 'requested',
+         esign_requested_at = NOW(),
+         esign_signers_json = ?
+       WHERE id = ?`,
+      [result.document_id, JSON.stringify(signers), id]
+    );
+
+    // history
+    await logHistory(conn, id, userId, 'esign_request', {
+      description: `전자서명 요청: 서명자 ${signers.length}명, 문서 ID ${result.document_id}`,
+      newValue: result.document_id,
+    });
+
+    await conn.commit();
+    res.json({
+      success: true,
+      data: {
+        document_id: result.document_id,
+        status: 'requested',
+        signers: result.signers || signers,
+        mock: modusign.isMockMode(),
+      },
+    });
+  } catch (err) {
+    await conn.rollback();
+    console.error('[contracts:esign:request] failed:', err?.message || err);
+    handleError(res, err);
+  } finally {
+    conn.release();
+  }
+});
+
+// ── GET /:id/esign/status — 실시간 상태 조회 ──────────────────
+router.get('/:id/esign/status', esignGuard, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+
+    const [[contract]] = await pool.query(
+      `SELECT id, esign_provider, esign_request_id, esign_status,
+              esign_requested_at, esign_signed_at, esign_signers_json
+         FROM contracts WHERE id = ?`,
+      [id]
+    );
+    if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+    if (!contract.esign_request_id) {
+      return res.json({ success: true, data: { local: contract, remote: null } });
+    }
+
+    const token = await _getUserEsignToken(userId);
+    let remote = null;
+    try {
+      remote = await modusign.getDocumentStatus({
+        accessToken: token?.access_token || '__MOCK__',
+        documentId: contract.esign_request_id,
+      });
+    } catch (e) {
+      console.warn('[contracts:esign:status] remote fetch failed:', e.message);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        local: {
+          ...contract,
+          esign_signers: contract.esign_signers_json
+            ? (() => {
+                try {
+                  return JSON.parse(contract.esign_signers_json);
+                } catch (_) {
+                  return [];
+                }
+              })()
+            : [],
+        },
+        remote,
+        mock: modusign.isMockMode(),
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── GET /:id/esign/signed-pdf — 서명 완료본 다운로드 ─────────
+router.get('/:id/esign/signed-pdf', esignGuard, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const userId = getUserId(req);
+    const [[contract]] = await pool.query(
+      `SELECT id, contract_no, esign_request_id, esign_status, esign_signed_pdf_path
+         FROM contracts WHERE id = ?`,
+      [id]
+    );
+    if (!contract) return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+    if (!contract.esign_request_id) {
+      return res.status(400).json({ success: false, error: '서명 요청 이력이 없습니다' });
+    }
+    if (contract.esign_status !== 'signed' && !modusign.isMockMode()) {
+      return res.status(400).json({
+        success: false,
+        error: `서명 미완료 (현재: ${contract.esign_status || 'unknown'})`,
+      });
+    }
+
+    // 이미 저장된 파일 있으면 그대로 전송
+    if (contract.esign_signed_pdf_path && fs.existsSync(contract.esign_signed_pdf_path)) {
+      return res.download(contract.esign_signed_pdf_path, `${contract.contract_no}_signed.pdf`);
+    }
+
+    // 다운로드 + 저장 + 전송
+    const token = await _getUserEsignToken(userId);
+    const savePath = path.join(CONTRACT_UPLOAD_DIR, String(id), `signed_${Date.now()}.pdf`);
+    await modusign.downloadSignedPdf({
+      accessToken: token?.access_token || '__MOCK__',
+      documentId: contract.esign_request_id,
+      savePath,
+    });
+    await pool.query(`UPDATE contracts SET esign_signed_pdf_path = ? WHERE id = ?`, [savePath, id]);
+    res.download(savePath, `${contract.contract_no}_signed.pdf`);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── POST /:id/esign/cancel — 서명 요청 취소 ───────────────────
+router.post('/:id/esign/cancel', esignGuard, async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    }
+    const userId = getUserId(req);
+
+    const [[contract]] = await conn.query(
+      `SELECT esign_request_id, esign_status FROM contracts WHERE id = ?`,
+      [id]
+    );
+    if (!contract) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
+    }
+    if (!contract.esign_request_id) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '서명 요청 이력이 없습니다' });
+    }
+    if (contract.esign_status === 'signed') {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({ success: false, error: '이미 완료된 서명은 취소할 수 없습니다' });
+    }
+
+    const token = await _getUserEsignToken(userId);
+    await modusign.cancelSignatureRequest({
+      accessToken: token?.access_token || '__MOCK__',
+      documentId: contract.esign_request_id,
+    });
+    await conn.query(`UPDATE contracts SET esign_status = 'cancelled' WHERE id = ?`, [id]);
+    await logHistory(conn, id, userId, 'esign_cancel', {
+      description: '전자서명 요청 취소',
+      oldValue: contract.esign_status,
+      newValue: 'cancelled',
+    });
+    await conn.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    handleError(res, err);
+  } finally {
+    conn.release();
   }
 });
 

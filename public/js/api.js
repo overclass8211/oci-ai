@@ -330,6 +330,16 @@ const API = {
     legalReviews: id => API.get(`/contracts/${id}/legal-reviews`),
     // CLM 4단계 상태 전이 (draft → review → approved → completed)
     setStatus: (id, status) => API.patch(`/contracts/${id}/status`, { status }),
+    // v6.0.0 Step 4: Modusign 전자서명
+    esign: {
+      connect: () => API.get('/contracts/esign/oauth/connect'),
+      status: () => API.get('/contracts/esign/status'),
+      disconnect: () => API.del('/contracts/esign/disconnect'),
+      request: (id, body) => API.post(`/contracts/${id}/esign/request`, body),
+      getStatus: id => API.get(`/contracts/${id}/esign/status`),
+      signedPdfUrl: id => `/api/contracts/${id}/esign/signed-pdf`,
+      cancel: id => API.post(`/contracts/${id}/esign/cancel`, {}),
+    },
   },
 
   // 견적서 (crm.quotes)

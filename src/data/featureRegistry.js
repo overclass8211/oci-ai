@@ -302,6 +302,18 @@ const FEATURE_REGISTRY = [
     default_enabled: true,
   },
   {
+    key: 'crm.contracts.esign',
+    name: '계약 전자서명 (모두싸인)',
+    description: '모두싸인 OAuth 2.0 연동 — 계약서 서명 요청/추적/완료본 다운로드 + Webhook 수신',
+    category: 'crm',
+    risk_level: 'high',
+    required_features: ['crm.contracts'],
+    affects_routes: '/api/contracts/esign,/api/webhooks/modusign',
+    affects_tables: 'esign_oauth_tokens,esign_events,contracts',
+    is_experimental: true,
+    default_enabled: false,
+  },
+  {
     key: 'crm.quotes',
     name: '견적서',
     description: '견적서 작성/편집/리비전 + 자동 채번 + PDF 내보내기',
