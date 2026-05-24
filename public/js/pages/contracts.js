@@ -140,7 +140,7 @@ const ContractsPage = (() => {
   }
 
   function _bindHeaderEvents() {
-    document.getElementById('ct-new-btn').addEventListener('click', () => _openModal(null));
+    document.getElementById('ct-new-btn').addEventListener('click', () => _openNewModeChooser());
     document.getElementById('ct-refresh-btn').addEventListener('click', () => _refreshList());
 
     const searchInput = document.getElementById('ct-search');
@@ -251,6 +251,92 @@ const ContractsPage = (() => {
         ev.stopPropagation();
         _doDelete(parseInt(btn.dataset.id, 10));
       });
+    });
+  }
+
+  // ── v6.0.0 Phase A2-1: 등록 모드 선택 모달 ─────────────────
+  // "+ 새 계약" 클릭 시 — 사용자가 시작 방식 선택
+  //   A. 📎 계약서 받음 — 파일 첨부 → AI 분석 → 자동 채움 (B2B 대표 시나리오)
+  //   B. ✏️ 빈 양식 — 직접 입력 (소형, 우리가 작성)
+  function _openNewModeChooser() {
+    Modal.open({
+      title: '➕ 새 계약 등록 — 어떻게 시작하시겠습니까?',
+      width: 720,
+      body: `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <!-- 모드 A: 파일 우선 (AI 분석) -->
+          <button id="ct-mode-file" type="button"
+            style="text-align:left;padding:22px 18px;background:linear-gradient(135deg,#faf5ff,#f3e8ff);
+                   border:2px solid #7c3aed;border-radius:10px;cursor:pointer;transition:transform .15s">
+            <div style="font-size:32px;line-height:1;margin-bottom:10px">📎</div>
+            <div style="font-size:15px;font-weight:700;color:#5b21b6;margin-bottom:6px">
+              계약서 받음
+            </div>
+            <div style="font-size:12px;color:#6b21a8;line-height:1.6;margin-bottom:10px">
+              <strong>발주처가 보내준 PDF</strong> 또는 협상 중인 초안을 받았을 때<br>
+              <span style="color:#7c3aed">① 파일 첨부 → ② AI 법무 분석 → ③ 정보 자동 채움</span>
+            </div>
+            <div style="font-size:11px;color:#7c3aed;font-weight:600">
+              🤖 Gemini 2.5 Pro · 약 30-60초 · 1회 500-1000원
+            </div>
+          </button>
+
+          <!-- 모드 B: 빈 양식 (직접 입력) -->
+          <button id="ct-mode-blank" type="button"
+            style="text-align:left;padding:22px 18px;background:#f9fafb;
+                   border:2px solid var(--border);border-radius:10px;cursor:pointer;transition:transform .15s">
+            <div style="font-size:32px;line-height:1;margin-bottom:10px">✏️</div>
+            <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px">
+              빈 양식부터
+            </div>
+            <div style="font-size:12px;color:var(--text-3);line-height:1.6;margin-bottom:10px">
+              <strong>우리가 직접 작성</strong>하거나 간단한 NDA/SOW 등<br>
+              <span>① 양식 입력 → ② 저장 → ③ (선택) 파일 첨부</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-3);font-weight:600">
+              ⚡ 즉시 입력 가능 · AI 분석은 나중에
+            </div>
+          </button>
+        </div>
+
+        <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e">
+          💡 <strong>둘 중 어떤 모드로 시작하든</strong> 등록 후 파일 추가/삭제, AI 법무 검토 재실행, 정보 수정 모두 가능합니다.
+        </div>
+      `,
+      footer: `<button class="btn btn-ghost" id="ct-mode-cancel">취소</button>`,
+      bind: {
+        '#ct-mode-cancel': () => Modal.close(),
+      },
+      onOpen: () => {
+        const fileBtn = document.getElementById('ct-mode-file');
+        const blankBtn = document.getElementById('ct-mode-blank');
+        const hoverOn = btn => {
+          btn.style.transform = 'translateY(-3px)';
+          btn.style.boxShadow = '0 6px 14px rgba(0,0,0,0.08)';
+        };
+        const hoverOff = btn => {
+          btn.style.transform = 'translateY(0)';
+          btn.style.boxShadow = 'none';
+        };
+        fileBtn.addEventListener('mouseenter', () => hoverOn(fileBtn));
+        fileBtn.addEventListener('mouseleave', () => hoverOff(fileBtn));
+        blankBtn.addEventListener('mouseenter', () => hoverOn(blankBtn));
+        blankBtn.addEventListener('mouseleave', () => hoverOff(blankBtn));
+
+        // 모드 B (빈 양식) — 기존 빈 모달 흐름 그대로
+        blankBtn.addEventListener('click', () => {
+          Modal.close();
+          setTimeout(() => _openModal(null), 100);
+        });
+
+        // 모드 A (파일 우선) — Phase A2-2 에서 구현될 함수
+        // 현재는 placeholder (다음 commit 에서 실제 동작 구현)
+        fileBtn.addEventListener('click', () => {
+          Modal.close();
+          Toast.info?.('📎 파일 우선 등록 모드는 Phase A2-2 에서 구현됩니다 — 지금은 빈 양식으로 시작합니다');
+          setTimeout(() => _openModal(null), 100);
+        });
+      },
     });
   }
 
