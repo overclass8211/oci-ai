@@ -329,19 +329,81 @@ const ContractsPage = (() => {
           setTimeout(() => _openModal(null), 100);
         });
 
-        // 모드 A (파일 우선) — Phase A2-2 에서 구현될 함수
-        // 현재는 placeholder (다음 commit 에서 실제 동작 구현)
-        fileBtn.addEventListener('click', () => {
+        // 모드 A (파일 우선) — Phase A2-2: 임시 계약 자동 생성 → 편집 모달 진입
+        fileBtn.addEventListener('click', async () => {
           Modal.close();
-          Toast.info?.('📎 파일 우선 등록 모드는 Phase A2-2 에서 구현됩니다 — 지금은 빈 양식으로 시작합니다');
-          setTimeout(() => _openModal(null), 100);
+          await _openModalFileFirst();
         });
       },
     });
   }
 
+  // ── v6.0.0 Phase A2-2: 파일 우선 등록 모드 ──────────────────
+  // 임시 계약 자동 생성 → 즉시 편집 모달 진입 → 사용자가 파일 첨부 → AI 분석
+  // 모달 close 시 미저장 (= placeholder 그대로) 면 자동 정리
+  let _tempContractId = null; // 현재 임시 계약 ID 추적 (close 시 정리용)
+
+  async function _openModalFileFirst() {
+    // 1. 임시 계약 자동 생성 (placeholder 값 — 사용자가 저장 시 실제 값으로 교체)
+    let tempId;
+    try {
+      Toast.info?.('임시 계약 생성 중...');
+      const res = await API.contracts.create({
+        title: '(임시)',
+        contract_type: 'etc',
+        status: 'draft',
+        currency: 'KRW',
+      });
+      tempId = res?.id || res?.data?.id;
+      if (!tempId) throw new Error('임시 계약 ID 누락');
+      _tempContractId = tempId;
+    } catch (err) {
+      Toast.error?.('임시 계약 생성 실패: ' + (err.message || err));
+      return;
+    }
+    // 2. 편집 모달 진입 (파일 첨부 우선 모드)
+    await _openModal(tempId, { isTempMode: true });
+  }
+
+  // 임시 계약 정리 (사용자가 미저장 close 시)
+  async function _cleanupTempContractIfNeeded() {
+    if (!_tempContractId) return;
+    const id = _tempContractId;
+    _tempContractId = null;
+    try {
+      // 사용자가 실제로 값을 입력했는지 확인
+      const r = await API.contracts.get(id);
+      const c = r?.data;
+      if (!c) return;
+      const isStillTemp =
+        c.title === '(임시)' &&
+        !c.customer_name &&
+        !c.customer_id &&
+        (!c.files || c.files.length === 0);
+      if (isStillTemp) {
+        await API.contracts.delete(id);
+        console.log(`[contracts:cleanup] 임시 계약 ${id} 자동 삭제`);
+      } else {
+        // 일부 입력했지만 저장 안한 경우 — confirm
+        const proceed = confirm(
+          `미저장 임시 계약이 있습니다 (#${id}).\n\n` +
+            `유지하려면 [취소] (목록에 남음)\n` +
+            `삭제하려면 [확인]`
+        );
+        if (proceed) {
+          await API.contracts.delete(id);
+          Toast.info?.(`임시 계약 #${id} 삭제됨`);
+        }
+      }
+      await _refreshList();
+    } catch (_) {
+      /* best-effort */
+    }
+  }
+
   // ── 모달 (생성/편집) ──────────────────────────────────────
-  async function _openModal(id) {
+  async function _openModal(id, opts = {}) {
+    const { isTempMode = false } = opts;
     let entity;
     if (id) {
       try {
@@ -361,25 +423,42 @@ const ContractsPage = (() => {
       }
     }
 
-    const title = id ? `📜 계약 편집 — ${esc(entity.contract_no || '')}` : '📜 새 계약 등록';
-    const actions = id ? (QUICK_ACTIONS[entity.status] || []) : [];
+    // 임시 모드: placeholder 값 화면에서 빈칸으로 표시 (사용자가 실제 입력 유도)
+    if (isTempMode && entity.title === '(임시)') {
+      entity.title = '';
+    }
+
+    const title = id
+      ? isTempMode
+        ? `📜 새 계약 등록 (파일 첨부 모드) — ${esc(entity.contract_no || '')}`
+        : `📜 계약 편집 — ${esc(entity.contract_no || '')}`
+      : '📜 새 계약 등록';
+    const actions = id && !isTempMode ? (QUICK_ACTIONS[entity.status] || []) : [];
+
+    // 취소/닫기 핸들러 — 임시 모드 시 cleanup 우선
+    const cancelHandler = async () => {
+      Modal.close();
+      if (isTempMode) {
+        await _cleanupTempContractIfNeeded();
+      }
+    };
 
     Modal.open({
       title,
       width: 1100,
-      body: _formHtml(entity),
+      body: _formHtml(entity, { isTempMode }),
       footer: `
         ${actions.map(a => {
           const cls = a.kind === 'primary' ? 'btn-primary' : a.kind === 'danger' ? 'btn-danger' : 'btn-ghost';
           return `<button class="btn ${cls} ct-quick-action" data-to="${a.to}" type="button">${esc(a.label)}</button>`;
         }).join('')}
         <span style="flex:1"></span>
-        <button class="btn btn-ghost" id="ct-cancel-btn">취소</button>
+        <button class="btn btn-ghost" id="ct-cancel-btn">${isTempMode ? '취소 (삭제)' : '취소'}</button>
         <button class="btn btn-primary" id="ct-save-btn">${id ? '💾 저장' : '➕ 등록'}</button>
       `,
       bind: {
-        '#ct-cancel-btn': () => Modal.close(),
-        '#ct-save-btn': () => _doSave(id),
+        '#ct-cancel-btn': cancelHandler,
+        '#ct-save-btn': () => _doSave(id, { isTempMode }),
       },
       disableOverlayClose: true,
       onOpen: () => {
@@ -405,8 +484,10 @@ const ContractsPage = (() => {
     });
   }
 
-  function _formHtml(e) {
+  function _formHtml(e, opts = {}) {
+    const { isTempMode = false } = opts;
     return `
+      ${isTempMode ? _renderTempModeIntro(e) : ''}
       ${e.id ? _renderLegalCtaSection(e) : ''}
       <div class="form-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
         <div class="form-row">
@@ -519,6 +600,32 @@ const ContractsPage = (() => {
           : '<div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e">💡 계약 등록 후 파일 첨부 + AI 법무 검토가 가능합니다</div>'
       }
     `;
+  }
+
+  // v6.0.0 Phase A2-2: 임시 모드 인트로 (파일 우선 등록 안내)
+  function _renderTempModeIntro(e) {
+    const hasFile = Array.isArray(e.files) && e.files.length > 0;
+    return `<div style="border:2px solid #7c3aed;border-radius:10px;padding:14px 18px;background:linear-gradient(135deg,#faf5ff,#f3e8ff);margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div style="font-size:24px;line-height:1">📎</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#5b21b6">
+            파일 첨부 → AI 법무 분석 → 자동 채움
+          </div>
+          <div style="font-size:11px;color:#7c3aed;margin-top:2px">
+            임시 계약번호 <code style="background:#fff;padding:1px 6px;border-radius:3px;font-family:monospace">${esc(e.contract_no || '')}</code> 자동 발급됨 (저장 시 확정)
+          </div>
+        </div>
+      </div>
+      <ol style="margin:6px 0 0 24px;padding:0;font-size:12px;color:#6b21a8;line-height:1.8">
+        <li>${hasFile ? '✅' : '<strong>①</strong>'} 아래 <strong>[+ 파일 추가]</strong> 로 계약서 첨부 (PDF/이미지/TXT)</li>
+        <li>${hasFile ? '<strong>②</strong>' : '⬜'} 상단 <strong>[🤖 AI 법무 검토 시작]</strong> 클릭 → 30-60초 대기</li>
+        <li>⬜ AI 추출 정보 확인 후 적용 → 필요 시 수정 → 💾 저장</li>
+      </ol>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #c4b5fd;font-size:10px;color:#7c3aed">
+        💡 미저장 상태로 [취소] 시 임시 계약 자동 삭제 · 정식 저장 시 정상 계약으로 전환
+      </div>
+    </div>`;
   }
 
   // Step 3: AI 법무 검토 메인 CTA + 결과 카드 (모달 상단)
@@ -941,7 +1048,9 @@ const ContractsPage = (() => {
   async function _reopenModalFresh(contractId) {
     Modal.close();
     await _refreshList();
-    await _openModal(contractId);
+    // 임시 모드 유지 (사용자가 파일 첨부 후 모달 재진입 시 안내 카드 유지)
+    const isTempMode = _tempContractId === contractId;
+    await _openModal(contractId, { isTempMode });
   }
 
   // v6.0.0 Step 2 Commit 4: 4개 연결 Combobox 부착
@@ -1139,7 +1248,8 @@ const ContractsPage = (() => {
     };
   }
 
-  async function _doSave(id) {
+  async function _doSave(id, opts = {}) {
+    const { isTempMode = false } = opts;
     const body = _collectForm();
     if (!body.title) {
       Toast.error?.('계약명을 입력하세요');
@@ -1149,7 +1259,11 @@ const ContractsPage = (() => {
     try {
       if (id) {
         await API.contracts.update(id, body);
-        Toast.success?.('저장됨');
+        Toast.success?.(isTempMode ? '계약 등록 완료 (정식 저장됨)' : '저장됨');
+        // v6.0.0 Phase A2-2: 임시 모드에서 정식 저장 → 임시 추적 ID 해제
+        if (isTempMode && _tempContractId === id) {
+          _tempContractId = null;
+        }
       } else {
         const res = await API.contracts.create(body);
         Toast.success?.(`계약 등록 완료 — ${res?.data?.contract_no || ''}`);
