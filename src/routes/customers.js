@@ -117,9 +117,9 @@ router.get('/', async (req, res) => {
     }
 
     // v6.0.0: 카드/리스트에 표시할 모듈별 카운트 4종을 서브쿼리로 enrich
-    //   - related_deals_cnt: leads(customer_name = c.name) — 모달 [관련 딜] 탭과
-    //     **정확히 동일한 기준** (status 필터 없음, customer_name 매칭)
-    //   - quotes_cnt / proposals_cnt / contracts_cnt: customer_id 매칭, 전체 건수
+    //   - related_deals_cnt: leads(customer_name = c.name) — 모달 [관련 딜] 탭과 동일
+    //   - quotes/proposals/contracts_cnt: customer_id 매칭 + customer_name fallback
+    //     (백필 누락 데이터 보호 — customer_id IS NULL 이어도 이름으로 매칭)
     //   leads.customer_name 인덱스 (initTables.js) 로 50개 카드 +30ms 이내
     const [[countRows], [rows]] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS total FROM customers ${where}`, params),
@@ -128,11 +128,14 @@ router.get('/', async (req, res) => {
           (SELECT COUNT(*) FROM leads l
              WHERE l.customer_name = c.name) AS related_deals_cnt,
           (SELECT COUNT(*) FROM quotes q
-             WHERE q.customer_id = c.id) AS quotes_cnt,
+             WHERE q.customer_id = c.id
+                OR (q.customer_id IS NULL AND q.customer_name = c.name)) AS quotes_cnt,
           (SELECT COUNT(*) FROM proposals p
-             WHERE p.customer_id = c.id) AS proposals_cnt,
+             WHERE p.customer_id = c.id
+                OR (p.customer_id IS NULL AND p.customer_name = c.name)) AS proposals_cnt,
           (SELECT COUNT(*) FROM contracts ct
-             WHERE ct.customer_id = c.id) AS contracts_cnt
+             WHERE ct.customer_id = c.id
+                OR (ct.customer_id IS NULL AND ct.customer_name = c.name)) AS contracts_cnt
          FROM customers c
          ${where.replace(/\b(name|contact_person|region|industry)\b/g, 'c.$1')}
          ORDER BY c.name LIMIT ? OFFSET ?`,
@@ -858,17 +861,19 @@ router.post('/import', upload.memory.single('file'), async (req, res) => {
 // 고객사 상세 모달에서 "🔗 연결된 계약" 섹션 렌더링용
 router.get('/:id/contracts', validateId, async (req, res) => {
   try {
-    const [[c]] = await pool.query('SELECT id FROM customers WHERE id = ?', [req.params.id]);
+    const [[c]] = await pool.query('SELECT id, name FROM customers WHERE id = ?', [req.params.id]);
     if (!c) return res.status(404).json({ success: false, error: '고객사 없음' });
+    // v6.0.0: customer_id 매칭 + customer_name fallback (백필 누락 데이터 보호)
     const [contracts] = await pool.query(
       `SELECT id, contract_no, title, status, contract_type,
               contract_amount, currency, start_date, end_date,
               customer_name, created_at
          FROM contracts
         WHERE customer_id = ?
+           OR (customer_id IS NULL AND customer_name = ?)
         ORDER BY created_at DESC
         LIMIT 100`,
-      [req.params.id]
+      [req.params.id, c.name]
     );
     res.json({ success: true, data: contracts });
   } catch (err) {
@@ -912,18 +917,20 @@ router.get('/dashboard', async (req, res) => {
 // 고객사 모달 [💰 견적] 탭 렌더링용
 router.get('/:id/quotes', validateId, async (req, res) => {
   try {
-    const [[c]] = await pool.query('SELECT id FROM customers WHERE id = ?', [req.params.id]);
+    const [[c]] = await pool.query('SELECT id, name FROM customers WHERE id = ?', [req.params.id]);
     if (!c) return res.status(404).json({ success: false, error: '고객사 없음' });
     // 참고: quotes 테이블에는 currency 컬럼이 없음 → 프론트에서 'KRW' fallback
+    // v6.0.0: customer_id 매칭 + customer_name fallback (백필 누락 데이터 보호)
     const [quotes] = await pool.query(
       `SELECT id, quote_no, name, status, customer_name,
               total_amount, quote_date,
               revision_no, created_at, updated_at
          FROM quotes
         WHERE customer_id = ?
+           OR (customer_id IS NULL AND customer_name = ?)
         ORDER BY created_at DESC
         LIMIT 100`,
-      [req.params.id]
+      [req.params.id, c.name]
     );
     res.json({ success: true, data: quotes });
   } catch (err) {
@@ -935,17 +942,19 @@ router.get('/:id/quotes', validateId, async (req, res) => {
 // 고객사 모달 [📝 제안] 탭 렌더링용
 router.get('/:id/proposals', validateId, async (req, res) => {
   try {
-    const [[c]] = await pool.query('SELECT id FROM customers WHERE id = ?', [req.params.id]);
+    const [[c]] = await pool.query('SELECT id, name FROM customers WHERE id = ?', [req.params.id]);
     if (!c) return res.status(404).json({ success: false, error: '고객사 없음' });
+    // v6.0.0: customer_id 매칭 + customer_name fallback (백필 누락 데이터 보호)
     const [proposals] = await pool.query(
       `SELECT id, proposal_no, proposal_title, status, customer_name,
               expected_amount, currency, proposal_date, due_date,
               owner_name, created_at, updated_at
          FROM proposals
         WHERE customer_id = ?
+           OR (customer_id IS NULL AND customer_name = ?)
         ORDER BY created_at DESC
         LIMIT 100`,
-      [req.params.id]
+      [req.params.id, c.name]
     );
     res.json({ success: true, data: proposals });
   } catch (err) {

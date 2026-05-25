@@ -492,11 +492,45 @@ async function initTables() {
     }
 
     // ── v6.0.0: 데이터 정합성 백필 (idempotent) ──────────────
-    // quotes/proposals/contracts 중 lead_id 가 있는데 customer_id 가 NULL 인 행을
-    // lead 의 customer_id/customer_name 으로 일괄 채움. 고객사 카드 통계 바
-    // (관련딜/견적/제안/계약) 가 정확히 표시되도록 보장.
+    // 두 단계로 진행:
+    // (1) customer_name 직접 매칭 — lead.customer_id 가 NULL 이어도 동작 (가장 강력)
+    // (2) lead → customer 경유 매칭 — customer_name 이 다르거나 비어있는 경우
     // 매번 실행되어도 NULL 행만 매칭되므로 idempotent.
     const backfills = [
+      // ── 1단계: customer_name 직접 매칭 (가장 광범위) ─────
+      {
+        label: 'quotes (via customer_name)',
+        sql: `UPDATE quotes q
+                JOIN customers c ON c.name = q.customer_name
+                 SET q.customer_id = c.id
+               WHERE q.customer_id IS NULL
+                 AND q.customer_name IS NOT NULL AND q.customer_name != ''`,
+      },
+      {
+        label: 'proposals (via customer_name)',
+        sql: `UPDATE proposals p
+                JOIN customers c ON c.name = p.customer_name
+                 SET p.customer_id = c.id
+               WHERE p.customer_id IS NULL
+                 AND p.customer_name IS NOT NULL AND p.customer_name != ''`,
+      },
+      {
+        label: 'contracts (via customer_name)',
+        sql: `UPDATE contracts ct
+                JOIN customers c ON c.name = ct.customer_name
+                 SET ct.customer_id = c.id
+               WHERE ct.customer_id IS NULL
+                 AND ct.customer_name IS NOT NULL AND ct.customer_name != ''`,
+      },
+      {
+        label: 'leads (via customer_name)',
+        sql: `UPDATE leads l
+                JOIN customers c ON c.name = l.customer_name
+                 SET l.customer_id = c.id
+               WHERE l.customer_id IS NULL
+                 AND l.customer_name IS NOT NULL AND l.customer_name != ''`,
+      },
+      // ── 2단계: lead/proposal/quote 경유 매칭 (customer_name 이 비어있거나 다른 경우) ──
       {
         label: 'quotes',
         sql: `UPDATE quotes q
