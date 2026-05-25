@@ -12,9 +12,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (createdLeadId) {
-    // v6.0.0: lead_comments 정리 (FK CASCADE 가 동작하지만 안전망)
+    // v6.0.0: lead_comments + lead_supports 정리 (FK CASCADE 가 동작하지만 안전망)
     try {
       await pool.query('DELETE FROM lead_comments WHERE lead_id = ?', [createdLeadId]);
+    } catch (_) {
+      /* table may not exist */
+    }
+    try {
+      await pool.query('DELETE FROM lead_supports WHERE lead_id = ?', [createdLeadId]);
     } catch (_) {
       /* table may not exist */
     }
@@ -144,5 +149,57 @@ describe('Leads API', () => {
       .post('/api/leads/9999999/comments')
       .send({ body: '존재 안함' });
     expect(r.status).toBe(404);
+  });
+
+  // ── v6.0.0 Phase A: 통합 타임라인용 역방향 조회 + 고객지원 ──
+  it('GET /:id/quotes — 빈 목록 (lead_id 로 quotes 조회)', async () => {
+    const res = await api().get(`/api/leads/${createdLeadId}/quotes`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('GET /:id/proposals — 빈 목록 (lead_id 로 proposals 조회)', async () => {
+    const res = await api().get(`/api/leads/${createdLeadId}/proposals`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('GET /:id/quotes — 존재하지 않는 리드 → 404', async () => {
+    const r = await api().get('/api/leads/9999999/quotes');
+    expect(r.status).toBe(404);
+  });
+
+  it('GET /:id/supports — 빈 목록 (자가 마이그레이션)', async () => {
+    const res = await api().get(`/api/leads/${createdLeadId}/supports`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('POST /:id/supports — 고객지원 등록 + 응답 검증', async () => {
+    const r = await api()
+      .post(`/api/leads/${createdLeadId}/supports`)
+      .set('X-User-Id', '1')
+      .send({ body: '고객 납기 문의 응대', support_type: 'inquiry', title: '문의 응대' });
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(r.body.data.support_type).toBe('inquiry');
+    expect(r.body.data.title).toBe('문의 응대');
+  });
+
+  it('POST /:id/supports — 잘못된 타입 → general 로 fallback', async () => {
+    const r = await api()
+      .post(`/api/leads/${createdLeadId}/supports`)
+      .send({ body: 'fallback 검증', support_type: 'bad' });
+    expect(r.status).toBe(200);
+    expect(r.body.data.support_type).toBe('general');
+  });
+
+  it('GET /:id/supports — 등록한 지원 목록 반환 (DESC)', async () => {
+    const res = await api().get(`/api/leads/${createdLeadId}/supports`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+    const types = res.body.data.map(s => s.support_type);
+    expect(types).toContain('inquiry');
+    expect(types).toContain('general');
   });
 });

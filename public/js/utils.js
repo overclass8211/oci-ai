@@ -195,6 +195,7 @@ const Modal = {
     footer,
     width,
     compact = false,
+    wide = false,
     bind = {},
     onOpen,
     confirmOnClose = true,
@@ -202,9 +203,20 @@ const Modal = {
   }) {
     const overlay = document.getElementById('modal-overlay');
     const box = document.getElementById('modal-box');
-    // compact=true 면 인자 width 우선, 아니면 시스템 표준 강제
-    const finalWidth = compact ? width || 480 : MODAL_STANDARD_WIDTH;
-    box.style.maxWidth = finalWidth + 'px';
+    // 우선순위: compact (작은 다이얼로그) > wide (와이드 모달) > 표준
+    // wide=true 면 1440px + 95vw 반응형 (v6.0.0: 영업리드 통합 타임라인용)
+    if (compact) {
+      box.style.maxWidth = (width || 480) + 'px';
+      box.style.width = '';
+    } else if (wide) {
+      // 반응형: viewport 의 95% 와 1440px 중 작은 값
+      box.style.maxWidth = 'min(95vw, ' + (width || 1440) + 'px)';
+      box.style.width = '95vw';
+    } else {
+      box.style.maxWidth = MODAL_STANDARD_WIDTH + 'px';
+      // wide 후 width:95vw 가 남아있을 수 있어 reset
+      box.style.width = '';
+    }
     box.innerHTML = `
       <div class="modal-header">
         <div class="modal-title">${title}</div>

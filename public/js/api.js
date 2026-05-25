@@ -195,6 +195,14 @@ const API = {
       list: id => API.get(`/leads/${id}/comments`),
       create: (id, body) => API.post(`/leads/${id}/comments`, body),
     },
+    // v6.0.0 Phase A: 고객지원 항목 (통합 타임라인 '고객지원' 칩)
+    supports: {
+      list: id => API.get(`/leads/${id}/supports`),
+      create: (id, body) => API.post(`/leads/${id}/supports`, body),
+    },
+    // v6.0.0 Phase A: 연결된 견적/제안 역방향 조회 (모달 통합 타임라인)
+    quotes: id => API.get(`/leads/${id}/quotes`),
+    proposals: id => API.get(`/leads/${id}/proposals`),
   },
 
   // 상품/원가

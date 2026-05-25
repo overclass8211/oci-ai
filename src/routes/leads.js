@@ -1140,6 +1140,47 @@ router.get('/:id/contracts', validateId, async (req, res) => {
   }
 });
 
+// ── v6.0.0 Phase A: 통합 타임라인용 역방향 조회 ────────────
+// GET /api/leads/:id/quotes
+router.get('/:id/quotes', validateId, async (req, res) => {
+  try {
+    const [[lead]] = await pool.query('SELECT id FROM leads WHERE id = ?', [req.params.id]);
+    if (!lead) return res.status(404).json({ success: false, error: '리드 없음' });
+    const [rows] = await pool.query(
+      `SELECT id, quote_no, name, customer_name, total_amount, status,
+              revision_no, quote_date, created_at
+         FROM quotes
+        WHERE lead_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET /api/leads/:id/proposals
+router.get('/:id/proposals', validateId, async (req, res) => {
+  try {
+    const [[lead]] = await pool.query('SELECT id FROM leads WHERE id = ?', [req.params.id]);
+    if (!lead) return res.status(404).json({ success: false, error: '리드 없음' });
+    const [rows] = await pool.query(
+      `SELECT id, proposal_no, proposal_title, customer_name, status,
+              expected_amount, currency, proposal_date, due_date, created_at
+         FROM proposals
+        WHERE lead_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // =============================================================
 // v6.0.0: 영업리드 댓글 (계약 패턴 통일)
 // 자가 마이그레이션 — lead_comments 테이블 (idempotent)
@@ -1276,6 +1317,113 @@ router.post('/:id/comments', validateId, async (req, res) => {
         user_id: userId || null,
         author_name: authorName,
         author_email: authorEmail,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// =============================================================
+// v6.0.0 Phase A: 영업리드 고객지원 항목 (lead_supports)
+// 통합 타임라인의 '고객지원' 카테고리 데이터
+// =============================================================
+let _supportsTableReady = null;
+function _ensureSupportsTable() {
+  if (_supportsTableReady) return _supportsTableReady;
+  _supportsTableReady = (async () => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS lead_supports (
+          id           INT AUTO_INCREMENT PRIMARY KEY,
+          lead_id      INT NOT NULL,
+          user_id      INT NULL,
+          support_type VARCHAR(20) DEFAULT 'general'
+                       COMMENT 'general|inquiry|complaint|followup',
+          title        VARCHAR(200) NULL,
+          body         TEXT NOT NULL,
+          created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_lead_created (lead_id, created_at),
+          CONSTRAINT fk_ls_lead FOREIGN KEY (lead_id)
+            REFERENCES leads(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (e) {
+      console.warn('[leads:supports] FK 마이그레이션 실패, FK 없이 재시도:', e?.message);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS lead_supports (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          lead_id INT NOT NULL, user_id INT NULL,
+          support_type VARCHAR(20) DEFAULT 'general',
+          title VARCHAR(200) NULL,
+          body TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_lead_created (lead_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+  })().catch(e => {
+    console.error('[leads:supports] 마이그레이션 최종 실패:', e?.message);
+    _supportsTableReady = null;
+    throw e;
+  });
+  return _supportsTableReady;
+}
+_ensureSupportsTable().catch(() => {});
+
+const ALLOWED_SUPPORT_TYPES = ['general', 'inquiry', 'complaint', 'followup'];
+
+// GET /api/leads/:id/supports
+router.get('/:id/supports', validateId, async (req, res) => {
+  try {
+    await _ensureSupportsTable();
+    const id = parseInt(req.params.id, 10);
+    const [rows] = await pool.query(
+      `SELECT ls.id, ls.support_type, ls.title, ls.body, ls.created_at,
+              ls.user_id, tm.name AS author_name
+         FROM lead_supports ls
+         LEFT JOIN team_members tm ON tm.id = ls.user_id
+        WHERE ls.lead_id = ?
+        ORDER BY ls.created_at DESC`,
+      [id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST /api/leads/:id/supports
+router.post('/:id/supports', validateId, async (req, res) => {
+  try {
+    await _ensureSupportsTable();
+    const id = parseInt(req.params.id, 10);
+    const userId = getUserId(req);
+    const body = req.body || {};
+    const text = String(body.body || '').trim();
+    if (!text) return res.status(400).json({ success: false, error: '내용 필요' });
+    const supportType = ALLOWED_SUPPORT_TYPES.includes(body.support_type)
+      ? body.support_type
+      : 'general';
+    const title = body.title ? String(body.title).slice(0, 200) : null;
+
+    const [[lead]] = await pool.query(`SELECT id FROM leads WHERE id = ?`, [id]);
+    if (!lead) return res.status(404).json({ success: false, error: '리드를 찾을 수 없음' });
+
+    const [r] = await pool.query(
+      `INSERT INTO lead_supports (lead_id, user_id, support_type, title, body)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, userId || null, supportType, title, text.slice(0, 5000)]
+    );
+    res.json({
+      success: true,
+      data: {
+        id: r.insertId,
+        support_type: supportType,
+        title,
+        body: text,
+        created_at: new Date(),
+        user_id: userId || null,
       },
     });
   } catch (err) {

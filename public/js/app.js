@@ -1033,101 +1033,12 @@ const App = {
       const contactEmail = custInfo?.email || '';
       const customerId = custInfo?.id || null; // 고객사 모달 연결용
 
-      // 활동 이력 HTML 생성 (data 속성으로 CSP-safe 이벤트 준비)
-      const activitiesHtml =
-        l.activities && l.activities.length
-          ? `
-        <div class="activity-list">
-          ${l.activities
-            .map(a => {
-              const dateStr = a.activity_date
-                ? String(a.activity_date).slice(0, 10)
-                : a.performed_at
-                  ? String(a.performed_at).slice(0, 10)
-                  : '';
-              const isLinkable =
-                !a.calendar_event_id &&
-                a.activity_type &&
-                !['stage_change', '수주', '드롭'].includes(a.activity_type);
-              return `
-            <div class="activity-item ${a.calendar_event_id ? 'has-calendar' : ''}"
-                 ${
-                   a.calendar_event_id
-                     ? `data-act-cal="${a.calendar_event_id}" data-act-date="${dateStr}" style="cursor:pointer"`
-                     : ''
-                 }>
-              <div class="activity-icon">${this.activityIcon(a.activity_type)}</div>
-              <div class="activity-body">
-                <div class="activity-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                  <span>${esc(a.title)}</span>
-                  ${
-                    a.status === 'done'
-                      ? '<span class="badge" style="background:rgba(23,168,90,.12);color:#17A85A;font-size:10px;padding:1px 7px">✅ 완료</span>'
-                      : a.status === 'planned'
-                        ? '<span class="badge" style="background:rgba(33,150,243,.12);color:#1976D2;font-size:10px;padding:1px 7px">📌 계획</span>'
-                        : ''
-                  }
-                  ${
-                    a.calendar_event_id
-                      ? '<span class="activity-cal-badge">📅 캘린더</span>'
-                      : isLinkable
-                        ? `<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:1px 6px;border-color:#ccc;color:#888;white-space:nowrap"
-                               data-link-act="${a.id}" data-act-date="${dateStr}">📅 연결</button>`
-                        : ''
-                  }
-                </div>
-                ${a.content ? `<div class="activity-content">${esc(a.content)}</div>` : ''}
-                <div class="activity-meta">${esc(a.performer_name || '시스템')} · ${Fmt.relTime(a.activity_date || a.performed_at)}</div>
-              </div>
-            </div>`;
-            })
-            .join('')}
-        </div>
-      `
-          : '<div class="empty"><div class="empty-icon">📝</div>활동 이력이 없습니다</div>';
-
-      // 회의록 HTML 생성
-      const meetingsHtml =
-        l.meetings && l.meetings.length
-          ? `
-        <div class="card mb-3">
-          <div class="card-header">
-            <div class="card-title">📋 연결된 회의록 (${l.meetings.length}건)</div>
-            <button class="btn btn-ghost btn-sm" id="ld-new-meeting">+ 새 회의록</button>
-          </div>
-          <div class="card-body no-pad">
-            <div class="activity-list">
-              ${l.meetings
-                .map(m => {
-                  const preview = (m.summary_md || '')
-                    .replace(/#{1,3}\s*/g, '')
-                    .replace(/\*\*/g, '')
-                    .replace(/\n+/g, ' ')
-                    .trim()
-                    .substring(0, 60);
-                  return `
-                <div class="activity-item" style="cursor:pointer" data-meeting-detail="${m.id}">
-                  <div class="activity-icon">📝</div>
-                  <div class="activity-body">
-                    <div class="activity-title">
-                      ${esc(m.title)}
-                      ${m.calendar_event_id ? '<span class="activity-cal-badge">📅 캘린더</span>' : ''}
-                    </div>
-                    ${preview ? `<div class="activity-content">${esc(preview)}${(m.summary_md || '').length > 60 ? '...' : ''}</div>` : ''}
-                    <div class="activity-meta">${Fmt.date(m.meeting_date)} · ${esc(m.customer_name || '')}</div>
-                  </div>
-                </div>`;
-                })
-                .join('')}
-            </div>
-          </div>
-        </div>
-      `
-          : '';
-
+      // v6.0.0 Phase A: activities/meetings 별도 카드 렌더링 제거
+      // → 통합 타임라인(_loadTimeline)에서 모두 처리 + 필터/정렬 가능
       Modal.open({
         title: `${esc(l.customer_name)} · ${esc(l.project_name)}`,
-        width: 1080,
+        width: 1440,
+        wide: true, // v6.0.0 Phase A: 통합 타임라인 + 칩 필터 가독성 위해 반응형 와이드
         body: `
           <div class="detail-header">
             <div class="detail-stage">
@@ -1200,12 +1111,24 @@ const App = {
               : ''
           }
 
-          <div class="card mb-3">
-            <div class="card-header">
-              <div class="card-title">활동 이력 (${l.activities?.length || 0}건)</div>
-              <button class="btn btn-ghost btn-sm" id="ld-add-act">+ 활동 추가</button>
+          <!-- v6.0.0 Phase A: 통합 타임라인 (영업활동/회의록/견적/제안/계약/고객지원) -->
+          <div class="card mb-3" id="ld-timeline-card">
+            <div class="card-header" style="flex-wrap:wrap;gap:10px;align-items:center">
+              <div class="card-title" style="margin-right:auto">
+                📊 <span id="ld-timeline-title">활동 이력</span> <span id="ld-timeline-count" style="font-size:11px;color:var(--text-3);font-weight:400">(로딩 중...)</span>
+              </div>
+              <button class="btn btn-ghost btn-sm" id="ld-tl-sort"
+                      title="정렬 방향 전환" style="font-size:12px">📅 최신순 ▼</button>
+              <button class="btn btn-ghost btn-sm" id="ld-add-act" title="새 활동 추가">+ 활동</button>
+              <button class="btn btn-ghost btn-sm" id="ld-add-support" title="고객지원 항목 추가">+ 지원</button>
             </div>
-            <div class="card-body no-pad">${activitiesHtml}</div>
+            <!-- 카테고리 칩 (필터) -->
+            <div id="ld-tl-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px;border-bottom:1px solid var(--border)">
+              <div class="loading" style="padding:6px;color:var(--text-3);font-size:11px">불러오는 중...</div>
+            </div>
+            <div class="card-body no-pad" id="ld-timeline-body">
+              <div class="loading" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">⏳ 타임라인 로딩 중...</div>
+            </div>
           </div>
 
           <!-- 📧 Gmail 대화 — lazy load (모달 열린 후 fetch) -->
@@ -1218,8 +1141,6 @@ const App = {
               <div class="loading" style="padding:14px;text-align:center;font-size:12px;color:var(--text-3)">Gmail 대화 로딩 중...</div>
             </div>
           </div>
-
-          ${meetingsHtml}
 
           <!-- v6.0.0: 💬 검토 코멘트 (계약 모듈 패턴 통일) -->
           <div class="card mb-3">
@@ -1353,12 +1274,18 @@ const App = {
           },
           // v6.0.0: 댓글 등록 (계약 패턴 통일)
           '#ld-comment-submit': () => this._submitLeadComment(l.id),
+          // v6.0.0 Phase A: 통합 타임라인 정렬 토글
+          '#ld-tl-sort': () => this._toggleTimelineSort(l.id, l.customer_name),
+          // 고객지원 항목 추가
+          '#ld-add-support': () => this._openSupportForm(l.id),
         },
       });
       // 📧 Gmail 카드 lazy load — modal 렌더 후 비동기
       this._loadGmailForLead(l.id);
       // 💬 댓글 카드 lazy load (modal 렌더 후 비동기)
       this._loadLeadComments(l.id);
+      // 📊 v6.0.0 Phase A: 통합 타임라인 lazy load (활동/회의/견적/제안/계약/지원 통합)
+      this._loadTimeline(l.id, l.customer_name);
       // Ctrl+Enter 로 댓글 등록 (편의)
       const cBody = document.getElementById('ld-comment-body');
       if (cBody) {
@@ -1447,6 +1374,390 @@ const App = {
         btn.textContent = '💬 등록';
       }
     }
+  },
+
+  // ── v6.0.0 Phase A: 통합 타임라인 (활동/회의록/견적/제안/계약/고객지원) ────
+  // 7개 카테고리 칩 + 정렬 토글 + 카운트 배지
+  _tlState: {
+    leadId: null,
+    items: [], // 통합 타임라인 (전체)
+    activeChip: 'all', // 'all'|'activity'|'meeting'|'quote'|'proposal'|'contract'|'support'
+    sort: 'desc', // 'desc'(최신) | 'asc'(오래된)
+  },
+
+  // 카테고리 메타 (색상/라벨/아이콘) — 이미지 시안 칩 7개와 정렬
+  _tlCategoryMeta() {
+    return {
+      all: { label: '전체', icon: '📋', color: '#ea580c', bg: '#fff7ed' },
+      activity: { label: '영업활동', icon: '📌', color: '#86efac', bg: '#f0fdf4' },
+      meeting: { label: '회의록', icon: '📝', color: '#4ade80', bg: '#dcfce7' },
+      quote: { label: '견적', icon: '💰', color: '#16a34a', bg: '#dcfce7' },
+      proposal: { label: '제안', icon: '📄', color: '#15803d', bg: '#bbf7d0' },
+      contract: { label: '계약', icon: '📜', color: '#166534', bg: '#bbf7d0' },
+      support: { label: '고객지원', icon: '🛟', color: '#475569', bg: '#f1f5f9' },
+    };
+  },
+
+  // 영업활동 activity_type → 한글 라벨/아이콘 (기존 activityIcon 보완)
+  _tlActivitySubLabel(actType) {
+    const MAP = {
+      미팅: '미팅',
+      전화: '전화',
+      이메일: '이메일',
+      현장방문: '현장방문',
+      영업방문: '영업방문',
+      메모: '메모',
+      입찰: '입찰',
+      제안: '제안',
+      수주: '수주',
+      드롭: '드롭',
+      stage_change: '단계변경',
+      기타: '기타',
+    };
+    return MAP[actType] || actType || '활동';
+  },
+
+  // 6개 소스 병렬 fetch + merge + sort
+  async _loadTimeline(leadId, customerName) {
+    this._tlState.leadId = leadId;
+    this._tlState.activeChip = 'all';
+    this._tlState.sort = 'desc';
+
+    const bodyEl = document.getElementById('ld-timeline-body');
+    const chipsEl = document.getElementById('ld-tl-chips');
+    if (!bodyEl) return;
+
+    // 6개 소스 병렬 fetch (실패해도 best-effort)
+    const [actsR, mtgR, qR, pR, cR, sR] = await Promise.allSettled([
+      API.get(`/activities?lead_id=${leadId}&limit=200`),
+      API.leads.get(leadId), // l.meetings 활용 (이미 로드됨)
+      API.leads.quotes(leadId),
+      API.leads.proposals(leadId),
+      API.leads.contracts(leadId),
+      API.leads.supports.list(leadId),
+    ]);
+
+    const merged = [];
+
+    // 1) activities
+    const acts = (actsR.value && actsR.value.data) || [];
+    for (const a of acts) {
+      merged.push({
+        category: 'activity',
+        sub: this._tlActivitySubLabel(a.activity_type),
+        title: a.title || this._tlActivitySubLabel(a.activity_type),
+        body: a.content || '',
+        date: a.activity_date || a.performed_at || a.created_at,
+        meta: a.performer_name || '',
+        click: a.calendar_event_id
+          ? { type: 'calendar', id: a.calendar_event_id, date: a.activity_date }
+          : null,
+        raw: a,
+      });
+    }
+
+    // 2) meetings (l.meetings)
+    const meetings = (mtgR.value && mtgR.value.data && mtgR.value.data.meetings) || [];
+    for (const m of meetings) {
+      const preview = (m.summary_md || '')
+        .replace(/#{1,3}\s*/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/\n+/g, ' ')
+        .trim()
+        .substring(0, 80);
+      merged.push({
+        category: 'meeting',
+        sub: '회의록',
+        title: m.title,
+        body: preview,
+        date: m.meeting_date || m.created_at,
+        meta: m.customer_name || '',
+        click: { type: 'meeting', id: m.id },
+        raw: m,
+      });
+    }
+
+    // 3) quotes
+    const quotes = (qR.value && qR.value.data) || [];
+    for (const q of quotes) {
+      merged.push({
+        category: 'quote',
+        sub: `${q.quote_no || ''}${q.revision_no > 1 ? ` rev${q.revision_no}` : ''}`,
+        title: q.name || '(견적명 없음)',
+        body: q.total_amount
+          ? `${Number(q.total_amount).toLocaleString('ko-KR')} KRW`
+          : '',
+        date: q.quote_date || q.created_at,
+        meta: q.status || '',
+        click: { type: 'quote', id: q.id },
+        raw: q,
+      });
+    }
+
+    // 4) proposals
+    const proposals = (pR.value && pR.value.data) || [];
+    for (const p of proposals) {
+      merged.push({
+        category: 'proposal',
+        sub: p.proposal_no || '',
+        title: p.proposal_title || '(제안명 없음)',
+        body: p.expected_amount
+          ? `예상 ${Number(p.expected_amount).toLocaleString('ko-KR')} ${p.currency || 'KRW'}`
+          : '',
+        date: p.proposal_date || p.created_at,
+        meta: p.status || '',
+        click: { type: 'proposal', id: p.id },
+        raw: p,
+      });
+    }
+
+    // 5) contracts
+    const contracts = (cR.value && cR.value.data) || [];
+    for (const c of contracts) {
+      merged.push({
+        category: 'contract',
+        sub: c.contract_no || '',
+        title: c.title || '(계약명 없음)',
+        body: c.contract_amount
+          ? `${Number(c.contract_amount).toLocaleString('ko-KR')} ${c.currency || 'KRW'}`
+          : '',
+        date: c.start_date || c.created_at,
+        meta: c.status || '',
+        click: { type: 'contract', id: c.id },
+        raw: c,
+      });
+    }
+
+    // 6) supports (고객지원)
+    const supports = (sR.value && sR.value.data) || [];
+    for (const s of supports) {
+      merged.push({
+        category: 'support',
+        sub: s.support_type || 'general',
+        title: s.title || '고객지원',
+        body: s.body || '',
+        date: s.created_at,
+        meta: s.author_name || '',
+        click: null,
+        raw: s,
+      });
+    }
+
+    this._tlState.items = merged;
+    this._tlState.customerName = customerName;
+    this._renderTimelineChips(chipsEl);
+    this._renderTimelineBody(bodyEl);
+  },
+
+  _renderTimelineChips(chipsEl) {
+    if (!chipsEl) return;
+    const META = this._tlCategoryMeta();
+    const items = this._tlState.items;
+    // 카운트 집계
+    const counts = { all: items.length };
+    for (const it of items) counts[it.category] = (counts[it.category] || 0) + 1;
+    const order = ['all', 'activity', 'meeting', 'quote', 'proposal', 'contract', 'support'];
+    chipsEl.innerHTML = order
+      .map(key => {
+        const m = META[key];
+        const cnt = counts[key] || 0;
+        const isActive = this._tlState.activeChip === key;
+        const bg = isActive ? m.color : m.bg;
+        const fg = isActive ? '#fff' : m.color;
+        const border = isActive ? m.color : 'transparent';
+        const opacity = !isActive && cnt === 0 ? '0.45' : '1';
+        return `<button type="button" class="ld-tl-chip" data-chip="${key}"
+          style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
+                 border:1.5px solid ${border};border-radius:14px;background:${bg};
+                 color:${fg};font-size:12px;font-weight:600;cursor:pointer;
+                 transition:all .15s;opacity:${opacity}"
+          ${cnt === 0 && key !== 'all' ? 'disabled' : ''}>
+          ${m.icon} ${esc(m.label)}
+          <span style="display:inline-block;padding:1px 6px;background:${isActive ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.08)'};
+                       border-radius:8px;font-size:10px;font-weight:700">${cnt}</span>
+        </button>`;
+      })
+      .join('');
+    chipsEl.querySelectorAll('.ld-tl-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        this._tlState.activeChip = btn.dataset.chip;
+        this._renderTimelineChips(chipsEl); // 활성 칩 재렌더
+        this._renderTimelineBody(document.getElementById('ld-timeline-body'));
+      });
+    });
+  },
+
+  _renderTimelineBody(bodyEl) {
+    if (!bodyEl) return;
+    const META = this._tlCategoryMeta();
+    let items = this._tlState.items.slice();
+    if (this._tlState.activeChip !== 'all') {
+      items = items.filter(it => it.category === this._tlState.activeChip);
+    }
+    // 정렬
+    items.sort((a, b) => {
+      const ta = new Date(a.date || 0).getTime();
+      const tb = new Date(b.date || 0).getTime();
+      return this._tlState.sort === 'desc' ? tb - ta : ta - tb;
+    });
+
+    // 카운트/타이틀 갱신
+    const titleEl = document.getElementById('ld-timeline-title');
+    const cntEl = document.getElementById('ld-timeline-count');
+    if (titleEl) {
+      const m = META[this._tlState.activeChip] || META.all;
+      titleEl.textContent = m.label + ' 이력';
+    }
+    if (cntEl) cntEl.textContent = `(${items.length}건)`;
+
+    if (!items.length) {
+      bodyEl.innerHTML = `<div style="padding:30px;text-align:center;color:var(--text-3);font-size:12px">
+        <div style="font-size:32px;margin-bottom:8px;opacity:0.4">📭</div>
+        해당 카테고리의 이력이 없습니다
+      </div>`;
+      return;
+    }
+
+    bodyEl.innerHTML = items
+      .map(it => {
+        const m = META[it.category];
+        const dateStr = it.date ? Fmt.relTime(it.date) : '';
+        const dateFull = it.date ? String(it.date).slice(0, 16).replace('T', ' ') : '';
+        const clickAttr = it.click
+          ? `data-tl-click="${it.click.type}" data-tl-id="${it.click.id || ''}" data-tl-date="${it.click.date || ''}" style="cursor:pointer"`
+          : '';
+        return `<div class="ld-tl-row" ${clickAttr}
+          style="display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);
+                 align-items:flex-start;transition:background .12s">
+          <!-- 색상 점 (카테고리) -->
+          <div style="width:8px;height:8px;border-radius:50%;background:${m.color};margin-top:6px;flex-shrink:0"
+               title="${esc(m.label)}"></div>
+          <!-- 본문 -->
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px">
+              <span style="font-size:12px;font-weight:600;color:var(--text-1)">${esc(it.title)}</span>
+              <span style="display:inline-block;padding:1px 7px;background:${m.bg};color:${m.color};
+                          border-radius:8px;font-size:10px;font-weight:600">${m.icon} ${esc(m.sub || it.sub || m.label)}</span>
+              ${it.meta ? `<span style="font-size:10px;color:var(--text-3)">· ${esc(it.meta)}</span>` : ''}
+            </div>
+            ${it.body ? `<div style="font-size:11px;color:var(--text-2);line-height:1.5;white-space:pre-wrap">${esc(it.body)}</div>` : ''}
+          </div>
+          <!-- 날짜 -->
+          <div style="font-size:10px;color:var(--text-3);flex-shrink:0;text-align:right" title="${esc(dateFull)}">${esc(dateStr)}</div>
+        </div>`;
+      })
+      .join('');
+    // hover 효과 + 클릭 핸들러
+    bodyEl.querySelectorAll('.ld-tl-row').forEach(row => {
+      row.addEventListener('mouseenter', () => {
+        row.style.background = '#fafafa';
+      });
+      row.addEventListener('mouseleave', () => {
+        row.style.background = '';
+      });
+      if (row.dataset.tlClick) {
+        row.addEventListener('click', () => this._onTimelineClick(row.dataset));
+      }
+    });
+  },
+
+  _onTimelineClick(ds) {
+    const type = ds.tlClick;
+    const id = parseInt(ds.tlId, 10);
+    if (!type || !id) return;
+    if (type === 'calendar') {
+      Modal.close();
+      App.goToCalendarEvent(id, ds.tlDate);
+    } else if (type === 'meeting') {
+      Modal.close();
+      App.navigate('meeting-list');
+      setTimeout(() => MeetingListPage && MeetingListPage.showDetail?.(id), 400);
+    } else if (type === 'quote') {
+      Modal.close();
+      App.navigate('quotes').then(() => {
+        setTimeout(() => QuotesPage && QuotesPage._openModal?.(id), 300);
+      });
+    } else if (type === 'proposal') {
+      Modal.close();
+      App.navigate('proposals').then(() => {
+        setTimeout(() => ProposalsPage && ProposalsPage._openModal?.(id), 300);
+      });
+    } else if (type === 'contract') {
+      Modal.close();
+      App.navigate('contracts').then(() => {
+        setTimeout(() => ContractsPage && ContractsPage._openModal?.(id), 300);
+      });
+    }
+  },
+
+  _toggleTimelineSort(_leadId, _customerName) {
+    this._tlState.sort = this._tlState.sort === 'desc' ? 'asc' : 'desc';
+    const btn = document.getElementById('ld-tl-sort');
+    if (btn) {
+      btn.textContent =
+        this._tlState.sort === 'desc' ? '📅 최신순 ▼' : '📅 오래된순 ▲';
+    }
+    this._renderTimelineBody(document.getElementById('ld-timeline-body'));
+  },
+
+  // 고객지원 항목 추가 모달 (간단)
+  _openSupportForm(leadId) {
+    Modal.open({
+      title: '🛟 고객지원 항목 추가',
+      compact: true,
+      width: 540,
+      body: `
+        <form id="ld-sup-form" class="form-grid">
+          <div class="form-row">
+            <label class="form-label">유형</label>
+            <select class="form-input" id="ld-sup-type">
+              <option value="general">일반</option>
+              <option value="inquiry">문의</option>
+              <option value="complaint">컴플레인</option>
+              <option value="followup">후속조치</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">제목 (선택)</label>
+            <input class="form-input" id="ld-sup-title" placeholder="예: 납기 일정 문의 응대">
+          </div>
+          <div class="form-row">
+            <label class="form-label required">내용</label>
+            <textarea class="form-input" id="ld-sup-body" rows="4" placeholder="고객지원 상세 내용..."></textarea>
+          </div>
+        </form>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="ld-sup-cancel">취소</button>
+        <button class="btn btn-primary" id="ld-sup-save">💾 등록</button>
+      `,
+      bind: {
+        '#ld-sup-cancel': () => Modal.close(),
+        '#ld-sup-save': async () => {
+          const type = document.getElementById('ld-sup-type').value;
+          const title = document.getElementById('ld-sup-title').value.trim();
+          const body = document.getElementById('ld-sup-body').value.trim();
+          if (!body) {
+            Toast.error('내용을 입력하세요');
+            return;
+          }
+          try {
+            await API.leads.supports.create(leadId, {
+              support_type: type,
+              title: title || null,
+              body,
+            });
+            Toast.success('고객지원 항목 추가됨');
+            Modal.close();
+            // 리드 모달이 닫힌 상태이므로 다시 열어주기 (간단)
+            setTimeout(() => this.openLeadDetail(leadId), 100);
+          } catch (err) {
+            Toast.error('등록 실패: ' + (err?.message || err));
+          }
+        },
+      },
+    });
   },
 
   // ── Gmail 메시지 카드 — 리드 모달용 (lazy) ────────────────
