@@ -394,6 +394,8 @@ async function initTables() {
       `ALTER TABLE meeting_minutes ADD INDEX idx_created_at (created_at)`,
       `ALTER TABLE leads ADD INDEX idx_stage_updated (stage, updated_at)`,
       `ALTER TABLE leads ADD INDEX idx_assigned_stage (assigned_to, stage)`,
+      // v6.0.0: 고객사 카드 "관련 딜" 카운트 (customer_name 매칭) 가속용
+      `ALTER TABLE leads ADD INDEX idx_customer_name (customer_name)`,
       `ALTER TABLE activities ADD INDEX idx_lead_performed (lead_id, performed_at)`,
       `ALTER TABLE activities ADD INDEX idx_performed_at (performed_at)`,
     ];

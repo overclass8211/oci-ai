@@ -117,16 +117,16 @@ router.get('/', async (req, res) => {
     }
 
     // v6.0.0: 카드/리스트에 표시할 모듈별 카운트 4종을 서브쿼리로 enrich
-    //   - active_deals_cnt: leads(stage NOT IN won/lost/dropped) — 진행 중인 영업딜만
-    //   - quotes_cnt / proposals_cnt / contracts_cnt: 전체 건수 (상태 무관)
-    //   각 customer_id 인덱스가 있어 50개 카드 기준 추가 ~15ms 수준
+    //   - related_deals_cnt: leads(customer_name = c.name) — 모달 [관련 딜] 탭과
+    //     **정확히 동일한 기준** (status 필터 없음, customer_name 매칭)
+    //   - quotes_cnt / proposals_cnt / contracts_cnt: customer_id 매칭, 전체 건수
+    //   leads.customer_name 인덱스 (initTables.js) 로 50개 카드 +30ms 이내
     const [[countRows], [rows]] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS total FROM customers ${where}`, params),
       pool.query(
         `SELECT c.*,
           (SELECT COUNT(*) FROM leads l
-             WHERE l.customer_id = c.id
-               AND l.stage NOT IN ('won','lost','dropped')) AS active_deals_cnt,
+             WHERE l.customer_name = c.name) AS related_deals_cnt,
           (SELECT COUNT(*) FROM quotes q
              WHERE q.customer_id = c.id) AS quotes_cnt,
           (SELECT COUNT(*) FROM proposals p
@@ -142,7 +142,7 @@ router.get('/', async (req, res) => {
     const total = Number(countRows[0]?.total ?? 0);
     // 숫자 정규화 (mysql2 driver 반환 시 string 가능성 방지)
     rows.forEach(r => {
-      r.active_deals_cnt = Number(r.active_deals_cnt) || 0;
+      r.related_deals_cnt = Number(r.related_deals_cnt) || 0;
       r.quotes_cnt = Number(r.quotes_cnt) || 0;
       r.proposals_cnt = Number(r.proposals_cnt) || 0;
       r.contracts_cnt = Number(r.contracts_cnt) || 0;

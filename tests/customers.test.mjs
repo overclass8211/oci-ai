@@ -85,21 +85,45 @@ describe('Customers API', () => {
   });
 
   // ── v6.0.0: GET / 응답에 모듈별 카운트 4종 포함 (카드 통계 바) ──
-  it('GET / — 응답에 active_deals_cnt/quotes_cnt/proposals_cnt/contracts_cnt 포함', async () => {
+  it('GET / — 응답에 related_deals_cnt/quotes_cnt/proposals_cnt/contracts_cnt 포함', async () => {
     const res = await api().get('/api/customers?limit=10');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
     if (res.body.data.length > 0) {
       const row = res.body.data[0];
-      expect(row).toHaveProperty('active_deals_cnt');
+      expect(row).toHaveProperty('related_deals_cnt');
       expect(row).toHaveProperty('quotes_cnt');
       expect(row).toHaveProperty('proposals_cnt');
       expect(row).toHaveProperty('contracts_cnt');
-      expect(typeof row.active_deals_cnt).toBe('number');
+      expect(typeof row.related_deals_cnt).toBe('number');
       expect(typeof row.quotes_cnt).toBe('number');
       expect(typeof row.proposals_cnt).toBe('number');
       expect(typeof row.contracts_cnt).toBe('number');
+    }
+  });
+
+  // ── v6.0.0: 카드 related_deals_cnt 가 모달 [관련 딜] 탭과 동일한지 검증 ──
+  // 두 API 가 동일한 customer_name 매칭 기준을 쓰는지가 핵심
+  it('GET / 의 related_deals_cnt === GET /:id/deals 의 data.length', async () => {
+    // 테스트 고객사명으로 leads 2건 INSERT (customer_name 매칭)
+    const [[cust]] = await pool.query('SELECT id, name FROM customers WHERE id = ?', [createdId]);
+    await pool.query(
+      `INSERT INTO leads (customer_name, project_name, stage) VALUES (?, ?, 'lead'), (?, ?, 'won')`,
+      [cust.name, '__TEST__딜A', cust.name, '__TEST__딜B']
+    );
+    try {
+      // 1) 목록 응답에서 related_deals_cnt
+      const listRes = await api().get('/api/customers?search=' + encodeURIComponent(cust.name));
+      const cardRow = listRes.body.data.find(r => r.id === createdId);
+      expect(cardRow).toBeDefined();
+      // 2) 모달 /:id/deals 응답 길이
+      const modalRes = await api().get(`/api/customers/${createdId}/deals`);
+      // 동일해야 함 (둘 다 customer_name 매칭, stage 필터 없음)
+      expect(cardRow.related_deals_cnt).toBe(modalRes.body.data.length);
+      expect(cardRow.related_deals_cnt).toBeGreaterThanOrEqual(2);
+    } finally {
+      await pool.query(`DELETE FROM leads WHERE project_name IN ('__TEST__딜A','__TEST__딜B')`);
     }
   });
 

@@ -441,8 +441,9 @@ const CustomersPage = {
                   : `<div data-brief-card-id="${c.id}" style="display:none"></div>`;
               })()}
               <!-- v6.0.0: 모듈별 카운트 통계 바 (옵션 C) — 클릭 시 모달 해당 탭 -->
+              <!-- "관련딜"은 모달 [🤝 관련 딜] 탭과 동일한 customer_name 매칭 기준 -->
               <div class="cust-card-stats" data-stop-propagation="1">
-                ${this._renderStatChip(c.id, 'deals',     '🤝', '진행딜', c.active_deals_cnt)}
+                ${this._renderStatChip(c.id, 'deals',     '🤝', '관련딜', c.related_deals_cnt)}
                 ${this._renderStatChip(c.id, 'quotes',    '💰', '견적',   c.quotes_cnt)}
                 ${this._renderStatChip(c.id, 'proposals', '📄', '제안',   c.proposals_cnt)}
                 ${this._renderStatChip(c.id, 'contracts', '📜', '계약',   c.contracts_cnt)}
