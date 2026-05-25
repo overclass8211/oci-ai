@@ -30,16 +30,18 @@ const DEBOUNCE_MS = 30 * 1000;
 /**
  * 관련자 이메일 목록 조회
  * - 영업담당자 (leads.assigned_to → team_members.email)
+ * - 협업자 (leads.collaborator_ids JSON → team_members.email) ← v6.0.0 Phase B
  * - 이전 댓글 작성자 (lead_comments.user_id → team_members.email)
  * - 등록자 (leads.created_by → team_members.email, 있으면)
  */
 async function _getStakeholderEmails(leadId, excludeEmail = null) {
   const emails = new Set();
 
-  // 1. 영업담당자
+  // 1. 영업담당자 + 등록자 + 협업자 (JSON)
+  let collaboratorIds = [];
   try {
     const [[l]] = await pool.query(
-      `SELECT l.assigned_to, l.created_by,
+      `SELECT l.assigned_to, l.created_by, l.collaborator_ids,
               tmA.email AS assignee_email,
               tmC.email AS creator_email
          FROM leads l
@@ -50,11 +52,41 @@ async function _getStakeholderEmails(leadId, excludeEmail = null) {
     );
     if (l?.assignee_email) emails.add(l.assignee_email.toLowerCase());
     if (l?.creator_email) emails.add(l.creator_email.toLowerCase());
+    // 협업자 ID 추출 (JSON 또는 string)
+    if (l?.collaborator_ids) {
+      let raw = l.collaborator_ids;
+      if (typeof raw === 'string') {
+        try {
+          raw = JSON.parse(raw);
+        } catch (_) {
+          raw = [];
+        }
+      }
+      if (Array.isArray(raw)) {
+        collaboratorIds = raw.map(x => parseInt(x, 10)).filter(x => Number.isFinite(x) && x > 0);
+      }
+    }
   } catch (_) {
     /* skip */
   }
 
-  // 2. 이전 댓글 작성자 (DISTINCT)
+  // 2. 협업자 이메일 join
+  if (collaboratorIds.length) {
+    try {
+      const placeholders = collaboratorIds.map(() => '?').join(',');
+      const [rows] = await pool.query(
+        `SELECT email FROM team_members WHERE id IN (${placeholders}) AND email IS NOT NULL`,
+        collaboratorIds
+      );
+      for (const r of rows) {
+        if (r.email) emails.add(r.email.toLowerCase());
+      }
+    } catch (_) {
+      /* skip */
+    }
+  }
+
+  // 3. 이전 댓글 작성자 (DISTINCT)
   try {
     const [rows] = await pool.query(
       `SELECT DISTINCT tm.email

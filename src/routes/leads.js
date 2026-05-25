@@ -49,6 +49,52 @@ pool
   .query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_changed_at DATETIME NULL DEFAULT NULL`)
   .catch(() => {});
 
+// v6.0.0 Phase B: 복수 담당자 (협업자) — collaborator_ids JSON 컬럼
+// 혼합 구조: 기존 assigned_to (주담당) + collaborator_ids (협업자 N명)
+// JSON 배열 형태로 team_members.id 저장 (e.g., [3, 7, 12])
+pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS collaborator_ids JSON NULL`).catch(() => {});
+
+// 협업자 ID 배열 정규화: 입력값(JSON|배열|CSV|null) → 깨끗한 INT[] 반환
+function normalizeCollaboratorIds(input, excludeId = null) {
+  if (input === null || input === undefined || input === '') return [];
+  let arr = input;
+  if (typeof input === 'string') {
+    try {
+      arr = JSON.parse(input);
+    } catch (_) {
+      // CSV fallback (e.g., "3,7,12")
+      arr = input
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  const ids = arr.map(x => parseInt(x, 10)).filter(x => Number.isFinite(x) && x > 0);
+  // 주담당과 중복 제거 + 자체 dedup
+  const set = new Set(ids);
+  if (excludeId) set.delete(parseInt(excludeId, 10));
+  return Array.from(set);
+}
+
+// 협업자 ID 배열 → team_members 정보 join (UI 표시용)
+async function _hydrateCollaborators(collaboratorIdsRaw) {
+  const ids = normalizeCollaboratorIds(collaboratorIdsRaw);
+  if (!ids.length) return [];
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const [rows] = await pool.query(
+      `SELECT id, name, email, role FROM team_members WHERE id IN (${placeholders})`,
+      ids
+    );
+    // 입력 순서대로 정렬 (등록 순서 유지)
+    const byId = Object.fromEntries(rows.map(r => [r.id, r]));
+    return ids.map(id => byId[id]).filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
 router.get('/', sanitizeQuery, async (req, res) => {
   try {
     const {
@@ -331,7 +377,13 @@ router.get('/:id', validateId, async (req, res) => {
       /* meeting_minutes 테이블 없으면 빈 배열 */
     }
 
-    res.json({ success: true, data: { ...lead, activities, meetings } });
+    // v6.0.0 Phase B: 협업자 정보 hydrate (id → name/email/role join)
+    const collaborators = await _hydrateCollaborators(lead.collaborator_ids);
+
+    res.json({
+      success: true,
+      data: { ...lead, activities, meetings, collaborators },
+    });
   } catch (err) {
     handleError(res, err);
   }
@@ -418,6 +470,7 @@ router.post('/', schema(SCHEMAS.createLead), async (req, res) => {
       expected_close_date,
       bidding_deadline,
       notes,
+      collaborator_ids, // v6.0.0 Phase B
     } = req.body;
 
     // 동적 stage 검증 (pipeline_stages 기반)
@@ -432,13 +485,16 @@ router.post('/', schema(SCHEMAS.createLead), async (req, res) => {
     const lockPolicy = isWon ? 'locked' : 'live';
     const lockedAt = isWon ? new Date() : null;
 
+    // v6.0.0 Phase B: 협업자 정규화 (주담당과 자기 자신은 제외)
+    const cleanedCollabIds = normalizeCollaboratorIds(collaborator_ids, assigned_to);
+
     const [result] = await pool.query(
       `INSERT INTO leads
        (customer_name, project_name, business_type, region,
         capacity_mw, expected_amount, currency, stage,
         assigned_to, expected_close_date, bidding_deadline, notes,
-        amount_krw, fx_rate, fx_lock_policy, fx_locked_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        amount_krw, fx_rate, fx_lock_policy, fx_locked_at, collaborator_ids)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         customer_name,
         project_name,
@@ -456,6 +512,7 @@ router.post('/', schema(SCHEMAS.createLead), async (req, res) => {
         rate,
         lockPolicy,
         lockedAt,
+        cleanedCollabIds.length ? JSON.stringify(cleanedCollabIds) : null,
       ]
     );
     // Webhook 발행 — fire-and-forget
@@ -518,6 +575,26 @@ router.put('/:id', validateId, async (req, res) => {
         values.push(req.body[f]);
       }
     });
+
+    // v6.0.0 Phase B: collaborator_ids 별도 처리 (JSON 정규화)
+    if (req.body.collaborator_ids !== undefined) {
+      // assigned_to 가 함께 변경되면 그 값으로, 아니면 기존 값으로 자기 제외
+      let excludeId = req.body.assigned_to;
+      if (excludeId === undefined) {
+        try {
+          const [[curRow]] = await pool.query('SELECT assigned_to FROM leads WHERE id = ?', [
+            req.params.id,
+          ]);
+          excludeId = curRow ? curRow.assigned_to : null;
+        } catch (_) {
+          /* skip */
+        }
+      }
+      const cleanedIds = normalizeCollaboratorIds(req.body.collaborator_ids, excludeId);
+      updates.push('collaborator_ids = ?');
+      values.push(cleanedIds.length ? JSON.stringify(cleanedIds) : null);
+    }
+
     if (!updates.length) return res.json({ success: true, message: 'No changes' });
 
     // expected_amount 또는 currency 변경 시 amount_krw 재계산

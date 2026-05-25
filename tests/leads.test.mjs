@@ -202,4 +202,52 @@ describe('Leads API', () => {
     expect(types).toContain('inquiry');
     expect(types).toContain('general');
   });
+
+  // ── v6.0.0 Phase B: 복수 담당자 (collaborator_ids 혼합 구조) ──
+  it('PUT /:id — collaborator_ids 저장 + GET 응답에 collaborators 반환', async () => {
+    // 임의 team_members ID 2개 (assigned_to 와 다른 ID)
+    const [teamRows] = await pool.query('SELECT id FROM team_members LIMIT 3');
+    const ids = teamRows.map(r => r.id).filter(Boolean);
+    if (ids.length < 2) {
+      // team_members 미충분 — 스킵 (테스트 환경 의존성)
+      return;
+    }
+    const collabIds = ids.slice(0, 2);
+    const r = await api()
+      .put(`/api/leads/${createdLeadId}`)
+      .send({ collaborator_ids: collabIds });
+    expect(r.status).toBe(200);
+
+    const res = await api().get(`/api/leads/${createdLeadId}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data.collaborators)).toBe(true);
+    expect(res.body.data.collaborators.length).toBeGreaterThanOrEqual(1);
+    // 협업자 ID 가 응답에 포함되는지 (assigned_to 와 같은 ID 는 제외됨)
+    const returnedIds = res.body.data.collaborators.map(c => c.id);
+    const expectedAfterExclude = collabIds.filter(
+      id => id !== res.body.data.assigned_to
+    );
+    expectedAfterExclude.forEach(id => {
+      expect(returnedIds).toContain(id);
+    });
+  });
+
+  it('PUT /:id — collaborator_ids 빈 배열 → 협업자 0명', async () => {
+    const r = await api()
+      .put(`/api/leads/${createdLeadId}`)
+      .send({ collaborator_ids: [] });
+    expect(r.status).toBe(200);
+    const res = await api().get(`/api/leads/${createdLeadId}`);
+    expect(res.body.data.collaborators).toEqual([]);
+  });
+
+  it('PUT /:id — collaborator_ids CSV 문자열 fallback', async () => {
+    const [teamRows] = await pool.query('SELECT id FROM team_members LIMIT 2');
+    if (teamRows.length < 1) return;
+    const csv = teamRows.map(r => r.id).join(',');
+    const r = await api()
+      .put(`/api/leads/${createdLeadId}`)
+      .send({ collaborator_ids: csv });
+    expect(r.status).toBe(200);
+  });
 });

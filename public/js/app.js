@@ -637,6 +637,24 @@ const App = {
       )
       .join('');
 
+    // v6.0.0 Phase B: 협업자 (collaborator_ids) 초기 선택 IDs
+    // collaborators (hydrate 된 객체 배열) 우선, 없으면 collaborator_ids (raw) 파싱
+    const initCollabIds = new Set();
+    if (lead?.collaborators && Array.isArray(lead.collaborators)) {
+      lead.collaborators.forEach(c => c?.id && initCollabIds.add(c.id));
+    } else if (lead?.collaborator_ids) {
+      try {
+        const raw =
+          typeof lead.collaborator_ids === 'string'
+            ? JSON.parse(lead.collaborator_ids)
+            : lead.collaborator_ids;
+        if (Array.isArray(raw)) raw.forEach(id => initCollabIds.add(parseInt(id, 10)));
+      } catch (_) {
+        /* skip */
+      }
+    }
+    const initCollabSet = initCollabIds;
+
     Modal.open({
       title: lead
         ? typeof Labels !== 'undefined'
@@ -725,8 +743,8 @@ const App = {
 
           <div class="form-row-3">
             <div class="form-row">
-              <label class="form-label" data-label="leads.assigned_to">담당자</label>
-              <select class="form-input" name="assigned_to">
+              <label class="form-label" data-label="leads.assigned_to">주 담당자</label>
+              <select class="form-input" name="assigned_to" id="lf-assigned-to">
                 <option value="" data-label="leads.unassigned">- 미배정 -</option>
                 ${teamOpts}
               </select>
@@ -739,6 +757,38 @@ const App = {
               <label class="form-label" data-label="leads.bidding_deadline">입찰 마감일</label>
               <input type="date" class="form-input" name="bidding_deadline" value="${lead?.bidding_deadline ? Fmt.date(lead.bidding_deadline) : ''}">
             </div>
+          </div>
+
+          <!-- v6.0.0 Phase B: 협업자 (복수 담당) — 알림 수신 대상 확장 -->
+          <div class="form-row" id="lf-collab-row">
+            <label class="form-label">
+              👥 협업자 <span style="font-weight:400;font-size:11px;color:var(--text-3)">(선택, 복수 가능 — 영업 활동 업데이트 시 함께 알림)</span>
+            </label>
+            <div id="lf-collab-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;min-height:28px"></div>
+            <details style="border:1px solid var(--border);border-radius:6px;background:#fafafa">
+              <summary style="cursor:pointer;padding:8px 12px;font-size:12px;color:var(--text-2);user-select:none">
+                ➕ 협업자 선택/해제
+              </summary>
+              <div id="lf-collab-options" style="padding:10px 12px;display:grid;
+                          grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+                          gap:6px;max-height:240px;overflow-y:auto;
+                          border-top:1px solid var(--border);background:#fff">
+                ${this.team
+                  .map(
+                    t => `<label class="lf-collab-opt" data-id="${t.id}" data-name="${esc(t.name)}"
+                                style="display:flex;align-items:center;gap:6px;padding:5px 8px;
+                                       border-radius:4px;cursor:pointer;font-size:12px;
+                                       transition:background .12s">
+                  <input type="checkbox" class="lf-collab-cb" value="${t.id}"
+                         data-name="${esc(t.name)}"
+                         ${initCollabSet.has(t.id) ? 'checked' : ''}>
+                  <span>${esc(t.name)}</span>
+                  <span style="color:var(--text-3);font-size:10px">(${esc(t.role || '')})</span>
+                </label>`
+                  )
+                  .join('')}
+              </div>
+            </details>
           </div>
 
           <div class="form-row">
@@ -766,6 +816,74 @@ const App = {
         lead ? { '#lf-delete': () => App.deleteLead(lead.id) } : {}
       ),
       onOpen: () => {
+        // v6.0.0 Phase B: 협업자 칩 갱신 + 주담당과 동기화
+        const updateCollabChips = () => {
+          const chipsEl = document.getElementById('lf-collab-chips');
+          const optsEl = document.getElementById('lf-collab-options');
+          const assignedEl = document.getElementById('lf-assigned-to');
+          const assignedId = parseInt(assignedEl?.value || '', 10);
+          if (!chipsEl || !optsEl) return;
+          // 주담당으로 선택된 사람은 협업자 선택 불가 (자동 체크 해제 + 비활성)
+          optsEl.querySelectorAll('.lf-collab-cb').forEach(cb => {
+            const id = parseInt(cb.value, 10);
+            const opt = cb.closest('.lf-collab-opt');
+            if (assignedId && id === assignedId) {
+              cb.checked = false;
+              cb.disabled = true;
+              if (opt) opt.style.opacity = '0.4';
+            } else {
+              cb.disabled = false;
+              if (opt) opt.style.opacity = '';
+            }
+          });
+          // 선택된 chip 렌더
+          const selected = Array.from(optsEl.querySelectorAll('.lf-collab-cb:checked'));
+          if (!selected.length) {
+            chipsEl.innerHTML = `<span style="font-size:11px;color:var(--text-3)">아직 선택된 협업자가 없습니다 — 아래에서 선택하세요</span>`;
+            return;
+          }
+          chipsEl.innerHTML = selected
+            .map(
+              cb => `<span class="lf-collab-chip" data-id="${cb.value}"
+                          style="display:inline-flex;align-items:center;gap:6px;
+                                 padding:4px 10px;background:#dbeafe;color:#1e40af;
+                                 border-radius:12px;font-size:11px;font-weight:600">
+                👤 ${esc(cb.dataset.name)}
+                <button type="button" class="lf-collab-rm" data-id="${cb.value}"
+                        style="background:none;border:none;cursor:pointer;color:#1e40af;
+                               font-size:13px;line-height:1;padding:0">×</button>
+              </span>`
+            )
+            .join('');
+          // chip × 버튼 → 체크박스 해제
+          chipsEl.querySelectorAll('.lf-collab-rm').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const id = btn.dataset.id;
+              const cb = optsEl.querySelector(`.lf-collab-cb[value="${id}"]`);
+              if (cb) {
+                cb.checked = false;
+                updateCollabChips();
+              }
+            });
+          });
+        };
+        document.querySelectorAll('.lf-collab-cb').forEach(cb => {
+          cb.addEventListener('change', updateCollabChips);
+        });
+        document
+          .getElementById('lf-assigned-to')
+          ?.addEventListener('change', updateCollabChips);
+        // 호버 효과
+        document.querySelectorAll('.lf-collab-opt').forEach(opt => {
+          opt.addEventListener('mouseenter', () => {
+            if (!opt.querySelector('input')?.disabled) opt.style.background = '#f3f4f6';
+          });
+          opt.addEventListener('mouseleave', () => {
+            opt.style.background = '';
+          });
+        });
+        updateCollabChips(); // 초기 렌더
+
         // 통화/금액 변경 시 KRW 환산 실시간 미리보기
         const amtEl = document.querySelector('#lead-form [name="expected_amount"]');
         const curEl = document.getElementById('lf-currency');
@@ -882,6 +1000,12 @@ const App = {
         body[k] = v;
       }
     });
+
+    // v6.0.0 Phase B: 협업자 체크박스 → 배열로 수집 (FormData 미커버 항목)
+    const collabCbs = document.querySelectorAll('.lf-collab-cb:checked');
+    body.collaborator_ids = Array.from(collabCbs)
+      .map(cb => parseInt(cb.value, 10))
+      .filter(x => Number.isFinite(x) && x > 0);
 
     if (!body.customer_name || !body.project_name) {
       return Toast.error('고객사와 프로젝트명은 필수입니다');
@@ -1069,16 +1193,34 @@ const App = {
             </div>
             <div class="kv-row">
               <span class="kv-key" data-label="leads.assigned_to">영업 담당자</span>
-              <span class="kv-val">
+              <span class="kv-val" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
                 ${
                   l.assigned_name
                     ? `<a href="#" data-assignee-link="${l.assigned_to || ''}"
-                       style="color:var(--oci-blue);text-decoration:none;cursor:pointer"
-                       title="팀원 페이지로 이동">👤 ${esc(l.assigned_name)}</a>`
+                       style="color:var(--oci-blue);text-decoration:none;cursor:pointer;font-weight:600"
+                       title="팀원 페이지로 이동">👤 ${esc(l.assigned_name)}</a>
+                       <span style="font-size:10px;padding:1px 6px;background:#dbeafe;color:#1e40af;border-radius:8px;font-weight:600">주 담당</span>`
                     : '<span style="color:var(--text-4)">미배정</span>'
                 }
+                ${
+                  Array.isArray(l.collaborators) && l.collaborators.length
+                    ? l.collaborators
+                        .map(
+                          c => `<span title="협업자 — 활동 업데이트 시 함께 알림 수신"
+                          style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;
+                                 background:#e0f2fe;color:#0369a1;border-radius:10px;font-size:11px;font-weight:500">
+                        👥 ${esc(c.name)}
+                      </span>`
+                        )
+                        .join('')
+                    : ''
+                }
               </span>
-            </div>
+            </div>${
+              Array.isArray(l.collaborators) && l.collaborators.length
+                ? `<div class="kv-row"><span class="kv-key">협업자</span><span class="kv-val" style="font-size:11px;color:var(--text-3)">총 ${l.collaborators.length}명 — 댓글/단계 변경 시 함께 알림 발송</span></div>`
+                : ''
+            }
             <div class="kv-row">
               <span class="kv-key" data-label="leads.contact_person">고객 담당자</span>
               <span class="kv-val">
