@@ -1871,13 +1871,17 @@ const CustomersPage = {
   },
 
   // ── 통합 등록 모달 (직접 입력 / 명함 업로드) ──────────────
-  openRegisterModal(defaultTab = 'direct') {
+  // options.autoCapture: PWA 쇼트컷(?action=scan-card) 진입 시 자동 카메라 호출
+  openRegisterModal(defaultTab = 'direct', options = {}) {
     this._ocrFiles = [];
     this._ocrResults = [];
     this._activeRegTab = defaultTab;
+    // v6.0.0: PWA shortcut → 카메라 자동 호출 모드 (모바일 후면 카메라)
+    const captureAttr = options.autoCapture ? 'capture="environment"' : '';
+    const autoOpenCamera = !!options.autoCapture;
 
     Modal.open({
-      title: '고객사 등록',
+      title: autoOpenCamera ? '📇 명함 촬영' : '고객사 등록',
       width: 680,
       body: `
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin:-8px -8px 20px">
@@ -1957,10 +1961,14 @@ const CustomersPage = {
           </p>
 
           <div id="card-dropzone">
-            <div style="font-size:36px;margin-bottom:10px">📇</div>
-            <div style="font-size:14px;font-weight:600;color:var(--text-1)">명함 파일을 여기에 드롭하거나 클릭해서 선택</div>
-            <div style="font-size:12px;color:var(--text-3);margin-top:6px">JPG, PNG 지원 · 최대 20장</div>
-            <input type="file" id="card-file-input" accept="image/*" multiple style="display:none">
+            <div style="font-size:36px;margin-bottom:10px">${autoOpenCamera ? '📷' : '📇'}</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-1)">
+              ${autoOpenCamera ? '명함을 촬영하거나 갤러리에서 선택하세요' : '명함 파일을 여기에 드롭하거나 클릭해서 선택'}
+            </div>
+            <div style="font-size:12px;color:var(--text-3);margin-top:6px">
+              ${autoOpenCamera ? '📷 카메라가 자동으로 열립니다 · JPG/PNG · 최대 20장' : 'JPG, PNG 지원 · 최대 20장'}
+            </div>
+            <input type="file" id="card-file-input" accept="image/*" multiple ${captureAttr} style="display:none">
           </div>
 
           <div id="card-file-list" style="margin-top:12px"></div>
@@ -1987,7 +1995,23 @@ const CustomersPage = {
         '#card-save-all-btn': () => this._saveAllOCR(),
       },
     });
-    setTimeout(() => this._bindRegTabButtons(), 0);
+    setTimeout(() => {
+      this._bindRegTabButtons();
+      // v6.0.0: PWA shortcut 진입 시 카메라 자동 호출
+      // capture="environment" 입력에 click() → Android 후면 카메라 즉시 오픈
+      if (autoOpenCamera) {
+        setTimeout(() => {
+          const fileInput = document.getElementById('card-file-input');
+          if (fileInput) {
+            try {
+              fileInput.click();
+            } catch (e) {
+              console.warn('[OCR autoCapture] 카메라 자동 호출 실패:', e?.message || e);
+            }
+          }
+        }, 250);
+      }
+    }, 0);
   },
 
   _bindRegTabButtons() {

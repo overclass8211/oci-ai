@@ -93,18 +93,44 @@ const App = {
     });
 
     // 첫 페이지 로드 — F5 새로고침 시 마지막 페이지로 복귀
-    // 우선순위: URL hash > localStorage > dashboard(기본)
+    // 우선순위: PWA shortcut action > URL hash > localStorage > dashboard(기본)
     let startPage = 'dashboard';
-    const hashPage = location.hash.replace(/^#/, '').trim();
-    if (hashPage && this.pages[hashPage]) {
-      startPage = hashPage;
+
+    // v6.0.0: PWA shortcut 진입 감지 — manifest.json shortcuts ?action=... 처리
+    // 예: ?action=scan-card → 고객사 페이지 + OCR 모달 + 카메라 자동
+    const urlParams = new URLSearchParams(location.search);
+    const pwaAction = urlParams.get('action');
+    if (pwaAction === 'scan-card') {
+      startPage = 'customers';
     } else {
-      try {
-        const lastPage = localStorage.getItem('oci_lastPage');
-        if (lastPage && this.pages[lastPage]) startPage = lastPage;
-      } catch (_) {}
+      const hashPage = location.hash.replace(/^#/, '').trim();
+      if (hashPage && this.pages[hashPage]) {
+        startPage = hashPage;
+      } else {
+        try {
+          const lastPage = localStorage.getItem('oci_lastPage');
+          if (lastPage && this.pages[lastPage]) startPage = lastPage;
+        } catch (_) {}
+      }
     }
     await this.navigate(startPage);
+
+    // v6.0.0: PWA shortcut 후속 처리 — 명함 촬영 모달 자동 오픈 + 카메라 자동 호출
+    if (pwaAction === 'scan-card') {
+      setTimeout(() => {
+        try {
+          if (typeof CustomersPage !== 'undefined' && CustomersPage.openRegisterModal) {
+            CustomersPage.openRegisterModal('ocr', { autoCapture: true });
+          }
+        } catch (e) {
+          console.warn('[PWA scan-card] OCR 모달 오픈 실패:', e?.message || e);
+        }
+        // URL 파라미터 정리 — 새로고침 시 무한 트리거 방지
+        try {
+          history.replaceState(null, '', location.pathname + location.hash);
+        } catch (_) {}
+      }, 300);
+    }
 
     // 첫 로그인이면 온보딩 환영 모달 자동 표시 (1초 지연 — 페이지 로딩 안정)
     setTimeout(() => {

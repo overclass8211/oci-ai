@@ -29,5 +29,20 @@
       "type": "image/png",
       "purpose": "any"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "명함 촬영",
+      "short_name": "명함 촬영",
+      "description": "카메라로 명함을 찍어 바로 고객사로 등록",
+      "url": "/?action=scan-card",
+      "icons": [
+        {
+          "src": "/assets/shortcut-scan.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
   ]
 }
