@@ -45,22 +45,7 @@ const CustomersPage = {
             <span data-label="common.excel_import">📂 엑셀 가져오기</span>
             <input type="file" id="cust-excel-import-input" accept=".xlsx,.xls" style="display:none">
           </label>
-          <div class="view-toggle">
-            <button class="view-toggle-btn ${this._view === 'list' ? 'active' : ''}"
-                    data-view="list" title="목록 보기">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                <path d="M2 3h12v2H2zM2 7h12v2H2zM2 11h12v2H2z"/>
-              </svg>
-              <span data-label="customers.view_list">목록</span>
-            </button>
-            <button class="view-toggle-btn ${this._view === 'card' ? 'active' : ''}"
-                    data-view="card" title="카드 보기">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                <path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z"/>
-              </svg>
-              <span data-label="customers.view_card">카드</span>
-            </button>
-          </div>
+          ${ViewToggle.render({ currentView: this._view })}
           <button class="btn btn-primary" id="cust-register-btn" data-label="customers.new_button">
             + 고객사 등록
           </button>

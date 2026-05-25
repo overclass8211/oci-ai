@@ -147,11 +147,8 @@ const ProposalsPage = (() => {
           <input type="checkbox" id="pr-due-soon"> 마감임박 (7일)
         </label>
         <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
-          <!-- Phase 11-B: 뷰 토글 (테이블 / 카드) -->
-          <div class="pr-view-toggle" role="tablist" aria-label="목록 표시 형식">
-            <button type="button" data-view="table" class="${_viewMode === 'table' ? 'is-active' : ''}" title="테이블 뷰">☰ 목록</button>
-            <button type="button" data-view="card" class="${_viewMode === 'card' ? 'is-active' : ''}" title="카드 뷰">▦ 카드</button>
-          </div>
+          <!-- v6.0.0: 5개 모듈 통일 뷰 토글 (ViewToggle 컴포넌트) -->
+          ${ViewToggle.render({ currentView: _viewMode === 'table' ? 'list' : _viewMode })}
           <button class="btn btn-primary" id="pr-new-btn">+ 제안 등록</button>
         </div>
       </div>
@@ -164,25 +161,25 @@ const ProposalsPage = (() => {
     document.getElementById('pr-search').addEventListener('input', _debounce(_reload, 250));
     document.getElementById('pr-status').addEventListener('change', _reload);
     document.getElementById('pr-due-soon').addEventListener('change', _reload);
-    // Phase 11-B: 뷰 토글 핸들러
-    document.querySelectorAll('.pr-view-toggle button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const next = btn.dataset.view;
-        if (next === _viewMode) return;
-        _viewMode = next;
+    // v6.0.0: ViewToggle 컴포넌트 바인딩 ('list' 는 내부적으로 'table' 과 동일)
+    ViewToggle.bind(
+      document.querySelector('.filter-bar .view-toggle'),
+      next => {
+        // ViewToggle 은 'list'/'card' 사용, 내부 _viewMode 는 'table'/'card' 로 호환 유지
+        const internalView = next === 'list' ? 'table' : next;
+        if (internalView === _viewMode) return;
+        _viewMode = internalView;
         try {
-          localStorage.setItem(VIEW_KEY, next);
+          localStorage.setItem(VIEW_KEY, internalView);
         } catch (_) {}
-        document.querySelectorAll('.pr-view-toggle button').forEach(b => {
-          b.classList.toggle('is-active', b.dataset.view === next);
-        });
         const wrap = document.getElementById('pr-list-wrap');
         if (wrap && _list) {
           wrap.innerHTML = _renderList(_list);
           _bindListEvents();
         }
-      });
-    });
+      },
+      null // localStorage 는 위 콜백에서 직접 처리 (table↔list 변환 때문)
+    );
 
     await _reload();
   }

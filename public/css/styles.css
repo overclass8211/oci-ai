@@ -2701,33 +2701,47 @@ tr.cp-row-warn td { background: rgba(230,51,41,.05) !important; }
 /* ============================================================
    뷰 토글 (목록 / 카드)
    ============================================================ */
+/* ──────────────────────────────────────────────────────────
+   v6.0.0 — 뷰 토글 (목록/카드) 미니멀 통일 디자인
+   적용: customers / leads / quotes / proposals / contracts
+   특징: 슬라이딩 인디케이터, OCI Red 강조, 호버 마이크로 인터랙션
+   ────────────────────────────────────────────────────────── */
 .view-toggle {
   display: inline-flex;
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
-  background: var(--surface-2);
-  padding: 2px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--surface-2, #f9fafb);
+  padding: 3px;
+  gap: 2px;
 }
 .view-toggle-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
+  gap: 6px;
+  padding: 6px 14px;
   border: none;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-3);
+  color: var(--text-3, #9ca3af);
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.12s;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  line-height: 1;
 }
-.view-toggle-btn:hover { color: var(--text-1); }
+.view-toggle-btn:hover:not(.active) {
+  color: var(--text-1);
+  background: rgba(0, 0, 0, 0.03);
+}
 .view-toggle-btn.active {
   background: #fff;
-  color: var(--oci-red);
-  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+  color: var(--oci-red, #e63329);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  font-weight: 600;
 }
+.view-toggle-btn svg { flex-shrink: 0; opacity: 0.85; }
+.view-toggle-btn.active svg { opacity: 1; }
 
 /* ============================================================
    고객사 카드 그리드
