@@ -2133,50 +2133,118 @@ const CustomersPage = {
     if (startBtn) startBtn.style.display = '';
   },
 
+  // v6.0.0 Phase 2A fix: 배치 분할 처리 (5장씩) — 다음 문제들 동시 해결:
+  //   1) Nginx client_max_body_size 초과 (20장 = ~100MB → 1MB 기본 한계)
+  //   2) 요청 timeout (Gemini 20장 순차 60s+)
+  //   3) HTML 에러 응답 → "Unexpected token <" JSON parse 에러
+  //   4) 모바일 메모리 부족 (대용량 FormData 직렬화)
+  // + 진행률 표시 (사용자 안내) + 한 배치 실패해도 나머지 계속
   async _runOCR() {
+    const BATCH_SIZE = 5;
     const startBtn = document.getElementById('card-ocr-start-btn');
     const resultsEl = document.getElementById('card-ocr-results');
     if (startBtn) {
       startBtn.disabled = true;
       startBtn.textContent = '🔍 인식 중...';
     }
-    resultsEl.innerHTML =
-      '<div class="loading" style="padding:20px;text-align:center">AI가 명함을 분석 중입니다...</div>';
 
-    try {
+    const total = this._ocrFiles.length;
+    const batches = [];
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      batches.push(this._ocrFiles.slice(i, i + BATCH_SIZE));
+    }
+
+    const renderProgress = (batchIdx, doneCount, batchStatus = '') => {
+      const pct = Math.round((doneCount / total) * 100);
+      resultsEl.innerHTML = `
+        <div style="padding:20px;text-align:center">
+          <div style="font-size:14px;font-weight:600;color:var(--text-1);margin-bottom:10px">
+            🔍 AI 명함 인식 중...
+          </div>
+          <div style="font-size:13px;color:var(--text-2);margin-bottom:14px">
+            배치 ${batchIdx} / ${batches.length} (${doneCount}/${total}장 완료)
+            ${batchStatus ? `<br><span style="color:var(--text-3);font-size:11px">${esc(batchStatus)}</span>` : ''}
+          </div>
+          <div style="width:100%;max-width:300px;margin:0 auto;height:8px;background:var(--surface-2);
+                      border-radius:4px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:var(--oci-red);transition:width .3s"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:6px">${pct}%</div>
+        </div>`;
+    };
+    renderProgress(0, 0, '준비 중...');
+
+    const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
+    const ocrHeaders = {};
+    if (token) ocrHeaders['Authorization'] = `Bearer ${token}`;
+
+    const allResults = [];
+    let doneCount = 0;
+
+    for (let bi = 0; bi < batches.length; bi++) {
+      const batch = batches[bi];
+      renderProgress(bi + 1, doneCount, `${batch.length}장 업로드 중...`);
+
       const formData = new FormData();
-      this._ocrFiles.forEach(f => formData.append('cards', f));
+      batch.forEach(f => formData.append('cards', f));
 
-      const token = localStorage.getItem('oci_token') || sessionStorage.getItem('oci_token');
-      const ocrHeaders = {};
-      if (token) ocrHeaders['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/customers/ocr', {
-        method: 'POST',
-        body: formData,
-        headers: ocrHeaders,
-      });
-      const data = await res.json();
+      try {
+        const res = await fetch('/api/customers/ocr', {
+          method: 'POST',
+          body: formData,
+          headers: ocrHeaders,
+        });
 
-      if (!data.success) {
-        resultsEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(data.error)}</div>`;
-        if (startBtn) {
-          startBtn.disabled = false;
-          startBtn.textContent = '🔍 AI 인식 시작';
+        // ⚠️ HTML 응답 감지 (Nginx 413, Express 기본 에러 핸들러 등) → 친화적 메시지
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          let hint = '';
+          if (res.status === 413) hint = '파일 크기가 너무 큽니다. 사진 해상도를 낮추거나 적게 촬영하세요.';
+          else if (res.status === 504 || res.status === 502) hint = 'AI 처리 시간 초과. 잠시 후 다시 시도하세요.';
+          else hint = `서버 응답 형식 오류 (HTTP ${res.status})`;
+          throw new Error(hint);
         }
-        return;
-      }
 
-      this._ocrResults = data.data;
-      this._renderOCRResults();
-      const saveBtn = document.getElementById('card-save-all-btn');
-      if (saveBtn) saveBtn.style.display = '';
-      if (startBtn) startBtn.style.display = 'none';
-    } catch (err) {
-      resultsEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ ${esc(err.message)}</div>`;
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || `배치 ${bi + 1} 인식 실패`);
+        }
+        // 배치 결과 누적
+        const batchResults = Array.isArray(data.data) ? data.data : [];
+        allResults.push(...batchResults);
+        doneCount += batch.length;
+        renderProgress(bi + 1, doneCount, `${bi + 1}번째 배치 완료`);
+      } catch (err) {
+        console.error(`[OCR batch ${bi + 1}] failed:`, err);
+        // 배치 실패 시 — 해당 배치 파일들을 에러 레코드로 표시하고 다음 배치 계속
+        const msg = err?.message || '알 수 없는 오류';
+        batch.forEach(f => {
+          allResults.push({ filename: f.name || `(이미지)`, error: msg, parsed: {} });
+        });
+        doneCount += batch.length;
+        renderProgress(bi + 1, doneCount, `❌ 배치 ${bi + 1} 실패 — 다음 배치 계속...`);
+      }
+    }
+
+    // 모든 결과 합쳐서 표시
+    this._ocrResults = allResults;
+    if (!allResults.length) {
+      resultsEl.innerHTML = `<div style="color:var(--oci-red);padding:12px">⚠️ 인식 결과가 없습니다</div>`;
       if (startBtn) {
         startBtn.disabled = false;
         startBtn.textContent = '🔍 AI 인식 시작';
       }
+      return;
+    }
+    this._renderOCRResults();
+    const saveBtn = document.getElementById('card-save-all-btn');
+    if (saveBtn) saveBtn.style.display = '';
+    if (startBtn) startBtn.style.display = 'none';
+
+    // 부분 실패 알림
+    const failedCount = allResults.filter(r => r.error).length;
+    if (failedCount > 0 && failedCount < allResults.length) {
+      Toast.warn(`⚠️ ${failedCount}장 인식 실패 (나머지 ${allResults.length - failedCount}장 정상)`);
     }
   },
 

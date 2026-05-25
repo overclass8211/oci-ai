@@ -336,65 +336,97 @@ router.post(
   }
 );
 
-// 명함 OCR
-router.post('/ocr', requireFeature('ai.ocr'), upload.array('cards', 20), async (req, res) => {
-  if (!process.env.GEMINI_API_KEY) {
-    return res
-      .status(400)
-      .json({ success: false, error: 'GEMINI_API_KEY가 .env에 설정되지 않았습니다.' });
-  }
-  if (!req.files || !req.files.length) {
-    return res.status(400).json({ success: false, error: '파일이 없습니다.' });
-  }
+// 명함 OCR — 다중 파일 (최대 20장)
+// v6.0.0 Phase 2A fix: multer 에러를 JSON 으로 통일 + 라우트 timeout 5분 override.
+// 기존: multer 에러 시 Express 기본 에러 핸들러 → HTML 응답 → 프론트 JSON parse 에러
+// 개선: 모든 에러 응답을 JSON 으로 통일 → 프론트가 친화적 메시지 표시 가능
+router.post(
+  '/ocr',
+  requireFeature('ai.ocr'),
+  (req, res, next) => {
+    // Gemini 20장 순차 처리 시 60s+ 가능 → 라우트별 5분 timeout
+    try {
+      req.setTimeout(5 * 60 * 1000);
+      res.setTimeout(5 * 60 * 1000);
+    } catch (_) {
+      /* noop */
+    }
+    upload.array('cards', 20)(req, res, err => {
+      if (!err) return next();
+      // multer 에러를 JSON 으로 통일 (HTML 응답으로 인한 JSON parse 에러 방지)
+      const code = err.code || '';
+      let friendly;
+      if (code === 'LIMIT_FILE_COUNT') {
+        friendly = '한 번에 최대 20장까지만 업로드 가능합니다.';
+      } else if (code === 'LIMIT_FILE_SIZE') {
+        friendly = '파일 크기가 너무 큽니다 (장당 최대 25MB).';
+      } else if (code === 'LIMIT_UNEXPECTED_FILE') {
+        friendly = '예상치 못한 파일 필드입니다.';
+      } else {
+        friendly = `업로드 오류: ${err.message || '알 수 없음'}`;
+      }
+      return res.status(400).json({ success: false, error: friendly, code });
+    });
+  },
+  async (req, res) => {
+    if (!process.env.GEMINI_API_KEY) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'GEMINI_API_KEY가 .env에 설정되지 않았습니다.' });
+    }
+    if (!req.files || !req.files.length) {
+      return res.status(400).json({ success: false, error: '파일이 없습니다.' });
+    }
 
-  const ocrModel = genAI.getGenerativeModel({
-    model: MODEL_FAST,
-    safetySettings: SAFETY_SETTINGS,
-    generationConfig: {
-      responseMimeType: 'application/json',
-      temperature: 0.2,
-      maxOutputTokens: 4096,
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  });
+    const ocrModel = genAI.getGenerativeModel({
+      model: MODEL_FAST,
+      safetySettings: SAFETY_SETTINGS,
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+        maxOutputTokens: 4096,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
 
-  const ocrPrompt = `이 명함 이미지에서 정보를 추출해 JSON으로만 반환하세요. 값이 명확히 보이지 않는 필드는 null로 표기.
+    const ocrPrompt = `이 명함 이미지에서 정보를 추출해 JSON으로만 반환하세요. 값이 명확히 보이지 않는 필드는 null로 표기.
 JSON 형식: {"name":"회사명","contact_person":"이름","industry":"산업군 추정","phone":"전화번호","email":"이메일","address":"주소","region":"국내|해외","country":"국가명","title":"직책"}`;
 
-  const results = [];
-  for (const file of req.files) {
-    try {
-      const imageData = fs.readFileSync(file.path).toString('base64');
-      const mimeType = file.mimetype || 'image/jpeg';
-      const result = await ocrModel.generateContent([
-        { text: ocrPrompt },
-        { inlineData: { mimeType, data: imageData } },
-      ]);
-      await logTokenUsage('ocr', result.response.usageMetadata, MODEL_FAST, getUserId(req));
-      const text = result.response.text();
-      let parsed = {};
+    const results = [];
+    for (const file of req.files) {
       try {
-        parsed = JSON.parse(text);
-      } catch (_) {
-        const m = text.match(/\{[\s\S]*\}/);
-        if (m) {
-          try {
-            parsed = JSON.parse(m[0]);
-          } catch (__) {
-            /* fallback parse failed, use empty object */
+        const imageData = fs.readFileSync(file.path).toString('base64');
+        const mimeType = file.mimetype || 'image/jpeg';
+        const result = await ocrModel.generateContent([
+          { text: ocrPrompt },
+          { inlineData: { mimeType, data: imageData } },
+        ]);
+        await logTokenUsage('ocr', result.response.usageMetadata, MODEL_FAST, getUserId(req));
+        const text = result.response.text();
+        let parsed = {};
+        try {
+          parsed = JSON.parse(text);
+        } catch (_) {
+          const m = text.match(/\{[\s\S]*\}/);
+          if (m) {
+            try {
+              parsed = JSON.parse(m[0]);
+            } catch (__) {
+              /* fallback parse failed, use empty object */
+            }
           }
         }
+        results.push({ filename: file.originalname, raw_text: text, parsed });
+      } catch (err) {
+        console.error('OCR error:', err.message);
+        results.push({ filename: file.originalname, error: friendlyError(err), parsed: {} });
+      } finally {
+        fs.unlink(file.path, () => {});
       }
-      results.push({ filename: file.originalname, raw_text: text, parsed });
-    } catch (err) {
-      console.error('OCR error:', err.message);
-      results.push({ filename: file.originalname, error: friendlyError(err), parsed: {} });
-    } finally {
-      fs.unlink(file.path, () => {});
     }
+    res.json({ success: true, data: results });
   }
-  res.json({ success: true, data: results });
-});
+);
 
 // 고객사 인텔리전스
 router.get('/:id/intelligence', requireFeature('ai.intelligence'), validateId, async (req, res) => {
