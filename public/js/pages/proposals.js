@@ -137,6 +137,8 @@ const ProposalsPage = (() => {
   async function render() {
     const content = document.getElementById('content');
     content.innerHTML = `
+      <!-- v6.0.0: KPI 바 (5개 모듈 통일) -->
+      <div id="pr-kpi-bar"></div>
       <div class="filter-bar">
         <input class="search-input" id="pr-search" placeholder="제안명·고객사·번호 검색...">
         <select class="filter-select" id="pr-status">
@@ -181,7 +183,32 @@ const ProposalsPage = (() => {
       null // localStorage 는 위 콜백에서 직접 처리 (table↔list 변환 때문)
     );
 
+    // v6.0.0: KPI 대시보드 로드 (best-effort)
+    _loadKpiBar();
+
     await _reload();
+  }
+
+  // v6.0.0: 상단 KPI 바 (5개 모듈 통일)
+  async function _loadKpiBar() {
+    if (typeof KpiBar === 'undefined') return;
+    KpiBar.renderLoading('#pr-kpi-bar', 4);
+    try {
+      const res = await API.proposals.dashboard();
+      const d = res?.data || {};
+      KpiBar.render({
+        containerSel: '#pr-kpi-bar',
+        cards: [
+          { icon: '✏️', label: '작성중', value: d.in_progress, color: '#6b7280', sub: '초안·검토·준비' },
+          { icon: '📤', label: '발송', value: d.sent, color: '#3b82f6', sub: '고객 검토 중' },
+          { icon: '🏆', label: '수주', value: d.accepted, color: '#16a34a', sub: '채택' },
+          { icon: '🔥', label: '마감 임박', value: d.due_7d, color: '#dc2626', sub: 'D-7 이내' },
+        ],
+      });
+    } catch (e) {
+      console.warn('[proposals] KPI 로드 실패:', e.message);
+      document.getElementById('pr-kpi-bar').innerHTML = '';
+    }
   }
 
   async function _reload() {

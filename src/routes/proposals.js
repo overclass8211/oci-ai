@@ -407,6 +407,35 @@ const ALLOWED_STATUS = [
 
 // ── GET /next-proposal-no — 다음 자동 채번 미리보기 ──────────
 // ⚠️ 반드시 /:id 보다 먼저 선언 (Express 라우트 매칭 순서)
+// v6.0.0: GET /api/proposals/dashboard — 상단 KPI 카드 (5개 모듈 통일)
+// 작성중 / 발송 / 수주 / 마감 임박
+router.get('/dashboard', async (req, res) => {
+  try {
+    const [[row]] = await pool.query(`
+      SELECT
+        SUM(CASE WHEN status IN ('draft','review','ready') THEN 1 ELSE 0 END) AS in_progress,
+        SUM(CASE WHEN status IN ('sent','revised')         THEN 1 ELSE 0 END) AS sent,
+        SUM(CASE WHEN status = 'accepted'                  THEN 1 ELSE 0 END) AS accepted,
+        SUM(CASE WHEN status NOT IN ('accepted','rejected','expired')
+                  AND due_date IS NOT NULL
+                  AND due_date BETWEEN CURDATE()
+                  AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS due_7d
+      FROM proposals
+    `);
+    res.json({
+      success: true,
+      data: {
+        in_progress: Number(row.in_progress) || 0,
+        sent: Number(row.sent) || 0,
+        accepted: Number(row.accepted) || 0,
+        due_7d: Number(row.due_7d) || 0,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/next-proposal-no', async (req, res) => {
   try {
     const year = parseInt(req.query.year, 10) || new Date().getFullYear();

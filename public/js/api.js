@@ -188,6 +188,8 @@ const API = {
     // v6.0.0 Step 2: 자동완성 (계약 모달 Combobox 용)
     autocomplete: (q, limit = 10) =>
       API.get(`/leads?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
+    // v6.0.0: KPI 대시보드 (5개 모듈 통일)
+    dashboard: () => API.get('/leads/dashboard'),
   },
 
   // 상품/원가
@@ -230,6 +232,8 @@ const API = {
     proposals: id => API.get(`/customers/${id}/proposals`),
     // v6.0.0 Phase A4: AI 추출 회사명 → 정규화 매칭 (계약 등록 시 자동 연결용)
     match: name => API.get(`/customers/match?name=${encodeURIComponent(name)}`),
+    // v6.0.0: KPI 대시보드 (5개 모듈 통일)
+    dashboard: () => API.get('/customers/dashboard'),
   },
 
   // 활동
@@ -284,6 +288,8 @@ const API = {
     update: (id, body) => API.put(`/proposals/${id}`, body),
     delete: id => API.del(`/proposals/${id}`),
     setStatus: (id, status) => API.patch(`/proposals/${id}/status`, { status }),
+    // v6.0.0: KPI 대시보드 (5개 모듈 통일)
+    dashboard: () => API.get('/proposals/dashboard'),
     nextProposalNo: year =>
       API.get(`/proposals/next-proposal-no${year ? '?year=' + year : ''}`),
     // Phase 3 — 파일 / 리비전
@@ -378,6 +384,8 @@ const API = {
     create: body => API.post('/quotes', body),
     update: (id, body) => API.put(`/quotes/${id}`, body),
     delete: id => API.del(`/quotes/${id}`),
+    // v6.0.0: KPI 대시보드 (5개 모듈 통일)
+    dashboard: () => API.get('/quotes/dashboard'),
     duplicate: id => API.post(`/quotes/${id}/duplicate`, {}),
     // Phase 5
     nextQuoteNo: year => API.get(`/quotes/next-quote-no${year ? '?year=' + year : ''}`),

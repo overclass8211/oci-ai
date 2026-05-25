@@ -160,78 +160,57 @@ const ContractsPage = (() => {
     }
   }
 
+  // v6.0.0: 5개 모듈 통일 KpiBar 컴포넌트로 마이그레이션
   function _renderKpiCards(wrap, d) {
+    if (typeof KpiBar === 'undefined') {
+      wrap.innerHTML = ''; // 안전 fallback
+      return;
+    }
     const by = d.by_status || {};
     const expiring30 = d.expiring_30 || 0;
     const overdue = d.overdue || 0;
-    // 카드 정의: { icon, label, value, sub, color, filter }
-    const cards = [
-      {
-        icon: overdue > 0 ? '⛔' : '🔥',
-        label: overdue > 0 ? '만료 경과' : '만료 임박',
-        value: overdue > 0 ? overdue : expiring30,
-        sub: overdue > 0 ? '계약 갱신/종료 필요' : '30일 이내 (승인 단계)',
-        color: overdue > 0 ? '#dc2626' : '#f59e0b',
-        filter: { status: 'approved' },
-      },
-      {
-        icon: '📋',
-        label: '검토중',
-        value: by.review || 0,
-        sub: '법무/내부 검토 단계',
-        color: '#3b82f6',
-        filter: { status: 'review' },
-      },
-      {
-        icon: '✅',
-        label: '진행중',
-        value: by.approved || 0,
-        sub: '승인 완료 + 발효',
-        color: '#16a34a',
-        filter: { status: 'approved' },
-      },
-      {
-        icon: '✏️',
-        label: '초안',
-        value: by.draft || 0,
-        sub: '작성중',
-        color: '#6b7280',
-        filter: { status: 'draft' },
-      },
-    ];
-    wrap.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
-        ${cards
-          .map(
-            (c, idx) => `
-          <div class="ct-kpi-card" data-kpi-idx="${idx}"
-            style="background:#fff;border:1px solid var(--border);border-left:4px solid ${c.color};border-radius:6px;padding:12px 14px;cursor:pointer;transition:box-shadow 0.15s,transform 0.1s"
-            onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)';this.style.transform='translateY(-1px)'"
-            onmouseout="this.style.boxShadow='';this.style.transform=''">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <div style="font-size:12px;color:var(--text-3);font-weight:500">
-                ${c.icon} ${esc(c.label)}
-              </div>
-              <div style="font-size:22px;font-weight:700;color:${c.color}">${c.value}</div>
-            </div>
-            <div style="font-size:10px;color:var(--text-3);margin-top:4px">${esc(c.sub)}</div>
-          </div>`
-          )
-          .join('')}
-      </div>`;
-
-    // 카드 클릭 → 해당 필터 적용
-    wrap.querySelectorAll('.ct-kpi-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const idx = parseInt(card.dataset.kpiIdx, 10);
-        const filter = cards[idx]?.filter || {};
-        if (filter.status) {
-          _filters.status = filter.status;
-          const sel = document.getElementById('ct-filter-status');
-          if (sel) sel.value = filter.status;
-          _refreshList();
-        }
-      });
+    const setStatusFilter = status => {
+      _filters.status = status;
+      const sel = document.getElementById('ct-filter-status');
+      if (sel) sel.value = status;
+      _refreshList();
+    };
+    KpiBar.render({
+      containerSel: wrap,
+      cards: [
+        {
+          icon: overdue > 0 ? '⛔' : '🔥',
+          label: overdue > 0 ? '만료 경과' : '만료 임박',
+          value: overdue > 0 ? overdue : expiring30,
+          sub: overdue > 0 ? '계약 갱신/종료 필요' : '30일 이내 (승인 단계)',
+          color: overdue > 0 ? '#dc2626' : '#f59e0b',
+          onClick: () => setStatusFilter('approved'),
+        },
+        {
+          icon: '📋',
+          label: '검토중',
+          value: by.review || 0,
+          sub: '법무/내부 검토 단계',
+          color: '#3b82f6',
+          onClick: () => setStatusFilter('review'),
+        },
+        {
+          icon: '✅',
+          label: '진행중',
+          value: by.approved || 0,
+          sub: '승인 완료 + 발효',
+          color: '#16a34a',
+          onClick: () => setStatusFilter('approved'),
+        },
+        {
+          icon: '✏️',
+          label: '초안',
+          value: by.draft || 0,
+          sub: '작성중',
+          color: '#6b7280',
+          onClick: () => setStatusFilter('draft'),
+        },
+      ],
     });
   }
 

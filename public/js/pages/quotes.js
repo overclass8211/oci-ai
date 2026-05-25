@@ -163,6 +163,8 @@ const QuotesPage = (() => {
   async function render() {
     const content = document.getElementById('content');
     content.innerHTML = `
+      <!-- v6.0.0: KPI 바 (5개 모듈 통일) -->
+      <div id="qt-kpi-bar"></div>
       <div class="filter-bar">
         <input class="search-input" id="qt-search" placeholder="견적명·고객명·번호 검색...">
         <select class="filter-select" id="qt-status">
@@ -185,7 +187,32 @@ const QuotesPage = (() => {
     document.getElementById('qt-search').addEventListener('input', _debounce(_reload, 250));
     document.getElementById('qt-status').addEventListener('change', _reload);
 
+    // v6.0.0: KPI 대시보드 로드 (best-effort)
+    _loadKpiBar();
+
     await _reload();
+  }
+
+  // v6.0.0: 상단 KPI 바 (5개 모듈 통일)
+  async function _loadKpiBar() {
+    if (typeof KpiBar === 'undefined') return;
+    KpiBar.renderLoading('#qt-kpi-bar', 4);
+    try {
+      const res = await API.quotes.dashboard();
+      const d = res?.data || {};
+      KpiBar.render({
+        containerSel: '#qt-kpi-bar',
+        cards: [
+          { icon: '✏️', label: '초안', value: d.draft, color: '#6b7280', sub: '작성 중' },
+          { icon: '📤', label: '발송', value: d.sent, color: '#3b82f6', sub: '고객 검토 중' },
+          { icon: '🏆', label: '수주', value: d.accepted, color: '#16a34a', sub: '확정' },
+          { icon: '💰', label: '합계', value: d.total_amount_sum, color: '#7c3aed', sub: '전체 금액 합' },
+        ],
+      });
+    } catch (e) {
+      console.warn('[quotes] KPI 로드 실패:', e.message);
+      document.getElementById('qt-kpi-bar').innerHTML = '';
+    }
   }
 
   function _debounce(fn, ms) {

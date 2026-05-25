@@ -19,6 +19,8 @@ const LeadsPage = {
 
   async render() {
     const html = `
+      <!-- v6.0.0: KPI 바 (5개 모듈 통일) -->
+      <div id="leads-kpi-bar"></div>
       <div class="filter-bar">
         <input type="text" class="search-input" id="leads-search" data-placeholder-label="leads.search_placeholder" placeholder="고객사, 프로젝트명, 메모 검색...">
 
@@ -107,6 +109,9 @@ const LeadsPage = {
     `;
     document.getElementById('content').innerHTML = html;
 
+    // v6.0.0: KPI 대시보드 로드 (best-effort)
+    this._loadKpiBar();
+
     const team = await API.team.list();
     this.team = team.data;
     const sel = document.getElementById('leads-assigned');
@@ -183,6 +188,28 @@ const LeadsPage = {
   },
 
   // ── Ctrl+V 단축키 등록 ──────────────────────────────────────
+  // ── v6.0.0: 상단 KPI 바 (5개 모듈 통일) ──────────────────
+  async _loadKpiBar() {
+    if (typeof KpiBar === 'undefined') return;
+    KpiBar.renderLoading('#leads-kpi-bar', 4);
+    try {
+      const res = await API.leads.dashboard();
+      const d = res?.data || {};
+      KpiBar.render({
+        containerSel: '#leads-kpi-bar',
+        cards: [
+          { icon: '🎯', label: '진행 중', value: d.active, color: '#3b82f6', sub: '활성 영업딜' },
+          { icon: '🔥', label: '마감 임박', value: d.deadline_7d, color: '#dc2626', sub: 'D-7 이내 입찰' },
+          { icon: '🏆', label: '수주', value: d.won, color: '#16a34a', sub: '계약 완료' },
+          { icon: '💰', label: '파이프라인', value: d.pipeline_amount, color: '#7c3aed', sub: '활성 딜 합계' },
+        ],
+      });
+    } catch (e) {
+      console.warn('[leads] KPI 로드 실패:', e.message);
+      document.getElementById('leads-kpi-bar').innerHTML = '';
+    }
+  },
+
   _bindPasteShortcut() {
     if (this._pasteHandler) document.removeEventListener('keydown', this._pasteHandler);
     this._pasteHandler = e => {

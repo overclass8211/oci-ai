@@ -247,6 +247,32 @@ router.get('/', async (req, res) => {
 
 // ── GET /next-quote-no — 다음 자동 채번 미리보기 (Phase 5-C) ──
 // ⚠️ 반드시 /:id 보다 먼저 선언 — Express 라우트 매칭 순서
+// v6.0.0: GET /api/quotes/dashboard — 상단 KPI 카드 (5개 모듈 통일)
+// 초안 / 발송 / 수주 / 전체 합계
+router.get('/dashboard', async (req, res) => {
+  try {
+    const [[row]] = await pool.query(`
+      SELECT
+        SUM(CASE WHEN status = 'draft'    THEN 1 ELSE 0 END) AS draft,
+        SUM(CASE WHEN status = 'sent'     THEN 1 ELSE 0 END) AS sent,
+        SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted,
+        COALESCE(SUM(total_amount), 0)                       AS total_amount_sum
+      FROM quotes
+    `);
+    res.json({
+      success: true,
+      data: {
+        draft: Number(row.draft) || 0,
+        sent: Number(row.sent) || 0,
+        accepted: Number(row.accepted) || 0,
+        total_amount_sum: Number(row.total_amount_sum) || 0,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/next-quote-no', async (req, res) => {
   try {
     const year = parseInt(req.query.year, 10) || new Date().getFullYear();

@@ -876,6 +876,38 @@ router.get('/:id/contracts', validateId, async (req, res) => {
   }
 });
 
+// v6.0.0: GET /api/customers/dashboard → 상단 KPI 카드용 집계
+// (전체 / 활성 / 신규 30일 / 휴면 90일+)
+router.get('/dashboard', async (req, res) => {
+  try {
+    const [[row]] = await pool.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS new_30d,
+        SUM(CASE WHEN id IN (
+          SELECT DISTINCT customer_id FROM leads
+           WHERE customer_id IS NOT NULL AND updated_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        ) THEN 1 ELSE 0 END) AS active_30d,
+        SUM(CASE WHEN id NOT IN (
+          SELECT DISTINCT customer_id FROM leads
+           WHERE customer_id IS NOT NULL AND updated_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+        ) THEN 1 ELSE 0 END) AS dormant_90d
+      FROM customers
+    `);
+    res.json({
+      success: true,
+      data: {
+        total: Number(row.total) || 0,
+        active_30d: Number(row.active_30d) || 0,
+        new_30d: Number(row.new_30d) || 0,
+        dormant_90d: Number(row.dormant_90d) || 0,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // v6.0.0: GET /api/customers/:id/quotes → quotes WHERE customer_id = ?
 // 고객사 모달 [💰 견적] 탭 렌더링용
 router.get('/:id/quotes', validateId, async (req, res) => {

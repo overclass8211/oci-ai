@@ -18,6 +18,8 @@ const CustomersPage = {
 
   async render() {
     document.getElementById('content').innerHTML = `
+      <!-- v6.0.0: KPI 바 (5개 모듈 통일) -->
+      <div id="cust-kpi-bar"></div>
       <div class="filter-bar">
         <input class="search-input" id="cust-search" data-placeholder-label="customers.search_placeholder" placeholder="고객사명, 담당자 검색...">
         <select class="filter-select" id="cust-region">
@@ -74,6 +76,9 @@ const CustomersPage = {
         </div>
       </div>
     `;
+    // v6.0.0: KPI 대시보드 로드 (best-effort, 실패해도 페이지 동작)
+    this._loadKpiBar();
+
     // bind render() buttons
     document
       .getElementById('cp-paste-btn-cust')
@@ -482,6 +487,28 @@ const CustomersPage = {
         if (card) this.showCustomerModal(parseInt(card.dataset.custId));
       }
     });
+  },
+
+  // ── v6.0.0: 상단 KPI 바 (5개 모듈 통일) ──────────────────
+  async _loadKpiBar() {
+    if (typeof KpiBar === 'undefined') return;
+    KpiBar.renderLoading('#cust-kpi-bar', 4);
+    try {
+      const res = await API.customers.dashboard();
+      const d = res?.data || {};
+      KpiBar.render({
+        containerSel: '#cust-kpi-bar',
+        cards: [
+          { icon: '🏢', label: '전체 고객사', value: d.total, color: '#6b7280', sub: '등록된 모든 고객사' },
+          { icon: '✅', label: '활성', value: d.active_30d, color: '#16a34a', sub: '최근 30일 활동' },
+          { icon: '🆕', label: '신규', value: d.new_30d, color: '#3b82f6', sub: '30일 내 등록' },
+          { icon: '💤', label: '휴면', value: d.dormant_90d, color: '#f59e0b', sub: '90일+ 활동 없음' },
+        ],
+      });
+    } catch (e) {
+      console.warn('[customers] KPI 로드 실패:', e.message);
+      document.getElementById('cust-kpi-bar').innerHTML = '';
+    }
   },
 
   // ── v6.0.0: 카드 푸터 통계 칩 (옵션 C) ───────────────────

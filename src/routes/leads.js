@@ -261,6 +261,35 @@ router.get('/funnel-stats', async (req, res) => {
   }
 });
 
+// v6.0.0: GET /api/leads/dashboard — 상단 KPI 카드 (5개 모듈 통일)
+// 진행 중 / 마감 임박 / 수주 / 활성 금액
+router.get('/dashboard', async (req, res) => {
+  try {
+    const ACTIVE = `stage NOT IN ('won','lost','dropped')`;
+    const [[row]] = await pool.query(`
+      SELECT
+        SUM(CASE WHEN ${ACTIVE} THEN 1 ELSE 0 END) AS active,
+        SUM(CASE WHEN ${ACTIVE} AND bidding_deadline IS NOT NULL
+                  AND bidding_deadline BETWEEN CURDATE()
+                  AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS deadline_7d,
+        SUM(CASE WHEN stage = 'won' THEN 1 ELSE 0 END) AS won,
+        SUM(CASE WHEN ${ACTIVE} THEN COALESCE(expected_amount, 0) ELSE 0 END) AS pipeline_amount
+      FROM leads
+    `);
+    res.json({
+      success: true,
+      data: {
+        active: Number(row.active) || 0,
+        deadline_7d: Number(row.deadline_7d) || 0,
+        won: Number(row.won) || 0,
+        pipeline_amount: Number(row.pipeline_amount) || 0,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.get('/:id', validateId, async (req, res) => {
   try {
     const [[lead]] = await pool.query(
