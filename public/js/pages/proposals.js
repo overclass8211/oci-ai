@@ -88,6 +88,37 @@ const ProposalsPage = (() => {
   function _statusColor(s) {
     return STATUS_COLOR[s] || 'gray';
   }
+
+  // v6.0.0: 단계 진척률 (5개 모듈 통일 — StageProgress 컴포넌트)
+  // 정상 흐름: draft → review → ready → sent → accepted (5단계, revised 는 sent 와 동급 sent 로 표시)
+  // 종료: rejected (거절), expired (만료)
+  const _PR_STAGES = [
+    { key: 'draft', label: '준비중', color: '#6b7280' },
+    { key: 'review', label: '내부검토', color: '#3b82f6' },
+    { key: 'ready', label: '제출준비', color: '#0891b2' },
+    { key: 'sent', label: '발송', color: '#8b5cf6' },
+    { key: 'accepted', label: '채택', color: '#16a34a' },
+  ];
+  const _PR_TERMINAL_REJECTED = { key: 'rejected', label: '거절', color: '#dc2626' };
+  const _PR_TERMINAL_EXPIRED = { key: 'expired', label: '만료', color: '#9ca3af' };
+  function _renderStageProgress(status) {
+    if (typeof StageProgress === 'undefined') {
+      return `<span class="badge badge-${_statusColor(status)}">${_statusLabel(status)}</span>`;
+    }
+    // revised 는 sent 단계로 표시 (수정 후 재발송)
+    let cur = status === 'revised' ? 'sent' : status;
+    let terminal = null;
+    if (status === 'rejected') terminal = _PR_TERMINAL_REJECTED;
+    else if (status === 'expired') terminal = _PR_TERMINAL_EXPIRED;
+    if (terminal) cur = terminal.key;
+    return StageProgress.render({
+      stages: _PR_STAGES,
+      current: cur,
+      size: 'sm',
+      terminal,
+    });
+  }
+
   function _debounce(fn, ms) {
     let t = null;
     return (...args) => {
@@ -273,7 +304,7 @@ const ProposalsPage = (() => {
               <td style="font-family:monospace;font-size:11px;color:var(--text-3)">${esc(r.quote_no || '-')}</td>
               <td style="text-align:right;font-weight:500">${r.expected_amount ? esc(Fmt.amount(r.expected_amount, r.currency || 'KRW')) : '-'}</td>
               <td style="text-align:center">${r.file_count > 0 ? `<span class="badge badge-blue">${r.file_count}</span>` : '-'}</td>
-              <td style="text-align:center"><span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span></td>
+              <td style="text-align:center">${_renderStageProgress(r.status)}</td>
               <td ${overdue}>${due}</td>
               <td>${esc(r.owner_name || '-')}</td>
               <td style="text-align:center">
@@ -304,7 +335,7 @@ const ProposalsPage = (() => {
         <div class="pr-card" data-id="${r.id}">
           <div class="pr-card-header">
             <span class="pr-card-no">${esc(r.proposal_no)}</span>
-            <span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span>
+            ${_renderStageProgress(r.status)}
           </div>
           <div class="pr-card-title">
             <a href="#" class="pr-link" data-id="${r.id}">${esc(r.proposal_title || '(제안명 미입력)')}</a>

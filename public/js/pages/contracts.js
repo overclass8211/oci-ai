@@ -214,30 +214,19 @@ const ContractsPage = (() => {
     });
   }
 
-  // v6.0.0 Phase C: 진척률 바 (4단계) + 종료까지 일수 (D-N)
+  // v6.0.0: StageProgress 컴포넌트로 마이그레이션 (5개 모듈 통일)
+  // + D-N 일수 표시 (approved 단계 + end_date 있을 때만)
   function _renderProgressBar(status, endDate) {
-    const currentIdx = STATUS_ORDER.indexOf(status);
-    const safeIdx = currentIdx < 0 ? 0 : currentIdx;
-    const stepHtml = STATUS_ORDER.map((s, i) => {
-      const isDone = i < safeIdx;
-      const isCurrent = i === safeIdx;
-      const bg = isCurrent
-        ? STATUS_COLORS[s]
-        : isDone
-          ? STATUS_COLORS[s] + '99'
-          : '#e5e7eb';
-      const fg = isCurrent || isDone ? '#fff' : '#9ca3af';
-      const sym = isDone ? '✓' : isCurrent ? '●' : '○';
-      return `<div title="${esc(STATUS_LABELS[s])}"
-        style="flex:1;display:flex;align-items:center;gap:2px">
-        <div style="width:16px;height:16px;border-radius:50%;background:${bg};color:${fg};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;flex-shrink:0">${sym}</div>
-        ${
-          i < STATUS_ORDER.length - 1
-            ? `<div style="flex:1;height:2px;background:${i < safeIdx ? STATUS_COLORS[STATUS_ORDER[i + 1]] + '99' : '#e5e7eb'}"></div>`
-            : ''
-        }
-      </div>`;
-    }).join('');
+    // 4단계 정의 (StageProgress 형식)
+    const stages = STATUS_ORDER.map(s => ({
+      key: s,
+      label: STATUS_LABELS[s],
+      color: STATUS_COLORS[s],
+    }));
+    const barHtml =
+      typeof StageProgress !== 'undefined'
+        ? StageProgress.render({ stages, current: status, size: 'sm' })
+        : '';
 
     // D-N 일수 계산 (approved 단계 + end_date 있을 때만)
     let dayInfo = '';
@@ -262,10 +251,10 @@ const ContractsPage = (() => {
         dColor = '#6b7280';
         dLabel = `D-${days}`;
       }
-      dayInfo = `<div style="font-size:9px;color:${dColor};font-weight:600;margin-top:2px;text-align:right">${dLabel}</div>`;
+      dayInfo = `<div style="font-size:9px;color:${dColor};font-weight:600;margin-top:2px;text-align:center">${dLabel}</div>`;
     }
 
-    return `<div style="display:flex;align-items:center;gap:0;width:100%">${stepHtml}</div>${dayInfo}`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:0">${barHtml}${dayInfo}</div>`;
   }
 
   function _bindHeaderEvents() {

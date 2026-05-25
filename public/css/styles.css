@@ -2862,6 +2862,107 @@ tr.cp-row-warn td { background: rgba(230,51,41,.05) !important; }
   }
 }
 
+/* ──────────────────────────────────────────────────────────
+   v6.0.0 — 단계 진척률 바 미니멀 통일 디자인
+   적용: leads / quotes / proposals / contracts
+   특징: 원형 step + connector / 컬러 그라데이션 / scale current
+   ────────────────────────────────────────────────────────── */
+.stage-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  vertical-align: middle;
+}
+.stage-step {
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  background: #e5e7eb;
+  color: #9ca3af;
+  border: 1.5px solid #fff;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+  line-height: 1;
+}
+.stage-step.done {
+  background: var(--stage-color, #9ca3af);
+  color: #fff;
+  opacity: 0.85;
+}
+.stage-step.current {
+  background: var(--stage-color, #3b82f6);
+  color: #fff;
+  transform: scale(1.15);
+  box-shadow:
+    0 0 0 2px var(--stage-color, #3b82f6),
+    0 2px 4px rgba(0, 0, 0, 0.12);
+  opacity: 1;
+}
+.stage-step.pending {
+  background: #f3f4f6;
+  color: #d1d5db;
+  border-color: #fff;
+}
+.stage-connector {
+  flex-shrink: 0;
+  background: #e5e7eb;
+  transition: background 0.15s ease;
+}
+.stage-connector.done {
+  background: var(--stage-color, #9ca3af);
+  opacity: 0.7;
+}
+
+/* 크기 sm (목록행) */
+.stage-progress-sm .stage-step {
+  width: 14px;
+  height: 14px;
+  font-size: 8px;
+}
+.stage-progress-sm .stage-connector {
+  width: 10px;
+  height: 2px;
+}
+
+/* 크기 md (상세 또는 강조) */
+.stage-progress-md .stage-step {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+.stage-progress-md .stage-connector {
+  width: 16px;
+  height: 2.5px;
+}
+
+/* 종료 상태 (lost/rejected 등) */
+.stage-progress.stage-terminal .stage-step.current {
+  background: var(--stage-color, #dc2626);
+  box-shadow:
+    0 0 0 2px var(--stage-color, #dc2626),
+    0 2px 4px rgba(0, 0, 0, 0.1);
+  transform: none;
+}
+.stage-terminal-label {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--stage-color, #dc2626);
+}
+
+/* 단계명 라벨 (옵션) */
+.stage-progress-label {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 /* ============================================================
    고객사 카드 그리드
    ============================================================ */

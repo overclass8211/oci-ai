@@ -353,18 +353,50 @@ const LeadsPage = {
       return;
     }
 
+    // v6.0.0: 단계 진척률 (5개 모듈 통일 — StageProgress 컴포넌트)
+    // 정상 흐름: lead → review → proposal → bidding → negotiation → won (6단계)
+    // 종료: lost (실주), dropped (중단)
+    const LEAD_STAGES = [
+      { key: 'lead', label: '리드 발굴', color: '#6b7280' },
+      { key: 'review', label: '검토/미팅', color: '#3b82f6' },
+      { key: 'proposal', label: '제안/견적', color: '#8b5cf6' },
+      { key: 'bidding', label: '입찰', color: '#0891b2' },
+      { key: 'negotiation', label: '협상', color: '#f59e0b' },
+      { key: 'won', label: '수주', color: '#16a34a' },
+    ];
+    const LEAD_TERMINAL_LOST = { key: 'lost', label: '실주', color: '#dc2626' };
+    const LEAD_TERMINAL_DROPPED = { key: 'dropped', label: '중단', color: '#9ca3af' };
+
     const stageBadge = stage => {
-      const map = {
-        lead: 'gray',
-        review: 'gray',
-        proposal: 'blue',
-        bidding: 'amber',
-        negotiation: 'green',
-        won: 'green',
-        lost: 'gray',
-        dropped: 'red',
-      };
-      return `<span class="badge badge-${map[stage]}">${STAGES[stage].label}</span>`;
+      if (typeof StageProgress === 'undefined') {
+        // fallback — 컴포넌트 없으면 기존 badge
+        const map = {
+          lead: 'gray',
+          review: 'gray',
+          proposal: 'blue',
+          bidding: 'amber',
+          negotiation: 'green',
+          won: 'green',
+          lost: 'gray',
+          dropped: 'red',
+        };
+        return `<span class="badge badge-${map[stage]}">${STAGES[stage].label}</span>`;
+      }
+      let terminal = null;
+      let cur = stage;
+      if (stage === 'lost') {
+        terminal = LEAD_TERMINAL_LOST;
+        cur = 'lost';
+      } else if (stage === 'dropped') {
+        terminal = LEAD_TERMINAL_DROPPED;
+        cur = 'dropped';
+      }
+      return StageProgress.render({
+        stages: LEAD_STAGES,
+        current: cur,
+        size: 'sm',
+        terminal,
+      });
     };
 
     const html = `

@@ -284,7 +284,7 @@ const QuotesPage = (() => {
               </td>
               <td style="text-align:center">
                 <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
-                  <span class="badge badge-${_statusColor(r.status)}">${_statusLabel(r.status)}</span>
+                  ${_renderStageProgress(r.status)}
                   ${_renderStatusActions(r)}
                 </div>
               </td>
@@ -309,6 +309,28 @@ const QuotesPage = (() => {
   }
   function _statusLabel(s) {
     return { draft: '초안', sent: '발송됨', accepted: '수주', rejected: '실패' }[s] || '초안';
+  }
+
+  // v6.0.0: 단계 진척률 (5개 모듈 통일 — StageProgress 컴포넌트)
+  // 정상 흐름: draft → sent → accepted (3단계)
+  // 종료: rejected (실패)
+  const _QT_STAGES = [
+    { key: 'draft', label: '초안', color: '#6b7280' },
+    { key: 'sent', label: '발송', color: '#3b82f6' },
+    { key: 'accepted', label: '수주', color: '#16a34a' },
+  ];
+  const _QT_TERMINAL_REJECTED = { key: 'rejected', label: '실패', color: '#dc2626' };
+  function _renderStageProgress(status) {
+    if (typeof StageProgress === 'undefined') {
+      // fallback — 컴포넌트 없으면 기존 badge
+      return `<span class="badge badge-${_statusColor(status)}">${_statusLabel(status)}</span>`;
+    }
+    return StageProgress.render({
+      stages: _QT_STAGES,
+      current: status,
+      size: 'sm',
+      terminal: _QT_TERMINAL_REJECTED,
+    });
   }
 
   // Phase 5-B: 상태별 다음 액션 버튼 (워크플로우)
