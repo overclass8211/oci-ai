@@ -10,6 +10,16 @@ const CustomersPage = {
   _activeRegTab: 'direct',
   _view: localStorage.getItem('customers_view') || 'list',
 
+  // v6.0.0 Phase 2A: 라이브 카메라 연속 촬영 상태
+  _liveCam: {
+    stream: null, // MediaStream
+    blobs: [], // 촬영된 Blob[]
+    urls: [], // 썸네일 ObjectURL[]
+    observer: null, // 모달 close 감시 MutationObserver
+    busy: false, // 셔터 연타 방지
+    MAX: 20, // 최대 촬영 장수
+  },
+
   // Copy & Paste 상태
   _selectedIds: new Set(),
   _allData: [],
@@ -1871,17 +1881,21 @@ const CustomersPage = {
   },
 
   // ── 통합 등록 모달 (직접 입력 / 명함 업로드) ──────────────
-  // options.autoCapture: PWA 쇼트컷(?action=scan-card) 진입 시 자동 카메라 호출
+  // options.autoCapture: PWA 쇼트컷(?action=scan-card) 진입 시 라이브 카메라 모드 활성
   openRegisterModal(defaultTab = 'direct', options = {}) {
     this._ocrFiles = [];
     this._ocrResults = [];
     this._activeRegTab = defaultTab;
-    // v6.0.0: PWA shortcut → 카메라 자동 호출 모드 (모바일 후면 카메라)
-    const captureAttr = options.autoCapture ? 'capture="environment"' : '';
-    const autoOpenCamera = !!options.autoCapture;
+
+    // v6.0.0 Phase 2A: PWA shortcut 진입 시 → 라이브 카메라 연속 촬영 모드
+    // getUserMedia 가능한 환경(HTTPS + 모바일/지원 브라우저) 이면 라이브 뷰파인더,
+    // 아니면 기존 HTML5 input + capture="environment" 폴백
+    if (options.autoCapture) {
+      return this._openLiveCaptureModal();
+    }
 
     Modal.open({
-      title: autoOpenCamera ? '📇 명함 촬영' : '고객사 등록',
+      title: '고객사 등록',
       width: 680,
       body: `
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin:-8px -8px 20px">
@@ -1961,14 +1975,10 @@ const CustomersPage = {
           </p>
 
           <div id="card-dropzone">
-            <div style="font-size:36px;margin-bottom:10px">${autoOpenCamera ? '📷' : '📇'}</div>
-            <div style="font-size:14px;font-weight:600;color:var(--text-1)">
-              ${autoOpenCamera ? '명함을 촬영하거나 갤러리에서 선택하세요' : '명함 파일을 여기에 드롭하거나 클릭해서 선택'}
-            </div>
-            <div style="font-size:12px;color:var(--text-3);margin-top:6px">
-              ${autoOpenCamera ? '📷 카메라가 자동으로 열립니다 · JPG/PNG · 최대 20장' : 'JPG, PNG 지원 · 최대 20장'}
-            </div>
-            <input type="file" id="card-file-input" accept="image/*" multiple ${captureAttr} style="display:none">
+            <div style="font-size:36px;margin-bottom:10px">📇</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-1)">명함 파일을 여기에 드롭하거나 클릭해서 선택</div>
+            <div style="font-size:12px;color:var(--text-3);margin-top:6px">JPG, PNG 지원 · 최대 20장</div>
+            <input type="file" id="card-file-input" accept="image/*" multiple style="display:none">
           </div>
 
           <div id="card-file-list" style="margin-top:12px"></div>
@@ -1995,23 +2005,7 @@ const CustomersPage = {
         '#card-save-all-btn': () => this._saveAllOCR(),
       },
     });
-    setTimeout(() => {
-      this._bindRegTabButtons();
-      // v6.0.0: PWA shortcut 진입 시 카메라 자동 호출
-      // capture="environment" 입력에 click() → Android 후면 카메라 즉시 오픈
-      if (autoOpenCamera) {
-        setTimeout(() => {
-          const fileInput = document.getElementById('card-file-input');
-          if (fileInput) {
-            try {
-              fileInput.click();
-            } catch (e) {
-              console.warn('[OCR autoCapture] 카메라 자동 호출 실패:', e?.message || e);
-            }
-          }
-        }, 250);
-      }
-    }, 0);
+    setTimeout(() => this._bindRegTabButtons(), 0);
   },
 
   _bindRegTabButtons() {
@@ -2312,5 +2306,366 @@ const CustomersPage = {
 
     await this.loadData();
     await App.refreshCommon();
+  },
+
+  // =============================================================
+  // v6.0.0 Phase 2A — 라이브 카메라 연속 촬영 모드
+  //
+  // getUserMedia 로 카메라 스트림 → 사용자가 N장 연속 촬영 →
+  // canvas 캡처 → Blob 누적 → 완료 시 일괄 OCR (기존 _runOCR 흐름 재사용)
+  //
+  // 호환성: HTTPS + Android Chrome 47+ / iOS Safari 11.3+
+  // 폴백: getUserMedia 거부/미지원 시 → HTML5 input capture="environment"
+  // =============================================================
+
+  _openLiveCaptureModal() {
+    // 상태 초기화
+    this._liveCam.blobs = [];
+    this._liveCam.urls.forEach(u => URL.revokeObjectURL(u));
+    this._liveCam.urls = [];
+    this._liveCam.busy = false;
+
+    Modal.open({
+      title: '📷 명함 촬영',
+      width: 680,
+      confirmOnClose: false, // 촬영 중 dirty 컨펌 불필요
+      body: `
+        <div id="lc-wrap" style="display:flex;flex-direction:column;gap:12px">
+          <!-- 카메라 미리보기 -->
+          <div id="lc-stage" style="position:relative;background:#0d0d0d;border-radius:8px;
+                                    overflow:hidden;aspect-ratio:4/3;max-height:55vh">
+            <video id="lc-video" autoplay playsinline muted
+                   style="width:100%;height:100%;object-fit:cover;background:#000"></video>
+            <!-- 명함 가이드 프레임 -->
+            <div style="position:absolute;inset:8%;border:2px dashed rgba(255,255,255,0.55);
+                        border-radius:8px;pointer-events:none"></div>
+            <!-- 우상단 카운터 -->
+            <div id="lc-counter" style="position:absolute;top:10px;right:10px;
+                                        background:rgba(0,0,0,0.7);color:#fff;padding:6px 12px;
+                                        border-radius:20px;font-size:12px;font-weight:600">
+              0 / ${this._liveCam.MAX}
+            </div>
+            <!-- 권한 거부/오류 안내 -->
+            <div id="lc-error" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.82);
+                                      color:#fff;padding:24px;display:flex;flex-direction:column;
+                                      justify-content:center;align-items:center;text-align:center;
+                                      gap:12px;font-size:13px;line-height:1.5"></div>
+          </div>
+
+          <!-- 셔터 버튼 (큰 탭 영역) -->
+          <button id="lc-shutter" type="button"
+                  style="display:flex;align-items:center;justify-content:center;gap:8px;
+                         padding:18px;background:var(--oci-red);color:#fff;border:none;
+                         border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;
+                         transition:transform .08s,opacity .15s">
+            <span style="font-size:22px">📸</span>
+            <span>촬영하기</span>
+          </button>
+
+          <!-- 누적 썸네일 그리드 -->
+          <div id="lc-thumbs" style="display:none;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));
+                                     gap:6px;max-height:140px;overflow-y:auto;
+                                     padding:8px;background:var(--surface-2);border-radius:6px"></div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="lc-fallback-btn" title="권한 거부 / 카메라 미지원 시">
+          📁 파일에서 선택
+        </button>
+        <button class="btn btn-ghost" id="lc-close-btn">취소</button>
+        <button class="btn btn-primary" id="lc-done-btn" disabled>
+          ✓ 완료 (AI 인식)
+        </button>
+      `,
+      bind: {
+        '#lc-shutter': () => this._captureOne(),
+        '#lc-fallback-btn': () => this._fallbackToFileInput(),
+        '#lc-close-btn': () => Modal.close(),
+        '#lc-done-btn': () => this._finishLiveCap(),
+      },
+    });
+
+    // 모달 닫힘 감시 (× 버튼 / overlay / Esc) → 카메라 스트림 정리
+    this._watchModalCloseForCam();
+    // 다음 tick 에 카메라 시작 (DOM 마운트 후)
+    setTimeout(() => this._startLiveCam(), 50);
+  },
+
+  async _startLiveCam() {
+    const errEl = document.getElementById('lc-error');
+    const stageEl = document.getElementById('lc-stage');
+    const shutter = document.getElementById('lc-shutter');
+
+    // getUserMedia 지원 여부 사전 검사
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      this._showCamError('이 브라우저는 카메라 API 를 지원하지 않습니다.', true);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' }, // 후면 카메라 우선
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      this._liveCam.stream = stream;
+      const video = document.getElementById('lc-video');
+      if (video) {
+        video.srcObject = stream;
+        // 일부 모바일 브라우저는 user gesture 가 있어야 play() 성공 — 안전하게 catch
+        video.play().catch(e => console.warn('[LiveCam] video.play 경고:', e?.message));
+      }
+      if (errEl) errEl.style.display = 'none';
+      if (stageEl) stageEl.style.display = '';
+      if (shutter) shutter.style.opacity = '1';
+    } catch (err) {
+      console.warn('[LiveCam] getUserMedia 실패:', err?.name, err?.message);
+      const isPerm = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError';
+      this._showCamError(
+        isPerm
+          ? '카메라 권한이 거부되었습니다.\n브라우저 설정에서 카메라 권한을 허용해주세요.'
+          : '카메라를 시작할 수 없습니다.\n파일에서 선택을 사용하세요.',
+        true
+      );
+    }
+  },
+
+  _showCamError(msg, showFallbackCta = false) {
+    const errEl = document.getElementById('lc-error');
+    const shutter = document.getElementById('lc-shutter');
+    if (errEl) {
+      errEl.style.display = 'flex';
+      errEl.innerHTML = `
+        <div style="font-size:36px">📵</div>
+        <div style="white-space:pre-line">${esc(msg)}</div>
+        ${
+          showFallbackCta
+            ? '<button class="btn btn-primary btn-sm" id="lc-fallback-inline">📁 파일에서 선택</button>'
+            : ''
+        }
+      `;
+      const fb = document.getElementById('lc-fallback-inline');
+      if (fb) fb.addEventListener('click', () => this._fallbackToFileInput());
+    }
+    if (shutter) {
+      shutter.disabled = true;
+      shutter.style.opacity = '0.5';
+    }
+  },
+
+  _captureOne() {
+    if (this._liveCam.busy) return;
+    if (this._liveCam.blobs.length >= this._liveCam.MAX) {
+      Toast.warn(`최대 ${this._liveCam.MAX}장까지만 촬영 가능합니다`);
+      return;
+    }
+    const video = document.getElementById('lc-video');
+    if (!video || !video.videoWidth) {
+      Toast.warn('카메라가 아직 준비되지 않았습니다');
+      return;
+    }
+
+    this._liveCam.busy = true;
+    const shutter = document.getElementById('lc-shutter');
+    if (shutter) {
+      shutter.style.transform = 'scale(0.96)';
+      setTimeout(() => {
+        shutter.style.transform = '';
+      }, 100);
+    }
+
+    // canvas 캡처
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      blob => {
+        if (!blob) {
+          Toast.error('이미지 캡처 실패');
+          this._liveCam.busy = false;
+          return;
+        }
+        this._liveCam.blobs.push(blob);
+        const url = URL.createObjectURL(blob);
+        this._liveCam.urls.push(url);
+        this._renderLiveCapThumbs();
+        this._updateLiveCapUI();
+        this._liveCam.busy = false;
+      },
+      'image/jpeg',
+      0.85
+    );
+  },
+
+  _renderLiveCapThumbs() {
+    const wrap = document.getElementById('lc-thumbs');
+    if (!wrap) return;
+    if (!this._liveCam.urls.length) {
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.style.display = 'grid';
+    wrap.innerHTML = this._liveCam.urls
+      .map(
+        (url, i) => `
+        <div style="position:relative;aspect-ratio:1;border-radius:4px;overflow:hidden;border:1px solid var(--border)">
+          <img src="${url}" style="width:100%;height:100%;object-fit:cover" alt="capture ${i + 1}">
+          <button type="button" class="lc-remove-btn" data-idx="${i}"
+                  style="position:absolute;top:2px;right:2px;width:20px;height:20px;
+                         background:rgba(0,0,0,0.7);color:#fff;border:none;border-radius:50%;
+                         font-size:13px;line-height:1;cursor:pointer;padding:0">×</button>
+          <div style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,0.7);color:#fff;
+                      font-size:10px;padding:1px 5px;border-radius:8px">${i + 1}</div>
+        </div>`
+      )
+      .join('');
+    // 삭제 버튼 바인딩
+    wrap.querySelectorAll('.lc-remove-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx, 10);
+        this._removeLiveCap(idx);
+      });
+    });
+  },
+
+  _removeLiveCap(idx) {
+    if (idx < 0 || idx >= this._liveCam.blobs.length) return;
+    URL.revokeObjectURL(this._liveCam.urls[idx]);
+    this._liveCam.blobs.splice(idx, 1);
+    this._liveCam.urls.splice(idx, 1);
+    this._renderLiveCapThumbs();
+    this._updateLiveCapUI();
+  },
+
+  _updateLiveCapUI() {
+    const n = this._liveCam.blobs.length;
+    const counter = document.getElementById('lc-counter');
+    if (counter) counter.textContent = `${n} / ${this._liveCam.MAX}`;
+    const done = document.getElementById('lc-done-btn');
+    if (done) {
+      done.disabled = n === 0;
+      done.textContent = n > 0 ? `✓ 완료 (${n}장 AI 인식)` : '✓ 완료 (AI 인식)';
+    }
+  },
+
+  _stopLiveCam() {
+    if (this._liveCam.stream) {
+      this._liveCam.stream.getTracks().forEach(t => {
+        try {
+          t.stop();
+        } catch (_) {
+          /* ignore */
+        }
+      });
+      this._liveCam.stream = null;
+    }
+    if (this._liveCam.observer) {
+      try {
+        this._liveCam.observer.disconnect();
+      } catch (_) {
+        /* ignore */
+      }
+      this._liveCam.observer = null;
+    }
+    // ObjectURL 정리
+    this._liveCam.urls.forEach(u => {
+      try {
+        URL.revokeObjectURL(u);
+      } catch (_) {
+        /* ignore */
+      }
+    });
+    this._liveCam.urls = [];
+    this._liveCam.blobs = [];
+    this._liveCam.busy = false;
+  },
+
+  // 모달이 어떤 경로로 닫히든 (× / overlay / Esc) → 카메라 스트림 정리
+  _watchModalCloseForCam() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+    if (this._liveCam.observer) {
+      this._liveCam.observer.disconnect();
+    }
+    this._liveCam.observer = new MutationObserver(() => {
+      if (!overlay.classList.contains('active')) {
+        this._stopLiveCam();
+      }
+    });
+    this._liveCam.observer.observe(overlay, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  },
+
+  _finishLiveCap() {
+    if (!this._liveCam.blobs.length) {
+      Toast.warn('촬영된 명함이 없습니다');
+      return;
+    }
+    // Blob[] → File[] 변환 (filename 부여) — 기존 _runOCR 흐름 재사용
+    const ts = Date.now();
+    this._ocrFiles = this._liveCam.blobs.map(
+      (blob, i) => new File([blob], `card_${ts}_${i + 1}.jpg`, { type: 'image/jpeg' })
+    );
+    // 카메라 정리 → 기존 OCR 결과 모달로 전환
+    this._stopLiveCam();
+    Modal.close();
+    // 결과 표시용 모달 다시 열기 (직접입력 탭 없이 OCR 결과 위주)
+    this._openOcrResultsModal();
+  },
+
+  // 라이브 캡처 → OCR 실행 → 결과 편집 모달
+  _openOcrResultsModal() {
+    Modal.open({
+      title: '📇 명함 AI 인식 결과',
+      width: 720,
+      confirmOnClose: true,
+      body: `
+        <div id="card-ocr-results" style="min-height:140px">
+          <div class="loading" style="padding:30px;text-align:center;color:var(--text-3)">
+            ⏳ ${this._ocrFiles.length}장의 명함을 AI 가 분석 중입니다...
+          </div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="lc-result-cancel">취소</button>
+        <button class="btn btn-primary" id="card-save-all-btn" style="display:none">
+          💾 전체 저장
+        </button>
+      `,
+      bind: {
+        '#lc-result-cancel': () => Modal.close(),
+        '#card-save-all-btn': () => this._saveAllOCR(),
+      },
+    });
+    // 즉시 OCR 시작
+    setTimeout(() => this._runOCR(), 30);
+  },
+
+  // getUserMedia 실패/거부 시 폴백 — HTML5 input capture
+  _fallbackToFileInput() {
+    this._stopLiveCam();
+    Modal.close();
+    // 기존 OCR 탭 모달 열기 (capture 속성 포함)
+    this.openRegisterModal('ocr');
+    // capture 속성 동적 추가 + 자동 클릭
+    setTimeout(() => {
+      const input = document.getElementById('card-file-input');
+      if (input) {
+        input.setAttribute('capture', 'environment');
+        try {
+          input.click();
+        } catch (e) {
+          console.warn('[LiveCam fallback] input.click 실패:', e?.message);
+        }
+      }
+    }, 200);
   },
 };
