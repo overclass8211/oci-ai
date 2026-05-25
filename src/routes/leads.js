@@ -11,6 +11,7 @@ const {
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { getUserId } = require('../middleware/auth');
 const readReceipts = require('../services/readReceipts');
+const leadNotifier = require('./../services/leadNotifier');
 const { wsBroadcast } = require('../ws');
 const upload = require('../middleware/upload');
 const { fromExcelBuffer } = require('../utils/excelHelper');
@@ -1134,6 +1135,149 @@ router.get('/:id/contracts', validateId, async (req, res) => {
       [req.params.id]
     );
     res.json({ success: true, data: contracts });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// =============================================================
+// v6.0.0: 영업리드 댓글 (계약 패턴 통일)
+// 자가 마이그레이션 — lead_comments 테이블 (idempotent)
+// =============================================================
+let _commentsTableReady = null;
+function _ensureCommentsTable() {
+  if (_commentsTableReady) return _commentsTableReady;
+  _commentsTableReady = (async () => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS lead_comments (
+          id           INT AUTO_INCREMENT PRIMARY KEY,
+          lead_id      INT NOT NULL,
+          user_id      INT NULL,
+          parent_id    INT NULL,
+          comment_type VARCHAR(20) DEFAULT 'general'
+                       COMMENT 'general|coach|question|urgent',
+          body         TEXT NOT NULL,
+          created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_lead_created (lead_id, created_at),
+          CONSTRAINT fk_lc_lead FOREIGN KEY (lead_id)
+            REFERENCES leads(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    } catch (e) {
+      // FK 실패 환경 (테스트 등) 폴백 — FK 없이 생성
+      console.warn('[leads:comments] FK 마이그레이션 실패, FK 없이 재시도:', e?.message);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS lead_comments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          lead_id INT NOT NULL, user_id INT NULL, parent_id INT NULL,
+          comment_type VARCHAR(20) DEFAULT 'general',
+          body TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_lead_created (lead_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
+    }
+  })().catch(e => {
+    console.error('[leads:comments] 마이그레이션 최종 실패:', e?.message);
+    _commentsTableReady = null;
+    throw e;
+  });
+  return _commentsTableReady;
+}
+// 부팅 시 1회 실행 (best-effort)
+_ensureCommentsTable().catch(() => {
+  /* startup 실패는 첫 호출 시 재시도 */
+});
+
+const ALLOWED_LEAD_COMMENT_TYPES = ['general', 'coach', 'question', 'urgent'];
+
+// GET /api/leads/:id/comments — 댓글 목록 (작성자 이름 join)
+router.get('/:id/comments', validateId, async (req, res) => {
+  try {
+    await _ensureCommentsTable();
+    const id = parseInt(req.params.id, 10);
+    const [rows] = await pool.query(
+      `SELECT lc.id, lc.parent_id, lc.comment_type, lc.body, lc.created_at,
+              lc.user_id, tm.name AS author_name, tm.email AS author_email
+         FROM lead_comments lc
+         LEFT JOIN team_members tm ON tm.id = lc.user_id
+        WHERE lc.lead_id = ?
+        ORDER BY lc.created_at ASC`,
+      [id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST /api/leads/:id/comments — 댓글 작성
+router.post('/:id/comments', validateId, async (req, res) => {
+  try {
+    await _ensureCommentsTable();
+    const id = parseInt(req.params.id, 10);
+    const userId = getUserId(req);
+    const body = req.body || {};
+    const text = String(body.body || '').trim();
+    if (!text) return res.status(400).json({ success: false, error: '댓글 내용 필요' });
+    const commentType = ALLOWED_LEAD_COMMENT_TYPES.includes(body.comment_type)
+      ? body.comment_type
+      : 'general';
+    const parentId = body.parent_id ? parseInt(body.parent_id, 10) : null;
+
+    const [[lead]] = await pool.query(`SELECT id FROM leads WHERE id = ?`, [id]);
+    if (!lead) return res.status(404).json({ success: false, error: '리드를 찾을 수 없음' });
+
+    const [r] = await pool.query(
+      `INSERT INTO lead_comments (lead_id, user_id, parent_id, comment_type, body)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, userId || null, parentId, commentType, text.slice(0, 5000)]
+    );
+
+    // 작성자 정보 조회 (알림용)
+    let authorEmail = null;
+    let authorName = null;
+    if (userId) {
+      try {
+        const [[u]] = await pool.query(`SELECT name, email FROM team_members WHERE id = ?`, [
+          userId,
+        ]);
+        if (u) {
+          authorEmail = u.email;
+          authorName = u.name;
+        }
+      } catch (_) {
+        /* skip */
+      }
+    }
+
+    // 알림 (30초 디바운싱, best-effort)
+    try {
+      leadNotifier.notifyComment({
+        leadId: id,
+        commentId: r.insertId,
+        authorEmail,
+        authorName,
+        authorUserId: userId,
+        body: text,
+      });
+    } catch (_) {
+      /* skip */
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: r.insertId,
+        comment_type: commentType,
+        body: text,
+        created_at: new Date(),
+        user_id: userId || null,
+        author_name: authorName,
+        author_email: authorEmail,
+      },
+    });
   } catch (err) {
     handleError(res, err);
   }

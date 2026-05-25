@@ -12,6 +12,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (createdLeadId) {
+    // v6.0.0: lead_comments 정리 (FK CASCADE 가 동작하지만 안전망)
+    try {
+      await pool.query('DELETE FROM lead_comments WHERE lead_id = ?', [createdLeadId]);
+    } catch (_) {
+      /* table may not exist */
+    }
     await pool.query('DELETE FROM activities WHERE lead_id = ?', [createdLeadId]);
     await pool.query('DELETE FROM leads WHERE id = ?', [createdLeadId]);
   }
@@ -88,5 +94,55 @@ describe('Leads API', () => {
   it('GET /:id/contracts — 존재하지 않는 리드 → 404', async () => {
     const res = await api().get('/api/leads/9999999/contracts');
     expect(res.status).toBe(404);
+  });
+
+  // ── v6.0.0: 댓글 (계약 패턴 통일) ─────────────────────────
+  it('GET /:id/comments — 빈 목록 (자가 마이그레이션 검증)', async () => {
+    const res = await api().get(`/api/leads/${createdLeadId}/comments`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('POST /:id/comments — 댓글 등록 + 응답 형식 검증', async () => {
+    const r = await api()
+      .post(`/api/leads/${createdLeadId}/comments`)
+      .set('X-User-Id', '1')
+      .send({ body: '테스트 댓글 (vitest)', comment_type: 'coach' });
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(r.body.data.id).toBeGreaterThan(0);
+    expect(r.body.data.comment_type).toBe('coach');
+  });
+
+  it('POST /:id/comments — 빈 본문 → 400', async () => {
+    const r = await api()
+      .post(`/api/leads/${createdLeadId}/comments`)
+      .send({ body: '' });
+    expect(r.status).toBe(400);
+    expect(r.body.success).toBe(false);
+  });
+
+  it('POST /:id/comments — 잘못된 comment_type → general 로 fallback', async () => {
+    const r = await api()
+      .post(`/api/leads/${createdLeadId}/comments`)
+      .send({ body: '타입 검증', comment_type: 'invalid_type' });
+    expect(r.status).toBe(200);
+    expect(r.body.data.comment_type).toBe('general');
+  });
+
+  it('GET /:id/comments — 등록한 댓글 목록 반환 (ORDER BY created_at ASC)', async () => {
+    const res = await api().get(`/api/leads/${createdLeadId}/comments`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+    const types = res.body.data.map(c => c.comment_type);
+    expect(types).toContain('coach');
+    expect(types).toContain('general');
+  });
+
+  it('POST /:id/comments — 존재하지 않는 리드 → 404', async () => {
+    const r = await api()
+      .post('/api/leads/9999999/comments')
+      .send({ body: '존재 안함' });
+    expect(r.status).toBe(404);
   });
 });

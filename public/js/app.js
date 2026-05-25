@@ -991,6 +991,30 @@ const App = {
     try {
       const result = await API.leads.get(id);
       const l = result.data;
+
+      // v6.0.0: 모달 열림 즉시 NEW 배지 사라지도록 캐시 동기화 (백엔드는 GET 시 자동 mark)
+      // LeadsPage._allLeads 의 항목을 markAsReadLocal → renderTable 즉시 재호출
+      try {
+        if (
+          typeof LeadsPage !== 'undefined' &&
+          Array.isArray(LeadsPage._allLeads) &&
+          typeof ReadReceipts !== 'undefined'
+        ) {
+          const item = LeadsPage._allLeads.find(x => x && x.id === id);
+          if (item && item.is_read !== true) {
+            ReadReceipts.markAsReadLocal(item);
+            // 필터 적용된 후 렌더링 유지 (현재 렌더 데이터 그대로)
+            if (typeof LeadsPage.renderTable === 'function') {
+              LeadsPage.renderTable(LeadsPage._allLeads);
+            }
+            // 사이드바 배지 갱신 (있을 경우)
+            if (typeof App !== 'undefined' && App.updateNavBadges) App.updateNavBadges();
+          }
+        }
+      } catch (_) {
+        /* read-receipt 캐시 동기화 best-effort */
+      }
+
       const stage = STAGES[l.stage] || STAGES.lead;
       const days = Fmt.daysLeft(l.expected_close_date);
       const daysBadge =
@@ -1196,6 +1220,35 @@ const App = {
           </div>
 
           ${meetingsHtml}
+
+          <!-- v6.0.0: 💬 검토 코멘트 (계약 모듈 패턴 통일) -->
+          <div class="card mb-3">
+            <div class="card-header">
+              <div class="card-title">💬 검토 코멘트</div>
+            </div>
+            <div class="card-body">
+              <div id="ld-comments-list" style="font-size:12px;margin-bottom:10px">
+                <div class="loading" style="padding:10px;color:var(--text-3);text-align:center">불러오는 중...</div>
+              </div>
+              <div style="padding-top:10px;border-top:1px solid var(--border)">
+                <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
+                  <select id="ld-comment-type" class="form-input" style="width:130px;font-size:12px">
+                    <option value="general">💭 의견</option>
+                    <option value="coach">🧭 코칭</option>
+                    <option value="question">❓ 질문</option>
+                    <option value="urgent">🚨 긴급</option>
+                  </select>
+                  <textarea id="ld-comment-body" class="form-input" rows="2"
+                            placeholder="영업담당자에게 코멘트를 남기세요... (Ctrl+Enter 등록)"
+                            style="flex:1;min-width:200px;font-size:12px"></textarea>
+                  <button id="ld-comment-submit" type="button" class="btn btn-primary btn-sm">💬 등록</button>
+                </div>
+                <div style="font-size:10px;color:var(--text-3);margin-top:6px">
+                  💡 등록 시 영업담당자 + 이전 댓글 참여자에게 알림 발송 (30초 디바운싱)
+                </div>
+              </div>
+            </div>
+          </div>
         `,
         footer: `
           <button class="ai-gen-btn" id="ld-ai" data-feature="ai.lead_summary">🤖 AI 요약</button>
@@ -1298,12 +1351,101 @@ const App = {
             App.navigate('meeting-list');
             setTimeout(() => MeetingListPage.showDetail(mid), 400);
           },
+          // v6.0.0: 댓글 등록 (계약 패턴 통일)
+          '#ld-comment-submit': () => this._submitLeadComment(l.id),
         },
       });
       // 📧 Gmail 카드 lazy load — modal 렌더 후 비동기
       this._loadGmailForLead(l.id);
+      // 💬 댓글 카드 lazy load (modal 렌더 후 비동기)
+      this._loadLeadComments(l.id);
+      // Ctrl+Enter 로 댓글 등록 (편의)
+      const cBody = document.getElementById('ld-comment-body');
+      if (cBody) {
+        cBody.addEventListener('keydown', e => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            this._submitLeadComment(l.id);
+          }
+        });
+      }
     } catch (err) {
       console.error(err);
+    }
+  },
+
+  // ── v6.0.0: 영업리드 댓글 (계약 모듈 패턴 통일) ──────────
+  // 타입 매핑 — 라이트한 일관성: 색상은 계약 모듈과 통일 (회색/주황/녹색/빨강)
+  _leadCommentTypeMeta(type) {
+    const MAP = {
+      general: { label: '💭 의견', color: '#6b7280' },
+      coach: { label: '🧭 코칭', color: '#16a34a' },
+      question: { label: '❓ 질문', color: '#0891b2' },
+      urgent: { label: '🚨 긴급', color: '#dc2626' },
+    };
+    return MAP[type] || MAP.general;
+  },
+
+  async _loadLeadComments(leadId) {
+    const wrap = document.getElementById('ld-comments-list');
+    if (!wrap) return;
+    try {
+      const r = await API.leads.comments.list(leadId);
+      const comments = (r && r.data) || [];
+      if (!comments.length) {
+        wrap.innerHTML = `<div style="padding:14px;text-align:center;color:var(--text-3);font-size:12px">아직 등록된 댓글이 없습니다 — 첫 코멘트를 남겨보세요</div>`;
+        return;
+      }
+      wrap.innerHTML = comments
+        .map(c => {
+          const t = this._leadCommentTypeMeta(c.comment_type);
+          const author = c.author_name || c.author_email || '내부 작성자';
+          const at = c.created_at ? Fmt.relTime(c.created_at) : '';
+          return `<div style="padding:10px 12px;background:#fafafa;border-left:3px solid ${t.color};border-radius:4px;margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-3);margin-bottom:4px;flex-wrap:wrap;gap:6px">
+              <span>
+                <strong style="color:var(--text-1)">${esc(author)}</strong>
+                <span style="display:inline-block;margin-left:6px;padding:1px 6px;background:${t.color};color:#fff;border-radius:8px;font-size:9px;font-weight:600">${esc(t.label)}</span>
+              </span>
+              <span title="${esc(c.created_at || '')}">${esc(at)}</span>
+            </div>
+            <div style="font-size:12px;white-space:pre-wrap;line-height:1.5;color:var(--text-1)">${esc(c.body)}</div>
+          </div>`;
+        })
+        .join('');
+    } catch (err) {
+      wrap.innerHTML = `<div style="padding:10px;color:#dc2626;font-size:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px">댓글 조회 실패: ${esc(err?.message || err)}</div>`;
+    }
+  },
+
+  async _submitLeadComment(leadId) {
+    const bodyEl = document.getElementById('ld-comment-body');
+    const typeEl = document.getElementById('ld-comment-type');
+    const btn = document.getElementById('ld-comment-submit');
+    if (!bodyEl) return;
+    const text = (bodyEl.value || '').trim();
+    if (!text) {
+      Toast.error?.('댓글 내용을 입력하세요');
+      bodyEl.focus();
+      return;
+    }
+    const commentType = typeEl?.value || 'general';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳';
+    }
+    try {
+      await API.leads.comments.create(leadId, { body: text, comment_type: commentType });
+      Toast.success?.('댓글 등록됨 — 관련자에게 알림 발송 (30초 디바운싱)');
+      bodyEl.value = '';
+      this._loadLeadComments(leadId);
+    } catch (err) {
+      Toast.error?.('댓글 등록 실패: ' + (err?.message || err));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '💬 등록';
+      }
     }
   },
 

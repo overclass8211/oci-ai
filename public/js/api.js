@@ -190,6 +190,11 @@ const API = {
       API.get(`/leads?autocomplete=1&search=${encodeURIComponent(q)}&limit=${limit}`),
     // v6.0.0: KPI 대시보드 (5개 모듈 통일)
     dashboard: () => API.get('/leads/dashboard'),
+    // v6.0.0: 댓글 (계약 패턴 통일)
+    comments: {
+      list: id => API.get(`/leads/${id}/comments`),
+      create: (id, body) => API.post(`/leads/${id}/comments`, body),
+    },
   },
 
   // 상품/원가
