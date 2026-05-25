@@ -120,9 +120,10 @@ const LinkedContracts = (() => {
     container.querySelectorAll('.lc-row').forEach(tr => {
       tr.addEventListener('click', () => {
         // 계약 페이지로 이동 — 단순화: hash 라우팅 사용
-        // (사용자가 다른 페이지에 있을 때 계약 모달 직접 열기는 복잡함 → 페이지 이동)
         const contractId = parseInt(tr.dataset.id, 10);
         if (!contractId) return;
+        // v6.0.0: 현재 열린 고객사 모달 먼저 닫기 → 모달 중첩 방지
+        if (typeof Modal !== 'undefined' && Modal.close) Modal.close();
         if (typeof window.navigate === 'function') {
           // app.js navigate() 가 있으면 사용
           window.navigate('contracts');

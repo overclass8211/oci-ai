@@ -73,6 +73,8 @@ const LinkedQuotes = (() => {
       tr.addEventListener('click', () => {
         const id = parseInt(tr.dataset.id, 10);
         if (!id) return;
+        // v6.0.0: 현재 열린 고객사 모달 먼저 닫기 → 모달 중첩 방지
+        if (typeof Modal !== 'undefined' && Modal.close) Modal.close();
         if (typeof window.navigate === 'function') {
           window.navigate('quotes');
           setTimeout(() => {
