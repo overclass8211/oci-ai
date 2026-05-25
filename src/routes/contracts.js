@@ -1068,6 +1068,37 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: '계약을 찾을 수 없음' });
     }
 
+    // v6.0.0: 데이터 정합성 — lead_id/proposal_id 가 (변경되어) 들어왔는데 customer_id 가 비어있으면 자동 도출
+    // (고객사 카드 [📜 계약] 탭에서 보이려면 customer_id 가 필수)
+    if (body.customer_id === undefined) {
+      let lookup = null;
+      if (body.proposal_id) {
+        const [[p]] = await conn.query(
+          `SELECT customer_id, customer_name FROM proposals WHERE id = ? LIMIT 1`,
+          [body.proposal_id]
+        );
+        lookup = p;
+      } else if (body.lead_id) {
+        const [[ld]] = await conn.query(
+          `SELECT customer_id, customer_name FROM leads WHERE id = ? LIMIT 1`,
+          [body.lead_id]
+        );
+        lookup = ld;
+      } else if (body.quote_id) {
+        const [[q]] = await conn.query(
+          `SELECT customer_id, customer_name FROM quotes WHERE id = ? LIMIT 1`,
+          [body.quote_id]
+        );
+        lookup = q;
+      }
+      if (lookup) {
+        body.customer_id = lookup.customer_id || null;
+        if (body.customer_name === undefined && lookup.customer_name) {
+          body.customer_name = lookup.customer_name;
+        }
+      }
+    }
+
     const fields = [];
     const values = [];
     const allowed = [

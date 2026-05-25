@@ -831,6 +831,21 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: '제안을 찾을 수 없음' });
     }
 
+    // v6.0.0: 데이터 정합성 — lead_id 가 (변경되어) 들어왔는데 customer_id 가 비어있으면 자동 도출
+    // (고객사 카드 [📄 제안] 탭에서 보이려면 customer_id 가 필수)
+    if (body.lead_id && body.customer_id === undefined) {
+      const [[ld]] = await conn.query(
+        `SELECT customer_id, customer_name FROM leads WHERE id = ? LIMIT 1`,
+        [body.lead_id]
+      );
+      if (ld) {
+        body.customer_id = ld.customer_id || null;
+        if (body.customer_name === undefined && ld.customer_name) {
+          body.customer_name = ld.customer_name;
+        }
+      }
+    }
+
     // quote_id 변경 시 quote 요약 정보 재반영
     let newQuoteNo = body.quote_no;
     if (body.quote_id !== undefined && body.quote_id !== prev.quote_id) {

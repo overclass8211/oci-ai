@@ -491,6 +491,72 @@ async function initTables() {
       console.warn('⚠ leads.stage 마이그레이션:', e.message);
     }
 
+    // ── v6.0.0: 데이터 정합성 백필 (idempotent) ──────────────
+    // quotes/proposals/contracts 중 lead_id 가 있는데 customer_id 가 NULL 인 행을
+    // lead 의 customer_id/customer_name 으로 일괄 채움. 고객사 카드 통계 바
+    // (관련딜/견적/제안/계약) 가 정확히 표시되도록 보장.
+    // 매번 실행되어도 NULL 행만 매칭되므로 idempotent.
+    const backfills = [
+      {
+        label: 'quotes',
+        sql: `UPDATE quotes q
+                JOIN leads l ON l.id = q.lead_id
+                 SET q.customer_id = COALESCE(q.customer_id, l.customer_id),
+                     q.customer_name = COALESCE(NULLIF(q.customer_name, ''), l.customer_name)
+               WHERE q.lead_id IS NOT NULL
+                 AND (q.customer_id IS NULL OR q.customer_name IS NULL OR q.customer_name = '')`,
+      },
+      {
+        label: 'proposals',
+        sql: `UPDATE proposals p
+                JOIN leads l ON l.id = p.lead_id
+                 SET p.customer_id = COALESCE(p.customer_id, l.customer_id),
+                     p.customer_name = COALESCE(NULLIF(p.customer_name, ''), l.customer_name)
+               WHERE p.lead_id IS NOT NULL
+                 AND (p.customer_id IS NULL OR p.customer_name IS NULL OR p.customer_name = '')`,
+      },
+      {
+        label: 'contracts (via proposals)',
+        sql: `UPDATE contracts c
+                JOIN proposals p ON p.id = c.proposal_id
+                 SET c.customer_id = COALESCE(c.customer_id, p.customer_id),
+                     c.customer_name = COALESCE(NULLIF(c.customer_name, ''), p.customer_name)
+               WHERE c.proposal_id IS NOT NULL
+                 AND (c.customer_id IS NULL OR c.customer_name IS NULL OR c.customer_name = '')`,
+      },
+      {
+        label: 'contracts (via leads)',
+        sql: `UPDATE contracts c
+                JOIN leads l ON l.id = c.lead_id
+                 SET c.customer_id = COALESCE(c.customer_id, l.customer_id),
+                     c.customer_name = COALESCE(NULLIF(c.customer_name, ''), l.customer_name)
+               WHERE c.lead_id IS NOT NULL
+                 AND (c.customer_id IS NULL OR c.customer_name IS NULL OR c.customer_name = '')`,
+      },
+      {
+        label: 'contracts (via quotes)',
+        sql: `UPDATE contracts c
+                JOIN quotes q ON q.id = c.quote_id
+                 SET c.customer_id = COALESCE(c.customer_id, q.customer_id),
+                     c.customer_name = COALESCE(NULLIF(c.customer_name, ''), q.customer_name)
+               WHERE c.quote_id IS NOT NULL
+                 AND (c.customer_id IS NULL OR c.customer_name IS NULL OR c.customer_name = '')`,
+      },
+    ];
+    for (const { label, sql } of backfills) {
+      try {
+        const [r] = await pool.query(sql);
+        if (r.affectedRows > 0) {
+          console.log(`  ✓ customer_id 백필 ${label}: ${r.affectedRows} rows`);
+        }
+      } catch (e) {
+        // 테이블/컬럼 부재 등은 무시 (조용한 실패)
+        if (!String(e.message).match(/doesn't exist|Unknown column|Unknown table/i)) {
+          console.warn(`⚠ ${label} 백필 경고:`, e.message);
+        }
+      }
+    }
+
     // ── 환율 시계열 캐시 테이블 ──────────────────────────
     // 수출입은행(primary) + frankfurter(fallback) 통합 캐시
     await pool.query(`CREATE TABLE IF NOT EXISTS exchange_rates (

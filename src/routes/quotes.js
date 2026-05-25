@@ -308,13 +308,32 @@ router.post('/', async (req, res) => {
       await conn.rollback();
       return res.status(400).json({ success: false, error: '견적명이 필요합니다' });
     }
-    if (!body.customer_name || !String(body.customer_name).trim()) {
-      await conn.rollback();
-      return res.status(400).json({ success: false, error: '고객명이 필요합니다' });
-    }
     if (!body.quote_date) {
       await conn.rollback();
       return res.status(400).json({ success: false, error: '견적일이 필요합니다' });
+    }
+
+    // v6.0.0: 데이터 정합성 — lead_id 만 지정된 경우 lead.customer_id/customer_name 자동 도출
+    // (고객사 카드 [💰 견적] 탭에서 보이려면 customer_id 가 필수)
+    // ⚠️ customer_name 검증보다 **먼저** 실행되어야 자동 채움이 동작함
+    if (body.lead_id && (!body.customer_id || !body.customer_name)) {
+      const [[ld]] = await conn.query(
+        `SELECT customer_id, customer_name FROM leads WHERE id = ? LIMIT 1`,
+        [body.lead_id]
+      );
+      if (ld) {
+        if (!body.customer_id && ld.customer_id) body.customer_id = ld.customer_id;
+        if (!body.customer_name && ld.customer_name) body.customer_name = ld.customer_name;
+      }
+    }
+
+    // 자동 채움 이후 검증 — 자동 도출도 실패하면 사용자가 누락
+    if (!body.customer_name || !String(body.customer_name).trim()) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        error: '고객명이 필요합니다 (영업리드에서도 도출 불가)',
+      });
     }
 
     // 자동채번 또는 수동 입력 — 수동 시 UNIQUE 충돌 가능
@@ -416,6 +435,21 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ success: false, error: '유효한 ID 필요' });
     }
     const body = req.body || {};
+
+    // v6.0.0: 데이터 정합성 — lead_id 가 (변경되어) 들어왔는데 customer_id 가 비어있으면 자동 도출
+    if (body.lead_id && body.customer_id === undefined) {
+      const [[ld]] = await conn.query(
+        `SELECT customer_id, customer_name FROM leads WHERE id = ? LIMIT 1`,
+        [body.lead_id]
+      );
+      if (ld) {
+        body.customer_id = ld.customer_id || null;
+        if (body.customer_name === undefined && ld.customer_name) {
+          body.customer_name = ld.customer_name;
+        }
+      }
+    }
+
     const items = Array.isArray(body.items) ? body.items : [];
     items.forEach((it, idx) => {
       it.supply_price = calcSupplyPrice(it); // 자동 계산 — 사용자 입력 무시
