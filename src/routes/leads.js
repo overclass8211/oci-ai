@@ -9,6 +9,8 @@ const {
   SCHEMAS,
 } = require('../middleware/validate');
 const { parsePage, pageResult } = require('../utils/routeHelper');
+const { getUserId } = require('../middleware/auth');
+const readReceipts = require('../services/readReceipts');
 const { wsBroadcast } = require('../ws');
 const upload = require('../middleware/upload');
 const { fromExcelBuffer } = require('../utils/excelHelper');
@@ -131,6 +133,8 @@ router.get('/', sanitizeQuery, async (req, res) => {
       ),
     ]);
     const total = Number(countRows[0]?.total ?? 0);
+    // v6.0.0: 각 항목에 읽음 상태 enrich (is_read / has_update_after_read / last_read_at)
+    await readReceipts.enrichListWithReadStatus(getUserId(req), 'lead', rows);
     res.json(pageResult(rows, total, page, limit));
   } catch (err) {
     handleError(res, err);
@@ -265,6 +269,8 @@ router.get('/:id', validateId, async (req, res) => {
       [req.params.id]
     );
     if (!lead) return res.status(404).json({ success: false, error: 'Not found' });
+    // v6.0.0: 모달 오픈 = 읽음 처리 (best-effort, 비동기)
+    readReceipts.markRead(getUserId(req), 'lead', parseInt(req.params.id, 10)).catch(() => {});
     const [activities] = await pool.query(
       `SELECT a.*, t.name AS performer_name FROM activities a
        LEFT JOIN team_members t ON a.performed_by = t.id

@@ -244,6 +244,15 @@ const API = {
     },
   },
 
+  // v6.0.0: 읽음 표시 (5개 모듈 공통)
+  readReceipts: {
+    mark: (entityType, entityId) =>
+      API.post('/read-receipts/mark', { entity_type: entityType, entity_id: entityId }),
+    markMany: (entityType, entityIds) =>
+      API.post('/read-receipts/mark-many', { entity_type: entityType, entity_ids: entityIds }),
+    unreadCounts: () => API.get('/read-receipts/unread-counts'),
+  },
+
   // 캘린더
   calendar: {
     list: (params = {}) => {

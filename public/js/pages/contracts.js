@@ -369,10 +369,14 @@ const ContractsPage = (() => {
             const extNoBadge = c.external_contract_no
               ? `<div style="font-size:9px;color:var(--text-3);margin-top:2px" title="거래처 계약번호">↪ ${esc(c.external_contract_no)}</div>`
               : '';
-            return `<tr data-id="${c.id}" class="ct-row">
+            // v6.0.0: 읽음/안읽음 시각화
+            const rrBadge = typeof ReadReceipts !== 'undefined' ? ReadReceipts.renderTitleBadge(c) : '';
+            const rrStyle = typeof ReadReceipts !== 'undefined' ? ReadReceipts.rowStyleAttr(c) : '';
+            const rrTooltip = typeof ReadReceipts !== 'undefined' ? ReadReceipts.tooltipAttr(c) : '';
+            return `<tr data-id="${c.id}" class="ct-row" style="${rrStyle}"${rrTooltip}>
               <td style="font-family:monospace;font-size:11px">${esc(c.contract_no)}${extNoBadge}</td>
               <td><span class="badge badge-gray" style="font-size:10px">${esc(CONTRACT_TYPE_LABELS[c.contract_type]?.split(' ')[0] || c.contract_type || '-')}</span></td>
-              <td>${esc(c.title)}${linkBadge}</td>
+              <td>${rrBadge}${esc(c.title)}${linkBadge}</td>
               <td>${esc(c.customer_name || '-')}</td>
               <td style="font-size:11px">${_fmtDate(c.start_date)}</td>
               <td style="font-size:11px">${_fmtDate(c.end_date)}</td>

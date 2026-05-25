@@ -340,6 +340,8 @@ app.use('/api/activities', require('./src/routes/activities'));
 app.use('/api/quotes', require('./src/routes/quotes'));
 app.use('/api/proposals', require('./src/routes/proposals'));
 app.use('/api/contracts', require('./src/routes/contracts'));
+// v6.0.0: 읽음 표시 통합 라우터 (lead/project/quote/proposal/contract 공통)
+app.use('/api/read-receipts', require('./src/routes/readReceipts'));
 app.use('/api/ai', require('./src/routes/ai'));
 app.use('/api/admin', require('./src/routes/admin'));
 app.use('/api/calendar', require('./src/routes/calendar'));

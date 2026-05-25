@@ -40,6 +40,7 @@ const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { analyzeContractLegal } = require('../services/gemini');
 const modusign = require('../services/modusign');
+const readReceipts = require('../services/readReceipts');
 
 // 토큰 암호화 — ENCRYPTION_KEY 미설정 시 best-effort (mock 모드에서만 안전)
 let _crypto;
@@ -833,6 +834,8 @@ router.get('/', async (req, res) => {
       ),
     ]);
     const total = Number(countRow[0]?.total ?? 0);
+    // v6.0.0: 읽음 상태 enrich
+    await readReceipts.enrichListWithReadStatus(getUserId(req), 'contract', rows);
     res.json(pageResult(rows, total, page, limit));
   } catch (err) {
     handleError(res, err);
@@ -844,6 +847,8 @@ router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    // v6.0.0: 모달 오픈 = 읽음 처리
+    readReceipts.markRead(getUserId(req), 'contract', id).catch(() => {});
 
     const [[contract]] = await pool.query(
       `SELECT c.*, tm.name AS created_by_name

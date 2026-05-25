@@ -362,15 +362,22 @@ const LeadsPage = {
         </thead>
         <tbody>
           ${leads
-            .map(
-              l => `
+            .map(l => {
+              // v6.0.0: 읽음/안읽음 시각화
+              const rrBadge =
+                typeof ReadReceipts !== 'undefined' ? ReadReceipts.renderTitleBadge(l) : '';
+              const rrStyle =
+                typeof ReadReceipts !== 'undefined' ? ReadReceipts.rowStyleAttr(l) : '';
+              const rrTooltip =
+                typeof ReadReceipts !== 'undefined' ? ReadReceipts.tooltipAttr(l) : '';
+              return `
             <tr class="clickable${this._selectedIds.has(l.id) ? ' cp-selected' : ''}"
-                data-lead-id="${l.id}">
+                data-lead-id="${l.id}" style="${rrStyle}"${rrTooltip}>
               <td class="cp-check-col" data-stop-propagation="1">
                 <input type="checkbox" class="cp-checkbox" data-id="${l.id}"
                   ${this._selectedIds.has(l.id) ? 'checked' : ''}>
               </td>
-              <td><strong>${esc(l.customer_name)}</strong></td>
+              <td><strong>${rrBadge}${esc(l.customer_name)}</strong></td>
               <td>${esc(l.project_name)}</td>
               <td><span class="badge ${BUSINESS_COLORS[l.business_type] || 'badge-gray'}">${esc(l.business_type)}</span></td>
               <td class="text-right mono">${l.capacity_mw ? parseFloat(l.capacity_mw).toFixed(0) : '-'}</td>
@@ -383,9 +390,8 @@ const LeadsPage = {
               <td data-stop-propagation="1">
                 <button class="btn btn-ghost btn-sm" data-action="edit-lead" data-lid="${l.id}">편집</button>
               </td>
-            </tr>
-          `
-            )
+            </tr>`;
+            })
             .join('')}
         </tbody>
       </table>

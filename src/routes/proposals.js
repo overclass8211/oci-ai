@@ -32,6 +32,7 @@ const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
+const readReceipts = require('../services/readReceipts');
 const { analyzeProposalRFP, evaluateProposalAgainstRFP } = require('../services/gemini');
 const {
   sendMessageWithAttachments,
@@ -509,6 +510,8 @@ router.get('/', async (req, res) => {
       ),
     ]);
     const total = Number(countRow[0]?.total ?? 0);
+    // v6.0.0: 읽음 상태 enrich
+    await readReceipts.enrichListWithReadStatus(getUserId(req), 'proposal', rows);
     res.json(pageResult(rows, total, page, limit));
   } catch (err) {
     handleError(res, err);
@@ -520,6 +523,8 @@ router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    // v6.0.0: 모달 오픈 = 읽음 처리
+    readReceipts.markRead(getUserId(req), 'proposal', id).catch(() => {});
 
     const [[proposal]] = await pool.query(
       `SELECT p.*, tm.name AS created_by_name

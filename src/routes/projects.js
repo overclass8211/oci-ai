@@ -1,10 +1,12 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { handleError } = require('../middleware/errorHandler');
+const { getUserId } = require('../middleware/auth');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const upload = require('../middleware/upload');
 const { fromExcelBuffer } = require('../utils/excelHelper');
 const { sendExport, normalizeFormat } = require('../utils/exportHelper');
+const readReceipts = require('../services/readReceipts');
 
 const PROJ_COLS = [
   { key: 'name', label: '프로젝트명' },
@@ -45,6 +47,8 @@ router.get('/', async (req, res) => {
       ),
     ]);
     const total = Number(countRows[0]?.total ?? 0);
+    // v6.0.0: 읽음 상태 enrich
+    await readReceipts.enrichListWithReadStatus(getUserId(req), 'project', rows);
     res.json(pageResult(rows, total, page, limit));
   } catch (err) {
     handleError(res, err);
@@ -203,6 +207,25 @@ router.delete('/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM projects WHERE id = ?', [req.params.id]);
     res.json({ success: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// v6.0.0: GET /:id — 단건 조회 + 모달 오픈 시 읽음 처리
+// ⚠️ /export 보다 *뒤*에 등록 (id="export" 가 잡히는 충돌 방지)
+router.get('/:id(\\d+)', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    const [[row]] = await pool.query(
+      `SELECT p.*, t.name AS assigned_name FROM projects p
+       LEFT JOIN team_members t ON p.assigned_to = t.id WHERE p.id = ?`,
+      [id]
+    );
+    if (!row) return res.status(404).json({ success: false, error: '프로젝트를 찾을 수 없음' });
+    readReceipts.markRead(getUserId(req), 'project', id).catch(() => {});
+    res.json({ success: true, data: row });
   } catch (err) {
     handleError(res, err);
   }

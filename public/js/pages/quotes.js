@@ -235,11 +235,15 @@ const QuotesPage = (() => {
         </thead>
         <tbody>
           ${rows
-            .map(
-              r => `
-            <tr data-id="${r.id}">
+            .map(r => {
+              // v6.0.0: 읽음/안읽음 시각화
+              const rrBadge = typeof ReadReceipts !== 'undefined' ? ReadReceipts.renderTitleBadge(r) : '';
+              const rrStyle = typeof ReadReceipts !== 'undefined' ? ReadReceipts.rowStyleAttr(r) : '';
+              const rrTooltip = typeof ReadReceipts !== 'undefined' ? ReadReceipts.tooltipAttr(r) : '';
+              return `
+            <tr data-id="${r.id}" style="${rrStyle}"${rrTooltip}>
               <td style="font-family:monospace;font-size:12px">${esc(r.quote_no)}</td>
-              <td class="qt-name-cell"><a href="#" class="qt-link qt-name-link" data-id="${r.id}" title="${esc(r.name)}">${esc(r.name)}</a></td>
+              <td class="qt-name-cell">${rrBadge}<a href="#" class="qt-link qt-name-link" data-id="${r.id}" title="${esc(r.name)}">${esc(r.name)}</a></td>
               <td>${esc(r.customer_name || '')}</td>
               <td>${_fmtDate(r.quote_date)}</td>
               <td style="text-align:center">${r.vat_included ? '포함' : '별도'}</td>
@@ -264,8 +268,8 @@ const QuotesPage = (() => {
                 <button class="btn btn-ghost btn-sm" data-act="duplicate" data-id="${r.id}" title="새 리비전으로 복제">복제</button>
                 <button class="btn btn-ghost btn-sm" data-act="delete" data-id="${r.id}" title="삭제" style="color:#d93025">삭제</button>
               </td>
-            </tr>`
-            )
+            </tr>`;
+            })
             .join('')}
         </tbody>
       </table>

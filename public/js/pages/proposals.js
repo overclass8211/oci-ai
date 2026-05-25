@@ -237,10 +237,14 @@ const ProposalsPage = (() => {
                 r.due_date && new Date(r.due_date) < new Date() && r.status !== 'accepted'
                   ? 'style="color:#d93025;font-weight:600"'
                   : '';
+              // v6.0.0: 읽음/안읽음 시각화
+              const rrBadge = typeof ReadReceipts !== 'undefined' ? ReadReceipts.renderTitleBadge(r) : '';
+              const rrStyle = typeof ReadReceipts !== 'undefined' ? ReadReceipts.rowStyleAttr(r) : '';
+              const rrTooltip = typeof ReadReceipts !== 'undefined' ? ReadReceipts.tooltipAttr(r) : '';
               return `
-            <tr data-id="${r.id}">
+            <tr data-id="${r.id}" style="${rrStyle}"${rrTooltip}>
               <td style="font-family:monospace;font-size:12px">${esc(r.proposal_no)}</td>
-              <td><a href="#" class="pr-link" data-id="${r.id}" style="color:var(--oci-red);font-weight:500">${esc(r.proposal_title)}</a></td>
+              <td>${rrBadge}<a href="#" class="pr-link" data-id="${r.id}" style="color:var(--oci-red);font-weight:500">${esc(r.proposal_title)}</a></td>
               <td>${esc(r.customer_name || '')}</td>
               <td style="font-family:monospace;font-size:11px;color:var(--text-3)">${esc(r.quote_no || '-')}</td>
               <td style="text-align:right;font-weight:500">${r.expected_amount ? esc(Fmt.amount(r.expected_amount, r.currency || 'KRW')) : '-'}</td>

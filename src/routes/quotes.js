@@ -26,6 +26,7 @@ const { handleError } = require('../middleware/errorHandler');
 const { getUserId } = require('../middleware/auth');
 const { requireFeature } = require('../middleware/featureGuard');
 const { parsePage, pageResult } = require('../utils/routeHelper');
+const readReceipts = require('../services/readReceipts');
 
 router.use(requireFeature('crm.quotes'));
 
@@ -236,6 +237,8 @@ router.get('/', async (req, res) => {
       ),
     ]);
     const total = Number(countRow[0]?.total ?? 0);
+    // v6.0.0: 읽음 상태 enrich
+    await readReceipts.enrichListWithReadStatus(getUserId(req), 'quote', rows);
     res.json(pageResult(rows, total, page, limit));
   } catch (err) {
     handleError(res, err);
@@ -264,6 +267,8 @@ router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ success: false, error: '유효한 ID 필요' });
+    // v6.0.0: 모달 오픈 = 읽음 처리 (best-effort)
+    readReceipts.markRead(getUserId(req), 'quote', id).catch(() => {});
 
     const [[quote]] = await pool.query(
       `SELECT q.*, tm.name AS created_by_name
