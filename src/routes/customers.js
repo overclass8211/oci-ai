@@ -854,4 +854,49 @@ router.get('/:id/contracts', validateId, async (req, res) => {
   }
 });
 
+// v6.0.0: GET /api/customers/:id/quotes → quotes WHERE customer_id = ?
+// 고객사 모달 [💰 견적] 탭 렌더링용
+router.get('/:id/quotes', validateId, async (req, res) => {
+  try {
+    const [[c]] = await pool.query('SELECT id FROM customers WHERE id = ?', [req.params.id]);
+    if (!c) return res.status(404).json({ success: false, error: '고객사 없음' });
+    // 참고: quotes 테이블에는 currency 컬럼이 없음 → 프론트에서 'KRW' fallback
+    const [quotes] = await pool.query(
+      `SELECT id, quote_no, name, status, customer_name,
+              total_amount, quote_date,
+              revision_no, created_at, updated_at
+         FROM quotes
+        WHERE customer_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: quotes });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// v6.0.0: GET /api/customers/:id/proposals → proposals WHERE customer_id = ?
+// 고객사 모달 [📝 제안] 탭 렌더링용
+router.get('/:id/proposals', validateId, async (req, res) => {
+  try {
+    const [[c]] = await pool.query('SELECT id FROM customers WHERE id = ?', [req.params.id]);
+    if (!c) return res.status(404).json({ success: false, error: '고객사 없음' });
+    const [proposals] = await pool.query(
+      `SELECT id, proposal_no, proposal_title, status, customer_name,
+              expected_amount, currency, proposal_date, due_date,
+              owner_name, created_at, updated_at
+         FROM proposals
+        WHERE customer_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: proposals });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 module.exports = router;

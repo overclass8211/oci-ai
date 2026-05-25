@@ -84,6 +84,32 @@ describe('Customers API', () => {
     expect(res.status).toBe(404);
   });
 
+  // ── v6.0.0: 연결된 견적/제안 역방향 조회 (고객사 모달 탭) ──
+  it('GET /:id/quotes — customer_id 로 연결된 견적 조회', async () => {
+    const res = await api().get(`/api/customers/${createdId}/quotes`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    // 빈 결과도 OK (견적 미생성) — 응답 형식만 검증
+  });
+
+  it('GET /:id/quotes — 존재하지 않는 고객사 → 404', async () => {
+    const res = await api().get('/api/customers/9999999/quotes');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /:id/proposals — customer_id 로 연결된 제안 조회', async () => {
+    const res = await api().get(`/api/customers/${createdId}/proposals`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('GET /:id/proposals — 존재하지 않는 고객사 → 404', async () => {
+    const res = await api().get('/api/customers/9999999/proposals');
+    expect(res.status).toBe(404);
+  });
+
   // ── v6.0.0 Phase A4: 회사명 정규화 매칭 ─────────────────────
   describe('GET /match — 회사명 매칭 (Phase A4)', () => {
     let extraIds = [];

@@ -943,11 +943,29 @@ const CustomersPage = {
                    border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-3)">
             👥 소속 고객 <span id="cm-group-cnt" class="badge badge-blue" style="font-size:10px">…</span>
           </button>
-          <!-- v6.0.0 Phase B: 계약 탭 (LinkedContracts 컴포넌트 활용) -->
-          <button class="cust-mtab" data-mtab="contracts"
+          <!-- v6.0.0: 견적 탭 (LinkedQuotes) — crm.quotes off 시 자동 숨김 -->
+          <button class="cust-mtab" data-mtab="quotes" data-feature="crm.quotes"
+            style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;
+                   border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-3)">
+            💰 견적 <span id="cm-quotes-cnt" class="badge badge-blue" style="font-size:10px">…</span>
+          </button>
+          <!-- v6.0.0: 제안 탭 (LinkedProposals) — crm.proposals off 시 자동 숨김 -->
+          <button class="cust-mtab" data-mtab="proposals" data-feature="crm.proposals"
+            style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;
+                   border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-3)">
+            📄 제안 <span id="cm-proposals-cnt" class="badge badge-blue" style="font-size:10px">…</span>
+          </button>
+          <!-- v6.0.0 Phase B: 계약 탭 (LinkedContracts 컴포넌트 활용) — crm.contracts off 시 자동 숨김 -->
+          <button class="cust-mtab" data-mtab="contracts" data-feature="crm.contracts"
             style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;
                    border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-3)">
             📜 계약 <span id="cm-contracts-cnt" class="badge badge-blue" style="font-size:10px">…</span>
+          </button>
+          <!-- v6.0.0: 고객지원 탭 (placeholder) — crm.support off 시 자동 숨김 -->
+          <button class="cust-mtab" data-mtab="support" data-feature="crm.support"
+            style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;
+                   border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-3)">
+            🎫 고객지원
           </button>
         </div>
 
@@ -1056,9 +1074,28 @@ const CustomersPage = {
           <div id="cm-group-list"><div class="loading" style="padding:30px;text-align:center">불러오는 중...</div></div>
         </div>
 
+        <!-- v6.0.0: 견적 탭 (LinkedQuotes) -->
+        <div id="cm-tab-quotes" style="display:none">
+          <div id="lq-customer"><div class="loading" style="padding:30px;text-align:center">불러오는 중...</div></div>
+        </div>
+
+        <!-- v6.0.0: 제안 탭 (LinkedProposals) -->
+        <div id="cm-tab-proposals" style="display:none">
+          <div id="lp-customer"><div class="loading" style="padding:30px;text-align:center">불러오는 중...</div></div>
+        </div>
+
         <!-- v6.0.0 Phase B: 계약 탭 -->
         <div id="cm-tab-contracts" style="display:none">
           <div id="lc-customer"><div class="loading" style="padding:30px;text-align:center">불러오는 중...</div></div>
+        </div>
+
+        <!-- v6.0.0: 고객지원 탭 (placeholder — 향후 티켓/문의 연동) -->
+        <div id="cm-tab-support" style="display:none">
+          <div style="padding:40px 24px;text-align:center;color:var(--text-3);background:#fafafa;border-radius:8px;border:1px dashed var(--border)">
+            <div style="font-size:42px;margin-bottom:12px;opacity:.7">🎫</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-2);margin-bottom:6px">고객지원 모듈 준비 중</div>
+            <div style="font-size:12px">티켓/문의 연동은 다음 단계에서 추가될 예정입니다.</div>
+          </div>
         </div>
 
         </div><!-- /cm-tab-wrap : 고정 높이 wrapper 닫기 -->
@@ -1076,7 +1113,7 @@ const CustomersPage = {
         t.classList.add('active');
         t.style.color = 'var(--oci-red)';
         t.style.borderBottomColor = 'var(--oci-red)';
-        ['info', 'deals', 'brief', 'group', 'contracts'].forEach(k => {
+        ['info', 'deals', 'brief', 'group', 'quotes', 'proposals', 'contracts', 'support'].forEach(k => {
           const el = document.getElementById('cm-tab-' + k);
           if (el) el.style.display = k === t.dataset.mtab ? '' : 'none';
         });
@@ -1129,6 +1166,32 @@ const CustomersPage = {
         })
         .catch(() => {
           const badge = document.getElementById('cm-contracts-cnt');
+          if (badge) badge.textContent = '0';
+        });
+    }
+
+    // v6.0.0: 연결된 견적 목록 + 카운트 배지 (#cm-quotes-cnt)
+    if (typeof LinkedQuotes !== 'undefined') {
+      LinkedQuotes.render('#lq-customer', 'customer', id)
+        .then(result => {
+          const badge = document.getElementById('cm-quotes-cnt');
+          if (badge) badge.textContent = String(result?.count || 0);
+        })
+        .catch(() => {
+          const badge = document.getElementById('cm-quotes-cnt');
+          if (badge) badge.textContent = '0';
+        });
+    }
+
+    // v6.0.0: 연결된 제안 목록 + 카운트 배지 (#cm-proposals-cnt)
+    if (typeof LinkedProposals !== 'undefined') {
+      LinkedProposals.render('#lp-customer', 'customer', id)
+        .then(result => {
+          const badge = document.getElementById('cm-proposals-cnt');
+          if (badge) badge.textContent = String(result?.count || 0);
+        })
+        .catch(() => {
+          const badge = document.getElementById('cm-proposals-cnt');
           if (badge) badge.textContent = '0';
         });
     }
