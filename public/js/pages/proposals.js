@@ -815,43 +815,38 @@ const ProposalsPage = (() => {
   // 흐름: 메타 입력 → 파일 업로드 → [🤖 AI 분석] → 기본정보 + AI 제안전략 요약 자동 채움
   function _renderRfpTab(e) {
     const rfpFiles = (e.files || []).filter(f => f.file_type === 'rfp');
-    const analyzableFiles = rfpFiles.filter(f => _isAnalyzable(f.original_filename));
-    const canAnalyze = analyzableFiles.length > 0;
-    const hasRfpButUnanalyzable = rfpFiles.length > 0 && analyzableFiles.length === 0;
+    const hasFiles = rfpFiles.length > 0;
+    // v6.0.0 UX 개선:
+    //   - 빈 상태: 큰 드롭존 (안내 통합) 만 노출
+    //   - 파일 있음: 컴팩트 "+ 추가" 버튼 + 파일 목록 (안내 박스 제거)
+    //   - 노란/하늘색 안내 박스 + 빈 목록 안내 모두 제거 (인지 부하 ↓)
     return `
-      <!-- Phase 13-4: 노란색 안내 박스 제거 — 섹션 헤더 sub-text 와 중복되어 간소화 -->
-
-      <!-- Phase 13-2: RFP 메타 입력 UI 제거 — AI 분석 결과/저장 흐름 유지를 위한 hidden 필드만 보존 -->
+      <!-- RFP 메타 hidden 필드 (AI 분석 결과/저장 흐름 유지) -->
       <input type="hidden" id="pr-f-rfp_title" value="${esc(e.rfp_title || '')}">
       <input type="hidden" id="pr-f-rfp_received_date" value="${e.rfp_received_date ? _toInputDate(e.rfp_received_date) : ''}">
       <input type="hidden" id="pr-f-rfp_due_date" value="${e.rfp_due_date ? _toInputDate(e.rfp_due_date) : ''}">
       <input type="hidden" id="pr-f-rfp_summary" value="${esc(e.rfp_summary || '')}">
 
-      <!-- RFP 파일 업로드 — Phase 4-C 드롭존 (다중 + drag/drop) -->
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <strong style="font-size:13px">📎 RFP 파일 (${rfpFiles.length}건)</strong>
-        <span style="font-size:11px;color:var(--text-3)">여러 파일 동시 등록 · drag &amp; drop · AI 분석 가능 형식: PDF / 이미지 / 텍스트</span>
-      </div>
-      <div id="pr-rfp-dropzone" class="pr-dropzone" data-source="rfp" tabindex="0" role="button" aria-label="RFP 파일 추가">
-        <div class="pr-dropzone-icon">📥</div>
-        <div class="pr-dropzone-title">파일 추가</div>
-        <div class="pr-dropzone-hint">이 영역을 클릭하거나 파일을 끌어다 놓으세요<br>(pdf · ppt · doc · xls · hwp · 이미지 — 최대 100MB / 파일)</div>
-        <input type="file" id="pr-rfp-upload-input" multiple style="display:none" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
-      </div>
-      <div style="margin-top:14px">
-        ${_renderFileList(rfpFiles, e.id, 'rfp')}
-      </div>
-
-      <!-- Phase 12: AI 분석 버튼은 2단계 (AI 제안전략 요약 섹션)로 이동 -->
-      <div style="margin-top:12px;padding:10px 14px;background:#ecfeff;border:1px solid #67e8f9;border-radius:6px;font-size:12px;color:#155e75">
-        ${
-          canAnalyze
-            ? `✅ <strong>RFP 파일 ${analyzableFiles.length}건 준비 완료</strong> — 다음 단계 <strong>[🤖 AI 제안전략 요약]</strong> 섹션에서 [AI 분석 시작] 버튼을 누르세요.`
-            : hasRfpButUnanalyzable
-              ? '⚠️ 등록된 RFP 파일이 분석 불가 형식입니다 — PDF / 이미지(PNG·JPG·WEBP) / 텍스트만 지원'
-              : '💡 RFP 파일을 업로드한 뒤 다음 단계에서 AI 분석을 실행하세요'
-        }
-      </div>
+      ${
+        hasFiles
+          ? `<!-- 파일 있음: 컴팩트 [+ 추가] 버튼 + 파일 목록 -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <strong style="font-size:13px">📎 RFP 파일 (${rfpFiles.length}건)</strong>
+          <button id="pr-rfp-dropzone" class="btn btn-ghost btn-sm" data-source="rfp" type="button"
+            title="RFP 파일 추가 — 클릭 또는 드래그">📥 파일 추가</button>
+          <input type="file" id="pr-rfp-upload-input" multiple style="display:none"
+            accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
+        </div>
+        ${_renderFileList(rfpFiles, e.id, 'rfp')}`
+          : `<!-- 빈 상태: 큰 드롭존만 -->
+        <div id="pr-rfp-dropzone" class="pr-dropzone" data-source="rfp" tabindex="0" role="button" aria-label="RFP 파일 추가">
+          <div class="pr-dropzone-icon">📥</div>
+          <div class="pr-dropzone-title">RFP 파일 첨부</div>
+          <div class="pr-dropzone-hint">클릭 또는 드래그 · PDF · 이미지 · 텍스트 우선 · 최대 100MB / 파일</div>
+          <input type="file" id="pr-rfp-upload-input" multiple style="display:none"
+            accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.hwp,.hwpx,.png,.jpg,.jpeg">
+        </div>`
+      }
     `;
   }
 
@@ -959,8 +954,11 @@ const ProposalsPage = (() => {
       '## 독소조항 회피방안',
       '- ',
     ].join('\n');
+    // v6.0.0 UX 개선: 보라색 6섹션 박스 제거, 결과 영역을 카드 형식으로 통합
+    //   - 빈 상태 (canAnalyze=false): CTA 버튼만 (단일 hint), 결과 영역 hidden
+    //   - 분석 가능 (canAnalyze=true, !hasResult): CTA + 결과 textarea (회색 placeholder)
+    //   - 결과 있음: CTA "재분석" + 결과 카드 헤더 [📄 Word] [📋 복사]
     return `
-      <!-- Phase 12: 큰 CTA AI 분석 버튼 (1단계에서 이동) -->
       <button class="pr-ai-cta" id="pr-ai-analyze-btn" type="button"
         ${canAnalyze ? '' : 'disabled'}>
         🤖 ${hasResult ? 'AI 분석 다시 시작' : 'AI 분석 시작'} — RFP 기반 자동 생성
@@ -970,26 +968,29 @@ const ProposalsPage = (() => {
           canAnalyze
             ? `Gemini 2.5 Pro 가 RFP 를 읽어 제안명·고객사·금액·일정·6섹션 전략을 자동 생성합니다 (약 10-30초)`
             : hasRfpButUnanalyzable
-              ? '⚠️ 1단계의 RFP 파일이 분석 불가 형식입니다 — PDF / 이미지(PNG·JPG·WEBP) / 텍스트만 지원'
-              : '⚠️ 먼저 1단계 RFP 등록 섹션에서 분석 가능한 RFP 파일을 업로드하세요'
+              ? '⚠️ RFP 파일이 분석 불가 형식 — PDF · 이미지(PNG/JPG/WEBP) · 텍스트만 지원'
+              : '먼저 위 RFP 파일을 첨부하세요'
         }
       </div>
 
-      <div style="margin:14px 0 10px;padding:10px 14px;background:#f3e8ff;border:1px solid #d8b4fe;border-radius:6px;font-size:12px;color:#6b21a8;display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div>
-          🧠 <strong>6섹션 마크다운 작성 영역</strong> — 직접 편집 가능. 위 [🤖 AI 분석 시작] 으로 자동 생성.
+      ${
+        canAnalyze || hasResult
+          ? `<!-- 결과 영역: 분석 가능하거나 이미 결과 있을 때만 노출 -->
+        <div style="margin-top:18px;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <strong style="font-size:13px">🧠 제안전략 6섹션</strong>
+          <div style="display:flex;gap:6px">
+            ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-word-btn" type="button" title="Word(.docx) 내려받기">📄 Word</button>' : ''}
+            ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-copy-btn" type="button" title="markdown 복사">📋 복사</button>' : ''}
+          </div>
         </div>
-        <div style="display:flex;gap:6px">
-          ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-word-btn" type="button" title="Word(.docx) 내려받기">📄 Word 다운로드</button>' : ''}
-          ${hasResult ? '<button class="btn btn-ghost btn-sm" id="pr-ai-copy-btn" type="button" title="markdown 복사">📋 복사</button>' : ''}
+        <div class="form-row" style="margin-bottom:6px">
+          <textarea class="form-input" id="pr-f-ai_strategy_md" rows="14" placeholder="${esc(placeholder)}" style="resize:vertical;font-family:'Consolas','Monaco',monospace;font-size:12px;line-height:1.6">${esc(e.ai_strategy_md || '')}</textarea>
         </div>
-      </div>
-      <div class="form-row" style="margin-bottom:6px">
-        <textarea class="form-input" id="pr-f-ai_strategy_md" rows="14" placeholder="${esc(placeholder)}" style="resize:vertical;font-family:'Consolas','Monaco',monospace;font-size:12px;line-height:1.6">${esc(e.ai_strategy_md || '')}</textarea>
-      </div>
-      <div style="font-size:11px;color:var(--text-3);text-align:right">
-        ${e.ai_strategy_generated_at ? '최근 AI 분석: ' + _fmtDateTime(e.ai_strategy_generated_at) : '아직 AI 분석 결과 없음 — 수동 입력 가능'}
-      </div>
+        <div style="font-size:11px;color:var(--text-3);text-align:right">
+          ${e.ai_strategy_generated_at ? '최근 AI 분석: ' + _fmtDateTime(e.ai_strategy_generated_at) : '직접 편집 가능 (수동 입력 OK)'}
+        </div>`
+          : ''
+      }
     `;
   }
 
