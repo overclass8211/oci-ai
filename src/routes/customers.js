@@ -116,15 +116,37 @@ router.get('/', async (req, res) => {
       params.push(industry);
     }
 
+    // v6.0.0: 카드/리스트에 표시할 모듈별 카운트 4종을 서브쿼리로 enrich
+    //   - active_deals_cnt: leads(stage NOT IN won/lost/dropped) — 진행 중인 영업딜만
+    //   - quotes_cnt / proposals_cnt / contracts_cnt: 전체 건수 (상태 무관)
+    //   각 customer_id 인덱스가 있어 50개 카드 기준 추가 ~15ms 수준
     const [[countRows], [rows]] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS total FROM customers ${where}`, params),
-      pool.query(`SELECT * FROM customers ${where} ORDER BY name LIMIT ? OFFSET ?`, [
-        ...params,
-        limit,
-        offset,
-      ]),
+      pool.query(
+        `SELECT c.*,
+          (SELECT COUNT(*) FROM leads l
+             WHERE l.customer_id = c.id
+               AND l.stage NOT IN ('won','lost','dropped')) AS active_deals_cnt,
+          (SELECT COUNT(*) FROM quotes q
+             WHERE q.customer_id = c.id) AS quotes_cnt,
+          (SELECT COUNT(*) FROM proposals p
+             WHERE p.customer_id = c.id) AS proposals_cnt,
+          (SELECT COUNT(*) FROM contracts ct
+             WHERE ct.customer_id = c.id) AS contracts_cnt
+         FROM customers c
+         ${where.replace(/\b(name|contact_person|region|industry)\b/g, 'c.$1')}
+         ORDER BY c.name LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      ),
     ]);
     const total = Number(countRows[0]?.total ?? 0);
+    // 숫자 정규화 (mysql2 driver 반환 시 string 가능성 방지)
+    rows.forEach(r => {
+      r.active_deals_cnt = Number(r.active_deals_cnt) || 0;
+      r.quotes_cnt = Number(r.quotes_cnt) || 0;
+      r.proposals_cnt = Number(r.proposals_cnt) || 0;
+      r.contracts_cnt = Number(r.contracts_cnt) || 0;
+    });
     res.json(pageResult(rows, total, page, limit));
   } catch (err) {
     handleError(res, err);

@@ -440,6 +440,13 @@ const CustomersPage = {
                   ? `<div class="brief-done-chip" data-brief-card-id="${c.id}">✅ ${info.label}</div>`
                   : `<div data-brief-card-id="${c.id}" style="display:none"></div>`;
               })()}
+              <!-- v6.0.0: 모듈별 카운트 통계 바 (옵션 C) — 클릭 시 모달 해당 탭 -->
+              <div class="cust-card-stats" data-stop-propagation="1">
+                ${this._renderStatChip(c.id, 'deals',     '🤝', '진행딜', c.active_deals_cnt)}
+                ${this._renderStatChip(c.id, 'quotes',    '💰', '견적',   c.quotes_cnt)}
+                ${this._renderStatChip(c.id, 'proposals', '📄', '제안',   c.proposals_cnt)}
+                ${this._renderStatChip(c.id, 'contracts', '📜', '계약',   c.contracts_cnt)}
+              </div>
               <button class="ai-gen-btn" style="width:100%;justify-content:center"
                 data-action="ai-brief" data-id="${c.id}" data-name="${esc(c.name).replace(/"/g, '&quot;')}">
                 🤖 AI 브리핑 생성
@@ -471,6 +478,17 @@ const CustomersPage = {
           }, 80);
           return;
         }
+        // v6.0.0: 통계 칩 클릭 → 모달 + 해당 탭 자동 활성
+        if (action === 'open-tab') {
+          const id = parseInt(actionBtn.dataset.id);
+          const mtab = actionBtn.dataset.mtab;
+          this.showCustomerModal(id);
+          setTimeout(() => {
+            const tab = document.querySelector(`.cust-mtab[data-mtab="${mtab}"]`);
+            if (tab) tab.click();
+          }, 80);
+          return;
+        }
       }
 
       if (!stopEl) {
@@ -478,6 +496,22 @@ const CustomersPage = {
         if (card) this.showCustomerModal(parseInt(card.dataset.custId));
       }
     });
+  },
+
+  // ── v6.0.0: 카드 푸터 통계 칩 (옵션 C) ───────────────────
+  // 4개 모듈(딜/견적/제안/계약) 카운트를 한 줄에 표시 + 클릭 시 모달 해당 탭
+  // 0건은 회색, N건은 컬러로 강조
+  _renderStatChip(custId, mtab, icon, label, count) {
+    const n = Number(count) || 0;
+    const display = n > 99 ? '99+' : String(n);
+    const cls = n > 0 ? 'cust-stat-chip active' : 'cust-stat-chip zero';
+    return `<button type="button" class="${cls}"
+              data-action="open-tab" data-id="${custId}" data-mtab="${mtab}"
+              title="${esc(label)} ${n}건 — 클릭하면 ${esc(label)} 탭으로 이동">
+      <span class="stat-icon">${icon}</span>
+      <span class="stat-label">${esc(label)}</span>
+      <span class="stat-count">${display}</span>
+    </button>`;
   },
 
   // ── AI 브리핑 완료 상태 관리 ─────────────────────────────

@@ -84,6 +84,25 @@ describe('Customers API', () => {
     expect(res.status).toBe(404);
   });
 
+  // ── v6.0.0: GET / 응답에 모듈별 카운트 4종 포함 (카드 통계 바) ──
+  it('GET / — 응답에 active_deals_cnt/quotes_cnt/proposals_cnt/contracts_cnt 포함', async () => {
+    const res = await api().get('/api/customers?limit=10');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    if (res.body.data.length > 0) {
+      const row = res.body.data[0];
+      expect(row).toHaveProperty('active_deals_cnt');
+      expect(row).toHaveProperty('quotes_cnt');
+      expect(row).toHaveProperty('proposals_cnt');
+      expect(row).toHaveProperty('contracts_cnt');
+      expect(typeof row.active_deals_cnt).toBe('number');
+      expect(typeof row.quotes_cnt).toBe('number');
+      expect(typeof row.proposals_cnt).toBe('number');
+      expect(typeof row.contracts_cnt).toBe('number');
+    }
+  });
+
   // ── v6.0.0: 연결된 견적/제안 역방향 조회 (고객사 모달 탭) ──
   it('GET /:id/quotes — customer_id 로 연결된 견적 조회', async () => {
     const res = await api().get(`/api/customers/${createdId}/quotes`);

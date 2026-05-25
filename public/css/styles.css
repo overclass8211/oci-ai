@@ -2823,6 +2823,69 @@ tr.cp-row-warn td { background: rgba(230,51,41,.05) !important; }
   padding: 10px 14px 14px;
 }
 
+/* ──────────────────────────────────────────────────────────
+   v6.0.0 — 카드 푸터 모듈별 카운트 통계 바 (옵션 C)
+   딜 / 견적 / 제안 / 계약 — 아이콘 + 한글 라벨 + 건수
+   클릭 시 모달의 해당 탭으로 자동 이동
+   ────────────────────────────────────────────────────────── */
+.cust-card-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin: 4px 0 10px;
+}
+.cust-stat-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2, #f9fafb);
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s, background 0.12s;
+  font-family: inherit;
+  text-align: center;
+  min-width: 0; /* 좁은 카드에서 grid overflow 방지 */
+}
+.cust-stat-chip:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  border-color: var(--oci-red, #e63329);
+}
+.cust-stat-chip .stat-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.cust-stat-chip .stat-label {
+  font-size: 10px;
+  color: var(--text-2);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.cust-stat-chip .stat-count {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+/* 0건 상태 — 회색 톤다운 */
+.cust-stat-chip.zero {
+  background: #fafafa;
+  border-color: #eee;
+}
+.cust-stat-chip.zero .stat-icon { opacity: 0.35; filter: grayscale(1); }
+.cust-stat-chip.zero .stat-label { color: #c0c0c0; }
+.cust-stat-chip.zero .stat-count { color: #c0c0c0; }
+/* 활성 (N>0) 상태 — 컬러 강조 */
+.cust-stat-chip.active .stat-count { color: var(--oci-red, #e63329); }
+.cust-stat-chip.active .stat-label { color: var(--text-1); }
+
 /* ============================================================
    상단 공통 위젯 (세션 / 토큰 / 테마 / 폰트)
    ============================================================ */
