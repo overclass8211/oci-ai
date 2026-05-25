@@ -592,8 +592,8 @@ const ProposalsPage = (() => {
           const active = !step1Done ? 1 : 2;
           const open = { 1: active === 1, 2: active === 2 };
 
+          // v6.0.0: 헤드라인 stepper UI 제거 (사용자 요청 — 섹션 자체 헤더로 충분)
           wrap.innerHTML =
-            _renderStepper2(step1Done, step2Done, active) +
             _renderStepSection(
               1,
               '📑 RFP 등록 & AI 분석',
@@ -663,25 +663,9 @@ const ProposalsPage = (() => {
     }
   }
 
-  // ── Phase 10-2 + Phase 13: Stepper + Collapsible 섹션 헬퍼 ─
-  // Phase 13: 2단계 stepper (RFP 등록 & AI 분석 통합)
-  function _renderStepper2(d1, d2, active) {
-    const step = (num, label, meta, done) => {
-      const cls = done ? 'is-done' : active === num ? 'is-active' : 'is-pending';
-      return `<div class="pr-step ${cls}">
-        <div class="pr-step-num"><span class="pr-step-num-text">${num}</span></div>
-        <div class="pr-step-body">
-          <div class="pr-step-label">${label}</div>
-          <div class="pr-step-meta">${meta}</div>
-        </div>
-      </div>`;
-    };
-    return `<div class="pr-stepper">
-      ${step(1, 'RFP 등록 & AI 분석', 'PDF 첨부 + 6섹션 자동 생성', d1)}
-      <div class="pr-step-connector"></div>
-      ${step(2, '검토 & 저장', '기본정보 확정', d2)}
-    </div>`;
-  }
+  // ── Phase 10-2: Collapsible 섹션 헬퍼 ──────────────────────
+  // v6.0.0: 상단 stepper UI 제거 (사용자 요청) — 섹션 카드 자체 헤더로 충분
+  // (이전 _renderStepper2 함수 제거됨)
 
   // Collapsible 섹션 카드 (단계별)
   function _renderStepSection(num, title, summary, opts) {
