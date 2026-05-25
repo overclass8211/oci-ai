@@ -101,11 +101,18 @@ const LinkedProposals = (() => {
         if (typeof Modal !== 'undefined' && Modal.close) Modal.close();
         if (typeof window.navigate === 'function') {
           window.navigate('proposals');
-          setTimeout(() => {
-            if (typeof ProposalsPage !== 'undefined' && ProposalsPage._openModal) {
+          // 페이지 마운트 완료 (pr-list-wrap) 대기 + 재시도 (race condition 방지)
+          let tries = 30;
+          const tryOpen = () => {
+            const ready = document.getElementById('pr-list-wrap');
+            if (ready && typeof ProposalsPage !== 'undefined' && ProposalsPage._openModal) {
               ProposalsPage._openModal(id);
+              return;
             }
-          }, 300);
+            if (--tries > 0) setTimeout(tryOpen, 100);
+            else console.warn('[LinkedProposals] _openModal 호출 timeout');
+          };
+          setTimeout(tryOpen, 100);
         } else {
           window.location.hash = '#proposals';
         }

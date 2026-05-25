@@ -127,11 +127,18 @@ const LinkedContracts = (() => {
         if (typeof window.navigate === 'function') {
           // app.js navigate() 가 있으면 사용
           window.navigate('contracts');
-          setTimeout(() => {
-            if (typeof ContractsPage !== 'undefined' && ContractsPage._openModal) {
+          // 페이지 마운트 완료 (ct-list-wrap) 대기 + 재시도 (race condition 방지)
+          let tries = 30;
+          const tryOpen = () => {
+            const ready = document.getElementById('ct-list-wrap');
+            if (ready && typeof ContractsPage !== 'undefined' && ContractsPage._openModal) {
               ContractsPage._openModal(contractId);
+              return;
             }
-          }, 300);
+            if (--tries > 0) setTimeout(tryOpen, 100);
+            else console.warn('[LinkedContracts] _openModal 호출 timeout');
+          };
+          setTimeout(tryOpen, 100);
         } else {
           // fallback: location hash
           window.location.hash = '#contracts';

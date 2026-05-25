@@ -77,11 +77,20 @@ const LinkedQuotes = (() => {
         if (typeof Modal !== 'undefined' && Modal.close) Modal.close();
         if (typeof window.navigate === 'function') {
           window.navigate('quotes');
-          setTimeout(() => {
-            if (typeof QuotesPage !== 'undefined' && QuotesPage._openModal) {
+          // 페이지 마운트 완료 신호 (qt-list-wrap DOM 존재) 대기 + 재시도
+          // navigate 후 페이지 render + _reload 가 비동기라 setTimeout 단일 호출은
+          // race condition 발생 → 100ms 간격으로 최대 30회 (3s) 재시도
+          let tries = 30;
+          const tryOpen = () => {
+            const ready = document.getElementById('qt-list-wrap');
+            if (ready && typeof QuotesPage !== 'undefined' && QuotesPage._openModal) {
               QuotesPage._openModal(id);
+              return;
             }
-          }, 300);
+            if (--tries > 0) setTimeout(tryOpen, 100);
+            else console.warn('[LinkedQuotes] _openModal 호출 timeout');
+          };
+          setTimeout(tryOpen, 100);
         } else {
           window.location.hash = '#quotes';
         }
