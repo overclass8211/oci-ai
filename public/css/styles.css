@@ -9499,6 +9499,72 @@ body,
   text-decoration: underline;
 }
 
+/* v6.0.0: 계약 목록 — 좁은 화면 가독성 + 가로 스크롤 (quotes 패턴 통일) */
+.ct-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.ct-list-table {
+  /* 컬럼 합계 — 120 + 80 + 300 + 140 + 110 + 110 + 130 + 160 + 60 + 100 = 1310px */
+  min-width: 1310px;
+  table-layout: fixed;
+}
+.ct-list-table th,
+.ct-list-table td {
+  vertical-align: middle;
+}
+/* 계약명 — 2줄 제한 + 말줄임 (넓은 화면에서 고객사 컬럼과 간격 축소) */
+.ct-name-cell {
+  padding: 8px 10px;
+}
+.ct-name-link {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  font-weight: 500;
+  line-height: 1.4;
+  max-height: 2.8em;
+}
+
+/* v6.0.0: 제안 목록 — 동일 패턴 */
+.pr-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.pr-list-table {
+  /* 컬럼 합계 — 130 + 300 + 140 + 110 + 130 + 80 + 90 + 100 + 110 + 240 = 1430px */
+  min-width: 1430px;
+  table-layout: fixed;
+}
+.pr-list-table th,
+.pr-list-table td {
+  vertical-align: middle;
+}
+.pr-name-cell {
+  padding: 8px 10px;
+}
+.pr-name-link {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  color: var(--oci-red);
+  font-weight: 500;
+  line-height: 1.4;
+  max-height: 2.8em;
+  text-decoration: none;
+}
+.pr-name-link:hover {
+  text-decoration: underline;
+}
+
 /* Phase 6-C: AI 제안서 평가 결과 카드 */
 .pr-eval-card {
   margin-top: 18px;

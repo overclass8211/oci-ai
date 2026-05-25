@@ -269,11 +269,12 @@ const ProposalsPage = (() => {
 
   function _renderTableList(rows) {
     return `
-      <table class="data-table">
+      <div class="pr-table-scroll">
+      <table class="data-table pr-list-table">
         <thead>
           <tr>
             <th style="width:130px">제안번호</th>
-            <th>제안명</th>
+            <th style="min-width:240px;width:300px">제안명</th>
             <th style="width:140px">고객사</th>
             <th style="width:110px">연결견적</th>
             <th style="width:130px;text-align:right">예상금액</th>
@@ -299,7 +300,7 @@ const ProposalsPage = (() => {
               return `
             <tr data-id="${r.id}" style="${rrStyle}"${rrTooltip}>
               <td style="font-family:monospace;font-size:12px">${esc(r.proposal_no)}</td>
-              <td>${rrBadge}<a href="#" class="pr-link" data-id="${r.id}" style="color:var(--oci-red);font-weight:500">${esc(r.proposal_title)}</a></td>
+              <td class="pr-name-cell" title="${esc(r.proposal_title)}">${rrBadge}<a href="#" class="pr-link pr-name-link" data-id="${r.id}">${esc(r.proposal_title)}</a></td>
               <td>${esc(r.customer_name || '')}</td>
               <td style="font-family:monospace;font-size:11px;color:var(--text-3)">${esc(r.quote_no || '-')}</td>
               <td style="text-align:right;font-weight:500">${r.expected_amount ? esc(Fmt.amount(r.expected_amount, r.currency || 'KRW')) : '-'}</td>
@@ -316,6 +317,7 @@ const ProposalsPage = (() => {
             .join('')}
         </tbody>
       </table>
+      </div>
     `;
   }
 

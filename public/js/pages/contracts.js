@@ -333,11 +333,12 @@ const ContractsPage = (() => {
       return _renderCardList(wrap);
     }
     wrap.innerHTML = `
-      <table class="data-table" style="cursor:pointer">
+      <div class="ct-table-scroll">
+      <table class="data-table ct-list-table" style="cursor:pointer">
         <thead><tr>
           <th style="width:120px">계약번호</th>
           <th style="width:80px">유형</th>
-          <th>계약명</th>
+          <th style="min-width:240px;width:300px">계약명</th>
           <th style="width:140px">고객사</th>
           <th style="width:110px">시작일</th>
           <th style="width:110px">종료일</th>
@@ -367,7 +368,7 @@ const ContractsPage = (() => {
             return `<tr data-id="${c.id}" class="ct-row" style="${rrStyle}"${rrTooltip}>
               <td style="font-family:monospace;font-size:11px">${esc(c.contract_no)}${extNoBadge}</td>
               <td><span class="badge badge-gray" style="font-size:10px">${esc(CONTRACT_TYPE_LABELS[c.contract_type]?.split(' ')[0] || c.contract_type || '-')}</span></td>
-              <td>${rrBadge}${esc(c.title)}${linkBadge}</td>
+              <td class="ct-name-cell" title="${esc(c.title)}">${rrBadge}<span class="ct-name-link">${esc(c.title)}</span>${linkBadge}</td>
               <td>${esc(c.customer_name || '-')}</td>
               <td style="font-size:11px">${_fmtDate(c.start_date)}</td>
               <td style="font-size:11px">${_fmtDate(c.end_date)}</td>
@@ -385,6 +386,7 @@ const ContractsPage = (() => {
           }).join('')}
         </tbody>
       </table>
+      </div>
     `;
     // 행 전체 클릭 → 편집 모달
     wrap.querySelectorAll('.ct-row').forEach(tr => {
