@@ -12,6 +12,8 @@
 const ContractsPage = (() => {
   let _list = [];
   const _filters = { search: '', status: '', contract_type: '' };
+  // v6.0.0: 뷰 모드 (목록/카드) — localStorage 동기화
+  let _view = localStorage.getItem('contracts_view') || 'list';
 
   // ── 상태 메타 (4단계) ──────────────────────────────────────
   const STATUS_LABELS = {
@@ -114,7 +116,9 @@ const ContractsPage = (() => {
           <h1 style="margin:0;font-size:20px">📜 계약 관리</h1>
           <div style="font-size:12px;color:var(--text-3);margin-top:4px">계약 아카이빙 + 4단계 상태 + 연결 추적 + AI 법무 검토</div>
         </div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <!-- v6.0.0: 5개 모듈 통일 뷰 토글 -->
+          ${ViewToggle.render({ currentView: _view })}
           <button class="btn btn-primary" id="ct-new-btn">+ 새 계약</button>
         </div>
       </div>
@@ -261,6 +265,21 @@ const ContractsPage = (() => {
     document.getElementById('ct-new-btn').addEventListener('click', () => _openNewModeChooser());
     document.getElementById('ct-refresh-btn').addEventListener('click', () => _refreshList());
 
+    // v6.0.0: ViewToggle 바인딩 (목록/카드 전환)
+    if (typeof ViewToggle !== 'undefined') {
+      const toggleEl = document.querySelector('#content .view-toggle');
+      if (toggleEl) {
+        ViewToggle.bind(
+          toggleEl,
+          view => {
+            _view = view;
+            _refreshList(); // 데이터 재렌더
+          },
+          'contracts_view'
+        );
+      }
+    }
+
     const searchInput = document.getElementById('ct-search');
     let debounceTimer;
     searchInput.addEventListener('input', e => {
@@ -308,6 +327,10 @@ const ContractsPage = (() => {
         등록된 계약이 없습니다 — 우상단 <strong>[+ 새 계약]</strong> 으로 시작하세요
       </div>`;
       return;
+    }
+    // v6.0.0: 카드뷰 분기
+    if (_view === 'card') {
+      return _renderCardList(wrap);
     }
     wrap.innerHTML = `
       <table class="data-table" style="cursor:pointer">
@@ -381,6 +404,55 @@ const ContractsPage = (() => {
       btn.addEventListener('click', ev => {
         ev.stopPropagation();
         _doDelete(parseInt(btn.dataset.id, 10));
+      });
+    });
+  }
+
+  // ── v6.0.0: 카드뷰 렌더링 (5개 모듈 통일) ──────────────────
+  function _renderCardList(wrap) {
+    const fmtKRW = n => {
+      const v = Number(n);
+      if (!v) return '-';
+      return v.toLocaleString('ko-KR');
+    };
+    const fmtDate = s => {
+      if (!s) return '-';
+      const d = new Date(s);
+      if (isNaN(d)) return s;
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
+    };
+    wrap.innerHTML = `<div class="list-card-grid">
+      ${_list
+        .map(
+          c => `<div class="list-card" data-contract-id="${c.id}">
+        <div class="list-card-header">
+          <span class="list-card-no">${esc(c.contract_no || '-')} · ${esc(CONTRACT_TYPE_LABELS[c.contract_type] || c.contract_type || '-')}</span>
+          ${c.contract_amount ? `<span class="list-card-amount">${esc(fmtKRW(c.contract_amount))}</span>` : ''}
+        </div>
+        <div class="list-card-title">
+          <a href="#" data-act="edit" data-id="${c.id}">${esc(c.title || '(계약명 미입력)')}</a>
+        </div>
+        <div class="list-card-meta">
+          <div class="list-card-meta-row" title="고객사">🏢 <strong>${esc(c.customer_name || '-')}</strong></div>
+          ${c.start_date ? `<div class="list-card-meta-row" title="시작일">📅 ${esc(fmtDate(c.start_date))}</div>` : ''}
+          ${c.end_date ? `<div class="list-card-meta-row" title="종료일">⏰ ${esc(fmtDate(c.end_date))}</div>` : ''}
+        </div>
+        <div class="list-card-stage">${_renderProgressBar(c.status, c.end_date)}</div>
+        <div class="list-card-footer">
+          <span>${esc(STATUS_LABELS[c.status] || c.status || '-')}</span>
+          <span>${esc(fmtDate(c.updated_at || c.created_at))}</span>
+        </div>
+      </div>`
+        )
+        .join('')}
+    </div>`;
+    // 카드 클릭 → 편집 모달
+    wrap.querySelectorAll('.list-card[data-contract-id]').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('a')) e.preventDefault();
+        const id = parseInt(el.dataset.contractId, 10);
+        if (id) _openModal(id);
       });
     });
   }

@@ -11,6 +11,8 @@ const QuotesPage = (() => {
   let _leadsCache = []; // 영업리드 캐시 (모달 1회 fetch)
   let _comboboxes = []; // Combobox 인스턴스 (destroy 용)
   let _sortable = null; // Sortable 인스턴스 (destroy 용)
+  // v6.0.0: 뷰 모드 (목록/카드) — localStorage 동기화
+  let _view = localStorage.getItem('quotes_view') || 'list';
 
   // 기본 컬럼 라벨
   const DEFAULT_COLUMNS = {
@@ -174,7 +176,9 @@ const QuotesPage = (() => {
           <option value="accepted">수주</option>
           <option value="rejected">실패</option>
         </select>
-        <div style="margin-left:auto;display:flex;gap:8px">
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <!-- v6.0.0: 5개 모듈 통일 뷰 토글 -->
+          ${ViewToggle.render({ currentView: _view })}
           <button class="btn btn-primary" id="qt-new-btn">+ 견적서 작성</button>
         </div>
       </div>
@@ -186,6 +190,22 @@ const QuotesPage = (() => {
     document.getElementById('qt-new-btn').addEventListener('click', () => _openModal(null));
     document.getElementById('qt-search').addEventListener('input', _debounce(_reload, 250));
     document.getElementById('qt-status').addEventListener('change', _reload);
+
+    // v6.0.0: ViewToggle 바인딩 (목록/카드 전환)
+    if (typeof ViewToggle !== 'undefined') {
+      const toggleEl = document.querySelector('#content .view-toggle');
+      if (toggleEl) {
+        ViewToggle.bind(
+          toggleEl,
+          view => {
+            _view = view;
+            const wrap = document.getElementById('qt-list-wrap');
+            if (wrap) wrap.innerHTML = _renderList(_list);
+          },
+          'quotes_view'
+        );
+      }
+    }
 
     // v6.0.0: KPI 대시보드 로드 (best-effort)
     _loadKpiBar();
@@ -239,6 +259,10 @@ const QuotesPage = (() => {
   }
 
   function _renderList(rows) {
+    // v6.0.0: 카드뷰 분기
+    if (_view === 'card' && rows && rows.length > 0) {
+      return _renderCardList(rows);
+    }
     if (!rows.length) {
       return `<div style="padding:60px;text-align:center;color:var(--text-3)">
         등록된 견적서가 없습니다. <br>우측 상단의 [+ 견적서 작성] 버튼을 눌러 시작하세요.
@@ -309,6 +333,46 @@ const QuotesPage = (() => {
   }
   function _statusLabel(s) {
     return { draft: '초안', sent: '발송됨', accepted: '수주', rejected: '실패' }[s] || '초안';
+  }
+
+  // v6.0.0: 카드뷰 렌더링 (5개 모듈 통일)
+  function _renderCardList(rows) {
+    const fmtKRW = n => {
+      const v = Number(n);
+      if (!v) return '-';
+      return v.toLocaleString('ko-KR');
+    };
+    const fmtDate = s => {
+      if (!s) return '-';
+      const d = new Date(s);
+      if (isNaN(d)) return s;
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
+    };
+    return `<div class="list-card-grid">
+      ${rows
+        .map(
+          r => `<div class="list-card" data-quote-id="${r.id}">
+        <div class="list-card-header">
+          <span class="list-card-no">${esc(r.quote_no || '-')}${Number(r.revision_no) > 1 ? ' · Rev ' + r.revision_no : ''}</span>
+          ${r.total_amount ? `<span class="list-card-amount">${esc(fmtKRW(r.total_amount))}</span>` : ''}
+        </div>
+        <div class="list-card-title">
+          <a href="#" data-act="edit" data-id="${r.id}">${esc(r.name || '(견적명 미입력)')}</a>
+        </div>
+        <div class="list-card-meta">
+          <div class="list-card-meta-row" title="고객사">🏢 <strong>${esc(r.customer_name || '-')}</strong></div>
+          ${r.quote_date ? `<div class="list-card-meta-row" title="견적일">📅 ${esc(fmtDate(r.quote_date))}</div>` : ''}
+        </div>
+        <div class="list-card-stage">${_renderStageProgress(r.status)}</div>
+        <div class="list-card-footer">
+          <span>${esc(_statusLabel(r.status))}</span>
+          <span>${esc(fmtDate(r.updated_at || r.created_at))}</span>
+        </div>
+      </div>`
+        )
+        .join('')}
+    </div>`;
   }
 
   // v6.0.0: 단계 진척률 (5개 모듈 통일 — StageProgress 컴포넌트)

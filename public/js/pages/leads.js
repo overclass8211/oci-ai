@@ -16,6 +16,8 @@ const LeadsPage = {
   _selectedIds: new Set(), // 체크박스 선택된 리드 ID
   _allLeads: [], // 현재 렌더링된 리드 목록 (복사용)
   _pasteHandler: null, // Ctrl+V 핸들러 (페이지 언마운트 시 제거)
+  // v6.0.0: 뷰 모드 (목록/카드) — localStorage 동기화
+  _view: localStorage.getItem('leads_view') || 'list',
 
   async render() {
     const html = `
@@ -100,6 +102,8 @@ const LeadsPage = {
               <span data-label="common.excel_import">📂 엑셀 가져오기</span>
               <input type="file" id="leads-import-input" accept=".xlsx,.xls" style="display:none">
             </label>
+            <!-- v6.0.0: 5개 모듈 통일 뷰 토글 -->
+            ${ViewToggle.render({ currentView: this._view })}
           </div>
         </div>
         <div class="card-body no-pad" id="leads-table-wrap">
@@ -118,6 +122,24 @@ const LeadsPage = {
     sel.innerHTML =
       '<option value="">전체 담당자</option>' +
       this.team.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+
+    // v6.0.0: ViewToggle 바인딩 (목록/카드 전환)
+    if (typeof ViewToggle !== 'undefined') {
+      const toggleEl = document.querySelector('#content .view-toggle');
+      if (toggleEl) {
+        ViewToggle.bind(
+          toggleEl,
+          view => {
+            this._view = view;
+            // 현재 데이터 재렌더
+            if (this._allLeads && this._allLeads.length >= 0) {
+              this.renderTable(this._allLeads);
+            }
+          },
+          'leads_view'
+        );
+      }
+    }
 
     // toolbar / header buttons
     document
@@ -333,6 +355,11 @@ const LeadsPage = {
   // ── 테이블 렌더링 (체크박스 컬럼 추가) ──────────────────────
   renderTable(leads) {
     document.getElementById('leads-count').textContent = `(총 ${leads.length}건)`;
+    // v6.0.0: 카드뷰 분기 (목록 vs 카드)
+    this._allLeads = leads;
+    if (this._view === 'card' && leads.length > 0) {
+      return this._renderCardList(leads);
+    }
 
     if (!leads.length) {
       // 필터가 적용된 상태에서 0건 vs 진짜 데이터 0건 구분
@@ -487,6 +514,82 @@ const LeadsPage = {
         const tr = e.target.closest('tr[data-lead-id]');
         if (tr) App.openLeadDetail(parseInt(tr.dataset.leadId));
       }
+    });
+  },
+
+  // ── v6.0.0: 카드뷰 렌더링 (5개 모듈 통일) ──────────────────
+  _renderCardList(leads) {
+    const wrap = document.getElementById('leads-table-wrap');
+    if (!wrap) return;
+    const stageBadge = stage => {
+      if (typeof StageProgress === 'undefined') return esc(STAGES[stage]?.label || stage);
+      const STAGES_ARR = [
+        { key: 'lead', label: '리드 발굴', color: '#6b7280' },
+        { key: 'review', label: '검토/미팅', color: '#3b82f6' },
+        { key: 'proposal', label: '제안/견적', color: '#8b5cf6' },
+        { key: 'bidding', label: '입찰', color: '#0891b2' },
+        { key: 'negotiation', label: '협상', color: '#f59e0b' },
+        { key: 'won', label: '수주', color: '#16a34a' },
+      ];
+      let terminal = null;
+      let cur = stage;
+      if (stage === 'lost') {
+        terminal = { key: 'lost', label: '실주', color: '#dc2626' };
+        cur = 'lost';
+      } else if (stage === 'dropped') {
+        terminal = { key: 'dropped', label: '중단', color: '#9ca3af' };
+        cur = 'dropped';
+      }
+      return StageProgress.render({ stages: STAGES_ARR, current: cur, size: 'sm', terminal });
+    };
+    const fmtAmt = amt => {
+      if (!amt) return '-';
+      const n = Number(amt);
+      if (n >= 1_0000_0000) return (n / 1_0000_0000).toFixed(1).replace(/\.0$/, '') + '억';
+      if (n >= 10000) return (n / 10000).toFixed(0) + '만';
+      return n.toLocaleString('ko-KR');
+    };
+    const fmtDate = s => {
+      if (!s) return '-';
+      const d = new Date(s);
+      if (isNaN(d)) return s;
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
+    };
+    wrap.innerHTML = `<div class="list-card-grid">
+      ${leads
+        .map(
+          l => `<div class="list-card" data-lead-id="${l.id}">
+        <div class="list-card-header">
+          <span class="list-card-no">${esc(l.business_type || '-')}${l.region ? ' · ' + esc(l.region) : ''}</span>
+          ${l.expected_amount ? `<span class="list-card-amount">${esc(fmtAmt(l.expected_amount))}</span>` : ''}
+        </div>
+        <div class="list-card-title">
+          <a href="#" data-lead-id="${l.id}">${esc(l.project_name || '(프로젝트명 미입력)')}</a>
+        </div>
+        <div class="list-card-meta">
+          <div class="list-card-meta-row" title="고객사">🏢 <strong>${esc(l.customer_name || '-')}</strong></div>
+          ${l.capacity_mw ? `<div class="list-card-meta-row" title="규모">⚡ ${esc(l.capacity_mw)} MW</div>` : ''}
+          ${l.expected_close_date ? `<div class="list-card-meta-row" title="예상 종료">📅 ${esc(fmtDate(l.expected_close_date))}</div>` : ''}
+        </div>
+        <div class="list-card-stage">${stageBadge(l.stage)}</div>
+        <div class="list-card-footer">
+          <span>${esc(l.assigned_name || '담당자 미정')}</span>
+          <span>${esc(fmtDate(l.updated_at || l.created_at))}</span>
+        </div>
+      </div>`
+        )
+        .join('')}
+    </div>`;
+    // 카드 클릭 → 상세 모달
+    wrap.querySelectorAll('.list-card[data-lead-id]').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('a')) e.preventDefault();
+        const id = parseInt(el.dataset.leadId, 10);
+        if (id && typeof App !== 'undefined' && App.openLeadDetail) {
+          App.openLeadDetail(id);
+        }
+      });
     });
   },
 

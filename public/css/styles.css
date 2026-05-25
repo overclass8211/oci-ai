@@ -2963,6 +2963,108 @@ tr.cp-row-warn td { background: rgba(230,51,41,.05) !important; }
   white-space: nowrap;
 }
 
+/* ──────────────────────────────────────────────────────────
+   v6.0.0 — 공통 목록 카드뷰 (5개 모듈 통일)
+   적용: leads / quotes / contracts (proposals 는 .pr-card 별도 유지)
+   특징: 통일된 그리드 + 호버 lift + OCI Red 강조 + 진척률 바 자리
+   ────────────────────────────────────────────────────────── */
+.list-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+  padding: 4px;
+}
+.list-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.18s ease;
+  cursor: pointer;
+  position: relative;
+  min-height: 170px;
+}
+.list-card:hover {
+  border-color: var(--oci-red, #e63329);
+  box-shadow: 0 4px 12px rgba(230, 51, 41, 0.12);
+  transform: translateY(-1px);
+}
+.list-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.list-card-no {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.list-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.8em;
+}
+.list-card-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.list-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.list-card-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.list-card-meta-row strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.list-card-amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--oci-red, #e63329);
+}
+.list-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.list-card-stage {
+  /* 진척률 바 정렬 영역 — StageProgress 컴포넌트 자리 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+}
+.list-card-due-overdue {
+  color: #d93025;
+  font-weight: 600;
+}
+
 /* ============================================================
    고객사 카드 그리드
    ============================================================ */
