@@ -4,7 +4,7 @@
 const ProjectsPage = {
   _allProjects: [],
   _selectedIds: new Set(),
-  _parsedProjects: [],
+  // v6.0.0: 붙여넣기 파싱/등록 공통 BulkPaste 컴포넌트로 이관
   _pasteHandler: null,
 
   async render() {
@@ -301,232 +301,96 @@ const ProjectsPage = {
   },
 
   // ── 붙여넣기 모달 ────────────────────────────────────────────
+  // ── 붙여넣기 등록 (공통 BulkPaste 컴포넌트 사용 — v6.0.0) ──────
   openPasteModal() {
-    Modal.open({
-      title: '📥 데이터 붙여넣기 등록',
-      width: 760,
-      body: `
-        <div style="font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.7">
-          Excel·Word·이메일의 표 데이터를 복사(Ctrl+C)한 뒤 아래 입력란에 붙여넣기(Ctrl+V)하세요.<br>
-          <span style="color:var(--text-3)">지원 형식: 탭 구분(Excel), 쉼표 구분(CSV) · 첫 행이 헤더인 경우 자동 인식</span>
-        </div>
-        <textarea id="cp-paste-input" class="cp-paste-textarea"
-          placeholder="여기에 Excel·Word·이메일 데이터를 붙여넣기 하세요 (Ctrl+V)..."
-          rows="8" autofocus></textarea>
-        <div id="cp-parse-result" style="margin-top:10px"></div>
-      `,
-      footer: `
-        <button class="btn btn-ghost" id="proj-paste-cancel-btn">취소</button>
-        <button class="btn btn-secondary" id="proj-paste-preview-btn">미리보기</button>
-        <button class="btn btn-primary" id="cp-import-btn" style="display:none">등록하기</button>
-      `,
-      bind: {
-        '#proj-paste-cancel-btn': () => Modal.close(),
-        '#proj-paste-preview-btn': () => this._parsePasteInput(),
-        '#cp-import-btn': () => this._importParsed(),
+    if (typeof BulkPaste === 'undefined') {
+      Toast.error('BulkPaste 컴포넌트 로드 실패');
+      return;
+    }
+    BulkPaste.open({
+      entityType: 'project',
+      title: '📥 프로젝트 붙여넣기 등록',
+      endpoint: '/projects/bulk',
+      payloadKey: 'projects',
+      columns: [
+        { key: 'name', label: '프로젝트명', required: true, maxLength: 200 },
+        { key: 'customer_name', label: '고객사', maxLength: 200 },
+        { key: 'project_type', label: '유형', default: '태양광', maxLength: 50 },
+        {
+          key: 'contract_amount',
+          label: '계약금액',
+          transform: v => {
+            if (v === null || v === undefined || v === '') return null;
+            const s = String(v);
+            const isEok = /억/.test(s);
+            const n = parseFloat(s.replace(/[,₩$¥억\s]/g, ''));
+            if (isNaN(n)) return null;
+            return isEok ? Math.round(n * 1e8) : n;
+          },
+        },
+        {
+          key: 'estimated_cost',
+          label: '산정원가',
+          transform: v => {
+            if (v === null || v === undefined || v === '') return null;
+            const s = String(v);
+            const isEok = /억/.test(s);
+            const n = parseFloat(s.replace(/[,₩$¥억\s]/g, ''));
+            if (isNaN(n)) return null;
+            return isEok ? Math.round(n * 1e8) : n;
+          },
+        },
+        { key: 'status', label: '상태', default: '진행중', maxLength: 30 },
+        { key: 'due_date', label: '납기일', validate: 'date' },
+        { key: 'assigned_to', label: '담당자', maxLength: 100 },
+        { key: 'notes', label: '메모', maxLength: 2000 },
+      ],
+      headerAliases: {
+        프로젝트명: 'name',
+        프로젝트: 'name',
+        project: 'name',
+        project_name: 'name',
+        name: 'name',
+        고객사: 'customer_name',
+        customer: 'customer_name',
+        customer_name: 'customer_name',
+        유형: 'project_type',
+        사업유형: 'project_type',
+        type: 'project_type',
+        project_type: 'project_type',
+        계약금액: 'contract_amount',
+        '계약금액(억)': 'contract_amount',
+        금액: 'contract_amount',
+        amount: 'contract_amount',
+        contract: 'contract_amount',
+        contract_amount: 'contract_amount',
+        원가: 'estimated_cost',
+        산정원가: 'estimated_cost',
+        '산정원가(억)': 'estimated_cost',
+        cost: 'estimated_cost',
+        estimated_cost: 'estimated_cost',
+        상태: 'status',
+        status: 'status',
+        납기일: 'due_date',
+        납기: 'due_date',
+        due: 'due_date',
+        due_date: 'due_date',
+        담당자: 'assigned_to',
+        담당: 'assigned_to',
+        assigned: 'assigned_to',
+        assigned_to: 'assigned_to',
+        메모: 'notes',
+        비고: 'notes',
+        notes: 'notes',
+      },
+      duplicateField: 'name',
+      onSuccess: async () => {
+        await this.loadData();
       },
     });
-    const ta = document.getElementById('cp-paste-input');
-    if (ta) {
-      ta.focus();
-      ta.addEventListener('paste', () => setTimeout(() => this._parsePasteInput(), 50));
-    }
   },
 
-  // ── 파싱 ─────────────────────────────────────────────────────
-  _parsePasteInput() {
-    const raw = document.getElementById('cp-paste-input')?.value?.trim();
-    if (!raw) {
-      document.getElementById('cp-parse-result').innerHTML =
-        '<p style="color:var(--text-3);font-size:12px">데이터를 먼저 붙여넣기 해주세요.</p>';
-      return;
-    }
-
-    const firstLine = raw.split('\n')[0];
-    const sep = firstLine.includes('\t') ? '\t' : ',';
-    const lines = raw
-      .split('\n')
-      .map(l => l.split(sep).map(v => v.trim().replace(/^["']|["']$/g, '')));
-
-    const HEADER_MAP = {
-      프로젝트명: true,
-      프로젝트: true,
-      project: true,
-      name: true,
-      고객사: true,
-      customer: true,
-      유형: true,
-      사업유형: true,
-      type: true,
-      계약금액: true,
-      금액: true,
-      amount: true,
-      contract: true,
-      원가: true,
-      산정원가: true,
-      cost: true,
-      마진: true,
-      margin: true,
-      상태: true,
-      status: true,
-      납기일: true,
-      납기: true,
-      due: true,
-      due_date: true,
-      담당자: true,
-      담당: true,
-      assigned: true,
-      메모: true,
-      비고: true,
-      notes: true,
-    };
-    const COL_FIELD = {
-      프로젝트명: 'name',
-      프로젝트: 'name',
-      project: 'name',
-      project_name: 'name',
-      name: 'name',
-      고객사: 'customer_name',
-      customer: 'customer_name',
-      customer_name: 'customer_name',
-      유형: 'project_type',
-      사업유형: 'project_type',
-      type: 'project_type',
-      project_type: 'project_type',
-      계약금액: 'contract_amount',
-      '계약금액(억)': 'contract_amount',
-      금액: 'contract_amount',
-      contract_amount: 'contract_amount',
-      원가: 'estimated_cost',
-      산정원가: 'estimated_cost',
-      '산정원가(억)': 'estimated_cost',
-      cost: 'estimated_cost',
-      estimated_cost: 'estimated_cost',
-      '마진율(%)': 'margin_pct_raw',
-      마진율: 'margin_pct_raw',
-      margin: 'margin_pct_raw',
-      상태: 'status',
-      status: 'status',
-      납기일: 'due_date',
-      납기: 'due_date',
-      due: 'due_date',
-      due_date: 'due_date',
-      담당자: 'assigned_name_raw',
-      담당: 'assigned_name_raw',
-      assigned: 'assigned_name_raw',
-      메모: 'notes',
-      비고: 'notes',
-      notes: 'notes',
-    };
-
-    const firstRow = lines[0].map(v => v.toLowerCase().trim());
-    const hasHeader = firstRow.some(v => HEADER_MAP[v]);
-    let headers, dataRows;
-    if (hasHeader) {
-      headers = lines[0];
-      dataRows = lines.slice(1).filter(r => r.some(v => v));
-    } else {
-      headers = [
-        '프로젝트명',
-        '고객사',
-        '유형',
-        '계약금액',
-        '산정원가',
-        '상태',
-        '납기일',
-        '담당자',
-        '메모',
-      ];
-      dataRows = lines.filter(r => r.some(v => v));
-    }
-
-    const fieldCols = headers.map(h => COL_FIELD[h.toLowerCase().trim()] || null);
-    // 헤더에 "(억)" 또는 "억" 표기가 있으면 입력값을 *1e8 변환 (UX 호환)
-    const eokFields = new Set();
-    headers.forEach((h, i) => {
-      const hh = String(h).toLowerCase().trim();
-      const f = COL_FIELD[hh];
-      if (!f) return;
-      if ((f === 'contract_amount' || f === 'estimated_cost') && /억/.test(hh)) eokFields.add(i);
-    });
-    const parsed = dataRows
-      .map(row => {
-        const obj = {};
-        row.forEach((val, i) => {
-          const f = fieldCols[i];
-          if (!f || !val) return;
-          if (f === 'contract_amount' || f === 'estimated_cost') {
-            const n = parseFloat(String(val).replace(/[,₩$¥억]/g, ''));
-            if (!isNaN(n)) obj[f] = eokFields.has(i) ? Math.round(n * 1e8) : n;
-          } else obj[f] = val;
-        });
-        return obj;
-      })
-      .filter(o => o.name);
-
-    this._parsedProjects = parsed;
-    if (!parsed.length) {
-      document.getElementById('cp-parse-result').innerHTML =
-        '<p style="color:#E63329;font-size:12px">⚠ 인식된 데이터가 없습니다. 형식을 확인해주세요.</p>';
-      document.getElementById('cp-import-btn').style.display = 'none';
-      return;
-    }
-
-    document.getElementById('cp-parse-result').innerHTML = `
-      <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text-1)">
-        📊 ${parsed.length}건 인식됨 — 아래 내용을 확인하고 [등록하기]를 클릭하세요
-      </div>
-      <div style="overflow-x:auto;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
-        <table class="data-table" style="font-size:11px;min-width:600px">
-          <thead><tr><th>#</th><th>프로젝트명</th><th>고객사</th><th>유형</th><th>계약금액</th><th>산정원가</th><th>상태</th><th>납기일</th></tr></thead>
-          <tbody>
-            ${parsed
-              .map(
-                (r, i) => `
-              <tr>
-                <td class="text-muted">${i + 1}</td>
-                <td><strong>${esc(r.name || '')}</strong></td>
-                <td>${esc(r.customer_name || '-')}</td>
-                <td>${esc(r.project_type || '태양광')}</td>
-                <td class="text-right">${r.contract_amount !== null && r.contract_amount !== undefined ? Fmt.amount(r.contract_amount, 'KRW') : '-'}</td>
-                <td class="text-right">${r.estimated_cost !== null && r.estimated_cost !== undefined ? Fmt.amount(r.estimated_cost, 'KRW') : '-'}</td>
-                <td>${esc(r.status || '진행중')}</td>
-                <td>${esc(r.due_date || '-')}</td>
-              </tr>`
-              )
-              .join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
-    document.getElementById('cp-import-btn').style.display = '';
-  },
-
-  async _importParsed() {
-    if (!this._parsedProjects?.length) return;
-    const btn = document.getElementById('cp-import-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '등록 중...';
-    }
-    try {
-      const res = await API.post('/projects/bulk', { projects: this._parsedProjects });
-      Modal.close();
-      if (res.success) {
-        const errMsg = res.errors?.length ? ` (${res.errors.length}건 오류)` : '';
-        Toast.success(`${res.inserted}건 등록 완료${errMsg}`);
-        await this.loadData();
-      } else {
-        Toast.error('등록 중 오류가 발생했습니다.');
-      }
-    } catch (e) {
-      Toast.error('서버 오류: ' + (e.message || ''));
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '등록하기';
-      }
-    }
-  },
+  // ── (v6.0.0) 붙여넣기 파싱/등록은 BulkPaste 컴포넌트로 이관 ──────
 
   // ── 엑셀 내보내기 ────────────────────────────────────────────
   exportExcel() {

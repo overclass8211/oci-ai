@@ -7,6 +7,12 @@ const upload = require('../middleware/upload');
 const { fromExcelBuffer } = require('../utils/excelHelper');
 const { sendExport, normalizeFormat } = require('../utils/exportHelper');
 const readReceipts = require('../services/readReceipts');
+const {
+  MAX_ROWS_PER_REQUEST: BULK_MAX_ROWS,
+  sanitizeRow,
+  validateRequest: validateBulkRequest,
+  buildResponse: buildBulkResponse,
+} = require('../utils/bulkPasteHelper');
 
 const PROJ_COLS = [
   { key: 'name', label: '프로젝트명' },
@@ -56,19 +62,51 @@ router.get('/', async (req, res) => {
 });
 
 // ── 일괄 등록 (Copy & Paste import) ──────────────────────────
+// ── POST /bulk — 일괄 등록 (v6.0.0 강화: 행 수 제한 + 서버 sanitize + 중복 차단) ──
 router.post('/bulk', async (req, res) => {
   const { projects } = req.body;
-  if (!Array.isArray(projects) || !projects.length)
-    return res.status(400).json({ success: false, message: '등록할 데이터가 없습니다.' });
+  // 1) 행 수 / 형식 검증
+  const reqErr = validateBulkRequest(projects);
+  if (reqErr) {
+    return res.status(reqErr.status).json({
+      success: false,
+      message: reqErr.message,
+      code: reqErr.code,
+      max: BULK_MAX_ROWS,
+    });
+  }
 
   const inserted = [];
   const errors = [];
-  for (const row of projects) {
+  const duplicates = [];
+  for (const rawRow of projects) {
+    // 2) 서버 sanitize
+    let row;
+    try {
+      row = sanitizeRow(rawRow);
+    } catch (e) {
+      errors.push({ row: rawRow, reason: e.message || '보안 검증 실패' });
+      continue;
+    }
     if (!row.name) {
       errors.push({ row, reason: '프로젝트명 누락' });
       continue;
     }
     try {
+      // 3) 중복 체크 (name + customer_name 매칭)
+      const [dupRows] = await pool.query(
+        `SELECT id, name, customer_name FROM projects
+          WHERE name = ? AND (customer_name <=> ?) LIMIT 1`,
+        [row.name, row.customer_name || null]
+      );
+      if (dupRows.length) {
+        duplicates.push({
+          row,
+          existingId: dupRows[0].id,
+          reason: `중복 (기존 ID:${dupRows[0].id} — ${dupRows[0].name} / ${dupRows[0].customer_name || '-'})`,
+        });
+        continue;
+      }
       const margin =
         row.contract_amount && row.estimated_cost
           ? (((row.contract_amount - row.estimated_cost) / row.contract_amount) * 100).toFixed(2)
@@ -96,7 +134,7 @@ router.post('/bulk', async (req, res) => {
       errors.push({ row, reason: e.message });
     }
   }
-  res.json({ success: true, inserted: inserted.length, errors });
+  res.json(buildBulkResponse({ inserted, duplicates, errors }));
 });
 
 router.post('/', async (req, res) => {

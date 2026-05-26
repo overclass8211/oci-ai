@@ -20,10 +20,9 @@ const CustomersPage = {
     MAX: 20, // 최대 촬영 장수
   },
 
-  // Copy & Paste 상태
+  // Copy & Paste 상태 (v6.0.0 — 공통 BulkPaste 컴포넌트로 이관, _parsedCustomers deprecated)
   _selectedIds: new Set(),
   _allData: [],
-  _parsedCustomers: [],
   _pasteHandler: null,
 
   async render() {
@@ -700,212 +699,59 @@ const CustomersPage = {
     Toast.success('클립보드에 복사되었습니다');
   },
 
+  // ── 붙여넣기 등록 (공통 BulkPaste 컴포넌트 사용 — v6.0.0) ──────
+  // 6대 제약: 중복 검증 / 필수값 검증 / 실패행 사유 / 부분성공 / 보안방어 / 행 수 제약
   openPasteModal() {
-    this._parsedCustomers = [];
-    Modal.open({
+    if (typeof BulkPaste === 'undefined') {
+      Toast.error('BulkPaste 컴포넌트 로드 실패');
+      return;
+    }
+    BulkPaste.open({
+      entityType: 'customer',
       title: '📥 고객사 붙여넣기 등록',
-      width: 760,
-      body: `
-        <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.7">
-          Excel·Word·이메일에서 복사한 표 데이터를 붙여넣으세요. (Ctrl+V)<br>
-          첫 행이 헤더인 경우 자동으로 컬럼을 매핑합니다.
-          <span style="color:var(--text-3);font-size:11px">
-            지원 컬럼: 고객사명, 지역, 국가, 산업군, 담당자, 연락처/전화번호, 이메일, 주소
-          </span>
-        </p>
-        <textarea id="cp-paste-area-cust" class="cp-paste-textarea" rows="8"
-          placeholder="여기에 붙여넣기 (Ctrl+V)…"></textarea>
-        <div id="cp-preview-cust" style="margin-top:14px"></div>
-      `,
-      footer: `
-        <button class="btn btn-ghost" id="cp-paste-close-btn">닫기</button>
-        <button class="btn btn-primary" id="cp-import-btn-cust" style="display:none">
-          ✅ 등록하기
-        </button>
-      `,
-      bind: {
-        '#cp-paste-close-btn': () => Modal.close(),
-        '#cp-import-btn-cust': () => this._importParsed(),
+      endpoint: '/customers/bulk',
+      payloadKey: 'customers',
+      columns: [
+        { key: 'name', label: '고객사명', required: true, maxLength: 200 },
+        { key: 'region', label: '지역', enum: ['국내', '해외'], default: '국내' },
+        { key: 'country', label: '국가', maxLength: 50 },
+        { key: 'industry', label: '산업군', maxLength: 100 },
+        { key: 'contact_person', label: '담당자', maxLength: 100 },
+        { key: 'phone', label: '연락처', validate: 'phone', maxLength: 30 },
+        { key: 'email', label: '이메일', validate: 'email', maxLength: 200 },
+        { key: 'address', label: '주소', maxLength: 500 },
+      ],
+      headerAliases: {
+        고객사명: 'name',
+        고객사: 'name',
+        회사명: 'name',
+        company: 'name',
+        name: 'name',
+        지역: 'region',
+        region: 'region',
+        국가: 'country',
+        country: 'country',
+        산업군: 'industry',
+        산업: 'industry',
+        industry: 'industry',
+        담당자: 'contact_person',
+        담당자명: 'contact_person',
+        contact_person: 'contact_person',
+        연락처: 'phone',
+        전화번호: 'phone',
+        전화: 'phone',
+        phone: 'phone',
+        이메일: 'email',
+        email: 'email',
+        주소: 'address',
+        address: 'address',
+      },
+      duplicateField: 'name',
+      onSuccess: async () => {
+        await this.loadData();
+        if (window.App?.refreshCommon) await App.refreshCommon();
       },
     });
-
-    // 붙여넣기 이벤트
-    setTimeout(() => {
-      const ta = document.getElementById('cp-paste-area-cust');
-      if (ta) {
-        ta.focus();
-        ta.addEventListener('paste', e => {
-          e.preventDefault();
-          const text = e.clipboardData.getData('text/plain');
-          ta.value = text;
-          this._parsePasteInput(text);
-        });
-        ta.addEventListener('input', () => this._parsePasteInput(ta.value));
-      }
-    }, 100);
-  },
-
-  _parsePasteInput(raw) {
-    const previewEl = document.getElementById('cp-preview-cust');
-    const importBtn = document.getElementById('cp-import-btn-cust');
-    if (!raw.trim()) {
-      if (previewEl) previewEl.innerHTML = '';
-      if (importBtn) importBtn.style.display = 'none';
-      return;
-    }
-
-    const lines = raw
-      .trim()
-      .split('\n')
-      .map(l => l.trimEnd());
-    const sep = lines[0].includes('\t') ? '\t' : ',';
-    const rows = lines.map(l => l.split(sep).map(c => c.trim().replace(/^"|"$/g, '')));
-
-    // 헤더 매핑 (대소문자·공백 무시)
-    const COL_FIELD = {
-      고객사명: 'name',
-      고객사: 'name',
-      회사명: 'name',
-      company: 'name',
-      지역: 'region',
-      국가: 'country',
-      country: 'country',
-      산업군: 'industry',
-      산업: 'industry',
-      industry: 'industry',
-      담당자: 'contact_person',
-      담당자명: 'contact_person',
-      연락처: 'phone',
-      전화번호: 'phone',
-      전화: 'phone',
-      phone: 'phone',
-      이메일: 'email',
-      email: 'email',
-      주소: 'address',
-      address: 'address',
-    };
-
-    let headerRow = null;
-    let dataStart = 0;
-    const firstNorm = rows[0].map(h => h.toLowerCase().replace(/\s/g, ''));
-    if (firstNorm.some(h => COL_FIELD[h] || COL_FIELD[h.replace(/[^a-z가-힣]/g, '')])) {
-      headerRow = firstNorm;
-      dataStart = 1;
-    }
-
-    const parsed = [];
-    for (let i = dataStart; i < rows.length; i++) {
-      const r = rows[i];
-      if (r.every(c => !c)) continue;
-      const obj = {};
-      if (headerRow) {
-        headerRow.forEach((h, ci) => {
-          const field = COL_FIELD[h] || COL_FIELD[h.replace(/[^a-z가-힣]/g, '')];
-          if (field) obj[field] = r[ci] || '';
-        });
-      } else {
-        // 헤더 없을 때 순서 기본 매핑: 고객사명, 지역, 국가, 산업군, 담당자, 연락처, 이메일, 주소
-        const DEF = [
-          'name',
-          'region',
-          'country',
-          'industry',
-          'contact_person',
-          'phone',
-          'email',
-          'address',
-        ];
-        DEF.forEach((f, ci) => {
-          obj[f] = r[ci] || '';
-        });
-      }
-      parsed.push(obj);
-    }
-
-    this._parsedCustomers = parsed;
-
-    if (!parsed.length) {
-      if (previewEl)
-        previewEl.innerHTML =
-          '<div style="color:var(--oci-red);font-size:12px">파싱된 데이터가 없습니다</div>';
-      if (importBtn) importBtn.style.display = 'none';
-      return;
-    }
-
-    // 미리보기 테이블
-    const REGION_VALS = new Set(['국내', '해외']);
-    const previewRows = parsed
-      .map(p => {
-        const region = REGION_VALS.has(p.region) ? p.region : p.region ? p.region : '국내';
-        const warn = !p.name;
-        return `<tr class="${warn ? 'cp-row-warn' : ''}">
-        <td>${esc(p.name || '')} ${warn ? '<span style="color:var(--oci-red);font-size:10px">필수</span>' : ''}</td>
-        <td>${esc(region)}</td>
-        <td>${esc(p.country || '')}</td>
-        <td>${esc(p.industry || '')}</td>
-        <td>${esc(p.contact_person || '')}</td>
-        <td class="mono">${esc(p.phone || '')}</td>
-        <td class="mono" style="font-size:11px">${esc(p.email || '')}</td>
-        <td style="font-size:11px">${esc(p.address || '')}</td>
-      </tr>`;
-      })
-      .join('');
-
-    const validCount = parsed.filter(p => p.name).length;
-    if (previewEl)
-      previewEl.innerHTML = `
-      <div style="font-size:12px;color:var(--text-2);margin-bottom:8px">
-        미리보기 — <strong>${validCount}개</strong> 등록 가능
-        ${validCount < parsed.length ? `<span style="color:var(--oci-red)">(${parsed.length - validCount}개 고객사명 없음 — 제외됨)</span>` : ''}
-      </div>
-      <div style="overflow-x:auto;max-height:260px;overflow-y:auto">
-        <table class="data-table" style="font-size:12px">
-          <thead><tr>
-            <th>고객사명</th><th>지역</th><th>국가</th><th>산업군</th>
-            <th>담당자</th><th>연락처</th><th>이메일</th><th>주소</th>
-          </tr></thead>
-          <tbody>${previewRows}</tbody>
-        </table>
-      </div>`;
-
-    if (importBtn) importBtn.style.display = validCount ? '' : 'none';
-  },
-
-  async _importParsed() {
-    const valid = this._parsedCustomers.filter(c => c.name);
-    if (!valid.length) {
-      Toast.warn('등록 가능한 데이터가 없습니다');
-      return;
-    }
-
-    const btn = document.getElementById('cp-import-btn-cust');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '등록 중...';
-    }
-
-    try {
-      const res = await API.post('/customers/bulk', { customers: valid });
-      Modal.close();
-
-      const parts = [];
-      if (res.inserted) parts.push(`${res.inserted}개 등록 완료`);
-      if (res.duplicates) parts.push(`${res.duplicates}개 중복 건너뜀`);
-      const failed = (res.errors || []).filter(e => !e.reason?.startsWith('중복')).length;
-      if (failed) parts.push(`${failed}개 오류`);
-
-      if (res.inserted) Toast.success(parts.join(' · '));
-      else Toast.warn(parts.join(' · ') || '등록된 항목이 없습니다');
-
-      await this.loadData();
-      await App.refreshCommon();
-    } catch {
-      Toast.error('등록 중 오류가 발생했습니다');
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '✅ 등록하기';
-      }
-    }
   },
 
   // ── 엑셀 내보내기 ────────────────────────────────────────────

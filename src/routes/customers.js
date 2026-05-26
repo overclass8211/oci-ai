@@ -10,6 +10,12 @@ const { parsePage, pageResult } = require('../utils/routeHelper');
 const { fromExcelBuffer } = require('../utils/excelHelper');
 const { sendExport, normalizeFormat } = require('../utils/exportHelper');
 const {
+  MAX_ROWS_PER_REQUEST: BULK_MAX_ROWS,
+  sanitizeRow,
+  validateRequest: validateBulkRequest,
+  buildResponse: buildBulkResponse,
+} = require('../utils/bulkPasteHelper');
+const {
   genAI,
   MODEL_FAST,
   SAFETY_SETTINGS,
@@ -244,15 +250,32 @@ router.get('/match', async (req, res) => {
 });
 
 // ── 일괄 등록 (Copy & Paste import) ──────────────────────────
+// ── POST /bulk — 일괄 등록 (v6.0.0 강화: 행 수 제한 + 서버 sanitize) ──
 router.post('/bulk', async (req, res) => {
   const { customers } = req.body;
-  if (!Array.isArray(customers) || !customers.length)
-    return res.status(400).json({ success: false, message: '등록할 데이터가 없습니다.' });
+  // 1) 행 수 / 형식 검증
+  const reqErr = validateBulkRequest(customers);
+  if (reqErr) {
+    return res.status(reqErr.status).json({
+      success: false,
+      message: reqErr.message,
+      code: reqErr.code,
+      max: BULK_MAX_ROWS,
+    });
+  }
 
   const inserted = [];
   const errors = [];
   const duplicates = [];
-  for (const row of customers) {
+  for (const rawRow of customers) {
+    // 2) 서버 sanitize — 위험 패턴/제어 문자 차단
+    let row;
+    try {
+      row = sanitizeRow(rawRow);
+    } catch (e) {
+      errors.push({ row: rawRow, reason: e.message || '보안 검증 실패' });
+      continue;
+    }
     if (!row.name) {
       errors.push({ row, reason: '고객사명 누락' });
       continue;
@@ -286,12 +309,7 @@ router.post('/bulk', async (req, res) => {
       errors.push({ row, reason: e.message });
     }
   }
-  res.json({
-    success: true,
-    inserted: inserted.length,
-    duplicates: duplicates.length,
-    errors: [...errors, ...duplicates],
-  });
+  res.json(buildBulkResponse({ inserted, duplicates, errors }));
 });
 
 router.post(

@@ -701,164 +701,13 @@ const LeadsPage = {
   },
 
   // ── 붙여넣기(Paste) 모달 ────────────────────────────────────
+  // ── 붙여넣기 등록 (공통 BulkPaste 컴포넌트 사용 — v6.0.0) ──────
   openPasteModal() {
-    Modal.open({
-      title: '📥 데이터 붙여넣기 등록',
-      width: 780,
-      body: `
-        <div style="font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.7">
-          Excel·Word·이메일의 표 데이터를 복사(Ctrl+C)한 뒤 아래 입력란에 붙여넣기(Ctrl+V)하세요.<br>
-          <span style="color:var(--text-3)">지원 형식: 탭 구분(Excel), 쉼표 구분(CSV) · 첫 행이 헤더인 경우 자동 인식</span>
-        </div>
-        <textarea id="cp-paste-input" class="cp-paste-textarea"
-          placeholder="여기에 Excel·Word·이메일 데이터를 붙여넣기 하세요 (Ctrl+V)..."
-          rows="8" autofocus></textarea>
-        <div id="cp-parse-result" style="margin-top:10px"></div>
-      `,
-      footer: `
-        <button class="btn btn-ghost" id="leads-paste-cancel-btn">취소</button>
-        <button class="btn btn-secondary" id="leads-paste-preview-btn">미리보기</button>
-        <button class="btn btn-primary" id="cp-import-btn" style="display:none">등록하기</button>
-      `,
-      bind: {
-        '#leads-paste-cancel-btn': () => Modal.close(),
-        '#leads-paste-preview-btn': () => this._parsePasteInput(),
-        '#cp-import-btn': () => this._importParsed(),
-      },
-    });
-
-    // 붙여넣기 시 자동 파싱
-    const ta = document.getElementById('cp-paste-input');
-    if (ta) {
-      ta.focus();
-      ta.addEventListener('paste', () => setTimeout(() => this._parsePasteInput(), 50));
-    }
-  },
-
-  // ── 클립보드 데이터 파싱 ────────────────────────────────────
-  _parsePasteInput() {
-    const raw = document.getElementById('cp-paste-input')?.value?.trim();
-    if (!raw) {
-      document.getElementById('cp-parse-result').innerHTML =
-        '<p style="color:var(--text-3);font-size:12px">데이터를 먼저 붙여넣기 해주세요.</p>';
+    if (typeof BulkPaste === 'undefined') {
+      Toast.error('BulkPaste 컴포넌트 로드 실패');
       return;
     }
-
-    // 구분자 감지 (탭 vs 쉼표)
-    const firstLine = raw.split('\n')[0];
-    const sep = firstLine.includes('\t') ? '\t' : ',';
-
-    const lines = raw
-      .split('\n')
-      .map(l => l.split(sep).map(v => v.trim().replace(/^["']|["']$/g, '')));
-    if (!lines.length) return;
-
-    // 헤더 행 감지
-    const HEADER_MAP = {
-      고객사: true,
-      고객: true,
-      customer: true,
-      customer_name: true,
-      프로젝트: true,
-      프로젝트명: true,
-      project: true,
-      project_name: true,
-      사업유형: true,
-      유형: true,
-      type: true,
-      business_type: true,
-      규모: true,
-      mw: true,
-      capacity: true,
-      용량: true,
-      금액: true,
-      예상금액: true,
-      amount: true,
-      expected_amount: true,
-      단계: true,
-      stage: true,
-      상태: true,
-      구분: true,
-      지역: true,
-      region: true,
-      담당자: true,
-      담당: true,
-      assigned: true,
-      마감일: true,
-      예상마감: true,
-      마감: true,
-      close_date: true,
-      메모: true,
-      비고: true,
-      notes: true,
-    };
-    const firstRow = lines[0].map(v => v.toLowerCase().trim());
-    const hasHeader = firstRow.some(v => HEADER_MAP[v]);
-
-    let headers, dataRows;
-    if (hasHeader) {
-      headers = lines[0];
-      dataRows = lines.slice(1).filter(r => r.some(v => v));
-    } else {
-      // 기본 컬럼 순서: 고객사, 프로젝트명, 사업유형, 규모, 예상금액, 단계, 구분, 담당자, 마감일, 메모
-      headers = [
-        '고객사',
-        '프로젝트명',
-        '사업유형',
-        '규모(MW)',
-        '예상금액',
-        '단계',
-        '구분',
-        '담당자',
-        '마감일',
-        '메모',
-      ];
-      dataRows = lines.filter(r => r.some(v => v));
-    }
-
-    // 컬럼 → 필드 매핑
-    const COL_FIELD = {
-      고객사: 'customer_name',
-      고객: 'customer_name',
-      customer: 'customer_name',
-      customer_name: 'customer_name',
-      프로젝트명: 'project_name',
-      프로젝트: 'project_name',
-      project: 'project_name',
-      project_name: 'project_name',
-      사업유형: 'business_type',
-      유형: 'business_type',
-      type: 'business_type',
-      business_type: 'business_type',
-      '규모(mw)': 'capacity_mw',
-      규모: 'capacity_mw',
-      mw: 'capacity_mw',
-      capacity: 'capacity_mw',
-      용량: 'capacity_mw',
-      예상금액: 'expected_amount',
-      금액: 'expected_amount',
-      amount: 'expected_amount',
-      expected_amount: 'expected_amount',
-      통화: 'currency',
-      currency: 'currency',
-      단계: 'stage',
-      stage: 'stage',
-      상태: 'stage',
-      구분: 'region',
-      지역: 'region',
-      region: 'region',
-      담당자: 'assigned_name_raw',
-      담당: 'assigned_name_raw',
-      assigned: 'assigned_name_raw',
-      마감일: 'expected_close_date',
-      예상마감일: 'expected_close_date',
-      마감: 'expected_close_date',
-      close_date: 'expected_close_date',
-      메모: 'notes',
-      비고: 'notes',
-      notes: 'notes',
-    };
-
+    // stage 한글 → 영문 매핑
     const STAGE_REVERSE = {
       리드발굴: 'lead',
       '리드 발굴': 'lead',
@@ -882,118 +731,126 @@ const LeadsPage = {
       드롭: 'dropped',
       dropped: 'dropped',
     };
+    const VALID_STAGES = [
+      'lead',
+      'review',
+      'proposal',
+      'bidding',
+      'negotiation',
+      'won',
+      'lost',
+      'dropped',
+    ];
+    const team = this.team || [];
 
-    const fieldCols = headers.map(h => COL_FIELD[h.toLowerCase().trim()] || null);
-
-    const parsed = dataRows
-      .map(row => {
-        const obj = {};
-        row.forEach((val, i) => {
-          const field = fieldCols[i];
-          if (!field || !val) return;
-          if (field === 'stage') obj[field] = STAGE_REVERSE[val.toLowerCase()] || 'lead';
-          else if (field === 'capacity_mw' || field === 'expected_amount') {
-            const num = parseFloat(val.replace(/[,₩$¥]/g, ''));
-            if (!isNaN(num)) obj[field] = num;
-          } else if (field === 'assigned_name_raw')
-            obj[field] = val; // 이름→ID 매핑은 나중에
-          else obj[field] = val;
-        });
-        return obj;
-      })
-      .filter(o => o.customer_name || o.project_name);
-
-    this._parsedLeads = parsed;
-
-    if (!parsed.length) {
-      document.getElementById('cp-parse-result').innerHTML =
-        '<p style="color:#E63329;font-size:12px">⚠ 인식된 데이터가 없습니다. 형식을 확인해주세요.</p>';
-      document.getElementById('cp-import-btn').style.display = 'none';
-      return;
-    }
-
-    // 미리보기 테이블 렌더링
-    const previewHtml = `
-      <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text-1)">
-        📊 ${parsed.length}건 인식됨 — 아래 내용을 확인하고 [등록하기]를 클릭하세요
-      </div>
-      <div style="overflow-x:auto;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
-        <table class="data-table" style="font-size:11px;min-width:600px">
-          <thead>
-            <tr>
-              <th>#</th><th>고객사</th><th>프로젝트명</th><th>사업유형</th>
-              <th>규모(MW)</th><th>단계</th><th>구분</th><th>담당자</th><th>마감일</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${parsed
-              .map(
-                (r, i) => `
-              <tr class="${!r.customer_name || !r.project_name ? 'cp-row-warn' : ''}">
-                <td class="text-muted">${i + 1}</td>
-                <td>${r.customer_name ? `<strong>${esc(r.customer_name)}</strong>` : '<span style="color:#E63329">필수</span>'}</td>
-                <td>${r.project_name ? esc(r.project_name) : '<span style="color:#E63329">필수</span>'}</td>
-                <td>${esc(r.business_type || '태양광')}</td>
-                <td class="text-right">${r.capacity_mw !== null && r.capacity_mw !== undefined ? r.capacity_mw : '-'}</td>
-                <td>${esc(STAGE_REVERSE[r.stage] ? r.stage : 'lead')}</td>
-                <td>${esc(r.region || '국내')}</td>
-                <td>${esc(r.assigned_name_raw || '-')}</td>
-                <td>${esc(r.expected_close_date || '-')}</td>
-              </tr>
-            `
-              )
-              .join('')}
-          </tbody>
-        </table>
-      </div>
-      ${
-        parsed.some(r => !r.customer_name || !r.project_name)
-          ? '<p style="color:#F59C00;font-size:11px;margin-top:6px">⚠ 빨간색 행은 필수값 누락으로 건너뜁니다.</p>'
-          : ''
-      }
-    `;
-    document.getElementById('cp-parse-result').innerHTML = previewHtml;
-    document.getElementById('cp-import-btn').style.display = '';
-  },
-
-  // ── 파싱된 데이터 일괄 등록 ─────────────────────────────────
-  async _importParsed() {
-    if (!this._parsedLeads?.length) return;
-
-    // assigned_name_raw → ID 변환
-    const leadsToSend = this._parsedLeads
-      .filter(r => r.customer_name && r.project_name)
-      .map(r => {
-        const member = this.team.find(t => t.name === r.assigned_name_raw);
-        // assigned_name_raw 는 표시용이므로 제외하고 서버 전송
-        const { assigned_name_raw: _, ...rest } = r;
-        return { ...rest, assigned_to: member?.id || null };
-      });
-
-    const btn = document.getElementById('cp-import-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '등록 중...';
-    }
-
-    try {
-      const res = await API.post('/leads/bulk', { leads: leadsToSend });
-      Modal.close();
-      if (res.success) {
-        const errMsg = res.errors?.length ? ` (${res.errors.length}건 오류)` : '';
-        Toast.success(`${res.inserted}건 등록 완료${errMsg}`);
+    BulkPaste.open({
+      entityType: 'lead',
+      title: '📥 영업리드 붙여넣기 등록',
+      endpoint: '/leads/bulk',
+      payloadKey: 'leads',
+      columns: [
+        { key: 'customer_name', label: '고객사', required: true, maxLength: 200 },
+        { key: 'project_name', label: '프로젝트명', required: true, maxLength: 200 },
+        { key: 'business_type', label: '사업유형', default: '태양광', maxLength: 50 },
+        {
+          key: 'capacity_mw',
+          label: '규모(MW)',
+          transform: v => {
+            if (v === null || v === undefined || v === '') return null;
+            const n = parseFloat(String(v).replace(/[,₩$¥]/g, ''));
+            return isNaN(n) ? null : n;
+          },
+        },
+        {
+          key: 'expected_amount',
+          label: '예상금액',
+          transform: v => {
+            if (v === null || v === undefined || v === '') return null;
+            const n = parseFloat(String(v).replace(/[,₩$¥]/g, ''));
+            return isNaN(n) ? null : n;
+          },
+        },
+        {
+          key: 'currency',
+          label: '통화',
+          default: 'KRW',
+          enum: ['KRW', 'USD', 'EUR', 'JPY', 'CNY'],
+        },
+        {
+          key: 'stage',
+          label: '단계',
+          default: 'lead',
+          transform: v => STAGE_REVERSE[String(v).toLowerCase().trim()] || v,
+          enum: VALID_STAGES,
+        },
+        { key: 'region', label: '구분', default: '국내', enum: ['국내', '해외'] },
+        // 담당자 이름 (별도 column key) — beforeSubmit 에서 id 로 매핑
+        { key: 'assigned_name', label: '담당자', maxLength: 100 },
+        { key: 'expected_close_date', label: '예상마감일', validate: 'date' },
+        { key: 'notes', label: '메모', maxLength: 2000 },
+      ],
+      headerAliases: {
+        고객사: 'customer_name',
+        고객: 'customer_name',
+        customer: 'customer_name',
+        customer_name: 'customer_name',
+        프로젝트명: 'project_name',
+        프로젝트: 'project_name',
+        project: 'project_name',
+        project_name: 'project_name',
+        사업유형: 'business_type',
+        유형: 'business_type',
+        type: 'business_type',
+        business_type: 'business_type',
+        '규모(mw)': 'capacity_mw',
+        규모: 'capacity_mw',
+        mw: 'capacity_mw',
+        capacity: 'capacity_mw',
+        용량: 'capacity_mw',
+        capacity_mw: 'capacity_mw',
+        예상금액: 'expected_amount',
+        금액: 'expected_amount',
+        amount: 'expected_amount',
+        expected_amount: 'expected_amount',
+        통화: 'currency',
+        currency: 'currency',
+        단계: 'stage',
+        stage: 'stage',
+        상태: 'stage',
+        구분: 'region',
+        지역: 'region',
+        region: 'region',
+        담당자: 'assigned_name',
+        담당: 'assigned_name',
+        assigned: 'assigned_name',
+        assigned_name: 'assigned_name',
+        마감일: 'expected_close_date',
+        예상마감일: 'expected_close_date',
+        예상마감: 'expected_close_date',
+        마감: 'expected_close_date',
+        close_date: 'expected_close_date',
+        expected_close_date: 'expected_close_date',
+        메모: 'notes',
+        비고: 'notes',
+        notes: 'notes',
+      },
+      duplicateField: 'project_name',
+      // assigned_name → assigned_to(id) 매핑
+      beforeSubmit: rows =>
+        rows.map(r => {
+          const member = team.find(t => t.name === r.assigned_name);
+          // assigned_name 은 서버 스키마에 없으므로 제거, assigned_to 로 변환
+          const { assigned_name: _, ...rest } = r;
+          return { ...rest, assigned_to: member?.id || null };
+        }),
+      onSuccess: async () => {
         await this.loadData();
-      } else {
-        Toast.error('등록 중 오류가 발생했습니다.');
-      }
-    } catch (e) {
-      Toast.error('서버 오류: ' + (e.message || ''));
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '등록하기';
-      }
-    }
+      },
+    });
   },
+
+  // ── (v6.0.0) 붙여넣기 파싱/등록은 BulkPaste 컴포넌트로 이관 ──────
+  // 기존 _parsePasteInput / _importParsed 는 BulkPaste.open() 안에서 처리됨
 
   editLead(id) {
     App.openLeadForm(id);

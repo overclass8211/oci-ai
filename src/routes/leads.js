@@ -10,6 +10,12 @@ const {
 } = require('../middleware/validate');
 const { parsePage, pageResult } = require('../utils/routeHelper');
 const { getUserId } = require('../middleware/auth');
+const {
+  MAX_ROWS_PER_REQUEST: BULK_MAX_ROWS,
+  sanitizeRow,
+  validateRequest: validateBulkRequest,
+  buildResponse: buildBulkResponse,
+} = require('../utils/bulkPasteHelper');
 const readReceipts = require('../services/readReceipts');
 const leadNotifier = require('./../services/leadNotifier');
 const { wsBroadcast } = require('../ws');
@@ -390,20 +396,52 @@ router.get('/:id', validateId, async (req, res) => {
 });
 
 // ── 일괄 등록 (Copy & Paste import) ──────────────────────────
+// ── POST /bulk — 일괄 등록 (v6.0.0 강화: 행 수 제한 + 서버 sanitize + 중복 차단) ──
 router.post('/bulk', async (req, res) => {
   const { leads } = req.body;
-  if (!Array.isArray(leads) || !leads.length)
-    return res.status(400).json({ success: false, message: '등록할 데이터가 없습니다.' });
+  // 1) 행 수 / 형식 검증
+  const reqErr = validateBulkRequest(leads);
+  if (reqErr) {
+    return res.status(reqErr.status).json({
+      success: false,
+      message: reqErr.message,
+      code: reqErr.code,
+      max: BULK_MAX_ROWS,
+    });
+  }
 
   const inserted = [];
   const errors = [];
-  for (const row of leads) {
+  const duplicates = [];
+  for (const rawRow of leads) {
+    // 2) 서버 sanitize
+    let row;
+    try {
+      row = sanitizeRow(rawRow);
+    } catch (e) {
+      errors.push({ row: rawRow, reason: e.message || '보안 검증 실패' });
+      continue;
+    }
     const { customer_name, project_name } = row;
     if (!customer_name || !project_name) {
       errors.push({ row, reason: '고객사 또는 프로젝트명 누락' });
       continue;
     }
     try {
+      // 3) 중복 체크 (project_name + customer_name 매칭)
+      const [dupRows] = await pool.query(
+        `SELECT id, customer_name, project_name FROM leads
+          WHERE project_name = ? AND customer_name = ? LIMIT 1`,
+        [project_name, customer_name]
+      );
+      if (dupRows.length) {
+        duplicates.push({
+          row,
+          existingId: dupRows[0].id,
+          reason: `중복 (기존 ID:${dupRows[0].id} — ${dupRows[0].customer_name} / ${dupRows[0].project_name})`,
+        });
+        continue;
+      }
       const [r] = await pool.query(
         `INSERT INTO leads
          (customer_name, project_name, business_type, region,
@@ -430,7 +468,7 @@ router.post('/bulk', async (req, res) => {
       errors.push({ row, reason: e.message });
     }
   }
-  res.json({ success: true, inserted: inserted.length, errors });
+  res.json(buildBulkResponse({ inserted, duplicates, errors }));
 });
 
 // ── 동적 stage 검증 (pipeline_stages 테이블 기반) ──────────────
