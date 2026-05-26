@@ -43,6 +43,19 @@
           "type": "image/svg+xml"
         }
       ]
+    },
+    {
+      "name": "회의록 AI",
+      "short_name": "회의록",
+      "description": "회의 녹음 → AI 요약 회의록으로 바로 이동",
+      "url": "/?action=meeting",
+      "icons": [
+        {
+          "src": "/assets/shortcut-meeting.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
     }
   ]
 }

@@ -10358,3 +10358,15 @@ body,
   color: var(--text-2);
   font-style: italic;
 }
+
+/* v6.0.0 PWA Shortcut: 회의록 AI 쇼트컷 진입 시 녹음 버튼 강조 */
+@keyframes pulse-attention {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(230, 51, 41, 0.5);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 8px rgba(230, 51, 41, 0);
+  }
+}

@@ -98,10 +98,13 @@ const App = {
 
     // v6.0.0: PWA shortcut 진입 감지 — manifest.json shortcuts ?action=... 처리
     // 예: ?action=scan-card → 고객사 페이지 + OCR 모달 + 카메라 자동
+    //     ?action=meeting   → 회의록 AI 페이지 (음성→AI 요약)
     const urlParams = new URLSearchParams(location.search);
     const pwaAction = urlParams.get('action');
     if (pwaAction === 'scan-card') {
       startPage = 'customers';
+    } else if (pwaAction === 'meeting') {
+      startPage = 'meeting';
     } else {
       const hashPage = location.hash.replace(/^#/, '').trim();
       if (hashPage && this.pages[hashPage]) {
@@ -115,7 +118,7 @@ const App = {
     }
     await this.navigate(startPage);
 
-    // v6.0.0: PWA shortcut 후속 처리 — 명함 촬영 모달 자동 오픈 + 카메라 자동 호출
+    // v6.0.0: PWA shortcut 후속 처리 — 모달 자동 오픈 + URL 정리
     if (pwaAction === 'scan-card') {
       setTimeout(() => {
         try {
@@ -128,7 +131,29 @@ const App = {
         // URL 파라미터 정리 — 새로고침 시 무한 트리거 방지
         try {
           history.replaceState(null, '', location.pathname + location.hash);
-        } catch (_) {}
+        } catch (_) {
+          /* skip */
+        }
+      }, 300);
+    } else if (pwaAction === 'meeting') {
+      // v6.0.0: 회의록 AI 쇼트컷 — 페이지 진입만 (녹음은 user gesture 필요)
+      setTimeout(() => {
+        // URL 파라미터 정리 — 새로고침 시 무한 트리거 방지
+        try {
+          history.replaceState(null, '', location.pathname + location.hash);
+        } catch (_) {
+          /* skip */
+        }
+        // 모바일 사용자 가이드 — 녹음 시작 버튼 강조 (3초)
+        const recBtn = document.getElementById('rec-start-btn');
+        if (recBtn) {
+          recBtn.style.animation = 'pulse-attention 1.2s ease-in-out 2';
+          recBtn.style.boxShadow = '0 0 0 3px rgba(230,51,41,0.3)';
+          setTimeout(() => {
+            recBtn.style.boxShadow = '';
+            recBtn.style.animation = '';
+          }, 3000);
+        }
       }, 300);
     }
 
