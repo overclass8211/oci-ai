@@ -811,6 +811,60 @@ async function initTables() {
       console.error('⚠️ Feature flags sync 실패:', err.message);
     }
 
+    // ── v6.0.0: customers 사업자등록번호(BRN) + 이름 변경 이력 ─────
+    // 목적: 고객사 이름이 바뀌어도 BRN 으로 동일 고객 인식 → 중복 방지 + 알림
+    try {
+      await pool.query(
+        `ALTER TABLE customers ADD COLUMN business_no VARCHAR(13) DEFAULT NULL COMMENT '사업자등록번호'`
+      );
+    } catch (_) {
+      /* column may already exist */
+    }
+    try {
+      // 정규화 컬럼 — 입력 형식 다양성(하이픈 유무) 흡수 + 매칭 정확도 보장
+      // GENERATED STORED → 자동 채움 + INDEX 가능
+      await pool.query(
+        `ALTER TABLE customers ADD COLUMN business_no_normalized CHAR(10)
+           GENERATED ALWAYS AS (REGEXP_REPLACE(IFNULL(business_no,''), '[^0-9]', '')) STORED
+           COMMENT '하이픈 제거 정규화'`
+      );
+    } catch (_) {
+      /* column may already exist */
+    }
+    try {
+      // UNIQUE — NULL 은 허용 (해외 고객사 + 기존 데이터 호환)
+      // 정규화 컬럼 기준 → '123-45-67890' vs '1234567890' 동일 처리
+      await pool.query(
+        `ALTER TABLE customers ADD UNIQUE KEY uniq_business_no (business_no_normalized)`
+      );
+    } catch (_) {
+      /* index may already exist */
+    }
+    try {
+      // 검증 메타 — 국세청 API 미사용 시점에는 NULL 유지
+      await pool.query(
+        `ALTER TABLE customers ADD COLUMN brn_verified_at DATETIME DEFAULT NULL COMMENT '국세청 검증 시점'`
+      );
+    } catch (_) {
+      /* exists */
+    }
+
+    // 고객사 이름 변경 이력 — BRN 동일 + 이름 다를 때 알림 근거
+    await pool.query(`CREATE TABLE IF NOT EXISTS customer_name_history (
+      id          BIGINT       NOT NULL AUTO_INCREMENT,
+      customer_id INT          NOT NULL,
+      old_name    VARCHAR(200) NOT NULL,
+      new_name    VARCHAR(200) NOT NULL,
+      changed_by  INT          DEFAULT NULL,
+      changed_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+      source      VARCHAR(50)  DEFAULT 'manual'
+                                COMMENT 'manual|bulk_paste|ocr|nts_api',
+      PRIMARY KEY (id),
+      KEY idx_customer (customer_id, changed_at),
+      CONSTRAINT fk_cnh_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
     console.log('✅ DB 확장 테이블 + 인덱스 초기화 완료');
   } catch (err) {
     console.error('❌ DB 초기화 오류:', err.message);

@@ -38,6 +38,7 @@ function safeJson(s, fallback) {
 
 const CUST_COLS = [
   { key: 'name', label: '고객사명' },
+  { key: 'business_no', label: '사업자번호' },
   { key: 'region', label: '구분' },
   { key: 'country', label: '국가' },
   { key: 'industry', label: '산업군' },
@@ -46,6 +47,9 @@ const CUST_COLS = [
   { key: 'email', label: '이메일' },
   { key: 'address', label: '주소' },
 ];
+
+// v6.0.0: 사업자등록번호 유틸 (검증/정규화/체크섬)
+const brnService = require('../services/businessRegistration');
 
 router.get('/', async (req, res) => {
   try {
@@ -167,10 +171,24 @@ async function findDuplicate(name, contact_person, phone) {
   const cp = contact_person || null;
   const ph = phone || null;
   const [[dup]] = await pool.query(
-    `SELECT id, name, contact_person, phone FROM customers
+    `SELECT id, name, contact_person, phone, business_no FROM customers
      WHERE name = ? AND (contact_person <=> ?) AND (phone <=> ?)
      LIMIT 1`,
     [name, cp, ph]
+  );
+  return dup || null;
+}
+
+// v6.0.0: 사업자등록번호 매칭 — 정규화 컬럼 기준 (하이픈 무관)
+async function findByBRN(brn) {
+  const normalized = brnService.normalize(brn);
+  if (normalized.length !== 10) return null;
+  const [[dup]] = await pool.query(
+    `SELECT id, name, business_no, contact_person, phone, region
+       FROM customers
+      WHERE business_no_normalized = ?
+      LIMIT 1`,
+    [normalized]
   );
   return dup || null;
 }
@@ -249,6 +267,114 @@ router.get('/match', async (req, res) => {
   }
 });
 
+// ── GET /match-by-brn — 사업자등록번호 매칭 (v6.0.0) ─────────
+// Query: ?business_no=XXX-XX-XXXXX  (또는 하이픈 없는 10자리)
+// Response: {
+//   success, data: {
+//     found: bool, customer?: {...},
+//     nameChanged?: bool,        // 이름 다른 동일 BRN
+//     newName?: string,          // 사용자가 입력한 새 이름 (전달 시)
+//     valid: bool,               // 형식+체크섬 통과
+//     normalized: string,
+//   }
+// }
+router.get('/match-by-brn', async (req, res) => {
+  try {
+    const rawBrn = String(req.query.business_no || '').trim();
+    const newName = String(req.query.name || '').trim();
+    const normalized = brnService.normalize(rawBrn);
+    const valid = brnService.validate(rawBrn);
+
+    if (normalized.length !== 10) {
+      return res.json({
+        success: true,
+        data: { found: false, valid: false, normalized, reason: '10자리 숫자가 아닙니다.' },
+      });
+    }
+
+    const existing = await findByBRN(rawBrn);
+    if (!existing) {
+      return res.json({
+        success: true,
+        data: { found: false, valid, normalized },
+      });
+    }
+
+    // 동일 BRN 발견 — 이름 비교
+    const nameChanged = newName && existing.name && newName.trim() !== existing.name.trim();
+    res.json({
+      success: true,
+      data: {
+        found: true,
+        valid,
+        normalized,
+        customer: existing,
+        nameChanged: !!nameChanged,
+        newName: nameChanged ? newName : undefined,
+      },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── POST /:id/accept-name-change — 이름 변경 수락 (v6.0.0) ────
+// Body: { newName: string, source?: 'manual'|'bulk_paste'|'ocr' }
+router.post('/:id/accept-name-change', validateId, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { newName, source } = req.body || {};
+    if (!newName || typeof newName !== 'string' || !newName.trim()) {
+      return res.status(400).json({ success: false, message: 'newName 필수' });
+    }
+    const trimmed = newName.trim().slice(0, 200);
+
+    // 기존 이름 조회
+    const [[cur]] = await pool.query(`SELECT id, name FROM customers WHERE id = ?`, [id]);
+    if (!cur) {
+      return res.status(404).json({ success: false, message: '고객사를 찾을 수 없습니다.' });
+    }
+    if (cur.name === trimmed) {
+      return res.json({ success: true, message: '이름 변경 없음', changed: false });
+    }
+
+    const userId = (() => {
+      try {
+        return getUserId(req) || null;
+      } catch (_) {
+        return null;
+      }
+    })();
+
+    // 트랜잭션: history INSERT + customers UPDATE
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(
+        `INSERT INTO customer_name_history
+           (customer_id, old_name, new_name, changed_by, source)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, cur.name, trimmed, userId, source || 'manual']
+      );
+      await conn.query(`UPDATE customers SET name = ? WHERE id = ?`, [trimmed, id]);
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+
+    res.json({
+      success: true,
+      changed: true,
+      data: { id, oldName: cur.name, newName: trimmed },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // ── 일괄 등록 (Copy & Paste import) ──────────────────────────
 // ── POST /bulk — 일괄 등록 (v6.0.0 강화: 행 수 제한 + 서버 sanitize) ──
 router.post('/bulk', async (req, res) => {
@@ -281,6 +407,37 @@ router.post('/bulk', async (req, res) => {
       continue;
     }
     try {
+      // v6.0.0: 사업자등록번호 정규화 + 검증
+      let brnFormatted = null;
+      if (row.business_no) {
+        const norm = brnService.normalize(row.business_no);
+        if (norm.length !== 10) {
+          errors.push({ row, reason: '사업자등록번호 형식 오류 (10자리 숫자 아님)' });
+          continue;
+        }
+        if (!brnService.validateChecksum(norm)) {
+          errors.push({ row, reason: '사업자등록번호 체크섬 오류' });
+          continue;
+        }
+        brnFormatted = brnService.format(norm);
+        // BRN 우선 중복 체크
+        const dupByBrn = await findByBRN(norm);
+        if (dupByBrn) {
+          const nameChanged = (dupByBrn.name || '').trim() !== (row.name || '').trim();
+          duplicates.push({
+            row,
+            existingId: dupByBrn.id,
+            reason: nameChanged
+              ? `중복 BRN — 이름 변경 추정 (기존: ${dupByBrn.name} → 입력: ${row.name})`
+              : `중복 (기존 ID:${dupByBrn.id} — ${dupByBrn.name})`,
+            nameChanged,
+            existingName: dupByBrn.name,
+          });
+          continue;
+        }
+      }
+
+      // BRN 없거나 미매칭 → 기존 name/contact/phone 매칭
       const dup = await findDuplicate(row.name, row.contact_person, row.phone);
       if (dup) {
         duplicates.push({
@@ -291,8 +448,9 @@ router.post('/bulk', async (req, res) => {
         continue;
       }
       const [r] = await pool.query(
-        `INSERT INTO customers (name, region, country, industry, contact_person, phone, email, address)
-         VALUES (?,?,?,?,?,?,?,?)`,
+        `INSERT INTO customers
+           (name, region, country, industry, contact_person, phone, email, address, business_no)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
         [
           row.name,
           row.region || '국내',
@@ -302,6 +460,7 @@ router.post('/bulk', async (req, res) => {
           row.phone || null,
           row.email || null,
           row.address || null,
+          brnFormatted,
         ]
       );
       inserted.push(r.insertId);
@@ -320,22 +479,73 @@ router.post(
   }),
   async (req, res) => {
     try {
-      const { name, region, country, industry, contact_person, phone, email, address } = req.body;
+      const {
+        name,
+        region,
+        country,
+        industry,
+        contact_person,
+        phone,
+        email,
+        address,
+        business_no,
+      } = req.body;
 
-      // 중복 체크
-      const dup = await findDuplicate(name, contact_person, phone);
-      if (dup) {
-        return res.status(409).json({
-          success: false,
-          duplicate: true,
-          existingId: dup.id,
-          message: `이미 등록된 고객사입니다 (${dup.name} / ${dup.contact_person || '담당자 없음'} / ${dup.phone || '연락처 없음'})`,
-        });
+      // v6.0.0: 사업자등록번호 검증 + 정규화
+      let brnNormalized = null;
+      let brnFormatted = null;
+      if (business_no && String(business_no).trim()) {
+        brnNormalized = brnService.normalize(business_no);
+        if (brnNormalized.length !== 10) {
+          return res.status(400).json({
+            success: false,
+            message: '사업자등록번호는 10자리 숫자여야 합니다.',
+            code: 'BRN_FORMAT',
+          });
+        }
+        if (!brnService.validateChecksum(brnNormalized)) {
+          return res.status(400).json({
+            success: false,
+            message: '사업자등록번호 체크섬 오류 — 번호를 다시 확인해주세요.',
+            code: 'BRN_CHECKSUM',
+          });
+        }
+        brnFormatted = brnService.format(brnNormalized);
+
+        // BRN 동일 고객 사전 차단 — 단, 이름 변경 케이스는 클라이언트가
+        // /accept-name-change 로 처리해야 하므로 여기서는 409 로 안내
+        const dupByBrn = await findByBRN(brnNormalized);
+        if (dupByBrn) {
+          return res.status(409).json({
+            success: false,
+            duplicate: true,
+            duplicateBy: 'business_no',
+            existingId: dupByBrn.id,
+            existingName: dupByBrn.name,
+            nameChanged: dupByBrn.name?.trim() !== String(name || '').trim(),
+            message: `동일 사업자등록번호의 고객사가 이미 등록되어 있습니다 (${dupByBrn.name})`,
+          });
+        }
+      }
+
+      // BRN 미입력 시 — 기존 name/contact/phone 기반 중복 체크
+      if (!brnNormalized) {
+        const dup = await findDuplicate(name, contact_person, phone);
+        if (dup) {
+          return res.status(409).json({
+            success: false,
+            duplicate: true,
+            duplicateBy: 'name_contact_phone',
+            existingId: dup.id,
+            message: `이미 등록된 고객사입니다 (${dup.name} / ${dup.contact_person || '담당자 없음'} / ${dup.phone || '연락처 없음'})`,
+          });
+        }
       }
 
       const [result] = await pool.query(
-        `INSERT INTO customers (name, region, country, industry, contact_person, phone, email, address)
-       VALUES (?,?,?,?,?,?,?,?)`,
+        `INSERT INTO customers
+           (name, region, country, industry, contact_person, phone, email, address, business_no)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
         [
           name,
           region || '국내',
@@ -345,6 +555,7 @@ router.post(
           phone || null,
           email || null,
           address || null,
+          brnFormatted, // 정규화 후 표시 포맷 저장
         ]
       );
       res.json({ success: true, id: result.insertId, data: { id: result.insertId } });
@@ -756,8 +967,18 @@ router.get('/:id/brief/history', validateId, async (req, res) => {
 // ── 고객사 수정 ──────────────────────────────────────────────
 router.put('/:id', validateId, async (req, res) => {
   try {
-    const { name, region, country, industry, contact_person, phone, email, address, notes } =
-      req.body;
+    const {
+      name,
+      region,
+      country,
+      industry,
+      contact_person,
+      phone,
+      email,
+      address,
+      notes,
+      business_no,
+    } = req.body;
     const fields = [];
     const vals = [];
     if (name !== undefined) {
@@ -795,6 +1016,43 @@ router.put('/:id', validateId, async (req, res) => {
     if (notes !== undefined) {
       fields.push('notes=?');
       vals.push(notes);
+    }
+    // v6.0.0: 사업자등록번호 — 검증 후 정규화 포맷으로 저장
+    if (business_no !== undefined) {
+      const v = business_no === null || business_no === '' ? null : String(business_no).trim();
+      if (v) {
+        const normalized = brnService.normalize(v);
+        if (normalized.length !== 10) {
+          return res.status(400).json({
+            success: false,
+            message: '사업자등록번호는 10자리 숫자여야 합니다.',
+            code: 'BRN_FORMAT',
+          });
+        }
+        if (!brnService.validateChecksum(normalized)) {
+          return res.status(400).json({
+            success: false,
+            message: '사업자등록번호 체크섬 오류 — 번호를 다시 확인해주세요.',
+            code: 'BRN_CHECKSUM',
+          });
+        }
+        // 다른 customer 에 이미 등록된 BRN 인지 확인
+        const dup = await findByBRN(normalized);
+        if (dup && Number(dup.id) !== Number(req.params.id)) {
+          return res.status(409).json({
+            success: false,
+            duplicate: true,
+            duplicateBy: 'business_no',
+            existingId: dup.id,
+            message: `다른 고객사 (${dup.name}) 가 동일 사업자등록번호를 사용 중입니다.`,
+          });
+        }
+        fields.push('business_no=?');
+        vals.push(brnService.format(normalized));
+      } else {
+        fields.push('business_no=?');
+        vals.push(null);
+      }
     }
     if (!fields.length)
       return res.status(400).json({ success: false, error: '수정할 항목이 없습니다.' });

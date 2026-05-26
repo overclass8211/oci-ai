@@ -713,6 +713,18 @@ const CustomersPage = {
       payloadKey: 'customers',
       columns: [
         { key: 'name', label: '고객사명', required: true, maxLength: 200 },
+        {
+          key: 'business_no',
+          label: '사업자번호',
+          maxLength: 13,
+          // 입력값을 표시 포맷으로 변환 (서버에서 재검증)
+          transform: v => {
+            if (!v) return null;
+            const n = String(v).replace(/[^0-9]/g, '');
+            if (n.length !== 10) return v; // 검증은 서버에 위임
+            return `${n.slice(0, 3)}-${n.slice(3, 5)}-${n.slice(5)}`;
+          },
+        },
         { key: 'region', label: '지역', enum: ['국내', '해외'], default: '국내' },
         { key: 'country', label: '국가', maxLength: 50 },
         { key: 'industry', label: '산업군', maxLength: 100 },
@@ -727,6 +739,11 @@ const CustomersPage = {
         회사명: 'name',
         company: 'name',
         name: 'name',
+        // v6.0.0: 사업자등록번호
+        사업자번호: 'business_no',
+        사업자등록번호: 'business_no',
+        business_no: 'business_no',
+        brn: 'business_no',
         지역: 'region',
         region: 'region',
         국가: 'country',
@@ -746,7 +763,7 @@ const CustomersPage = {
         주소: 'address',
         address: 'address',
       },
-      duplicateField: 'name',
+      duplicateField: 'business_no',
       onSuccess: async () => {
         await this.loadData();
         if (window.App?.refreshCommon) await App.refreshCommon();
@@ -881,12 +898,26 @@ const CustomersPage = {
             <div class="form-row-2">
               <div class="form-row">
                 <label class="form-label">고객사명 <span style="color:var(--oci-red)">*</span></label>
-                <input class="form-input" name="name" required value="${esc(cust.name || '')}">
+                <input class="form-input" name="name" id="cm-name-input"
+                       required value="${esc(cust.name || '')}">
               </div>
+              <div class="form-row">
+                <label class="form-label" title="고객사명이 바뀌어도 동일 식별자로 인식됩니다">
+                  사업자등록번호
+                </label>
+                <input class="form-input" name="business_no" id="cm-brn-input"
+                       value="${esc(cust.business_no || '')}"
+                       placeholder="000-00-00000" maxlength="13"
+                       autocomplete="off">
+                <div id="cm-brn-hint" style="font-size:11px;color:var(--text-3);margin-top:4px;min-height:14px"></div>
+              </div>
+            </div>
+            <div class="form-row-2">
               <div class="form-row">
                 <label class="form-label">산업군</label>
                 <input class="form-input" name="industry" value="${esc(cust.industry || '')}">
               </div>
+              <div class="form-row"></div>
             </div>
             <div class="form-row-3">
               <div class="form-row">
@@ -1028,6 +1059,23 @@ const CustomersPage = {
     document
       .getElementById('cm-save-btn')
       .addEventListener('click', () => this._saveCustomerEdit(id));
+
+    // v6.0.0: 사업자등록번호 자동 포맷 + blur 시 매칭/검증
+    const brnInput = document.getElementById('cm-brn-input');
+    if (brnInput) {
+      // 입력 시 자동 포맷 (XXX-XX-XXXXX)
+      brnInput.addEventListener('input', () => {
+        const n = brnInput.value.replace(/[^0-9]/g, '').slice(0, 10);
+        let formatted = n;
+        if (n.length > 5) formatted = `${n.slice(0, 3)}-${n.slice(3, 5)}-${n.slice(5)}`;
+        else if (n.length > 3) formatted = `${n.slice(0, 3)}-${n.slice(3)}`;
+        brnInput.value = formatted;
+      });
+      // blur 시 매칭 호출 (자기 자신과 매칭 시는 skip)
+      brnInput.addEventListener('blur', () =>
+        this._matchBusinessNo(id, brnInput.value)
+      );
+    }
     document
       .getElementById('cm-delete-btn')
       .addEventListener('click', () => this._deleteCustomer(id, cust.name));
@@ -1634,7 +1682,138 @@ const CustomersPage = {
       Modal.close();
       this.loadData();
     } catch (e) {
-      Toast.error('수정 실패: ' + e.message);
+      // BRN 충돌 / 형식 오류 — 친화적 메시지
+      const msg = e.message || '';
+      if (/사업자등록번호|business_no|BRN/i.test(msg)) {
+        Toast.error(msg);
+      } else {
+        Toast.error('수정 실패: ' + msg);
+      }
+    }
+  },
+
+  // v6.0.0: 사업자등록번호 입력 후 blur — 매칭 + 검증 + 안내
+  async _matchBusinessNo(currentId, rawBrn) {
+    const hint = document.getElementById('cm-brn-hint');
+    const nameInput = document.getElementById('cm-name-input');
+    if (!hint) return;
+
+    const cleaned = String(rawBrn || '').replace(/[^0-9]/g, '');
+    if (!cleaned) {
+      hint.innerHTML = '';
+      return;
+    }
+    if (cleaned.length !== 10) {
+      hint.innerHTML = '<span style="color:var(--oci-red)">⚠ 10자리 숫자를 입력하세요</span>';
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        business_no: cleaned,
+        name: nameInput?.value || '',
+      });
+      const res = await API.get(`/customers/match-by-brn?${params}`);
+      const d = res?.data || {};
+
+      if (!d.valid) {
+        hint.innerHTML =
+          '<span style="color:var(--oci-red)">⚠ 사업자등록번호 체크섬 오류 — 번호를 다시 확인해주세요</span>';
+        return;
+      }
+
+      // 매칭 안 됨 — 신규 BRN
+      if (!d.found) {
+        hint.innerHTML = '<span style="color:#16a34a">✓ 검증 완료 (신규 등록 가능)</span>';
+        return;
+      }
+
+      // 자기 자신과 매칭 — 변경 없음
+      if (currentId && Number(d.customer?.id) === Number(currentId)) {
+        hint.innerHTML = '<span style="color:#16a34a">✓ 현재 고객사와 동일</span>';
+        return;
+      }
+
+      // 다른 고객사와 매칭됨
+      if (d.nameChanged) {
+        hint.innerHTML = `<span style="color:#d97706">⚠ 동일 BRN 의 고객사 발견 (기존: <strong>${esc(d.customer.name)}</strong>) — 이름 변경 추정</span>`;
+        // 모달로 사용자 선택
+        this._showBrnConflictModal(d.customer, nameInput.value);
+      } else {
+        hint.innerHTML = `<span style="color:var(--oci-red)">⚠ 이미 등록된 고객사 (${esc(d.customer.name)} · ID:${d.customer.id})</span>`;
+      }
+    } catch (e) {
+      hint.innerHTML = `<span style="color:var(--oci-red)">매칭 오류: ${esc(e.message || '서버 오류')}</span>`;
+    }
+  },
+
+  // BRN 동일 + 이름 다름 → 사용자 선택 모달
+  _showBrnConflictModal(existingCustomer, newName) {
+    Modal.open({
+      title: '⚠ 동일 사업자번호의 고객사 발견',
+      width: 540,
+      body: `
+        <div style="font-size:13px;color:var(--text-2);line-height:1.7;margin-bottom:14px">
+          입력하신 사업자등록번호로 이미 등록된 고객사가 있습니다.<br>
+          <span style="color:var(--text-3);font-size:12px">
+            고객사 이름이 변경되었을 가능성이 있습니다 — 처리 방식을 선택해주세요.
+          </span>
+        </div>
+        <div style="background:var(--surface-2);padding:14px;border-radius:6px;margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">기존 고객사</div>
+          <div style="font-weight:600;font-size:15px;margin-bottom:6px">${esc(existingCustomer.name)}</div>
+          <div style="font-size:12px;color:var(--text-2)">
+            📞 ${esc(existingCustomer.phone || '-')} ·
+            👤 ${esc(existingCustomer.contact_person || '-')} ·
+            🌐 ${esc(existingCustomer.region || '-')}
+          </div>
+        </div>
+        <div style="background:#fef3c7;padding:14px;border-radius:6px;margin-bottom:10px">
+          <div style="font-size:11px;color:#92400e;margin-bottom:4px">새로 입력한 이름</div>
+          <div style="font-weight:600;font-size:15px;color:#92400e">${esc(newName || '(미입력)')}</div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-ghost" id="bc-cancel">취소</button>
+        <button class="btn btn-secondary" id="bc-open">기존 고객사 열기</button>
+        <button class="btn btn-primary" id="bc-update">이름 변경 적용</button>
+      `,
+      bind: {
+        '#bc-cancel': () => Modal.close(),
+        '#bc-open': () => {
+          Modal.close();
+          // 기존 모달 닫고 → 매칭된 고객사 열기
+          Modal.close();
+          this.openCustomerModal(existingCustomer.id);
+        },
+        '#bc-update': () => this._acceptNameChange(existingCustomer.id, newName),
+      },
+    });
+  },
+
+  // 이름 변경 수락 → 백엔드 호출 + history 저장
+  async _acceptNameChange(customerId, newName) {
+    if (!newName || !newName.trim()) {
+      Toast.warn('새 이름을 입력하세요');
+      return;
+    }
+    try {
+      const res = await API.post(`/customers/${customerId}/accept-name-change`, {
+        newName: newName.trim(),
+        source: 'manual',
+      });
+      if (res?.changed) {
+        Toast.success(`이름 변경 완료 (${res.data.oldName} → ${res.data.newName})`);
+      } else {
+        Toast.info('이름 변경 없음');
+      }
+      Modal.close();
+      Modal.close();
+      await this.loadData();
+      // 변경된 기존 고객사 열기
+      this.openCustomerModal(customerId);
+    } catch (e) {
+      Toast.error('이름 변경 실패: ' + (e.message || ''));
     }
   },
 
@@ -1772,12 +1951,24 @@ const CustomersPage = {
             <div class="form-row-2">
               <div class="form-row">
                 <label class="form-label">고객사명 <span style="color:var(--oci-red)">*</span></label>
-                <input class="form-input" name="name" placeholder="회사명 입력" required>
+                <input class="form-input" name="name" id="reg-name-input"
+                       placeholder="회사명 입력" required>
               </div>
+              <div class="form-row">
+                <label class="form-label" title="고객사명이 바뀌어도 동일 식별자로 인식됩니다">
+                  사업자등록번호
+                </label>
+                <input class="form-input" name="business_no" id="reg-brn-input"
+                       placeholder="000-00-00000" maxlength="13" autocomplete="off">
+                <div id="reg-brn-hint" style="font-size:11px;color:var(--text-3);margin-top:4px;min-height:14px"></div>
+              </div>
+            </div>
+            <div class="form-row-2">
               <div class="form-row">
                 <label class="form-label">산업군</label>
                 <input class="form-input" name="industry" placeholder="발전, 에너지, 건설...">
               </div>
+              <div class="form-row"></div>
             </div>
             <div class="form-row-3">
               <div class="form-row">
@@ -1870,6 +2061,60 @@ const CustomersPage = {
     }
     const fileInput = document.getElementById('card-file-input');
     if (fileInput) fileInput.addEventListener('change', () => this._handleFiles(fileInput.files));
+
+    // v6.0.0: 신규 등록 폼 — 사업자등록번호 자동 포맷 + blur 매칭
+    const regBrn = document.getElementById('reg-brn-input');
+    if (regBrn) {
+      regBrn.addEventListener('input', () => {
+        const n = regBrn.value.replace(/[^0-9]/g, '').slice(0, 10);
+        let formatted = n;
+        if (n.length > 5) formatted = `${n.slice(0, 3)}-${n.slice(3, 5)}-${n.slice(5)}`;
+        else if (n.length > 3) formatted = `${n.slice(0, 3)}-${n.slice(3)}`;
+        regBrn.value = formatted;
+      });
+      regBrn.addEventListener('blur', () => this._matchBusinessNoForReg(regBrn.value));
+    }
+  },
+
+  // 신규 등록 폼용 BRN 매칭 (currentId 없음)
+  async _matchBusinessNoForReg(rawBrn) {
+    const hint = document.getElementById('reg-brn-hint');
+    const nameInput = document.getElementById('reg-name-input');
+    if (!hint) return;
+    const cleaned = String(rawBrn || '').replace(/[^0-9]/g, '');
+    if (!cleaned) {
+      hint.innerHTML = '';
+      return;
+    }
+    if (cleaned.length !== 10) {
+      hint.innerHTML = '<span style="color:var(--oci-red)">⚠ 10자리 숫자를 입력하세요</span>';
+      return;
+    }
+    try {
+      const params = new URLSearchParams({
+        business_no: cleaned,
+        name: nameInput?.value || '',
+      });
+      const res = await API.get(`/customers/match-by-brn?${params}`);
+      const d = res?.data || {};
+      if (!d.valid) {
+        hint.innerHTML =
+          '<span style="color:var(--oci-red)">⚠ 체크섬 오류 — 번호를 다시 확인해주세요</span>';
+        return;
+      }
+      if (!d.found) {
+        hint.innerHTML = '<span style="color:#16a34a">✓ 검증 완료 (신규 등록 가능)</span>';
+        return;
+      }
+      if (d.nameChanged) {
+        hint.innerHTML = `<span style="color:#d97706">⚠ 동일 BRN — 기존 이름: <strong>${esc(d.customer.name)}</strong></span>`;
+        this._showBrnConflictModal(d.customer, nameInput.value);
+      } else {
+        hint.innerHTML = `<span style="color:var(--oci-red)">⚠ 이미 등록된 고객사 (${esc(d.customer.name)})</span>`;
+      }
+    } catch (e) {
+      hint.innerHTML = `<span style="color:var(--oci-red)">매칭 오류: ${esc(e.message || '서버 오류')}</span>`;
+    }
   },
 
   _switchRegTab(tab) {
