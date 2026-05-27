@@ -437,6 +437,24 @@ router.post('/', async (req, res) => {
         ]
       );
     }
+    // v6.0.0 Phase 5: lead_id 있으면 타임라인에 견적 기록 (best-effort — proposals.js 패턴 동일)
+    if (body.lead_id) {
+      try {
+        const grandTotal = totals.grand_total ?? totals.supply_total ?? 0;
+        await conn.query(
+          `INSERT INTO activities (lead_id, activity_type, title, content, performed_by)
+           VALUES (?, '견적', ?, ?, ?)`,
+          [
+            body.lead_id,
+            `견적 생성: ${quoteNo}`,
+            `견적명: ${body.name || ''}, 합계: ${Number(grandTotal).toLocaleString()}원`,
+            userId || null,
+          ]
+        );
+      } catch (_) {
+        /* activities 스키마 차이 — 무시 */
+      }
+    }
     await conn.commit();
     res.json({ success: true, id: quoteId, data: { id: quoteId, quote_no: quoteNo, ...totals } });
   } catch (err) {

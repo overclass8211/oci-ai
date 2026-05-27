@@ -803,6 +803,8 @@ router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res
       lost: '실주',
       dropped: '드롭',
     };
+    // v6.0.0 Phase 5: performed_by — 실제 요청자 ID 사용
+    const stageActorId = req.user?.id || getUserId(req) || null;
     await pool.query(
       `INSERT INTO activities (lead_id, activity_type, title, content, performed_by) VALUES (?,?,?,?,?)`,
       [
@@ -810,7 +812,7 @@ router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res
         stage === 'won' ? '수주' : stage === 'dropped' ? '드롭' : 'stage_change',
         `단계 변경: ${stageNameMap[stage]}`,
         `리드 단계가 ${stageNameMap[stage]}(으)로 변경되었습니다.`,
-        1,
+        stageActorId,
       ]
     );
     // 단계 변경 실시간 알림 브로드캐스트

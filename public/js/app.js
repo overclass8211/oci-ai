@@ -2079,6 +2079,7 @@ const App = {
       드롭: '드롭',
       stage_change: '단계변경',
       owner_change: '담당자변경', // v6.0.0 Phase 0: PUT /:id/primary-owner 기록
+      견적: '견적', // v6.0.0 Phase 5: quotes.js 자동 기록
       기타: '기타',
     };
     return MAP[actType] || actType || '활동';
@@ -2130,6 +2131,7 @@ const App = {
       수주: 'contract',
       드롭: 'activity', // 드롭도 영업활동 흐름
       owner_change: 'activity', // v6.0.0 Phase 0: 담당자 변경 기록
+      견적: 'quote', // v6.0.0 Phase 5: quotes.js 자동 기록 → 견적 칩으로 분류
     };
     const acts = (actsR.value && actsR.value.data) || [];
     for (const a of acts) {
