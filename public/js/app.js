@@ -1184,17 +1184,55 @@ const App = {
 
       // v6.0.0 Phase A: activities/meetings 별도 카드 렌더링 제거
       // → 통합 타임라인(_loadTimeline)에서 모두 처리 + 필터/정렬 가능
+      // v6.0.0 Phase C: 2-컬럼 레이아웃 (좌측 메타+Gmail+회의+댓글 / 우측 통합 타임라인)
+      // - 반응형: <1280px → 자동 1-컬럼 fallback (CSS @media)
+      // - 좌측 상단 헤더+메타 sticky (스크롤 시 항상 보임)
+
+      // 단계 변경 퀵 액션 — 가능한 다음 단계들
+      const NEXT_STAGES = {
+        lead: ['review'],
+        review: ['proposal', 'dropped'],
+        proposal: ['bidding', 'dropped'],
+        bidding: ['negotiation', 'lost', 'dropped'],
+        negotiation: ['won', 'lost'],
+        won: [],
+        lost: [],
+        dropped: [],
+      };
+      const nextOptions = (NEXT_STAGES[l.stage] || [])
+        .map(s => {
+          const meta = STAGES[s];
+          if (!meta) return '';
+          return `<button type="button" class="ld-stage-quick" data-next="${s}"
+            style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;
+                   background:${meta.color};color:#fff;border:none;border-radius:6px;
+                   font-size:11px;font-weight:600;cursor:pointer;transition:filter .12s">
+            → ${esc(meta.label)}
+          </button>`;
+        })
+        .join('');
+
       Modal.open({
         title: `${esc(l.customer_name)} · ${esc(l.project_name)}`,
         width: 1440,
-        wide: true, // v6.0.0 Phase A: 통합 타임라인 + 칩 필터 가독성 위해 반응형 와이드
+        wide: true,
         body: `
-          <div class="detail-header">
-            <div class="detail-stage">
+          <div class="ld-modal-grid">
+          <div class="ld-modal-left">
+          <div class="detail-header ld-sticky-meta">
+            <div class="detail-stage" style="flex-wrap:wrap;gap:6px;align-items:center">
               <span class="badge" style="background:${stage.color};color:#fff">${stage.label}</span>
               <span class="badge ${l.region === '해외' ? 'badge-purple' : 'badge-blue'}">${esc(l.region)}</span>
               <span class="badge ${BUSINESS_COLORS[l.business_type] || 'badge-gray'}">${esc(l.business_type)}</span>
               ${daysBadge}
+              ${
+                nextOptions
+                  ? `<span style="margin-left:8px;display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center">
+                  <span style="font-size:10px;color:var(--text-3)">단계 →</span>
+                  ${nextOptions}
+                </span>`
+                  : ''
+              }
             </div>
             <div class="detail-amount">
               <div class="text-muted fs-12">예상 금액</div>
@@ -1278,26 +1316,6 @@ const App = {
               : ''
           }
 
-          <!-- v6.0.0 Phase A: 통합 타임라인 (영업활동/회의록/견적/제안/계약/고객지원) -->
-          <div class="card mb-3" id="ld-timeline-card">
-            <div class="card-header" style="flex-wrap:wrap;gap:10px;align-items:center">
-              <div class="card-title" style="margin-right:auto">
-                📊 <span id="ld-timeline-title">활동 이력</span> <span id="ld-timeline-count" style="font-size:11px;color:var(--text-3);font-weight:400">(로딩 중...)</span>
-              </div>
-              <button class="btn btn-ghost btn-sm" id="ld-tl-sort"
-                      title="정렬 방향 전환" style="font-size:12px">📅 최신순 ▼</button>
-              <button class="btn btn-ghost btn-sm" id="ld-add-act" title="새 활동 추가">+ 활동</button>
-              <button class="btn btn-ghost btn-sm" id="ld-add-support" title="고객지원 항목 추가">+ 지원</button>
-            </div>
-            <!-- 카테고리 칩 (필터) -->
-            <div id="ld-tl-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px;border-bottom:1px solid var(--border)">
-              <div class="loading" style="padding:6px;color:var(--text-3);font-size:11px">불러오는 중...</div>
-            </div>
-            <div class="card-body no-pad" id="ld-timeline-body">
-              <div class="loading" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">⏳ 타임라인 로딩 중...</div>
-            </div>
-          </div>
-
           <!-- 📧 Gmail 대화 — lazy load (모달 열린 후 fetch) -->
           <div class="card mb-3" id="ld-gmail-card">
             <div class="card-header">
@@ -1309,34 +1327,103 @@ const App = {
             </div>
           </div>
 
-          <!-- v6.0.0: 💬 검토 코멘트 (계약 모듈 패턴 통일) -->
-          <div class="card mb-3">
-            <div class="card-header">
-              <div class="card-title">💬 검토 코멘트</div>
-            </div>
-            <div class="card-body">
-              <div id="ld-comments-list" style="font-size:12px;margin-bottom:10px">
-                <div class="loading" style="padding:10px;color:var(--text-3);text-align:center">불러오는 중...</div>
-              </div>
-              <div style="padding-top:10px;border-top:1px solid var(--border)">
-                <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
-                  <select id="ld-comment-type" class="form-input" style="width:130px;font-size:12px">
-                    <option value="general">💭 의견</option>
-                    <option value="coach">🧭 코칭</option>
-                    <option value="question">❓ 질문</option>
-                    <option value="urgent">🚨 긴급</option>
-                  </select>
-                  <textarea id="ld-comment-body" class="form-input" rows="2"
-                            placeholder="영업담당자에게 코멘트를 남기세요... (Ctrl+Enter 등록)"
-                            style="flex:1;min-width:200px;font-size:12px"></textarea>
-                  <button id="ld-comment-submit" type="button" class="btn btn-primary btn-sm">💬 등록</button>
+          </div><!-- /ld-modal-left -->
+
+          <!-- v6.0.0 Phase C+: 우측 컬럼 — 통합 타임라인 + 검토 코멘트 -->
+          <div class="ld-modal-right">
+            <div class="card mb-3" id="ld-timeline-card">
+              <div class="card-header" style="flex-wrap:wrap;gap:10px;align-items:center">
+                <div class="card-title" style="margin-right:auto">
+                  📊 <span id="ld-timeline-title">활동 이력</span> <span id="ld-timeline-count" style="font-size:11px;color:var(--text-3);font-weight:400">(로딩 중...)</span>
                 </div>
-                <div style="font-size:10px;color:var(--text-3);margin-top:6px">
-                  💡 등록 시 영업담당자 + 이전 댓글 참여자에게 알림 발송 (30초 디바운싱)
+                <button class="btn btn-ghost btn-sm" id="ld-tl-sort"
+                        title="정렬 방향 전환" style="font-size:12px">📅 최신순 ▼</button>
+                <button class="btn btn-ghost btn-sm" id="ld-add-support" title="고객지원 항목 추가">+ 지원</button>
+              </div>
+              <!-- 카테고리 칩 (필터) -->
+              <div id="ld-tl-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px;border-bottom:1px solid var(--border)">
+                <div class="loading" style="padding:6px;color:var(--text-3);font-size:11px">불러오는 중...</div>
+              </div>
+              <!-- 인라인 활동 추가 (퀵 칩) — 빠른 기록 -->
+              <div style="padding:10px 16px;border-bottom:1px solid var(--border);background:#fafafa">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <span style="font-size:11px;color:var(--text-3);font-weight:600">⚡ 빠른 활동:</span>
+                  <button type="button" class="ld-quick-act" data-quick="전화"
+                    style="padding:4px 10px;background:#fff;border:1px solid var(--border);border-radius:14px;font-size:11px;cursor:pointer;transition:all .12s">
+                    📞 전화
+                  </button>
+                  <button type="button" class="ld-quick-act" data-quick="미팅"
+                    style="padding:4px 10px;background:#fff;border:1px solid var(--border);border-radius:14px;font-size:11px;cursor:pointer;transition:all .12s">
+                    📅 미팅
+                  </button>
+                  <button type="button" class="ld-quick-act" data-quick="이메일"
+                    style="padding:4px 10px;background:#fff;border:1px solid var(--border);border-radius:14px;font-size:11px;cursor:pointer;transition:all .12s">
+                    ✉️ 이메일
+                  </button>
+                  <button type="button" class="ld-quick-act" data-quick="현장방문"
+                    style="padding:4px 10px;background:#fff;border:1px solid var(--border);border-radius:14px;font-size:11px;cursor:pointer;transition:all .12s">
+                    🏢 현장방문
+                  </button>
+                  <button type="button" class="ld-quick-act" data-quick="메모"
+                    style="padding:4px 10px;background:#fff;border:1px solid var(--border);border-radius:14px;font-size:11px;cursor:pointer;transition:all .12s">
+                    ✍️ 메모
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="ld-add-act" title="상세 입력 (캘린더 연동)"
+                          style="margin-left:auto;font-size:11px">+ 상세 활동</button>
+                </div>
+                <!-- 인라인 입력 폼 (접힘 상태) -->
+                <div id="ld-quick-form" style="display:none;margin-top:10px;padding:10px;background:#fff;border:1px solid var(--border);border-radius:6px">
+                  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+                    <span id="ld-quick-icon" style="font-size:16px"></span>
+                    <span id="ld-quick-label" style="font-size:12px;font-weight:600;color:var(--text-1)"></span>
+                    <input type="hidden" id="ld-quick-type" value="">
+                    <button type="button" id="ld-quick-cancel" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:14px;color:var(--text-3);padding:0">✕</button>
+                  </div>
+                  <input type="text" id="ld-quick-title" class="form-input" placeholder="제목 (예: A사 미팅)"
+                         style="font-size:12px;margin-bottom:6px">
+                  <textarea id="ld-quick-content" class="form-input" rows="2" placeholder="내용 (선택)"
+                            style="font-size:12px;margin-bottom:6px"></textarea>
+                  <div style="display:flex;gap:6px;justify-content:flex-end">
+                    <button type="button" class="btn btn-primary btn-sm" id="ld-quick-save"
+                            style="font-size:11px">💾 저장</button>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body no-pad" id="ld-timeline-body" style="max-height:55vh;overflow-y:auto">
+                <div class="loading" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">⏳ 타임라인 로딩 중...</div>
+              </div>
+            </div>
+
+            <!-- v6.0.0 Phase C+: 검토 코멘트를 우측 컬럼으로 이동 (UX 일관성) -->
+            <div class="card mb-3">
+              <div class="card-header">
+                <div class="card-title">💬 검토 코멘트</div>
+              </div>
+              <div class="card-body">
+                <div id="ld-comments-list" style="font-size:12px;margin-bottom:10px;max-height:25vh;overflow-y:auto">
+                  <div class="loading" style="padding:10px;color:var(--text-3);text-align:center">불러오는 중...</div>
+                </div>
+                <div style="padding-top:10px;border-top:1px solid var(--border)">
+                  <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
+                    <select id="ld-comment-type" class="form-input" style="width:120px;font-size:12px">
+                      <option value="general">💭 의견</option>
+                      <option value="coach">🧭 코칭</option>
+                      <option value="question">❓ 질문</option>
+                      <option value="urgent">🚨 긴급</option>
+                    </select>
+                    <textarea id="ld-comment-body" class="form-input" rows="2"
+                              placeholder="영업담당자에게 코멘트를 남기세요... (Ctrl+Enter 등록)"
+                              style="flex:1;min-width:180px;font-size:12px"></textarea>
+                    <button id="ld-comment-submit" type="button" class="btn btn-primary btn-sm">💬 등록</button>
+                  </div>
+                  <div style="font-size:10px;color:var(--text-3);margin-top:6px">
+                    💡 등록 시 영업담당자 + 협업자 + 이전 댓글 참여자에게 알림 발송 (30초 디바운싱)
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </div><!-- /ld-modal-right -->
+          </div><!-- /ld-modal-grid -->
         `,
         footer: `
           <button class="ai-gen-btn" id="ld-ai" data-feature="ai.lead_summary">🤖 AI 요약</button>
@@ -1445,6 +1532,12 @@ const App = {
           '#ld-tl-sort': () => this._toggleTimelineSort(l.id, l.customer_name),
           // 고객지원 항목 추가
           '#ld-add-support': () => this._openSupportForm(l.id),
+          // v6.0.0 Phase C: 단계 변경 퀵 액션
+          '.ld-stage-quick': e => this._quickStageChange(l.id, e.currentTarget.dataset.next),
+          // v6.0.0 Phase C: 인라인 활동 퀵 칩
+          '.ld-quick-act': e => this._openQuickActForm(e.currentTarget.dataset.quick),
+          '#ld-quick-cancel': () => this._closeQuickActForm(),
+          '#ld-quick-save': () => this._saveQuickAct(l.id, l.customer_name),
         },
       });
       // 📧 Gmail 카드 lazy load — modal 렌더 후 비동기
@@ -1543,6 +1636,110 @@ const App = {
     }
   },
 
+  // ── v6.0.0 Phase C: 단계 변경 퀵 액션 ────────────────────
+  async _quickStageChange(leadId, nextStage) {
+    if (!leadId || !nextStage) return;
+    const meta = STAGES[nextStage];
+    const stageLabel = meta?.label || nextStage;
+    if (!confirm(`단계를 "${stageLabel}" 으로 변경하시겠습니까?`)) return;
+    try {
+      await API.leads.setStage(leadId, nextStage);
+      Toast.success?.(`단계 변경: ${stageLabel}`);
+      Modal.close();
+      // 모달 재오픈 (헤더 갱신 + 타임라인 단계변경 활동 반영)
+      setTimeout(() => this.openLeadDetail(leadId), 150);
+      // 목록 새로고침
+      const cur = this.pages[this.currentPage]?.obj();
+      if (cur && cur.loadData) cur.loadData();
+    } catch (err) {
+      Toast.error?.('단계 변경 실패: ' + (err?.message || err));
+    }
+  },
+
+  // ── v6.0.0 Phase C: 인라인 활동 퀵 칩 ────────────────────
+  _quickActMeta(type) {
+    const MAP = {
+      전화: { icon: '📞', label: '전화 통화', placeholder: '예: 최영희 담당자와 1차 견적 협의' },
+      미팅: { icon: '📅', label: '미팅', placeholder: '예: 부산 본사 방문 미팅' },
+      이메일: { icon: '✉️', label: '이메일 발송', placeholder: '예: RFP 회신 보낸' },
+      현장방문: { icon: '🏢', label: '현장 방문', placeholder: '예: 시공 현장 답사' },
+      메모: { icon: '✍️', label: '내부 메모', placeholder: '예: 결재라인 변경 공유' },
+    };
+    return MAP[type] || { icon: '📌', label: type, placeholder: '' };
+  },
+
+  _openQuickActForm(type) {
+    const meta = this._quickActMeta(type);
+    const form = document.getElementById('ld-quick-form');
+    if (!form) return;
+    document.getElementById('ld-quick-type').value = type;
+    document.getElementById('ld-quick-icon').textContent = meta.icon;
+    document.getElementById('ld-quick-label').textContent = meta.label;
+    const titleEl = document.getElementById('ld-quick-title');
+    if (titleEl) {
+      titleEl.placeholder = meta.placeholder;
+      titleEl.value = '';
+    }
+    const contentEl = document.getElementById('ld-quick-content');
+    if (contentEl) contentEl.value = '';
+    form.style.display = '';
+    setTimeout(() => titleEl?.focus(), 50);
+    // 활성 칩 시각 표시
+    document.querySelectorAll('.ld-quick-act').forEach(b => {
+      const isActive = b.dataset.quick === type;
+      b.style.background = isActive ? 'var(--oci-red)' : '';
+      b.style.color = isActive ? '#fff' : '';
+      b.style.borderColor = isActive ? 'var(--oci-red)' : '';
+    });
+  },
+
+  _closeQuickActForm() {
+    const form = document.getElementById('ld-quick-form');
+    if (form) form.style.display = 'none';
+    document.querySelectorAll('.ld-quick-act').forEach(b => {
+      b.style.background = '';
+      b.style.color = '';
+      b.style.borderColor = '';
+    });
+  },
+
+  async _saveQuickAct(leadId, customerName) {
+    const type = document.getElementById('ld-quick-type')?.value;
+    const title = document.getElementById('ld-quick-title')?.value.trim();
+    const content = document.getElementById('ld-quick-content')?.value.trim();
+    if (!type) return;
+    if (!title) {
+      Toast.error?.('제목을 입력하세요');
+      document.getElementById('ld-quick-title')?.focus();
+      return;
+    }
+    const btn = document.getElementById('ld-quick-save');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '저장 중...';
+    }
+    try {
+      await API.activities.create({
+        lead_id: leadId,
+        activity_type: type,
+        title,
+        content: content || null,
+        status: 'done',
+      });
+      Toast.success?.(`${this._quickActMeta(type).icon} ${this._quickActMeta(type).label} 추가됨`);
+      this._closeQuickActForm();
+      // 타임라인 재로드 (현재 모달 유지)
+      this._loadTimeline(leadId, customerName);
+    } catch (err) {
+      Toast.error?.('저장 실패: ' + (err?.message || err));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '💾 저장';
+      }
+    }
+  },
+
   // ── v6.0.0 Phase A: 통합 타임라인 (활동/회의록/견적/제안/계약/고객지원) ────
   // 7개 카테고리 칩 + 정렬 토글 + 카운트 배지
   _tlState: {
@@ -1552,16 +1749,17 @@ const App = {
     sort: 'desc', // 'desc'(최신) | 'asc'(오래된)
   },
 
-  // 카테고리 메타 (색상/라벨/아이콘) — 이미지 시안 칩 7개와 정렬
+  // v6.0.0 Phase C++: 카테고리 색상 다양화 — 시인성 개선 (이전: 다 녹색 계열)
+  // 각 카테고리에 고유 색조 부여 → 한눈에 구분
   _tlCategoryMeta() {
     return {
-      all: { label: '전체', icon: '📋', color: '#ea580c', bg: '#fff7ed' },
-      activity: { label: '영업활동', icon: '📌', color: '#86efac', bg: '#f0fdf4' },
-      meeting: { label: '회의록', icon: '📝', color: '#4ade80', bg: '#dcfce7' },
-      quote: { label: '견적', icon: '💰', color: '#16a34a', bg: '#dcfce7' },
-      proposal: { label: '제안', icon: '📄', color: '#15803d', bg: '#bbf7d0' },
-      contract: { label: '계약', icon: '📜', color: '#166534', bg: '#bbf7d0' },
-      support: { label: '고객지원', icon: '🛟', color: '#475569', bg: '#f1f5f9' },
+      all: { label: '전체', icon: '📋', color: '#dc2626', bg: '#fee2e2' }, // 빨강
+      activity: { label: '영업활동', icon: '📌', color: '#2563eb', bg: '#dbeafe' }, // 파랑
+      meeting: { label: '회의록', icon: '📝', color: '#9333ea', bg: '#f3e8ff' }, // 보라
+      quote: { label: '견적', icon: '💰', color: '#ca8a04', bg: '#fef9c3' }, // 노랑
+      proposal: { label: '제안', icon: '📄', color: '#ea580c', bg: '#ffedd5' }, // 주황
+      contract: { label: '계약', icon: '📜', color: '#16a34a', bg: '#dcfce7' }, // 녹색
+      support: { label: '고객지원', icon: '🛟', color: '#64748b', bg: '#f1f5f9' }, // 회색
     };
   },
 
@@ -1606,11 +1804,29 @@ const App = {
 
     const merged = [];
 
-    // 1) activities
+    // 1) activities — activity_type 별로 카테고리 분류 (사용자 의도와 일치)
+    // 수주/계약 체결 = 계약 / 입찰 + 제안서 = 제안 / 견적 = 견적 / 그 외 = 영업활동
+    const ACT_CATEGORY_MAP = {
+      미팅: 'activity',
+      전화: 'activity',
+      이메일: 'activity',
+      현장방문: 'activity',
+      영업방문: 'activity',
+      메모: 'activity',
+      내부: 'activity',
+      기타: 'activity',
+      stage_change: 'activity',
+      제안: 'proposal',
+      제안서: 'proposal',
+      입찰: 'proposal',
+      수주: 'contract',
+      드롭: 'activity', // 드롭도 영업활동 흐름
+    };
     const acts = (actsR.value && actsR.value.data) || [];
     for (const a of acts) {
+      const cat = ACT_CATEGORY_MAP[a.activity_type] || 'activity';
       merged.push({
-        category: 'activity',
+        category: cat,
         sub: this._tlActivitySubLabel(a.activity_type),
         title: a.title || this._tlActivitySubLabel(a.activity_type),
         body: a.content || '',
@@ -1794,35 +2010,36 @@ const App = {
         const clickAttr = it.click
           ? `data-tl-click="${it.click.type}" data-tl-id="${it.click.id || ''}" data-tl-date="${it.click.date || ''}" style="cursor:pointer"`
           : '';
-        return `<div class="ld-tl-row" ${clickAttr}
-          style="display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);
-                 align-items:flex-start;transition:background .12s">
-          <!-- 색상 점 (카테고리) -->
-          <div style="width:8px;height:8px;border-radius:50%;background:${m.color};margin-top:6px;flex-shrink:0"
-               title="${esc(m.label)}"></div>
-          <!-- 본문 -->
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px">
-              <span style="font-size:12px;font-weight:600;color:var(--text-1)">${esc(it.title)}</span>
-              <span style="display:inline-block;padding:1px 7px;background:${m.bg};color:${m.color};
-                          border-radius:8px;font-size:10px;font-weight:600">${m.icon} ${esc(m.sub || it.sub || m.label)}</span>
-              ${it.meta ? `<span style="font-size:10px;color:var(--text-3)">· ${esc(it.meta)}</span>` : ''}
-            </div>
-            ${it.body ? `<div style="font-size:11px;color:var(--text-2);line-height:1.5;white-space:pre-wrap">${esc(it.body)}</div>` : ''}
+        // v6.0.0 Phase C++++: CSS 클래스 only — 인라인 style 제거, 우선순위 충돌 차단
+        // 색상은 CSS 변수로 주입 (--c-color, --c-bg) — 카테고리별 동적 색 적용
+        const subLabel = it.sub || m.label;
+        const cssVars = `--c-color:${m.color};--c-bg:${m.bg}`;
+        return `<div class="ld-tl-row" ${clickAttr} style="${cssVars}">
+          <div class="ld-tl-meta">
+            <div class="ld-tl-dot" style="background:${m.color}" title="${esc(m.label)}"></div>
+            <span class="ld-tl-badge" style="background:${m.bg};color:${m.color}">
+              ${m.icon} ${esc(subLabel)}
+            </span>
           </div>
-          <!-- 날짜 -->
-          <div style="font-size:10px;color:var(--text-3);flex-shrink:0;text-align:right" title="${esc(dateFull)}">${esc(dateStr)}</div>
+          <div class="ld-tl-body">
+            <div class="ld-tl-top">
+              <span class="ld-tl-title" title="${esc(it.title)}">${esc(it.title)}</span>
+              <span class="ld-tl-date" title="${esc(dateFull)}">${esc(dateStr)}</span>
+            </div>
+            ${
+              it.body || it.meta
+                ? `<div class="ld-tl-bottom">
+                <span class="ld-tl-text" title="${esc(it.body || '')}">${esc(it.body || '')}</span>
+                ${it.meta ? `<span class="ld-tl-author">${esc(it.meta)}</span>` : ''}
+              </div>`
+                : ''
+            }
+          </div>
         </div>`;
       })
       .join('');
-    // hover 효과 + 클릭 핸들러
+    // v6.0.0 Phase C++++: hover 효과는 CSS :hover 로 위임 — JS 인라인 style 제거
     bodyEl.querySelectorAll('.ld-tl-row').forEach(row => {
-      row.addEventListener('mouseenter', () => {
-        row.style.background = '#fafafa';
-      });
-      row.addEventListener('mouseleave', () => {
-        row.style.background = '';
-      });
       if (row.dataset.tlClick) {
         row.addEventListener('click', () => this._onTimelineClick(row.dataset));
       }

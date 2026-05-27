@@ -9499,6 +9499,234 @@ body,
   text-decoration: underline;
 }
 
+/* =============================================================
+   v6.0.0 Phase C: 영업리드 모달 2-컬럼 레이아웃
+   - ≥1280px: 좌(5) / 우(7) 그리드
+   - <1280px: 1-컬럼 자동 fallback
+   - 좌측 메타 sticky (스크롤 시 상단 고정)
+============================================================= */
+/* v6.0.0 Phase C+++++: 모달 body 자체 스크롤 비활성 (영업리드 한정) — 내부 영역만 스크롤 */
+.modal-body:has(.ld-modal-grid) {
+  overflow: hidden !important;
+  padding: 16px !important;
+  display: flex;
+  flex-direction: column;
+}
+.ld-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 5:5 비율로 균등 */
+  gap: 16px;
+  align-items: stretch;
+  /* 부모(.modal-body) 가용 영역 100% — 자체 스크롤 컨테이너 */
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.ld-modal-left,
+.ld-modal-right {
+  min-width: 0; /* grid child overflow 방지 */
+  min-height: 0; /* flex child 가 fit 되도록 */
+  max-height: 100%;
+}
+/* 좌측 컬럼: 메타 정보 — 콘텐츠 길면 자체 스크롤 (사용자 요청: 고정. 안전망용) */
+.ld-modal-left {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+/* 우측 컬럼: flex column — 타임라인은 flex:1 자체 스크롤, 댓글은 고정 */
+.ld-modal-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+.ld-modal-right > .card:not(#ld-timeline-card) {
+  flex-shrink: 0; /* 댓글 카드 — 항상 고정 */
+  margin-bottom: 0 !important;
+}
+/* 타임라인 카드 — flex:1 + 내부만 스크롤 */
+#ld-timeline-card {
+  display: flex !important;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  margin-bottom: 0 !important;
+}
+#ld-timeline-card > .card-header,
+#ld-timeline-card > #ld-tl-chips,
+#ld-timeline-card > div:not(.card-body) {
+  flex-shrink: 0; /* 헤더/칩/퀵활동 영역 모두 고정 */
+}
+/* 타임라인 본문 — 우측 유일한 스크롤 영역 */
+#ld-timeline-body {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  max-height: none !important;
+  min-height: 0;
+}
+/* 댓글 카드 내부 — 댓글 목록만 작은 자체 스크롤 */
+#ld-comments-list {
+  max-height: 14vh !important;
+  overflow-y: auto;
+}
+/* sticky-meta 는 좌측 컬럼 내부 sticky 로 변경 */
+.ld-sticky-meta {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+/* 좁은 화면 — 1-컬럼 fallback (모바일/노트북) */
+@media (max-width: 1280px) {
+  .modal-body:has(.ld-modal-grid) {
+    overflow-y: auto !important;
+  }
+  .ld-modal-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
+  }
+  .ld-modal-left,
+  .ld-modal-right {
+    max-height: none;
+    overflow: visible;
+  }
+  #ld-timeline-card {
+    overflow: visible;
+  }
+  #ld-timeline-body {
+    max-height: 50vh !important;
+  }
+  .ld-sticky-meta {
+    position: static;
+  }
+}
+/* v6.0.0 PWA Shortcut: 회의록 AI 쇼트컷 진입 시 녹음 버튼 강조 */
+@keyframes pulse-attention {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(230, 51, 41, 0.5);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 8px rgba(230, 51, 41, 0);
+  }
+}
+
+/* 퀵 활동 칩 호버 */
+.ld-quick-act:hover {
+  background: var(--oci-red) !important;
+  color: #fff !important;
+  border-color: var(--oci-red) !important;
+  transform: translateY(-1px);
+}
+
+/* =============================================================
+   v6.0.0 Phase C++++: 활동 타임라인 row — CSS 클래스 강제 우선순위
+   목적: 캐시된 옛 inline style 또는 다른 CSS 와의 충돌 차단
+   - !important 로 핵심 layout 강제
+   - 인라인 style 의존 제거 → 일관성 보장
+   ============================================================= */
+.ld-tl-row {
+  display: flex !important;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  align-items: flex-start;
+  background: transparent !important; /* 옛 캐시 row 배경색 차단 */
+  transition: background 0.12s;
+}
+.ld-tl-row:hover {
+  background: #fafafa !important;
+}
+.ld-tl-row:last-child {
+  border-bottom: none;
+}
+/* 좌측: 점 + 배지 (고정 96px) */
+.ld-tl-meta {
+  flex: 0 0 96px !important;
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ld-tl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ld-tl-badge {
+  flex: 1 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 16px;
+  min-width: 0;
+}
+/* 우측: 제목/날짜 (상단) + 본문/메타 (하단) */
+.ld-tl-body {
+  flex: 1 !important;
+  min-width: 0;
+}
+.ld-tl-top,
+.ld-tl-bottom {
+  display: flex !important;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.ld-tl-bottom {
+  margin-top: 3px;
+}
+.ld-tl-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 20px;
+}
+.ld-tl-text {
+  font-size: 11px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+}
+.ld-tl-date,
+.ld-tl-author {
+  font-size: 10px;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* 단계 변경 퀵 액션 hover */
+.ld-stage-quick:hover {
+  filter: brightness(1.1);
+}
+
 /* v6.0.0: 계약 목록 — 좁은 화면 가독성 + 가로 스크롤 (quotes 패턴 통일) */
 .ct-table-scroll {
   width: 100%;
@@ -10357,16 +10585,4 @@ body,
 .pr-ai-md em {
   color: var(--text-2);
   font-style: italic;
-}
-
-/* v6.0.0 PWA Shortcut: 회의록 AI 쇼트컷 진입 시 녹음 버튼 강조 */
-@keyframes pulse-attention {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(230, 51, 41, 0.5);
-  }
-  50% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 8px rgba(230, 51, 41, 0);
-  }
 }

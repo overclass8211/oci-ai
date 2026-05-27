@@ -194,6 +194,79 @@ ${count > 5 ? `\n…외 ${count - 5}건` : ''}
   }
 }
 
+/**
+ * 주 담당자 변경 알림 (즉시 발송 — 디바운싱 없음)
+ * - 이전 담당자: "리드가 다른 담당자에게 인계됩니다"
+ * - 신규 담당자: "새 리드가 당신에게 배정되었습니다"
+ *
+ * notifyOptions (향후 확장용, Phase 3에서 notifyTeamLead 활성화 예정):
+ *   { notifyPrimary=true, notifyCollaborators=false, notifyTeamLead=false }
+ */
+async function notifyOwnerChange({
+  leadId,
+  oldOwnerId,
+  newOwnerId,
+  actorName,
+  senderUserId,
+  notifyOptions = {},
+}) {
+  if (!leadId) return;
+  const {
+    notifyPrimary = true,
+    notifyCollaborators = false,
+    notifyTeamLead = false, // TODO Phase 3: 영업팀장 자동 식별 구현 후 활성화
+  } = notifyOptions;
+  void notifyCollaborators; // 향후 사용 예정
+  void notifyTeamLead; // Phase 3 placeholder
+
+  try {
+    const [[l]] = await pool.query('SELECT customer_name, project_name FROM leads WHERE id = ?', [
+      leadId,
+    ]);
+    if (!l) return;
+    const title = `${l.customer_name || '리드'} — ${l.project_name || ''}`;
+    const appUrl = process.env.APP_BASE_URL || 'https://oci-crm.duckdns.org';
+    const actor = actorName || '(시스템)';
+
+    // 이전 담당자 알림
+    if (notifyPrimary && oldOwnerId) {
+      const [[oldOwner]] = await pool.query('SELECT name, email FROM team_members WHERE id = ?', [
+        oldOwnerId,
+      ]);
+      if (oldOwner?.email) {
+        await _sendOne({
+          to: oldOwner.email,
+          subject: `[OCI CRM] 영업리드 담당자 변경 알림 — ${title}`,
+          bodyText: `안녕하세요, ${oldOwner.name || '담당자'}님.\n\n영업리드 [${title}]의 주 담당자가 변경되었습니다.\n\n변경자: ${actor}\n\n🔗 리드 상세: ${appUrl}/#leads\n\n--\n본 메일은 자동 발송되었습니다.`,
+          senderUserId,
+        });
+      }
+    }
+
+    // 신규 담당자 알림 (항상)
+    if (newOwnerId) {
+      const [[newOwner]] = await pool.query('SELECT name, email FROM team_members WHERE id = ?', [
+        newOwnerId,
+      ]);
+      if (newOwner?.email) {
+        await _sendOne({
+          to: newOwner.email,
+          subject: `[OCI CRM] 새 영업리드 배정 알림 — ${title}`,
+          bodyText: `안녕하세요, ${newOwner.name || '담당자'}님.\n\n영업리드 [${title}]의 주 담당자로 배정되었습니다.\n\n배정자: ${actor}\n\n🔗 리드 상세: ${appUrl}/#leads\n\n--\n본 메일은 자동 발송되었습니다.`,
+          senderUserId,
+        });
+      }
+    }
+
+    console.log(
+      `[leadNotifier] owner_change 알림: lead=${leadId} ${oldOwnerId || '미지정'}→${newOwnerId}`
+    );
+  } catch (e) {
+    console.warn('[leadNotifier] notifyOwnerChange err:', e.message);
+  }
+}
+
 module.exports = {
   notifyComment,
+  notifyOwnerChange,
 };

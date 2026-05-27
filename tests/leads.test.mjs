@@ -250,4 +250,70 @@ describe('Leads API', () => {
       .send({ collaborator_ids: csv });
     expect(r.status).toBe(200);
   });
+
+  // ── v6.0.0 Phase C: 주 담당자 변경 ─────────────────────────
+  it('PUT /:id/primary-owner — 정상 변경 + activities 기록', async () => {
+    // team_members에서 현재 담당자와 다른 사람 선택
+    const [teamRows] = await pool.query('SELECT id FROM team_members LIMIT 3');
+    if (teamRows.length < 1) return; // 팀원 없으면 스킵
+
+    const newOwnerId = teamRows[teamRows.length - 1].id; // 마지막 팀원
+    const r = await api()
+      .put(`/api/leads/${createdLeadId}/primary-owner`)
+      .set('X-User-Id', '1')
+      .send({ new_owner_id: newOwnerId });
+
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(r.body.data.assigned_to).toBe(newOwnerId);
+    expect(typeof r.body.data.owner_name).toBe('string');
+
+    // activities 기록 확인
+    const [acts] = await pool.query(
+      `SELECT activity_type, title, content FROM activities
+        WHERE lead_id = ? AND activity_type = 'owner_change'
+        ORDER BY id DESC LIMIT 1`,
+      [createdLeadId]
+    );
+    expect(acts.length).toBeGreaterThan(0);
+    expect(acts[0].title).toBe('주 담당자 변경');
+    expect(acts[0].content).toContain('→');
+  });
+
+  it('PUT /:id/primary-owner — 동일 담당자 재설정 → No changes', async () => {
+    // 현재 assigned_to 조회
+    const [[current]] = await pool.query('SELECT assigned_to FROM leads WHERE id = ?', [
+      createdLeadId,
+    ]);
+    if (!current?.assigned_to) return;
+
+    const r = await api()
+      .put(`/api/leads/${createdLeadId}/primary-owner`)
+      .send({ new_owner_id: current.assigned_to });
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+  });
+
+  it('PUT /:id/primary-owner — 존재하지 않는 리드 → 404', async () => {
+    const r = await api()
+      .put('/api/leads/9999999/primary-owner')
+      .send({ new_owner_id: 1 });
+    expect(r.status).toBe(404);
+    expect(r.body.success).toBe(false);
+  });
+
+  it('PUT /:id/primary-owner — 존재하지 않는 담당자 → 400', async () => {
+    const r = await api()
+      .put(`/api/leads/${createdLeadId}/primary-owner`)
+      .send({ new_owner_id: 9999999 });
+    expect(r.status).toBe(400);
+    expect(r.body.success).toBe(false);
+  });
+
+  it('PUT /:id/primary-owner — new_owner_id 누락 → 400', async () => {
+    const r = await api()
+      .put(`/api/leads/${createdLeadId}/primary-owner`)
+      .send({});
+    expect(r.status).toBe(400);
+  });
 });

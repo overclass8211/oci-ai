@@ -663,6 +663,90 @@ router.put('/:id', validateId, async (req, res) => {
   }
 });
 
+// ── v6.0.0 Phase C: 주 담당자 변경 ──────────────────────────
+// PUT /api/leads/:id/primary-owner
+// body: { new_owner_id: number }
+// 권한: admin/team_lead/executive/superadmin | 현재 주 담당자 본인
+//       (NODE_ENV=test 에서는 req.user null → 통과)
+router.put('/:id/primary-owner', validateId, requireFields(['new_owner_id']), async (req, res) => {
+  try {
+    const leadId = Number(req.params.id);
+    const newOwnerId = Number(req.body.new_owner_id);
+    if (!Number.isFinite(newOwnerId) || newOwnerId <= 0) {
+      return res.status(400).json({ success: false, error: '유효하지 않은 담당자 ID입니다.' });
+    }
+
+    // 1. 리드 + 기존 담당자 정보 조회
+    const [[lead]] = await pool.query(
+      `SELECT l.id, l.assigned_to, l.customer_name, l.project_name,
+              tm.name AS old_owner_name
+         FROM leads l
+         LEFT JOIN team_members tm ON tm.id = l.assigned_to
+        WHERE l.id = ?`,
+      [leadId]
+    );
+    if (!lead)
+      return res.status(404).json({ success: false, error: '영업리드를 찾을 수 없습니다.' });
+
+    // 2. 신규 담당자 존재 확인
+    const [[newOwner]] = await pool.query('SELECT id, name FROM team_members WHERE id = ?', [
+      newOwnerId,
+    ]);
+    if (!newOwner) {
+      return res.status(400).json({ success: false, error: '존재하지 않는 담당자입니다.' });
+    }
+
+    // 3. 권한 체크 (test 환경 req.user=null → 통과)
+    const user = req.user;
+    if (user) {
+      const privileged = ['admin', 'team_lead', 'executive', 'superadmin'];
+      const isSelf = lead.assigned_to && String(user.id) === String(lead.assigned_to);
+      if (!privileged.includes(user.role) && !isSelf) {
+        return res.status(403).json({ success: false, error: '주 담당자 변경 권한이 없습니다.' });
+      }
+    }
+
+    // 변경 없음
+    if (lead.assigned_to === newOwnerId) {
+      return res.json({
+        success: true,
+        message: 'No changes',
+        data: { assigned_to: newOwnerId, owner_name: newOwner.name },
+      });
+    }
+
+    // 4. leads.assigned_to 업데이트
+    await pool.query('UPDATE leads SET assigned_to = ? WHERE id = ?', [newOwnerId, leadId]);
+
+    // 5. 활동 기록 (owner_change)
+    const oldName = lead.old_owner_name || '미지정';
+    const actorId = req.user?.id || getUserId(req) || null;
+    await pool.query(
+      `INSERT INTO activities (lead_id, activity_type, title, content, performed_by)
+       VALUES (?, 'owner_change', '주 담당자 변경', ?, ?)`,
+      [leadId, `${oldName} → ${newOwner.name}`, actorId]
+    );
+
+    // 6. 알림 (fire-and-forget)
+    leadNotifier
+      .notifyOwnerChange({
+        leadId,
+        oldOwnerId: lead.assigned_to || null,
+        newOwnerId,
+        actorName: req.user?.username || '(시스템)',
+        senderUserId: actorId,
+      })
+      .catch(e => console.warn('[leads] notifyOwnerChange err:', e.message));
+
+    res.json({
+      success: true,
+      data: { assigned_to: newOwnerId, owner_name: newOwner.name, old_owner_name: oldName },
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 router.patch('/:id/stage', validateId, requireFields(['stage']), async (req, res) => {
   try {
     const { stage } = req.body;
