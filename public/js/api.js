@@ -203,6 +203,9 @@ const API = {
     // v6.0.0 Phase A: 연결된 견적/제안 역방향 조회 (모달 통합 타임라인)
     quotes: id => API.get(`/leads/${id}/quotes`),
     proposals: id => API.get(`/leads/${id}/proposals`),
+    // v6.0.0 Phase 2: 주 담당자 변경 (PUT /api/leads/:id/primary-owner)
+    primaryOwner: (id, newOwnerId) =>
+      API.put(`/leads/${id}/primary-owner`, { new_owner_id: newOwnerId }),
   },
 
   // 상품/원가

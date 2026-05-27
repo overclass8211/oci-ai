@@ -1548,6 +1548,9 @@ const App = {
           '.ld-quick-act': e => this._openQuickActForm(e.currentTarget.dataset.quick),
           '#ld-quick-cancel': () => this._closeQuickActForm(),
           '#ld-quick-save': () => this._saveQuickAct(l.id, l.customer_name),
+          // v6.0.0 Phase 2: People Picker 인라인 편집
+          '#ld-owner-edit': e => this._openOwnerPicker(e, l.id, l.assigned_to, l.assigned_name),
+          '#ld-collab-edit': e => this._openCollabPicker(e, l.id, l.collaborators),
         },
       });
       // 📧 Gmail 카드 lazy load — modal 렌더 후 비동기
@@ -1748,6 +1751,262 @@ const App = {
         btn.textContent = '💾 저장';
       }
     }
+  },
+
+  // ── v6.0.0 Phase 2: People Picker — 주 담당자 인라인 변경 ────────────────
+  // 버튼 클릭 → position:fixed 드롭다운 (Combobox 패턴 차용)
+  // 팀원 목록: App.team 캐시 우선, 없으면 API.team.list() 재조회
+  async _openOwnerPicker(ev, leadId, currentOwnerId, _currentOwnerName) {
+    ev.stopPropagation();
+    // 토글: 이미 열려있으면 닫기
+    const existing = document.getElementById('ld-owner-picker');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    const btn = document.getElementById('ld-owner-edit');
+    if (!btn) return;
+
+    // 팀원 목록 확보 (App.team 캐시 우선)
+    let teamList;
+    try {
+      if (Array.isArray(this.team) && this.team.length) {
+        teamList = this.team;
+      } else {
+        const r = await API.team.list();
+        teamList = Array.isArray(r?.data) ? r.data : [];
+        this.team = teamList;
+      }
+    } catch (_) {
+      Toast.error?.('팀원 목록 조회 실패');
+      return;
+    }
+
+    // 드롭다운 DOM 생성 (position:fixed — modal overflow 클리핑 회피)
+    const picker = document.createElement('div');
+    picker.id = 'ld-owner-picker';
+    picker.className = 'ld-picker-dropdown';
+    picker.innerHTML = `
+      <div class="ld-picker-search-wrap">
+        <input type="text" class="ld-picker-search form-input" placeholder="이름 검색..." autocomplete="off">
+      </div>
+      <div class="ld-picker-list">
+        ${teamList
+          .map(
+            t => `
+          <div class="ld-picker-item${t.id === currentOwnerId ? ' ld-picker-active' : ''}"
+               data-id="${t.id}" data-name="${esc(t.name)}">
+            👤 <span class="ld-picker-name">${esc(t.name)}</span>
+            <span class="ld-picker-role">${esc(t.role || '')}</span>
+            ${t.id === currentOwnerId ? '<span class="ld-picker-cur">현재</span>' : ''}
+          </div>`
+          )
+          .join('')}
+      </div>`;
+    document.body.appendChild(picker);
+
+    // position:fixed 좌표 계산 (btn 기준)
+    function _reposition() {
+      const r = btn.getBoundingClientRect();
+      picker.style.position = 'fixed';
+      picker.style.left = `${r.left}px`;
+      picker.style.top = `${r.bottom + 4}px`;
+      picker.style.width = `${Math.max(r.width, 200)}px`;
+      picker.style.zIndex = '12000';
+    }
+    _reposition();
+
+    // 검색 필터
+    const searchInput = picker.querySelector('.ld-picker-search');
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase();
+      picker.querySelectorAll('.ld-picker-item').forEach(el => {
+        el.style.display = el.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+    requestAnimationFrame(() => searchInput.focus());
+
+    // 항목 선택 → 담당자 변경
+    picker.querySelectorAll('.ld-picker-item').forEach(el => {
+      el.addEventListener('click', async () => {
+        const newOwnerId = parseInt(el.dataset.id, 10);
+        const newOwnerName = el.dataset.name;
+        picker.remove();
+        try {
+          await API.leads.primaryOwner(leadId, newOwnerId);
+          // 칩 즉시 갱신 (모달 재열림 없이)
+          const ownerRow = document.getElementById('ld-primary-owner-display');
+          if (ownerRow) {
+            const val = ownerRow.querySelector('.ld-people-val');
+            if (val) {
+              val.innerHTML = `<a href="#" data-assignee-link="${newOwnerId}"
+                class="ld-person-chip" title="팀원 페이지로 이동">👤 ${esc(newOwnerName)}</a>`;
+              // 클릭 핸들러 재연결
+              val.querySelector('[data-assignee-link]')?.addEventListener('click', e2 => {
+                e2.preventDefault();
+                Modal.close();
+                setTimeout(() => App.navigate('team'), 100);
+              });
+            }
+          }
+          Toast.success?.(`주 담당자를 ${esc(newOwnerName)}으로 변경했습니다`);
+        } catch (err) {
+          Toast.error?.('담당자 변경 실패: ' + (err?.message || err));
+        }
+      });
+    });
+
+    // 외부 클릭 시 닫기
+    const closeOnOut = e => {
+      if (!picker.contains(e.target) && e.target !== btn) {
+        picker.remove();
+        document.removeEventListener('click', closeOnOut, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeOnOut, true), 0);
+
+    // ESC 닫기
+    picker.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        picker.remove();
+        document.removeEventListener('click', closeOnOut, true);
+      }
+    });
+  },
+
+  // ── v6.0.0 Phase 2: People Picker — 협업자 다중 선택 ─────────────────────
+  async _openCollabPicker(ev, leadId, currentCollabs) {
+    ev.stopPropagation();
+    // 토글
+    const existing = document.getElementById('ld-collab-picker');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    const btn = document.getElementById('ld-collab-edit');
+    if (!btn) return;
+
+    // 팀원 목록 확보 (App.team 캐시 우선)
+    let teamList;
+    try {
+      if (Array.isArray(this.team) && this.team.length) {
+        teamList = this.team;
+      } else {
+        const r = await API.team.list();
+        teamList = Array.isArray(r?.data) ? r.data : [];
+        this.team = teamList;
+      }
+    } catch (_) {
+      Toast.error?.('팀원 목록 조회 실패');
+      return;
+    }
+
+    const currentIds = new Set((Array.isArray(currentCollabs) ? currentCollabs : []).map(c => c.id));
+
+    const picker = document.createElement('div');
+    picker.id = 'ld-collab-picker';
+    picker.className = 'ld-picker-dropdown ld-collab-picker';
+    picker.innerHTML = `
+      <div class="ld-picker-header">협업자 편집</div>
+      <div class="ld-picker-search-wrap">
+        <input type="text" class="ld-picker-search form-input" placeholder="이름 검색..." autocomplete="off">
+      </div>
+      <div class="ld-picker-list">
+        ${teamList
+          .map(
+            t => `
+          <label class="ld-picker-item ld-picker-check${currentIds.has(t.id) ? ' ld-picker-active' : ''}">
+            <input type="checkbox" value="${t.id}" ${currentIds.has(t.id) ? 'checked' : ''}>
+            <span>👥 ${esc(t.name)}</span>
+            <span class="ld-picker-role">${esc(t.role || '')}</span>
+          </label>`
+          )
+          .join('')}
+      </div>
+      <div class="ld-picker-footer">
+        <button type="button" class="btn btn-ghost btn-sm" id="ld-collab-cancel">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" id="ld-collab-save">💾 저장</button>
+      </div>`;
+    document.body.appendChild(picker);
+
+    // position:fixed 좌표 (우측 정렬 — 버튼 오른쪽 끝 기준)
+    function _reposition() {
+      const r = btn.getBoundingClientRect();
+      const pickerW = 240;
+      picker.style.position = 'fixed';
+      picker.style.zIndex = '12000';
+      picker.style.left = `${Math.max(0, r.right - pickerW)}px`;
+      picker.style.top = `${r.bottom + 4}px`;
+      picker.style.width = `${pickerW}px`;
+    }
+    _reposition();
+
+    // 검색 필터
+    const searchInput = picker.querySelector('.ld-picker-search');
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase();
+      picker.querySelectorAll('.ld-picker-item').forEach(el => {
+        el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+
+    // 체크박스 active 스타일 토글
+    picker.querySelectorAll('.ld-picker-check input').forEach(cb => {
+      cb.addEventListener('change', () => {
+        cb.closest('.ld-picker-item').classList.toggle('ld-picker-active', cb.checked);
+      });
+    });
+
+    // 취소
+    picker.querySelector('#ld-collab-cancel')?.addEventListener('click', () => picker.remove());
+
+    // 저장
+    picker.querySelector('#ld-collab-save')?.addEventListener('click', async () => {
+      const checkedIds = Array.from(
+        picker.querySelectorAll('input[type=checkbox]:checked')
+      ).map(el => parseInt(el.value, 10));
+      picker.remove();
+      try {
+        await API.leads.update(leadId, { collaborator_ids: checkedIds });
+        // 칩 즉시 갱신
+        const collabRow = document.getElementById('ld-collab-display');
+        if (collabRow) {
+          const val = collabRow.querySelector('.ld-people-val');
+          if (val) {
+            if (checkedIds.length) {
+              const selected = teamList.filter(t => checkedIds.includes(t.id));
+              val.innerHTML = selected
+                .map(
+                  t =>
+                    `<span class="ld-person-chip collab" title="협업자 — 알림 수신">👥 ${esc(t.name)}</span>`
+                )
+                .join('');
+            } else {
+              val.innerHTML = '<span style="color:var(--text-4);font-size:12px">없음</span>';
+            }
+          }
+        }
+        Toast.success?.('협업자가 업데이트되었습니다');
+      } catch (err) {
+        Toast.error?.('협업자 저장 실패: ' + (err?.message || err));
+      }
+    });
+
+    // 외부 클릭 시 닫기
+    const closeOnOut = e => {
+      if (!picker.contains(e.target) && e.target !== btn) {
+        picker.remove();
+        document.removeEventListener('click', closeOnOut, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeOnOut, true), 0);
+
+    picker.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        picker.remove();
+        document.removeEventListener('click', closeOnOut, true);
+      }
+    });
   },
 
   // ── v6.0.0 Phase A: 통합 타임라인 (활동/회의록/견적/제안/계약/고객지원) ────
