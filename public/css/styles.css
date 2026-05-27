@@ -9620,6 +9620,94 @@ body,
   }
 }
 
+/* v6.0.0 Phase C: 담당자 카드 (Phase 2 People Picker 준비) ──── */
+.ld-people-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+.ld-people-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+}
+.ld-people-row + .ld-people-row {
+  border-top: 1px solid var(--border);
+}
+.ld-people-label {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 600;
+  width: 52px;
+  flex-shrink: 0;
+}
+.ld-people-val {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+}
+/* Person chip — 담당자/협업자 표시 */
+.ld-person-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 9px;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ld-person-chip:hover {
+  background: #bfdbfe;
+}
+.ld-person-chip.collab {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.ld-person-chip.collab:hover {
+  background: #bae6fd;
+}
+/* 인라인 편집 버튼 (Phase 2에서 활성화) */
+.ld-section-edit-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 10px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.ld-section-edit-btn:hover {
+  border-color: var(--oci-red, #e63329);
+  color: var(--oci-red, #e63329);
+  background: #fff5f5;
+}
+
+/* 모바일 추가 브레이크포인트 ≤768px */
+@media (max-width: 768px) {
+  .ld-modal-grid {
+    gap: 8px;
+  }
+  .ld-people-row {
+    padding: 6px 10px;
+  }
+  .ld-people-label {
+    width: 44px;
+  }
+}
+
 /* 퀵 활동 칩 호버 */
 .ld-quick-act:hover {
   background: var(--oci-red) !important;

@@ -1240,6 +1240,46 @@ const App = {
             </div>
           </div>
 
+          <!-- v6.0.0 Phase C: 담당자 카드 — Phase 2 People Picker DOM 앵커 -->
+          <div class="ld-people-card mb-2" id="ld-people-card">
+            <div class="ld-people-row" id="ld-primary-owner-display">
+              <span class="ld-people-label">주 담당자</span>
+              <span class="ld-people-val">
+                ${
+                  l.assigned_name
+                    ? `<a href="#" data-assignee-link="${l.assigned_to || ''}"
+                         class="ld-person-chip" title="팀원 페이지로 이동">
+                         👤 ${esc(l.assigned_name)}
+                       </a>`
+                    : '<span style="color:var(--text-4);font-size:12px">미배정</span>'
+                }
+              </span>
+              <!-- Phase 2: 주 담당자 변경 버튼 (PUT /api/leads/:id/primary-owner 연결 예정) -->
+              <button type="button" class="ld-section-edit-btn" id="ld-owner-edit"
+                      data-lead-id="${l.id}" title="주 담당자 변경">✏️ 변경</button>
+            </div>
+            <div class="ld-people-row" id="ld-collab-display">
+              <span class="ld-people-label">협업자</span>
+              <span class="ld-people-val">
+                ${
+                  Array.isArray(l.collaborators) && l.collaborators.length
+                    ? l.collaborators
+                        .map(
+                          c => `<span class="ld-person-chip collab"
+                                      title="협업자 — 활동 업데이트 시 함께 알림 수신">
+                                  👥 ${esc(c.name)}
+                                </span>`
+                        )
+                        .join('')
+                    : '<span style="color:var(--text-4);font-size:12px">없음</span>'
+                }
+              </span>
+              <!-- Phase 2: 협업자 편집 버튼 -->
+              <button type="button" class="ld-section-edit-btn" id="ld-collab-edit"
+                      data-lead-id="${l.id}" title="협업자 편집">✏️ 편집</button>
+            </div>
+          </div>
+
           <div class="kv-grid mb-3">
             <div class="kv-row">
               <span class="kv-key" data-label="leads.customer_name">고객사</span>
@@ -1254,36 +1294,6 @@ const App = {
                 }
               </span>
             </div>
-            <div class="kv-row">
-              <span class="kv-key" data-label="leads.assigned_to">영업 담당자</span>
-              <span class="kv-val" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-                ${
-                  l.assigned_name
-                    ? `<a href="#" data-assignee-link="${l.assigned_to || ''}"
-                       style="color:var(--oci-blue);text-decoration:none;cursor:pointer;font-weight:600"
-                       title="팀원 페이지로 이동">👤 ${esc(l.assigned_name)}</a>
-                       <span style="font-size:10px;padding:1px 6px;background:#dbeafe;color:#1e40af;border-radius:8px;font-weight:600">주 담당</span>`
-                    : '<span style="color:var(--text-4)">미배정</span>'
-                }
-                ${
-                  Array.isArray(l.collaborators) && l.collaborators.length
-                    ? l.collaborators
-                        .map(
-                          c => `<span title="협업자 — 활동 업데이트 시 함께 알림 수신"
-                          style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;
-                                 background:#e0f2fe;color:#0369a1;border-radius:10px;font-size:11px;font-weight:500">
-                        👥 ${esc(c.name)}
-                      </span>`
-                        )
-                        .join('')
-                    : ''
-                }
-              </span>
-            </div>${
-              Array.isArray(l.collaborators) && l.collaborators.length
-                ? `<div class="kv-row"><span class="kv-key">협업자</span><span class="kv-val" style="font-size:11px;color:var(--text-3)">총 ${l.collaborators.length}명 — 댓글/단계 변경 시 함께 알림 발송</span></div>`
-                : ''
-            }
             <div class="kv-row">
               <span class="kv-key" data-label="leads.contact_person">고객 담당자</span>
               <span class="kv-val">
