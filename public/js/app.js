@@ -1393,7 +1393,16 @@ const App = {
                          style="font-size:12px;margin-bottom:6px">
                   <textarea id="ld-quick-content" class="form-input" rows="2" placeholder="내용 (선택)"
                             style="font-size:12px;margin-bottom:6px"></textarea>
-                  <div style="display:flex;gap:6px;justify-content:flex-end">
+                  <!-- v6.0.0 Phase 4: 날짜 입력 + 완료 여부 -->
+                  <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+                    <input type="datetime-local" id="ld-quick-date" class="form-input"
+                           style="font-size:12px;flex:1" title="활동 일시 (과거 날짜 입력 가능)">
+                    <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;cursor:pointer;color:var(--text-2)">
+                      <input type="checkbox" id="ld-quick-done" checked style="cursor:pointer">완료
+                    </label>
+                  </div>
+                  <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">
+                    <span style="font-size:10px;color:var(--text-4)">Ctrl+Enter 저장</span>
                     <button type="button" class="btn btn-primary btn-sm" id="ld-quick-save"
                             style="font-size:11px">💾 저장</button>
                   </div>
@@ -1559,6 +1568,16 @@ const App = {
       this._loadLeadComments(l.id);
       // 📊 v6.0.0 Phase A: 통합 타임라인 lazy load (활동/회의/견적/제안/계약/지원 통합)
       this._loadTimeline(l.id, l.customer_name);
+      // v6.0.0 Phase 4: 빠른 활동 폼 Ctrl+Enter 저장
+      const qdForm = document.getElementById('ld-quick-form');
+      if (qdForm) {
+        qdForm.addEventListener('keydown', e => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            this._saveQuickAct(l.id, l.customer_name);
+          }
+        });
+      }
       // Ctrl+Enter 로 댓글 등록 (편의)
       const cBody = document.getElementById('ld-comment-body');
       if (cBody) {
@@ -1695,6 +1714,15 @@ const App = {
     }
     const contentEl = document.getElementById('ld-quick-content');
     if (contentEl) contentEl.value = '';
+    // v6.0.0 Phase 4: 날짜 기본값 = 현재 시각 (로컬), 완료 기본 체크
+    const dateEl = document.getElementById('ld-quick-date');
+    if (dateEl) {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      dateEl.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    }
+    const doneEl = document.getElementById('ld-quick-done');
+    if (doneEl) doneEl.checked = true;
     form.style.display = '';
     setTimeout(() => titleEl?.focus(), 50);
     // 활성 칩 시각 표시
@@ -1726,6 +1754,9 @@ const App = {
       document.getElementById('ld-quick-title')?.focus();
       return;
     }
+    // v6.0.0 Phase 4: 활동 일시 + 완료 여부
+    const actDate = document.getElementById('ld-quick-date')?.value || null;
+    const isDone = document.getElementById('ld-quick-done')?.checked !== false;
     const btn = document.getElementById('ld-quick-save');
     if (btn) {
       btn.disabled = true;
@@ -1737,7 +1768,8 @@ const App = {
         activity_type: type,
         title,
         content: content || null,
-        status: 'done',
+        activity_date: actDate || null,
+        status: isDone ? 'done' : 'planned',
       });
       Toast.success?.(`${this._quickActMeta(type).icon} ${this._quickActMeta(type).label} 추가됨`);
       this._closeQuickActForm();
