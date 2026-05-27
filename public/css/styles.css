@@ -10785,3 +10785,42 @@ body,
   background: #f8fafc;
   flex-shrink: 0;
 }
+
+/* =============================================================
+   v6.0.0 Phase 3: 타임라인 날짜 그룹 구분선 + 클릭 링크 배지
+   ============================================================= */
+/* 날짜 그룹 구분선 */
+.ld-tl-group-sep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 4px;
+}
+.ld-tl-group-sep::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.ld-tl-group-sep span {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+/* 클릭 가능 행 표시 */
+.ld-tl-row-link {
+  cursor: pointer;
+}
+.ld-tl-link {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-4);
+  margin-left: 4px;
+  transition: color 0.12s;
+  flex-shrink: 0;
+}
+.ld-tl-row-link:hover .ld-tl-link {
+  color: var(--oci-red, #e63329);
+}

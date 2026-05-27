@@ -2046,6 +2046,7 @@ const App = {
       수주: '수주',
       드롭: '드롭',
       stage_change: '단계변경',
+      owner_change: '담당자변경', // v6.0.0 Phase 0: PUT /:id/primary-owner 기록
       기타: '기타',
     };
     return MAP[actType] || actType || '활동';
@@ -2060,6 +2061,12 @@ const App = {
     const bodyEl = document.getElementById('ld-timeline-body');
     const chipsEl = document.getElementById('ld-tl-chips');
     if (!bodyEl) return;
+
+    // v6.0.0 Phase 3: 재호출 시에도 즉시 로딩 상태 표시
+    bodyEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-3);font-size:12px">⏳ 타임라인 로딩 중...</div>`;
+    const cntElLoad = document.getElementById('ld-timeline-count');
+    if (cntElLoad) cntElLoad.textContent = '(로딩 중...)';
+    if (chipsEl) chipsEl.innerHTML = '<div style="padding:6px;color:var(--text-3);font-size:11px">불러오는 중...</div>';
 
     // 6개 소스 병렬 fetch (실패해도 best-effort)
     const [actsR, mtgR, qR, pR, cR, sR] = await Promise.allSettled([
@@ -2090,6 +2097,7 @@ const App = {
       입찰: 'proposal',
       수주: 'contract',
       드롭: 'activity', // 드롭도 영업활동 흐름
+      owner_change: 'activity', // v6.0.0 Phase 0: 담당자 변경 기록
     };
     const acts = (actsR.value && actsR.value.data) || [];
     for (const a of acts) {
@@ -2271,47 +2279,70 @@ const App = {
       return;
     }
 
-    bodyEl.innerHTML = items
-      .map(it => {
-        const m = META[it.category];
-        const dateStr = it.date ? Fmt.relTime(it.date) : '';
-        const dateFull = it.date ? String(it.date).slice(0, 16).replace('T', ' ') : '';
-        const clickAttr = it.click
-          ? `data-tl-click="${it.click.type}" data-tl-id="${it.click.id || ''}" data-tl-date="${it.click.date || ''}" style="cursor:pointer"`
-          : '';
-        // v6.0.0 Phase C++++: CSS 클래스 only — 인라인 style 제거, 우선순위 충돌 차단
-        // 색상은 CSS 변수로 주입 (--c-color, --c-bg) — 카테고리별 동적 색 적용
-        const subLabel = it.sub || m.label;
-        const cssVars = `--c-color:${m.color};--c-bg:${m.bg}`;
-        return `<div class="ld-tl-row" ${clickAttr} style="${cssVars}">
-          <div class="ld-tl-meta">
-            <div class="ld-tl-dot" style="background:${m.color}" title="${esc(m.label)}"></div>
-            <span class="ld-tl-badge" style="background:${m.bg};color:${m.color}">
-              ${m.icon} ${esc(subLabel)}
-            </span>
-          </div>
-          <div class="ld-tl-body">
-            <div class="ld-tl-top">
-              <span class="ld-tl-title" title="${esc(it.title)}">${esc(it.title)}</span>
-              <span class="ld-tl-date" title="${esc(dateFull)}">${esc(dateStr)}</span>
-            </div>
-            ${
-              it.body || it.meta
-                ? `<div class="ld-tl-bottom">
-                <span class="ld-tl-text" title="${esc(it.body || '')}">${esc(it.body || '')}</span>
-                ${it.meta ? `<span class="ld-tl-author">${esc(it.meta)}</span>` : ''}
-              </div>`
-                : ''
-            }
-          </div>
-        </div>`;
-      })
-      .join('');
-    // v6.0.0 Phase C++++: hover 효과는 CSS :hover 로 위임 — JS 인라인 style 제거
-    bodyEl.querySelectorAll('.ld-tl-row').forEach(row => {
-      if (row.dataset.tlClick) {
-        row.addEventListener('click', () => this._onTimelineClick(row.dataset));
+    // v6.0.0 Phase 3: 날짜 그룹 버킷 분류 (오늘/어제/이번 주/이번 달/연월/연도)
+    function _tlDateBucket(dateStr) {
+      if (!dateStr) return '날짜 없음';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '날짜 없음';
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const itemDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const diff = Math.round((today - itemDay) / 86400000);
+      if (diff === 0) return '📅 오늘';
+      if (diff === 1) return '📅 어제';
+      if (diff <= 7) return '📅 이번 주';
+      if (diff <= 30) return '📅 이번 달';
+      const ym = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const mDiff = (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth();
+      return mDiff <= 12 ? `📅 ${ym}` : `📅 ${d.getFullYear()}년`;
+    }
+
+    // 날짜 그룹 구분선 + 행 순서로 렌더링
+    const rows = [];
+    let lastBucket = null;
+    for (const it of items) {
+      const bucket = _tlDateBucket(it.date);
+      if (bucket !== lastBucket) {
+        rows.push(`<div class="ld-tl-group-sep"><span>${esc(bucket)}</span></div>`);
+        lastBucket = bucket;
       }
+      const m = META[it.category];
+      const dateStr = it.date ? Fmt.relTime(it.date) : '';
+      const dateFull = it.date ? String(it.date).slice(0, 16).replace('T', ' ') : '';
+      const clickAttr = it.click
+        ? `data-tl-click="${it.click.type}" data-tl-id="${it.click.id || ''}" data-tl-date="${it.click.date || ''}"`
+        : '';
+      const subLabel = it.sub || m.label;
+      const cssVars = `--c-color:${m.color};--c-bg:${m.bg}`;
+      rows.push(`<div class="ld-tl-row${it.click ? ' ld-tl-row-link' : ''}" ${clickAttr} style="${cssVars}">
+        <div class="ld-tl-meta">
+          <div class="ld-tl-dot" style="background:${m.color}" title="${esc(m.label)}"></div>
+          <span class="ld-tl-badge" style="background:${m.bg};color:${m.color}">
+            ${m.icon} ${esc(subLabel)}
+          </span>
+        </div>
+        <div class="ld-tl-body">
+          <div class="ld-tl-top">
+            <span class="ld-tl-title" title="${esc(it.title)}">${esc(it.title)}</span>
+            <span class="ld-tl-date" title="${esc(dateFull)}">${esc(dateStr)}</span>
+            ${it.click ? '<span class="ld-tl-link" title="상세 보기">→</span>' : ''}
+          </div>
+          ${
+            it.body || it.meta
+              ? `<div class="ld-tl-bottom">
+              <span class="ld-tl-text" title="${esc(it.body || '')}">${esc(it.body || '')}</span>
+              ${it.meta ? `<span class="ld-tl-author">${esc(it.meta)}</span>` : ''}
+            </div>`
+              : ''
+          }
+        </div>
+      </div>`);
+    }
+    bodyEl.innerHTML = rows.join('');
+
+    // hover 효과는 CSS :hover 로 위임 — JS 클릭 핸들러만 등록
+    bodyEl.querySelectorAll('.ld-tl-row[data-tl-click]').forEach(row => {
+      row.addEventListener('click', () => this._onTimelineClick(row.dataset));
     });
   },
 
