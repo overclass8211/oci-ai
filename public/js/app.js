@@ -1437,33 +1437,19 @@ const App = {
               <div class="card-body no-pad" id="ld-timeline-body" style="max-height:55vh;overflow-y:auto">
                 <div class="loading" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">⏳ 타임라인 로딩 중...</div>
               </div>
-            </div>
-
-            <!-- v6.0.0 Phase C+: 검토 코멘트를 우측 컬럼으로 이동 (UX 일관성) -->
-            <div class="card mb-3">
-              <div class="card-header">
-                <div class="card-title">💬 검토 코멘트</div>
-              </div>
-              <div class="card-body">
-                <div id="ld-comments-list" style="font-size:12px;margin-bottom:10px;max-height:25vh;overflow-y:auto">
-                  <div class="loading" style="padding:10px;color:var(--text-3);text-align:center">불러오는 중...</div>
-                </div>
-                <div style="padding-top:10px;border-top:1px solid var(--border)">
-                  <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">
-                    <select id="ld-comment-type" class="form-input" style="width:120px;font-size:12px">
-                      <option value="general">💭 의견</option>
-                      <option value="coach">🧭 코칭</option>
-                      <option value="question">❓ 질문</option>
-                      <option value="urgent">🚨 긴급</option>
-                    </select>
-                    <textarea id="ld-comment-body" class="form-input" rows="2"
-                              placeholder="영업담당자에게 코멘트를 남기세요... (Ctrl+Enter 등록)"
-                              style="flex:1;min-width:180px;font-size:12px"></textarea>
-                    <button id="ld-comment-submit" type="button" class="btn btn-primary btn-sm">💬 등록</button>
-                  </div>
-                  <div style="font-size:10px;color:var(--text-3);margin-top:6px">
-                    💡 등록 시 영업담당자 + 협업자 + 이전 댓글 참여자에게 알림 발송 (30초 디바운싱)
-                  </div>
+              <!-- v7.0.0 R3: 코멘트 입력 — 타임라인 하단 통합 -->
+              <div style="padding:8px 12px;border-top:1px solid var(--border);background:#fafafa">
+                <div style="display:flex;gap:6px;align-items:flex-start">
+                  <select id="ld-comment-type" class="form-input" style="width:100px;font-size:12px;flex-shrink:0">
+                    <option value="general">💭 의견</option>
+                    <option value="coach">🧭 코칭</option>
+                    <option value="question">❓ 질문</option>
+                    <option value="urgent">🚨 긴급</option>
+                  </select>
+                  <textarea id="ld-comment-body" class="form-input" rows="2"
+                            placeholder="코멘트 입력... (Ctrl+Enter 등록)"
+                            style="flex:1;min-width:0;font-size:12px"></textarea>
+                  <button id="ld-comment-submit" type="button" class="btn btn-primary btn-sm" style="flex-shrink:0">💬 등록</button>
                 </div>
               </div>
             </div>
@@ -1588,8 +1574,7 @@ const App = {
           '#ld-collab-edit': e => this._openCollabPicker(e, l.id, l.collaborators),
         },
       });
-      // 💬 댓글 카드 lazy load (modal 렌더 후 비동기)
-      this._loadLeadComments(l.id);
+      // v7.0.0 R3: 댓글은 _loadTimeline 에서 7번째 소스로 통합 로드 — 별도 호출 불필요
       // v7.0.0 R2: 인라인 편집 이벤트 설정
       this._setupLeadInlineEdit(l);
       // 📊 v6.0.0 Phase A: 통합 타임라인 lazy load (활동/회의/견적/제안/계약/지원 통합)
@@ -1683,7 +1668,8 @@ const App = {
       await API.leads.comments.create(leadId, { body: text, comment_type: commentType });
       Toast.success?.('댓글 등록됨 — 관련자에게 알림 발송 (30초 디바운싱)');
       bodyEl.value = '';
-      this._loadLeadComments(leadId);
+      // v7.0.0 R3: 타임라인 전체 재로드 (comments 통합)
+      this._loadTimeline(leadId, this._tlState.customerName);
     } catch (err) {
       Toast.error?.('댓글 등록 실패: ' + (err?.message || err));
     } finally {
@@ -2227,6 +2213,7 @@ const App = {
       proposal: { label: '제안', icon: '📄', color: '#ea580c', bg: '#ffedd5' }, // 주황
       contract: { label: '계약', icon: '📜', color: '#16a34a', bg: '#dcfce7' }, // 녹색
       support: { label: '고객지원', icon: '🛟', color: '#64748b', bg: '#f1f5f9' }, // 회색
+      comment: { label: '코멘트', icon: '💬', color: '#0891b2', bg: '#cffafe' }, // 청록 (v7.0.0 R3)
     };
   },
 
@@ -2267,14 +2254,15 @@ const App = {
     if (cntElLoad) cntElLoad.textContent = '(로딩 중...)';
     if (chipsEl) chipsEl.innerHTML = '<div style="padding:6px;color:var(--text-3);font-size:11px">불러오는 중...</div>';
 
-    // 6개 소스 병렬 fetch (실패해도 best-effort)
-    const [actsR, mtgR, qR, pR, cR, sR] = await Promise.allSettled([
+    // 7개 소스 병렬 fetch (실패해도 best-effort) — v7.0.0 R3: comments 추가
+    const [actsR, mtgR, qR, pR, cR, sR, cmtR] = await Promise.allSettled([
       API.get(`/activities?lead_id=${leadId}&limit=200`),
       API.leads.get(leadId), // l.meetings 활용 (이미 로드됨)
       API.leads.quotes(leadId),
       API.leads.proposals(leadId),
       API.leads.contracts(leadId),
       API.leads.supports.list(leadId),
+      API.leads.comments.list(leadId), // v7.0.0 R3: 코멘트 통합
     ]);
 
     const merged = [];
@@ -2403,6 +2391,23 @@ const App = {
       });
     }
 
+    // 7) comments — v7.0.0 R3: 검토 코멘트를 타임라인 7번째 소스로 통합
+    const cmtList = (cmtR.value && cmtR.value.data) || [];
+    for (const c of cmtList) {
+      const t = this._leadCommentTypeMeta(c.comment_type);
+      const preview = c.body ? (c.body.length > 60 ? c.body.slice(0, 57) + '...' : c.body) : '코멘트';
+      merged.push({
+        category: 'comment',
+        sub: t.label,
+        title: preview,
+        body: c.body || '',
+        date: c.created_at,
+        meta: c.author_name || c.author_email || '',
+        click: null,
+        raw: c,
+      });
+    }
+
     this._tlState.items = merged;
     this._tlState.customerName = customerName;
     this._renderTimelineChips(chipsEl);
@@ -2416,7 +2421,7 @@ const App = {
     // 카운트 집계
     const counts = { all: items.length };
     for (const it of items) counts[it.category] = (counts[it.category] || 0) + 1;
-    const order = ['all', 'activity', 'meeting', 'quote', 'proposal', 'contract', 'support'];
+    const order = ['all', 'activity', 'meeting', 'quote', 'proposal', 'contract', 'support', 'comment'];
     chipsEl.innerHTML = order
       .map(key => {
         const m = META[key];
