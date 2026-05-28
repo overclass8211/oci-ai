@@ -10,6 +10,9 @@ const PaymentsPage = {
   _schedules: [],
   _overdue: [],
   _dashboard: null,
+  _filter: { status: '', search: '', due_from: '', due_to: '' },
+  _sort: { key: 'due_date', dir: 'asc' },
+  _filterTimer: null,
 
   // ── 진입점 ──────────────────────────────────────────────────
   async render() {
@@ -51,6 +54,10 @@ const PaymentsPage = {
     // 신규 등록 버튼
     document.getElementById('pay-btn-new')?.addEventListener('click', () => this._openScheduleModal());
 
+    // 필터/정렬 초기화 (페이지 진입 시 리셋)
+    this._filter = { status: '', search: '', due_from: '', due_to: '' };
+    this._sort   = { key: 'due_date', dir: 'asc' };
+
     // 데이터 로드
     await Promise.all([this._loadDashboard(), this._loadSchedules()]);
     this._renderTab();
@@ -81,7 +88,12 @@ const PaymentsPage = {
 
   async _loadSchedules() {
     try {
-      const res = await API.get('/payments');
+      const p = new URLSearchParams();
+      if (this._filter.status)   p.set('status',   this._filter.status);
+      if (this._filter.due_from) p.set('due_from', this._filter.due_from);
+      if (this._filter.due_to)   p.set('due_to',   this._filter.due_to);
+      const qs = p.toString() ? '?' + p.toString() : '';
+      const res = await API.get('/payments' + qs);
       if (res.success) this._schedules = res.data;
     } catch (e) {
       console.error('[payments] 스케줄 로드 실패', e);
@@ -128,51 +140,65 @@ const PaymentsPage = {
   _renderOverview() {
     const el = document.getElementById('pay-tab-content');
     const STATUS_META = {
-      scheduled: { label: '예정', color: '#6B7280', bg: '#F3F4F6' },
-      invoiced:  { label: '청구', color: '#1664E5', bg: '#EFF6FF' },
-      partial:   { label: '부분수금', color: '#F59C00', bg: '#FFFBEB' },
-      collected: { label: '수금완료', color: '#0F7A3F', bg: '#ECFDF5' },
-      overdue:   { label: '연체', color: '#E63329', bg: '#FFF5F5' },
+      scheduled:   { label: '예정',    color: '#6B7280', bg: '#F3F4F6' },
+      invoiced:    { label: '청구',    color: '#1664E5', bg: '#EFF6FF' },
+      partial:     { label: '부분수금', color: '#F59C00', bg: '#FFFBEB' },
+      collected:   { label: '수금완료', color: '#0F7A3F', bg: '#ECFDF5' },
+      overdue:     { label: '연체',    color: '#E63329', bg: '#FFF5F5' },
       written_off: { label: '대손처리', color: '#374151', bg: '#F9FAFB' },
     };
 
-    const filterHtml = `
-      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <select id="pay-filter-status" class="form-input" style="width:120px;font-size:12px">
-          <option value="">전체 상태</option>
-          <option value="scheduled">예정</option>
-          <option value="invoiced">청구</option>
-          <option value="partial">부분수금</option>
-          <option value="collected">수금완료</option>
-          <option value="overdue">연체</option>
-        </select>
-        <input id="pay-filter-search" class="form-input" placeholder="고객사/계약명 검색" style="width:200px;font-size:12px">
-      </div>
-    `;
+    // 필터+정렬 적용 목록
+    const list = this._filteredAndSorted();
+    const { key: sKey, dir: sDir } = this._sort;
+    const sarr = col => sKey === col ? (sDir === 'asc' ? ' ↑' : ' ↓') : ' ⇅';
+    const thS  = 'padding:8px 12px;text-align:left;font-weight:600;cursor:pointer;user-select:none;white-space:nowrap';
+    const thSR = 'padding:8px 12px;text-align:right;font-weight:600;cursor:pointer;user-select:none;white-space:nowrap';
 
-    const rows = this._schedules.map(s => {
-      const m = STATUS_META[s.status] || STATUS_META.scheduled;
+    // 기간 프리셋 계산
+    const now  = new Date();
+    const p2   = n => String(n).padStart(2, '0');
+    const thisM1 = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-01`;
+    const thisM2 = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const nxtM1  = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10);
+    const nxtM2  = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString().slice(0, 10);
+    const isThisM = this._filter.due_from === thisM1 && this._filter.due_to === thisM2;
+    const isNextM = this._filter.due_from === nxtM1  && this._filter.due_to === nxtM2;
+    const isAll   = !this._filter.due_from && !this._filter.due_to;
+
+    const pBtn = (lbl, f, t, on) =>
+      `<button class="pay-period btn btn-sm" data-f="${f}" data-t="${t}"
+         style="font-size:12px;${on ? 'background:var(--primary,#E63329);color:#fff;border-color:var(--primary,#E63329)' : ''}">${lbl}</button>`;
+
+    // 합계
+    const fmt = n => Number(n || 0).toLocaleString('ko-KR');
+    const totSch  = list.reduce((s, r) => s + Number(r.scheduled_amount || 0), 0);
+    const totPaid = list.reduce((s, r) => s + Number(r.paid_amount || 0), 0);
+
+    // 행 생성
+    const rows = list.map(s => {
+      const m   = STATUS_META[s.status] || STATUS_META.scheduled;
       const pct = s.scheduled_amount > 0
         ? Math.min(Math.round((Number(s.paid_amount) / Number(s.scheduled_amount)) * 100), 100) : 0;
       const dDay = this._dDay(s.due_date);
       return `
-        <tr class="pay-row" data-id="${s.id}" style="cursor:pointer" data-status="${s.status}" data-name="${(s.customer_name || '') + (s.stage_name || '')}">
+        <tr class="pay-row" data-id="${s.id}" style="cursor:pointer;border-bottom:1px solid var(--border)">
           <td style="padding:10px 12px">
             <div style="font-weight:600;font-size:13px">${this._esc(s.customer_name || '—')}</div>
             <div style="font-size:11px;color:var(--text-3)">${this._esc(s.contract_name || s.contract_no || '—')}</div>
           </td>
           <td style="padding:10px 12px;font-size:13px">${this._esc(s.stage_name)}</td>
           <td style="padding:10px 12px;font-size:13px;text-align:right;font-weight:600">
-            ₩${Number(s.scheduled_amount).toLocaleString('ko-KR')}
+            ₩${fmt(s.scheduled_amount)}
           </td>
-          <td style="padding:10px 12px;font-size:12px">
-            ${s.due_date}
-            <span style="margin-left:4px;font-size:11px;color:${dDay.color}">${dDay.label}</span>
+          <td style="padding:10px 12px;font-size:12px;white-space:nowrap">
+            ${s.due_date || '—'}
+            <span style="margin-left:4px;font-size:11px;font-weight:600;color:${dDay.color}">${dDay.label}</span>
           </td>
           <td style="padding:10px 12px">
             <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:${m.bg};color:${m.color};font-weight:600">${m.label}</span>
           </td>
-          <td style="padding:10px 12px">
+          <td style="padding:10px 12px;min-width:90px">
             <div style="display:flex;align-items:center;gap:6px">
               <div style="flex:1;height:4px;background:#E5E7EB;border-radius:2px">
                 <div style="height:100%;width:${pct}%;background:#1664E5;border-radius:2px"></div>
@@ -180,62 +206,154 @@ const PaymentsPage = {
               <span style="font-size:11px;color:var(--text-3);min-width:28px">${pct}%</span>
             </div>
           </td>
-          <td style="padding:10px 12px">
-            <button class="pay-btn-record btn btn-sm" data-id="${s.id}" style="font-size:11px;padding:3px 8px;background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE;border-radius:6px">💳 입금</button>
+          <td style="padding:10px 12px;white-space:nowrap">
+            <button class="pay-btn-record btn btn-sm" data-id="${s.id}"
+              style="font-size:11px;padding:3px 7px;background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE;border-radius:6px;margin-right:3px" title="입금 등록">💳</button>
+            <button class="pay-btn-edit btn btn-sm" data-id="${s.id}"
+              style="font-size:11px;padding:3px 7px;background:#F3F4F6;color:#374151;border:1px solid var(--border);border-radius:6px;margin-right:3px" title="수정">✏️</button>
+            <button class="pay-btn-delete btn btn-sm" data-id="${s.id}"
+              style="font-size:11px;padding:3px 7px;background:#FFF5F5;color:#E63329;border:1px solid #FECACA;border-radius:6px" title="삭제">🗑️</button>
           </td>
-        </tr>
-      `;
+        </tr>`;
     }).join('');
 
-    el.innerHTML = filterHtml + `
+    el.innerHTML = `
+      <!-- 필터 바 -->
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <div style="display:flex;gap:3px">
+            ${pBtn('이번달', thisM1, thisM2, isThisM)}
+            ${pBtn('다음달', nxtM1,  nxtM2,  isNextM)}
+            ${pBtn('전체',   '',      '',     isAll)}
+          </div>
+          <div style="width:1px;height:22px;background:var(--border)"></div>
+          <select id="pay-fl-status" class="form-input" style="width:110px;font-size:12px;padding:4px 8px">
+            <option value="">전체 상태</option>
+            <option value="scheduled" ${this._filter.status === 'scheduled' ? 'selected' : ''}>예정</option>
+            <option value="invoiced"  ${this._filter.status === 'invoiced'  ? 'selected' : ''}>청구</option>
+            <option value="partial"   ${this._filter.status === 'partial'   ? 'selected' : ''}>부분수금</option>
+            <option value="collected" ${this._filter.status === 'collected' ? 'selected' : ''}>수금완료</option>
+            <option value="overdue"   ${this._filter.status === 'overdue'   ? 'selected' : ''}>연체</option>
+          </select>
+          <input id="pay-fl-search" class="form-input" placeholder="🔍 고객사/계약명"
+            value="${this._esc(this._filter.search)}" style="width:160px;font-size:12px;padding:4px 8px">
+          <input id="pay-fl-from" type="date" class="form-input" value="${this._filter.due_from}"
+            style="width:130px;font-size:12px;padding:4px 8px">
+          <span style="color:var(--text-3);font-size:12px">~</span>
+          <input id="pay-fl-to" type="date" class="form-input" value="${this._filter.due_to}"
+            style="width:130px;font-size:12px;padding:4px 8px">
+          <div style="margin-left:auto;font-size:12px;color:var(--text-3);white-space:nowrap">
+            총 <b style="color:var(--text-1)">${list.length}건</b>
+            &nbsp;·&nbsp;예정 <b style="color:#1664E5">₩${fmt(totSch)}</b>
+            &nbsp;·&nbsp;수금 <b style="color:#0F7A3F">₩${fmt(totPaid)}</b>
+          </div>
+        </div>
+      </div>
+
+      <!-- 테이블 -->
       <div style="background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr style="background:#F9FAFB;font-size:12px;color:var(--text-3)">
-              <th style="padding:8px 12px;text-align:left;font-weight:600">고객사</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:600">단계</th>
-              <th style="padding:8px 12px;text-align:right;font-weight:600">수금예정액</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:600">예정일</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:600">상태</th>
-              <th style="padding:8px 12px;text-align:left;font-weight:600">진행률</th>
-              <th style="padding:8px 12px"></th>
+              <th id="pay-th-cust"  style="${thS}">고객사${sarr('customer_name')}</th>
+              <th id="pay-th-stage" style="${thS}">단계${sarr('stage_name')}</th>
+              <th id="pay-th-amt"   style="${thSR}">수금예정액${sarr('scheduled_amount')}</th>
+              <th id="pay-th-due"   style="${thS}">예정일${sarr('due_date')}</th>
+              <th style="padding:8px 12px;font-weight:600">상태</th>
+              <th style="padding:8px 12px;font-weight:600">진행률</th>
+              <th style="padding:8px 12px;width:90px"></th>
             </tr>
           </thead>
           <tbody id="pay-tbody">
-            ${rows || '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-3)">수금 스케줄이 없습니다</td></tr>'}
+            ${rows || `<tr><td colspan="7" style="text-align:center;padding:48px 20px;color:var(--text-3)">
+              <div style="font-size:32px;margin-bottom:8px">💰</div>
+              <div style="font-weight:600;margin-bottom:4px">수금 스케줄이 없습니다</div>
+              <div style="font-size:12px">상단 [+ 수금 스케줄 등록] 버튼을 클릭하세요</div>
+            </td></tr>`}
           </tbody>
+          ${list.length ? `
+          <tfoot>
+            <tr style="background:#F0F4FF;font-size:12px;font-weight:600;border-top:2px solid #BFDBFE">
+              <td colspan="2" style="padding:8px 12px;color:var(--text-3)">합계 ${list.length}건</td>
+              <td style="padding:8px 12px;text-align:right;color:#1664E5">₩${fmt(totSch)}</td>
+              <td colspan="4" style="padding:8px 12px;color:#0F7A3F">수금 ₩${fmt(totPaid)}</td>
+            </tr>
+          </tfoot>` : ''}
         </table>
       </div>
     `;
 
-    // 필터
-    const filterStatus = document.getElementById('pay-filter-status');
-    const filterSearch = document.getElementById('pay-filter-search');
-    const applyFilter = () => {
-      const st = filterStatus.value;
-      const kw = filterSearch.value.toLowerCase();
-      document.querySelectorAll('.pay-row').forEach(tr => {
-        const matchSt = !st || tr.dataset.status === st;
-        const matchKw = !kw || tr.dataset.name.toLowerCase().includes(kw);
-        tr.style.display = matchSt && matchKw ? '' : 'none';
+    // ── 이벤트 바인딩 ──────────────────────────────────────────
+
+    // 기간 프리셋 → 서버 재조회
+    el.querySelectorAll('.pay-period').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        this._filter.due_from = btn.dataset.f;
+        this._filter.due_to   = btn.dataset.t;
+        await this._reloadAndRender();
       });
-    };
-    filterStatus?.addEventListener('change', applyFilter);
-    filterSearch?.addEventListener('input', applyFilter);
+    });
+
+    // 상태 필터 → 서버 재조회
+    document.getElementById('pay-fl-status')?.addEventListener('change', async e => {
+      this._filter.status = e.target.value;
+      await this._reloadAndRender();
+    });
+
+    // 검색 → 클라이언트 즉시 반영 (200ms debounce)
+    document.getElementById('pay-fl-search')?.addEventListener('input', e => {
+      this._filter.search = e.target.value;
+      clearTimeout(this._filterTimer);
+      this._filterTimer = setTimeout(() => this._renderOverview(), 200);
+    });
+
+    // 날짜 범위 → 서버 재조회
+    document.getElementById('pay-fl-from')?.addEventListener('change', async e => {
+      this._filter.due_from = e.target.value;
+      await this._reloadAndRender();
+    });
+    document.getElementById('pay-fl-to')?.addEventListener('change', async e => {
+      this._filter.due_to = e.target.value;
+      await this._reloadAndRender();
+    });
+
+    // 정렬 헤더 클릭
+    [['pay-th-cust', 'customer_name'], ['pay-th-stage', 'stage_name'],
+     ['pay-th-amt', 'scheduled_amount'], ['pay-th-due', 'due_date']
+    ].forEach(([thId, col]) => {
+      document.getElementById(thId)?.addEventListener('click', () => this._setSortKey(col));
+    });
 
     // 행 클릭 → 상세
     el.querySelectorAll('.pay-row').forEach(tr => {
       tr.addEventListener('click', e => {
-        if (e.target.closest('.pay-btn-record')) return;
+        if (e.target.closest('.pay-btn-record,.pay-btn-edit,.pay-btn-delete')) return;
         this._openScheduleDetail(parseInt(tr.dataset.id, 10));
       });
     });
 
-    // 입금 등록 버튼
+    // 입금 등록
     el.querySelectorAll('.pay-btn-record').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
         this._openRecordModal(parseInt(btn.dataset.id, 10));
+      });
+    });
+
+    // 수정
+    el.querySelectorAll('.pay-btn-edit').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const s = this._schedules.find(x => x.id === parseInt(btn.dataset.id, 10));
+        if (s) this._openScheduleModal(s);
+      });
+    });
+
+    // 삭제
+    el.querySelectorAll('.pay-btn-delete').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        this._deleteSchedule(parseInt(btn.dataset.id, 10));
       });
     });
   },
@@ -618,6 +736,61 @@ const PaymentsPage = {
       });
     } catch (err) {
       Toast.error?.('조회 실패: ' + (err?.message || err));
+    }
+  },
+
+  // ── 필터+정렬 적용 목록 ─────────────────────────────────────
+  _filteredAndSorted() {
+    const { key, dir } = this._sort;
+    const kw = (this._filter.search || '').toLowerCase();
+    const list = kw
+      ? this._schedules.filter(s =>
+          (s.customer_name  || '').toLowerCase().includes(kw) ||
+          (s.contract_name  || '').toLowerCase().includes(kw) ||
+          (s.stage_name     || '').toLowerCase().includes(kw)
+        )
+      : this._schedules;
+
+    return [...list].sort((a, b) => {
+      let va = a[key], vb = b[key];
+      if (key === 'scheduled_amount' || key === 'paid_amount') {
+        va = Number(va || 0); vb = Number(vb || 0);
+      } else {
+        va = String(va || ''); vb = String(vb || '');
+      }
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  },
+
+  // ── 정렬 키 토글 ─────────────────────────────────────────────
+  _setSortKey(key) {
+    if (this._sort.key === key) {
+      this._sort.dir = this._sort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      this._sort.key = key;
+      this._sort.dir = 'asc';
+    }
+    this._renderTab();
+  },
+
+  // ── 서버 재조회 후 탭 재렌더 ─────────────────────────────────
+  async _reloadAndRender() {
+    await Promise.all([this._loadSchedules(), this._loadDashboard()]);
+    this._renderTab();
+  },
+
+  // ── 스케줄 삭제 ─────────────────────────────────────────────
+  async _deleteSchedule(id) {
+    const s    = this._schedules.find(x => x.id === id);
+    const name = s ? `${s.customer_name || ''} · ${s.stage_name || ''}` : `#${id}`;
+    if (!confirm(`수금 스케줄을 삭제하시겠습니까?\n${name}\n\n⚠️ 입금 이력도 함께 삭제됩니다`)) return;
+    try {
+      await API.del(`/payments/${id}`);
+      Toast.success?.('삭제됐습니다');
+      await this._reloadAndRender();
+    } catch (err) {
+      Toast.error?.('삭제 실패: ' + (err?.message || err));
     }
   },
 

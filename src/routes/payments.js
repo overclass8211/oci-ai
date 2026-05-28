@@ -362,7 +362,7 @@ router.post('/templates', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     await syncOverdueStatus();
-    const { status, contract_id, customer_id, due_from, due_to } = req.query;
+    const { status, contract_id, customer_id, due_from, due_to, search } = req.query;
     let sql = `
       SELECT ps.*,
              COALESCE(SUM(pr.paid_amount), 0) AS paid_amount,
@@ -391,6 +391,10 @@ router.get('/', async (req, res) => {
     if (due_to) {
       sql += ` AND ps.due_date <= ?`;
       params.push(due_to);
+    }
+    if (search) {
+      sql += ` AND (ps.customer_name LIKE ? OR ps.contract_name LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`);
     }
     sql += ` GROUP BY ps.id ORDER BY ps.due_date ASC LIMIT 500`;
     const [rows] = await pool.query(sql, params);
