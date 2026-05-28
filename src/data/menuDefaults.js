@@ -27,6 +27,7 @@ const DEFAULT_ITEMS = [
   { menu_key: 'quotes', section_key: 'sales', display_order: 5, is_system: 0 },
   { menu_key: 'proposals', section_key: 'sales', display_order: 6, is_system: 0 },
   { menu_key: 'contracts', section_key: 'sales', display_order: 7, is_system: 0 },
+  { menu_key: 'payments', section_key: 'sales', display_order: 8, is_system: 0 }, // v8.0.0 SFR-011 수금관리
   { menu_key: 'team', section_key: 'analysis', display_order: 1, is_system: 0 },
   { menu_key: 'reports', section_key: 'analysis', display_order: 2, is_system: 0 },
   { menu_key: 'report-builder', section_key: 'analysis', display_order: 3, is_system: 0 },

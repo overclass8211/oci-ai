@@ -61,7 +61,7 @@ const spaGlobals = {
   MeetingListPage: 'readonly', AdminPage: 'readonly', SettingsPage: 'readonly',
   ReportsPage: 'readonly', ReportBuilderPage: 'readonly', CostPage: 'readonly',
   OrdersPage: 'readonly', NotificationsListPage: 'readonly', DevPage: 'readonly',
-  QuotesPage: 'readonly', ProposalsPage: 'readonly', ContractsPage: 'readonly',
+  QuotesPage: 'readonly', ProposalsPage: 'readonly', ContractsPage: 'readonly', PaymentsPage: 'readonly', // v8.0.0 SFR-011
   // login.js
   Login: 'readonly',
   // utils.js 내부 helpers (런타임에는 전역으로 노출됨)

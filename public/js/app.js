@@ -20,6 +20,7 @@ const App = {
     quotes: { obj: () => QuotesPage, title: '견적서', crumb: '영업관리 / 견적서' },
     proposals: { obj: () => ProposalsPage, title: '제안', crumb: '영업관리 / 제안' },
     contracts: { obj: () => ContractsPage, title: '계약', crumb: '영업관리 / 계약' },
+    payments: { obj: () => PaymentsPage, title: '수금관리', crumb: '영업관리 / 수금관리' }, // v8.0.0 SFR-011
     team: { obj: () => TeamPage, title: '팀 현황', crumb: '분석 / 팀' },
     reports: { obj: () => ReportsPage, title: '리포트', crumb: '분석 / 리포트' },
     'report-builder': {
@@ -553,6 +554,7 @@ const App = {
       quotes: 'crm.quotes',
       proposals: 'crm.proposals',
       contracts: 'crm.contracts',
+      payments: 'crm.payments', // v8.0.0 SFR-011
       reports: 'crm.reports',
       'report-builder': 'crm.report_builder',
       board: 'crm.board',

@@ -44,6 +44,7 @@ const ROLE_PAGES = {
     'quotes',
     'proposals',
     'contracts',
+    'payments', // v8.0.0 SFR-011 수금관리 — team_lead 이상 (재무 민감 정보)
     'team',
     'reports',
     'report-builder',
@@ -63,6 +64,7 @@ const ROLE_PAGES = {
     'quotes',
     'proposals',
     'contracts',
+    'payments', // v8.0.0 SFR-011 수금관리
     'team',
     'reports',
     'report-builder',
@@ -83,6 +85,7 @@ const ROLE_PAGES = {
     'quotes',
     'proposals',
     'contracts',
+    'payments', // v8.0.0 SFR-011 수금관리
     'team',
     'reports',
     'report-builder',
