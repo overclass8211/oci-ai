@@ -9514,7 +9514,7 @@ body,
 }
 .ld-modal-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr; /* 5:5 비율로 균등 */
+  grid-template-columns: 3fr 7fr; /* v7.0.0 Option C: 3:7 비율 */
   gap: 16px;
   align-items: stretch;
   /* 부모(.modal-body) 가용 영역 100% — 자체 스크롤 컨테이너 */
@@ -10823,4 +10823,38 @@ body,
 }
 .ld-tl-row-link:hover .ld-tl-link {
   color: var(--oci-red, #e63329);
+}
+
+/* v7.0.0 Option C R2: 인라인 편집 (kv-row 연필 버튼) */
+.ld-ie-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  color: var(--text-4);
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.kv-row:hover .ld-ie-btn {
+  display: inline-flex;
+  align-items: center;
+}
+.ld-ie-btn:hover {
+  color: var(--oci-red, #e63329);
+  background: var(--surface-2, #f5f5f5);
+}
+.ld-ie-input {
+  font-size: 12px !important;
+  padding: 3px 6px !important;
+  border: 1.5px solid var(--oci-red, #e63329) !important;
+  border-radius: 4px !important;
+  outline: none !important;
+  width: 100%;
+  background: #fff;
+  flex: 1;
+  min-width: 0;
 }

@@ -1212,6 +1212,11 @@ const App = {
         })
         .join('');
 
+      // v7.0.0 Option C R2: 인라인 편집용 메모 표시값
+      const notesHtml = l.notes
+        ? esc(l.notes)
+        : '<span style="color:var(--text-4);font-size:11px">클릭하여 메모 추가</span>';
+
       Modal.open({
         title: `${esc(l.customer_name)} · ${esc(l.project_name)}`,
         width: 1440,
@@ -1236,7 +1241,7 @@ const App = {
             </div>
             <div class="detail-amount">
               <div class="text-muted fs-12">예상 금액</div>
-              <div class="amount-big">${Fmt.amount(l.expected_amount, l.currency)}</div>
+              <div class="amount-big" id="ld-meta-amount">${Fmt.amount(l.expected_amount, l.currency)}</div>
             </div>
           </div>
 
@@ -1254,7 +1259,7 @@ const App = {
                     : '<span style="color:var(--text-4);font-size:12px">미배정</span>'
                 }
               </span>
-              <!-- Phase 2: 주 담당자 변경 버튼 (PUT /api/leads/:id/primary-owner 연결 예정) -->
+              <!-- Phase 2: 주 담당자 변경 버튼 -->
               <button type="button" class="ld-section-edit-btn" id="ld-owner-edit"
                       data-lead-id="${l.id}" title="주 담당자 변경">✏️ 변경</button>
             </div>
@@ -1280,7 +1285,8 @@ const App = {
             </div>
           </div>
 
-          <div class="kv-grid mb-3">
+          <!-- v7.0.0 Option C: 기본 정보 (인라인 편집 지원) -->
+          <div class="kv-grid ld-info-grid mb-2">
             <div class="kv-row">
               <span class="kv-key" data-label="leads.customer_name">고객사</span>
               <span class="kv-val">
@@ -1307,33 +1313,53 @@ const App = {
                 ${contactPhone ? ' · <span class="mono" style="font-size:11px">' + esc(contactPhone) + '</span>' : ''}
               </span>
             </div>
-            <div class="kv-row"><span class="kv-key" data-label="leads.capacity_mw">규모</span><span class="kv-val mono">${l.capacity_mw ? parseFloat(l.capacity_mw).toFixed(1) + ' MW' : '-'}</span></div>
-            <div class="kv-row"><span class="kv-key" data-label="leads.expected_close_date">예상 마감일</span><span class="kv-val">${Fmt.date(l.expected_close_date)}</span></div>
-            <div class="kv-row"><span class="kv-key" data-label="leads.bidding_deadline">입찰 마감일</span><span class="kv-val">${Fmt.date(l.bidding_deadline)}</span></div>
+            <div class="kv-row" data-field="project_name" data-type="text">
+              <span class="kv-key">프로젝트명</span>
+              <span class="kv-val" data-raw="${esc(l.project_name || '')}">${esc(l.project_name || '-')}</span>
+              <button type="button" class="ld-ie-btn" title="수정">✏️</button>
+            </div>
+            <div class="kv-row" data-field="capacity_mw" data-type="decimal">
+              <span class="kv-key" data-label="leads.capacity_mw">규모</span>
+              <span class="kv-val mono" data-raw="${l.capacity_mw !== null && l.capacity_mw !== undefined ? l.capacity_mw : ''}">${l.capacity_mw ? parseFloat(l.capacity_mw).toFixed(1) + ' MW' : '-'}</span>
+              <button type="button" class="ld-ie-btn" title="수정">✏️</button>
+            </div>
+            <div class="kv-row" data-field="expected_amount" data-type="number">
+              <span class="kv-key">예상 금액</span>
+              <span class="kv-val" id="ld-ie-amount" data-raw="${l.expected_amount !== null && l.expected_amount !== undefined ? l.expected_amount : ''}">${Fmt.amount(l.expected_amount, l.currency)}</span>
+              <button type="button" class="ld-ie-btn" title="수정">✏️</button>
+            </div>
+            <div class="kv-row" data-field="profit_rate" data-type="decimal">
+              <span class="kv-key">예상이익률</span>
+              <span class="kv-val" id="ld-ie-profit-rate" data-raw="${l.profit_rate !== null && l.profit_rate !== undefined ? l.profit_rate : ''}">${l.profit_rate !== null && l.profit_rate !== undefined ? parseFloat(l.profit_rate).toFixed(1) + '%' : '-'}</span>
+              <button type="button" class="ld-ie-btn" title="수정">✏️</button>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">예상이익금</span>
+              <span class="kv-val" id="ld-ie-profit-amount">${l.profit_rate !== null && l.profit_rate !== undefined && l.expected_amount ? Fmt.amount(Math.round(Number(l.expected_amount) * Number(l.profit_rate) / 100), l.currency) : '-'}</span>
+            </div>
+            <div class="kv-row" data-field="competitor" data-type="text">
+              <span class="kv-key">경쟁사</span>
+              <span class="kv-val" data-raw="${esc(l.competitor || '')}">${l.competitor ? esc(l.competitor) : '-'}</span>
+              <button type="button" class="ld-ie-btn" title="수정">✏️</button>
+            </div>
+            <div class="kv-row" data-field="expected_close_date" data-type="date">
+              <span class="kv-key" data-label="leads.expected_close_date">예상 마감일</span>
+              <span class="kv-val" data-raw="${l.expected_close_date ? l.expected_close_date.slice(0, 10) : ''}">${Fmt.date(l.expected_close_date)}</span>
+              <button type="button" class="ld-ie-btn" title="수정">✏️</button>
+            </div>
+            <div class="kv-row" data-field="bidding_deadline" data-type="date">
+              <span class="kv-key" data-label="leads.bidding_deadline">입찰 마감일</span>
+              <span class="kv-val" data-raw="${l.bidding_deadline ? l.bidding_deadline.slice(0, 10) : ''}">${Fmt.date(l.bidding_deadline)}</span>
+              <button type="button" class="ld-ie-btn" title="수정">✏️</button>
+            </div>
             <div class="kv-row"><span class="kv-key" data-label="leads.created_at">최초 등록</span><span class="kv-val">${Fmt.date(l.created_at)}</span></div>
             <div class="kv-row"><span class="kv-key" data-label="leads.updated_at">최근 업데이트</span><span class="kv-val">${Fmt.relTime(l.updated_at)}</span></div>
             ${contactEmail ? `<div class="kv-row"><span class="kv-key">고객 이메일</span><span class="kv-val mono" style="font-size:11px">${esc(contactEmail)}</span></div>` : ''}
-          </div>
-
-          ${
-            l.notes
-              ? `
-            <div class="card mb-3">
-              <div class="card-header"><div class="card-title">메모</div></div>
-              <div class="card-body" style="white-space:pre-line;font-size:13px;line-height:1.6">${esc(l.notes)}</div>
-            </div>
-          `
-              : ''
-          }
-
-          <!-- 📧 Gmail 대화 — lazy load (모달 열린 후 fetch) -->
-          <div class="card mb-3" id="ld-gmail-card">
-            <div class="card-header">
-              <div class="card-title">📧 최근 Gmail 대화</div>
-              <button class="btn btn-ghost btn-sm" id="ld-gmail-refresh" title="새로고침" style="display:none">🔄</button>
-            </div>
-            <div class="card-body no-pad" id="ld-gmail-body">
-              <div class="loading" style="padding:14px;text-align:center;font-size:12px;color:var(--text-3)">Gmail 대화 로딩 중...</div>
+            <!-- 메모 (항상 표시, textarea 인라인 편집) -->
+            <div class="kv-row" data-field="notes" data-type="textarea" style="align-items:flex-start">
+              <span class="kv-key" style="padding-top:2px">메모</span>
+              <span class="kv-val" data-raw="${esc(l.notes || '')}" style="white-space:pre-wrap;font-size:12px;color:var(--text-2);line-height:1.5;min-height:18px">${notesHtml}</span>
+              <button type="button" class="ld-ie-btn" title="수정" style="align-self:flex-start;margin-top:1px">✏️</button>
             </div>
           </div>
 
@@ -1562,10 +1588,10 @@ const App = {
           '#ld-collab-edit': e => this._openCollabPicker(e, l.id, l.collaborators),
         },
       });
-      // 📧 Gmail 카드 lazy load — modal 렌더 후 비동기
-      this._loadGmailForLead(l.id);
       // 💬 댓글 카드 lazy load (modal 렌더 후 비동기)
       this._loadLeadComments(l.id);
+      // v7.0.0 R2: 인라인 편집 이벤트 설정
+      this._setupLeadInlineEdit(l);
       // 📊 v6.0.0 Phase A: 통합 타임라인 lazy load (활동/회의/견적/제안/계약/지원 통합)
       this._loadTimeline(l.id, l.customer_name);
       // v6.0.0 Phase 4: 빠른 활동 폼 Ctrl+Enter 저장
@@ -1666,6 +1692,146 @@ const App = {
         btn.textContent = '💬 등록';
       }
     }
+  },
+
+  // ── v7.0.0 Option C R2: 인라인 편집 설정 ─────────────────
+  _setupLeadInlineEdit(l) {
+    const grid = document.querySelector('.ld-info-grid');
+    if (!grid) return;
+    grid.addEventListener('click', e => {
+      const btn = e.target.closest('.ld-ie-btn');
+      const row = e.target.closest('.kv-row[data-field]');
+      if (!row) return;
+      // 연필 버튼 클릭 또는 값 영역 클릭 시만 진입
+      if (!btn && !e.target.closest('.kv-val')) return;
+      this._startInlineEdit(row, l);
+    });
+  },
+
+  _startInlineEdit(row, l) {
+    if (row.dataset.editing === '1') return;
+    const field = row.dataset.field;
+    const type = row.dataset.type; // text | number | decimal | date | textarea
+    const valEl = row.querySelector('.kv-val');
+    const btnEl = row.querySelector('.ld-ie-btn');
+    if (!valEl) return;
+
+    row.dataset.editing = '1';
+    const rawVal = valEl.dataset.raw || '';
+
+    // 입력 요소 생성
+    let input;
+    if (type === 'textarea') {
+      input = document.createElement('textarea');
+      input.rows = 3;
+      input.style.cssText = 'resize:vertical;min-height:54px';
+    } else {
+      input = document.createElement('input');
+      if (type === 'date') {
+        input.type = 'date';
+      } else if (type === 'number' || type === 'decimal') {
+        input.type = 'number';
+        input.step = type === 'decimal' ? '0.1' : '1';
+        input.min = '0';
+        if (field === 'profit_rate') input.max = '100';
+      } else {
+        input.type = 'text';
+      }
+    }
+    input.value = rawVal;
+    input.className = 'form-input ld-ie-input';
+
+    // 표시값 숨기고 입력 삽입
+    valEl.style.display = 'none';
+    if (btnEl) btnEl.style.display = 'none';
+    row.insertBefore(input, valEl.nextSibling);
+    try { input.focus(); if (input.select) input.select(); } catch (_) {}
+
+    const cancel = () => {
+      input.remove();
+      valEl.style.display = '';
+      if (btnEl) btnEl.style.display = '';
+      delete row.dataset.editing;
+    };
+
+    const save = async () => {
+      if (row.dataset.saving === '1') return;
+      row.dataset.saving = '1';
+      const newVal = input.value.trim();
+      input.remove();
+      valEl.style.display = '';
+      if (btnEl) btnEl.style.display = '';
+      delete row.dataset.editing;
+      delete row.dataset.saving;
+
+      if (newVal === rawVal) return; // 변경 없음
+
+      // 저장 값 파싱
+      let updateVal = newVal || null;
+      if ((type === 'number' || type === 'decimal') && newVal !== '') {
+        updateVal = parseFloat(newVal);
+        if (isNaN(updateVal)) {
+          Toast.error?.('숫자 형식으로 입력하세요');
+          return;
+        }
+      }
+
+      try {
+        await API.leads.update(l.id, { [field]: updateVal });
+
+        // 표시값 갱신
+        let displayVal = newVal || '-';
+        if (field === 'capacity_mw' && newVal)
+          displayVal = parseFloat(newVal).toFixed(1) + ' MW';
+        else if (field === 'expected_amount' && newVal)
+          displayVal = Fmt.amount(parseFloat(newVal), l.currency);
+        else if (field === 'profit_rate' && newVal)
+          displayVal = parseFloat(newVal).toFixed(1) + '%';
+        else if (field === 'expected_close_date' || field === 'bidding_deadline')
+          displayVal = Fmt.date(newVal) || '-';
+        else if (field === 'notes' && !newVal)
+          displayVal = '<span style="color:var(--text-4);font-size:11px">클릭하여 메모 추가</span>';
+
+        if (field === 'notes' && !newVal) valEl.innerHTML = displayVal;
+        else valEl.textContent = displayVal;
+        valEl.dataset.raw = newVal || '';
+
+        // 연동 갱신: 예상이익금 + 헤더 금액
+        if (field === 'expected_amount' || field === 'profit_rate') {
+          const amt =
+            field === 'expected_amount' ? parseFloat(newVal) || 0 : parseFloat(l.expected_amount) || 0;
+          const rate =
+            field === 'profit_rate' ? parseFloat(newVal) || 0 : parseFloat(l.profit_rate) || 0;
+          const profitEl = document.getElementById('ld-ie-profit-amount');
+          if (profitEl)
+            profitEl.textContent = amt && rate ? Fmt.amount(Math.round(amt * rate / 100), l.currency) : '-';
+          if (field === 'expected_amount') {
+            const hdr = document.getElementById('ld-meta-amount');
+            if (hdr) hdr.textContent = Fmt.amount(parseFloat(newVal), l.currency);
+            l.expected_amount = parseFloat(newVal);
+          }
+          if (field === 'profit_rate') l.profit_rate = parseFloat(newVal);
+        }
+
+        Toast.success?.('저장됨');
+      } catch (err) {
+        Toast.error?.('저장 실패: ' + (err?.message || err));
+        valEl.dataset.raw = rawVal; // 원복
+      }
+    };
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        input.removeEventListener('blur', save);
+        cancel();
+      } else if (e.key === 'Enter' && type !== 'textarea') {
+        e.preventDefault();
+        input.removeEventListener('blur', save);
+        save();
+      }
+    });
   },
 
   // ── v6.0.0 Phase C: 단계 변경 퀵 액션 ────────────────────
