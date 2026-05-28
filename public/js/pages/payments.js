@@ -523,14 +523,23 @@ const PaymentsPage = {
               <input id="pay-m-due-date" type="date" class="form-input" value="${schedule?.due_date || ''}">
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
             <div>
-              <label class="form-label">수금 예정액 (VAT 포함) *</label>
-              <input id="pay-m-amount" type="number" class="form-input" value="${schedule?.scheduled_amount || ''}" placeholder="0">
+              <label class="form-label">수금예정액 (VAT별도) *</label>
+              <input id="pay-m-supply" type="number" class="form-input"
+                value="${schedule?.supply_amount || ''}" placeholder="0">
             </div>
             <div>
-              <label class="form-label">부가세</label>
-              <input id="pay-m-tax" type="number" class="form-input" value="${schedule?.tax_amount || ''}" placeholder="자동 계산">
+              <label class="form-label">부가세 (10%)</label>
+              <input id="pay-m-tax" type="number" class="form-input"
+                value="${schedule?.tax_amount || ''}" placeholder="자동계산" readonly
+                style="background:#F9FAFB;color:var(--text-3);cursor:default">
+            </div>
+            <div>
+              <label class="form-label">수금예정액 (VAT포함)</label>
+              <input id="pay-m-amount" type="number" class="form-input"
+                value="${schedule?.scheduled_amount || ''}" placeholder="자동계산" readonly
+                style="background:#F0F4FF;color:#1664E5;font-weight:600;cursor:default">
             </div>
           </div>
           <div>
@@ -544,12 +553,22 @@ const PaymentsPage = {
         <button id="pay-m-save" class="btn btn-primary">${isEdit ? '저장' : '등록'}</button>
       `,
       onOpen: () => {
-        // VAT 자동 계산
-        document.getElementById('pay-m-amount')?.addEventListener('input', e => {
-          const amt = Number(e.target.value) || 0;
-          const tax = Math.round(amt - amt / 1.1);
-          document.getElementById('pay-m-tax').value = tax || '';
-        });
+        const supplyEl = document.getElementById('pay-m-supply');
+        const taxEl    = document.getElementById('pay-m-tax');
+        const totalEl  = document.getElementById('pay-m-amount');
+
+        // VAT 자동 계산: supply 입력 → tax(10%) + total 자동 갱신
+        const recalc = () => {
+          const supply = Number(supplyEl?.value) || 0;
+          const tax    = Math.round(supply * 0.1);
+          taxEl.value   = supply > 0 ? tax          : '';
+          totalEl.value = supply > 0 ? supply + tax : '';
+        };
+        supplyEl?.addEventListener('input', recalc);
+
+        // 수정 모드: supply 기존값으로 초기 계산
+        if (supplyEl?.value) recalc();
+
         document.getElementById('pay-m-cancel')?.addEventListener('click', () => Modal.close());
         document.getElementById('pay-m-save')?.addEventListener('click', () => this._saveSchedule(schedule?.id));
       },
@@ -559,20 +578,21 @@ const PaymentsPage = {
   async _saveSchedule(existingId = null) {
     const customer_name = document.getElementById('pay-m-customer')?.value.trim();
     const contract_name = document.getElementById('pay-m-contract-name')?.value.trim();
-    const stage_name = document.getElementById('pay-m-stage')?.value;
-    const due_date = document.getElementById('pay-m-due-date')?.value;
-    const scheduled_amount = document.getElementById('pay-m-amount')?.value;
-    const tax_amount = document.getElementById('pay-m-tax')?.value;
-    const note = document.getElementById('pay-m-note')?.value.trim();
+    const stage_name    = document.getElementById('pay-m-stage')?.value;
+    const due_date      = document.getElementById('pay-m-due-date')?.value;
+    const supply_str    = document.getElementById('pay-m-supply')?.value;
+    const note          = document.getElementById('pay-m-note')?.value.trim();
 
     if (!customer_name) { Toast.error?.('고객사명을 입력하세요'); return; }
-    if (!scheduled_amount) { Toast.error?.('수금 예정액을 입력하세요'); return; }
-    if (!due_date) { Toast.error?.('수금 예정일을 입력하세요'); return; }
+    if (!supply_str)    { Toast.error?.('수금예정액(VAT별도)을 입력하세요'); return; }
+    if (!due_date)      { Toast.error?.('수금 예정일을 입력하세요'); return; }
+
+    const supply_amount    = Number(supply_str);
+    const tax_amount       = Math.round(supply_amount * 0.1);
+    const scheduled_amount = supply_amount + tax_amount;
 
     const payload = { customer_name, contract_name, stage_name, due_date,
-                      scheduled_amount: Number(scheduled_amount),
-                      tax_amount: Number(tax_amount || 0),
-                      supply_amount: Math.round(Number(scheduled_amount) / 1.1),
+                      supply_amount, tax_amount, scheduled_amount,
                       note };
     try {
       if (existingId) {
