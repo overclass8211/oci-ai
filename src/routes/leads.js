@@ -60,6 +60,20 @@ pool
 // JSON 배열 형태로 team_members.id 저장 (e.g., [3, 7, 12])
 pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS collaborator_ids JSON NULL`).catch(() => {});
 
+// v7.0.0 Option C 재설계: 이익률 + 경쟁사 컬럼
+// profit_rate: 예상이익률 (%) — 이익금은 프론트에서 expected_amount × profit_rate / 100 으로 계산
+// competitor: 경쟁사 자유 입력 텍스트
+pool
+  .query(
+    `ALTER TABLE leads ADD COLUMN IF NOT EXISTS profit_rate DECIMAL(5,2) NULL DEFAULT NULL COMMENT '예상이익률 (%)'`
+  )
+  .catch(() => {});
+pool
+  .query(
+    `ALTER TABLE leads ADD COLUMN IF NOT EXISTS competitor VARCHAR(200) NULL DEFAULT NULL COMMENT '경쟁사'`
+  )
+  .catch(() => {});
+
 // 협업자 ID 배열 정규화: 입력값(JSON|배열|CSV|null) → 깨끗한 INT[] 반환
 function normalizeCollaboratorIds(input, excludeId = null) {
   if (input === null || input === undefined || input === '') return [];
@@ -604,6 +618,8 @@ router.put('/:id', validateId, async (req, res) => {
       'expected_close_date',
       'bidding_deadline',
       'notes',
+      'profit_rate', // v7.0.0 Option C
+      'competitor', // v7.0.0 Option C
     ];
     const updates = [];
     const values = [];
