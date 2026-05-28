@@ -13,7 +13,16 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "prepare": "husky || echo 'husky skipped (production or unavailable)'",
-    "init-db": "node scripts/init-db.js"
+    "init-db": "node scripts/init-db.js",
+    "cap:sync": "npx cap sync",
+    "cap:sync:android": "npx cap sync android",
+    "cap:sync:ios": "npx cap sync ios",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios",
+    "cap:run:android": "npx cap run android",
+    "cap:run:ios": "npx cap run ios",
+    "cap:build:android": "cd android && ./gradlew assembleDebug",
+    "cap:doctor": "npx cap doctor"
   },
   "lint-staged": {
     "src/**/*.js": [
@@ -56,6 +65,10 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/ios": "^8.3.4",
     "@playwright/test": "^1.60.0",
     "@vitest/coverage-v8": "^1.6.1",
     "husky": "^9.1.7",

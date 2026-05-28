@@ -48,3 +48,44 @@ server_run.txt
 test-results/
 playwright-report/
 playwright/.cache/
+
+# ─────────────────────────────────────────────────────────
+# Capacitor (네이티브 모바일 빌드 — v6.0.0)
+# 핵심 원칙: 플랫폼 구조는 git 에 포함, 빌드 산출물/캐시는 제외
+# ─────────────────────────────────────────────────────────
+
+# Android — 빌드 산출물
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/captures/
+android/.idea/
+android/app/release/
+android/app/debug/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# iOS — 빌드 산출물
+ios/App/build/
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/DerivedData/
+ios/.swiftpm/
+
+# Capacitor 빌드 캐시 / lock
+.gradle/
+
+# 시크릿 / 키스토어 (절대 commit 금지)
+android/app/*.keystore
+android/app/*.jks
+android/keystore.properties
+ios/App/*.p12
+ios/App/*.mobileprovision
+*.cer
