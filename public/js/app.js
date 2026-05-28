@@ -1437,8 +1437,13 @@ const App = {
               <div class="card-body no-pad" id="ld-timeline-body" style="max-height:55vh;overflow-y:auto">
                 <div class="loading" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">⏳ 타임라인 로딩 중...</div>
               </div>
-              <!-- v7.0.0 R3: 코멘트 입력 — 타임라인 하단 통합 -->
+              <!-- v7.0.0 R3+R5: 코멘트 입력 — 타임라인 하단 통합 + 답글 모드 -->
               <div style="padding:8px 12px;border-top:1px solid var(--border);background:#fafafa">
+                <!-- v7.0.0 R5: 답글 상태 배지 -->
+                <div id="ld-reply-badge" style="display:none;align-items:center;gap:6px;padding:3px 8px;background:#e0f2fe;border-radius:4px;font-size:11px;color:#0891b2;margin-bottom:5px">
+                  <span id="ld-reply-badge-text"></span>
+                  <button type="button" id="ld-reply-cancel" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-3);padding:0;margin-left:auto;line-height:1">✕</button>
+                </div>
                 <div style="display:flex;gap:6px;align-items:flex-start">
                   <select id="ld-comment-type" class="form-input" style="width:100px;font-size:12px;flex-shrink:0">
                     <option value="general">💭 의견</option>
@@ -1572,6 +1577,16 @@ const App = {
           // v6.0.0 Phase 2: People Picker 인라인 편집
           '#ld-owner-edit': e => this._openOwnerPicker(e, l.id, l.assigned_to, l.assigned_name),
           '#ld-collab-edit': e => this._openCollabPicker(e, l.id, l.collaborators),
+          // v7.0.0 R5: 답글 취소
+          '#ld-reply-cancel': () => {
+            const cBody = document.getElementById('ld-comment-body');
+            const badge = document.getElementById('ld-reply-badge');
+            if (cBody) {
+              delete cBody.dataset.parentId;
+              cBody.placeholder = '코멘트 입력... (Ctrl+Enter 등록)';
+            }
+            if (badge) badge.style.display = 'none';
+          },
         },
       });
       // v7.0.0 R3: 댓글은 _loadTimeline 에서 7번째 소스로 통합 로드 — 별도 호출 불필요
@@ -1660,14 +1675,23 @@ const App = {
       return;
     }
     const commentType = typeEl?.value || 'general';
+    // v7.0.0 R5: 답글 parent_id
+    const parentId = bodyEl.dataset.parentId ? parseInt(bodyEl.dataset.parentId, 10) : null;
     if (btn) {
       btn.disabled = true;
       btn.textContent = '⏳';
     }
     try {
-      await API.leads.comments.create(leadId, { body: text, comment_type: commentType });
+      const payload = { body: text, comment_type: commentType };
+      if (parentId) payload.parent_id = parentId;
+      await API.leads.comments.create(leadId, payload);
       Toast.success?.('댓글 등록됨 — 관련자에게 알림 발송 (30초 디바운싱)');
       bodyEl.value = '';
+      // v7.0.0 R5: 답글 상태 초기화
+      delete bodyEl.dataset.parentId;
+      bodyEl.placeholder = '코멘트 입력... (Ctrl+Enter 등록)';
+      const badge = document.getElementById('ld-reply-badge');
+      if (badge) badge.style.display = 'none';
       // v7.0.0 R3: 타임라인 전체 재로드 (comments 통합)
       this._loadTimeline(leadId, this._tlState.customerName);
     } catch (err) {
@@ -2519,7 +2543,17 @@ const App = {
         : '';
       const subLabel = it.sub || m.label;
       const cssVars = `--c-color:${m.color};--c-bg:${m.bg}`;
-      rows.push(`<div class="ld-tl-row${it.click ? ' ld-tl-row-link' : ''}" ${clickAttr} style="${cssVars}">
+      // v7.0.0 R5: 대댓글 들여쓰기 + 답글 버튼
+      const isReply = it.category === 'comment' && it.raw.parent_id;
+      const indentStyle = isReply ? 'margin-left:18px;padding-left:8px;border-left:2px solid #bae6fd;' : '';
+      const replyBtn =
+        it.category === 'comment' && !it.raw.parent_id
+          ? `<button type="button" class="ld-tl-reply-btn" data-parent-id="${it.raw.id}" data-parent-author="${esc(it.meta)}"
+               style="margin-top:4px;font-size:10px;background:none;border:1px solid var(--border);
+                      border-radius:10px;padding:1px 7px;cursor:pointer;color:var(--text-3);
+                      transition:all .12s;display:inline-block">↩ 답글</button>`
+          : '';
+      rows.push(`<div class="ld-tl-row${it.click ? ' ld-tl-row-link' : ''}" ${clickAttr} style="${cssVars};${indentStyle}">
         <div class="ld-tl-meta">
           <div class="ld-tl-dot" style="background:${m.color}" title="${esc(m.label)}"></div>
           <span class="ld-tl-badge" style="background:${m.bg};color:${m.color}">
@@ -2540,6 +2574,7 @@ const App = {
             </div>`
               : ''
           }
+          ${replyBtn}
         </div>
       </div>`);
     }
@@ -2548,6 +2583,25 @@ const App = {
     // hover 효과는 CSS :hover 로 위임 — JS 클릭 핸들러만 등록
     bodyEl.querySelectorAll('.ld-tl-row[data-tl-click]').forEach(row => {
       row.addEventListener('click', () => this._onTimelineClick(row.dataset));
+    });
+    // v7.0.0 R5: 답글 버튼 — 입력란에 parent_id + placeholder 설정
+    bodyEl.querySelectorAll('.ld-tl-reply-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const parentAuthor = btn.dataset.parentAuthor || '작성자';
+        const cBody = document.getElementById('ld-comment-body');
+        const badge = document.getElementById('ld-reply-badge');
+        const badgeText = document.getElementById('ld-reply-badge-text');
+        if (cBody) {
+          cBody.dataset.parentId = btn.dataset.parentId;
+          cBody.placeholder = `@${parentAuthor} 에게 답글... (Ctrl+Enter 등록)`;
+          cBody.focus();
+        }
+        if (badge && badgeText) {
+          badgeText.textContent = `↩ @${parentAuthor} 에게 답글 중`;
+          badge.style.display = 'flex';
+        }
+      });
     });
   },
 
