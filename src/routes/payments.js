@@ -141,7 +141,19 @@ async function runMigrations() {
         COMMENT '품목 내역 JSON'
   `);
 
-  console.log('[payments:migration] 자가 마이그레이션 완료 (4개 테이블 + 2개 컬럼)');
+  // ⑥ 통화 단위 + 계약 기간 컬럼 추가 (수금 모달 재설계 — idempotent)
+  //    model A(평면) 정책: 계약 단위 정보를 각 마일스톤 행에 비정규화 저장
+  await pool.query(`
+    ALTER TABLE payment_schedules
+      ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'KRW'
+        COMMENT '통화 단위 (KRW|USD|JPY|EUR|GBP|CNY|AUD ...)',
+      ADD COLUMN IF NOT EXISTS contract_start_date DATE NULL
+        COMMENT '계약 시작일 (계약 단위, 비정규화)',
+      ADD COLUMN IF NOT EXISTS contract_end_date DATE NULL
+        COMMENT '계약 종료일 (계약 단위, 비정규화)'
+  `);
+
+  console.log('[payments:migration] 자가 마이그레이션 완료 (4개 테이블 + 5개 컬럼)');
 }
 
 runMigrations().catch(err => console.error('[payments:migration] 오류:', err));
@@ -367,6 +379,267 @@ router.post('/templates', async (req, res) => {
   }
 });
 
+// ─── 수금 설정 (품목유형 + 기본 통화) — system_settings key-value ──
+//    supplier-info 패턴 동일. 페이지(team_lead+) 에서 직접 관리 가능.
+const PAYMENT_STAGE_TYPES_KEY = 'payment_stage_types';
+const PAYMENT_DEFAULT_CUR_KEY = 'payment_default_currency';
+const DEFAULT_STAGE_TYPES = ['착수금', '중도금', '잔금', '기타'];
+const DEFAULT_CURRENCY = 'KRW';
+const ALLOWED_CURRENCIES = ['KRW', 'USD', 'JPY', 'EUR', 'GBP', 'CNY', 'AUD', 'SGD', 'HKD', 'VND'];
+
+router.get('/config', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN (?, ?)`,
+      [PAYMENT_STAGE_TYPES_KEY, PAYMENT_DEFAULT_CUR_KEY]
+    );
+    const map = {};
+    rows.forEach(r => {
+      map[r.setting_key] = r.setting_value;
+    });
+
+    let stageTypes = DEFAULT_STAGE_TYPES;
+    if (map[PAYMENT_STAGE_TYPES_KEY]) {
+      try {
+        const parsed = JSON.parse(map[PAYMENT_STAGE_TYPES_KEY]);
+        if (Array.isArray(parsed) && parsed.length) {
+          stageTypes = parsed.map(s => String(s).slice(0, 50)).filter(Boolean);
+        }
+      } catch (_e) {
+        /* 손상된 값 — 기본값 사용 */
+      }
+    }
+    const defaultCurrency = ALLOWED_CURRENCIES.includes(map[PAYMENT_DEFAULT_CUR_KEY])
+      ? map[PAYMENT_DEFAULT_CUR_KEY]
+      : DEFAULT_CURRENCY;
+
+    res.json({
+      success: true,
+      data: {
+        stage_types: stageTypes,
+        default_currency: defaultCurrency,
+        allowed_currencies: ALLOWED_CURRENCIES,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.put('/config', async (req, res) => {
+  try {
+    const { stage_types, default_currency } = req.body || {};
+    const updates = [];
+
+    if (stage_types !== undefined) {
+      if (!Array.isArray(stage_types) || !stage_types.length)
+        return res
+          .status(400)
+          .json({ success: false, error: 'stage_types 는 비어있지 않은 배열이어야 합니다' });
+      const cleaned = [
+        ...new Set(
+          stage_types
+            .map(s =>
+              String(s || '')
+                .trim()
+                .slice(0, 50)
+            )
+            .filter(Boolean)
+        ),
+      ];
+      if (!cleaned.length)
+        return res.status(400).json({ success: false, error: '유효한 품목유형이 없습니다' });
+      updates.push([PAYMENT_STAGE_TYPES_KEY, JSON.stringify(cleaned)]);
+    }
+    if (default_currency !== undefined) {
+      if (!ALLOWED_CURRENCIES.includes(default_currency))
+        return res.status(400).json({ success: false, error: '허용되지 않은 통화 코드입니다' });
+      updates.push([PAYMENT_DEFAULT_CUR_KEY, default_currency]);
+    }
+    if (!updates.length)
+      return res.status(400).json({ success: false, error: '저장할 항목이 없습니다' });
+
+    for (const [key, value] of updates) {
+      await pool.query(
+        `INSERT INTO system_settings (setting_key, setting_value) VALUES (?,?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+        [key, value]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── 수금 스케줄 일괄 저장 (계약 1건 → 마일스톤 N행) ────────────
+//    model A(평면): shared(계약 단위) 정보를 각 마일스톤 행에 비정규화.
+//    create + update(upsert) + delete 를 1 트랜잭션으로 원자 처리.
+router.post('/batch', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { shared = {}, milestones = [], delete_ids = [] } = req.body || {};
+
+    const customerName = String(shared.customer_name || '').trim();
+    if (!customerName) {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({ success: false, error: '고객사명(customer_name)은 필수입니다' });
+    }
+    if (!Array.isArray(milestones)) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: 'milestones 는 배열이어야 합니다' });
+    }
+    const delIds = (Array.isArray(delete_ids) ? delete_ids : [])
+      .map(n => parseInt(n, 10))
+      .filter(n => Number.isInteger(n) && n > 0);
+    if (!milestones.length && !delIds.length) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, error: '저장할 마일스톤이 없습니다' });
+    }
+
+    // 계약 단위 비정규화 공통 필드
+    const currency = ALLOWED_CURRENCIES.includes(shared.currency) ? shared.currency : 'KRW';
+    const sharedCols = {
+      contract_id: shared.contract_id || null,
+      customer_id: shared.customer_id || null,
+      customer_name: customerName,
+      contract_name: shared.contract_name ? String(shared.contract_name).slice(0, 200) : null,
+      contract_supply_amount:
+        shared.contract_supply_amount !== null &&
+        shared.contract_supply_amount !== undefined &&
+        shared.contract_supply_amount !== ''
+          ? Number(shared.contract_supply_amount)
+          : null,
+      currency,
+      contract_start_date: shared.contract_start_date || null,
+      contract_end_date: shared.contract_end_date || null,
+    };
+
+    // 1) 삭제 (제거된 마일스톤) — 입금기록도 함께 정리
+    let deleted = 0;
+    if (delIds.length) {
+      const ph = delIds.map(() => '?').join(',');
+      await conn.query(`DELETE FROM payment_records WHERE schedule_id IN (${ph})`, delIds);
+      const [r] = await conn.query(`DELETE FROM payment_schedules WHERE id IN (${ph})`, delIds);
+      deleted = r.affectedRows || 0;
+    }
+
+    // 2) upsert (id 있으면 UPDATE, 없으면 INSERT)
+    const createdIds = [];
+    let updated = 0;
+    for (let i = 0; i < milestones.length; i++) {
+      const m = milestones[i] || {};
+      const stageName = String(m.stage_name || '').trim();
+      if (!stageName) {
+        await conn.rollback();
+        return res
+          .status(400)
+          .json({ success: false, error: `${i + 1}번째 마일스톤: 수금품목유형(stage_name) 필수` });
+      }
+      if (!m.due_date) {
+        await conn.rollback();
+        return res
+          .status(400)
+          .json({ success: false, error: `${i + 1}번째 마일스톤: 수금예정일(due_date) 필수` });
+      }
+      const supply = Number(m.supply_amount) || 0;
+      const tax =
+        m.tax_amount !== null && m.tax_amount !== undefined
+          ? Number(m.tax_amount)
+          : Math.round(supply * 0.1);
+      const scheduled =
+        m.scheduled_amount !== null && m.scheduled_amount !== undefined
+          ? Number(m.scheduled_amount)
+          : supply + tax;
+      if (!scheduled) {
+        await conn.rollback();
+        return res
+          .status(400)
+          .json({ success: false, error: `${i + 1}번째 마일스톤: 수금예정액 필수` });
+      }
+      const ratio =
+        m.ratio !== null && m.ratio !== undefined && m.ratio !== '' ? Number(m.ratio) : null;
+      const stageOrder = i + 1;
+      const note = m.note ? String(m.note).slice(0, 2000) : null;
+
+      const existingId = parseInt(m.id, 10);
+      if (Number.isInteger(existingId) && existingId > 0) {
+        await conn.query(
+          `UPDATE payment_schedules SET
+             contract_id=?, customer_id=?, customer_name=?, contract_name=?,
+             contract_supply_amount=?, currency=?, contract_start_date=?, contract_end_date=?,
+             stage_name=?, stage_order=?, ratio=?,
+             scheduled_amount=?, supply_amount=?, tax_amount=?, due_date=?, note=?
+           WHERE id=?`,
+          [
+            sharedCols.contract_id,
+            sharedCols.customer_id,
+            sharedCols.customer_name,
+            sharedCols.contract_name,
+            sharedCols.contract_supply_amount,
+            sharedCols.currency,
+            sharedCols.contract_start_date,
+            sharedCols.contract_end_date,
+            stageName,
+            stageOrder,
+            ratio,
+            scheduled,
+            supply,
+            tax,
+            m.due_date,
+            note,
+            existingId,
+          ]
+        );
+        updated++;
+      } else {
+        const [result] = await conn.query(
+          `INSERT INTO payment_schedules
+             (contract_id, customer_id, customer_name, contract_name,
+              contract_supply_amount, currency, contract_start_date, contract_end_date,
+              stage_name, stage_order, ratio,
+              scheduled_amount, supply_amount, tax_amount, due_date, status, note, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'scheduled', ?,?)`,
+          [
+            sharedCols.contract_id,
+            sharedCols.customer_id,
+            sharedCols.customer_name,
+            sharedCols.contract_name,
+            sharedCols.contract_supply_amount,
+            sharedCols.currency,
+            sharedCols.contract_start_date,
+            sharedCols.contract_end_date,
+            stageName,
+            stageOrder,
+            ratio,
+            scheduled,
+            supply,
+            tax,
+            m.due_date,
+            note,
+            req.user?.id || null,
+          ]
+        );
+        createdIds.push(result.insertId);
+      }
+    }
+
+    await conn.commit();
+    res.json({
+      success: true,
+      data: { created: createdIds.length, updated, deleted, ids: createdIds },
+    });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // ─── F1. 수금 스케줄 목록 ─────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
@@ -582,6 +855,9 @@ const ALLOWED_SCHEDULE_FIELDS = [
   'customer_name',
   'contract_name',
   'items_json',
+  'currency',
+  'contract_start_date',
+  'contract_end_date',
 ];
 
 router.put('/:id', async (req, res) => {

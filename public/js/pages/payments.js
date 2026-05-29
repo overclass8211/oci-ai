@@ -13,8 +13,10 @@ const PaymentsPage = {
   _filter: { status: '', search: '', due_from: '', due_to: '' },
   _sort: { key: 'due_date', dir: 'asc' },
   _filterTimer: null,
-  _modalItems: [],   // 현재 열린 모달의 품목 배열
-  _itemsOpen: true,  // 품목 아코디언 열림 상태
+  _config: null,      // 수금 설정 (품목유형 + 기본통화) — /payments/config
+  _ms: [],            // 현재 모달의 마일스톤 배열
+  _msDeleted: [],     // 편집 중 삭제된 기존 마일스톤 id
+  _msCurrency: 'KRW', // 현재 모달 통화
 
   // ── 진입점 ──────────────────────────────────────────────────
   async render() {
@@ -61,7 +63,7 @@ const PaymentsPage = {
     this._sort   = { key: 'due_date', dir: 'asc' };
 
     // 데이터 로드
-    await Promise.all([this._loadDashboard(), this._loadSchedules()]);
+    await Promise.all([this._loadDashboard(), this._loadSchedules(), this._loadConfig()]);
     this._renderTab();
   },
 
@@ -85,6 +87,23 @@ const PaymentsPage = {
       }
     } catch (e) {
       console.error('[payments] dashboard 로드 실패', e);
+    }
+  },
+
+  // 수금 설정 로드 (품목유형 + 기본통화) — 실패 시 안전한 기본값
+  async _loadConfig() {
+    try {
+      const res = await API.get('/payments/config');
+      if (res.success) this._config = res.data;
+    } catch (e) {
+      console.error('[payments] config 로드 실패', e);
+    }
+    if (!this._config) {
+      this._config = {
+        stage_types: ['착수금', '중도금', '잔금', '기타'],
+        default_currency: 'KRW',
+        allowed_currencies: ['KRW', 'USD', 'JPY', 'EUR', 'GBP', 'CNY', 'AUD', 'SGD', 'HKD', 'VND'],
+      };
     }
   },
 
@@ -494,144 +513,151 @@ const PaymentsPage = {
     `;
   },
 
-  // ── 수금 스케줄 등록 모달 ───────────────────────────────────
+  // ── 수금 스케줄 등록·수정 모달 (재설계: 2단 레이아웃) ─────────
+  // 상단 = 계약 기본 정보(총계약금/통화/기간), 하단 = 마일스톤(N개 수금단계)
   _openScheduleModal(schedule = null) {
     const isEdit = !!schedule;
+    const cfg = this._config || {
+      stage_types: ['착수금', '중도금', '잔금', '기타'],
+      default_currency: 'KRW',
+      allowed_currencies: ['KRW', 'USD', 'JPY', 'EUR', 'GBP', 'CNY', 'AUD', 'SGD', 'HKD', 'VND'],
+    };
 
-    // 품목 배열 초기화 (수정 시 기존 JSON 파싱)
-    this._modalItems = [];
-    if (schedule?.items_json) {
-      try { this._modalItems = JSON.parse(schedule.items_json); } catch (_e) {}
+    // 편집 그룹 로드 — model A(평면): 같은 contract_id 형제 행을 한 모달로 묶어 편집.
+    // contract_id 가 없으면 단일 행만 편집.
+    let group, shared;
+    if (isEdit) {
+      group = schedule.contract_id
+        ? this._schedules.filter(s => s.contract_id === schedule.contract_id)
+        : [schedule];
+      if (!group.length) group = [schedule];
+      shared = group[0];
+    } else {
+      group = [];
+      shared = {};
     }
-    this._itemsOpen = true;
 
-    const stageOpts = ['착수금', '중도금', '잔금', '기타'].map(v => {
-      // 수정 모드: 일치하는 값 선택, 신규: 착수금 기본
-      const isSel = isEdit
-        ? (schedule.stage_name === v || (!['착수금', '중도금', '잔금'].includes(schedule.stage_name) && v === '기타'))
-        : v === '착수금';
-      return `<option value="${v}" ${isSel ? 'selected' : ''}>${v}</option>`;
-    }).join('');
+    // 통화: 편집 시 기존값, 신규 시 기본통화
+    this._msCurrency = shared.currency || cfg.default_currency || 'KRW';
+    this._msDeleted = [];
+
+    // 마일스톤 배열 구성
+    this._ms = isEdit
+      ? group.map(s => ({
+          id: s.id,
+          stage_name: s.stage_name || '',
+          ratio: s.ratio !== null ? Number(s.ratio) : null,
+          due_date: this._dateVal(s.due_date),
+          supply_amount: s.supply_amount !== null ? Number(s.supply_amount) : null,
+          tax_amount: s.tax_amount !== null ? Number(s.tax_amount) : null,
+          scheduled_amount: s.scheduled_amount !== null ? Number(s.scheduled_amount) : null,
+        }))
+      : [{ stage_name: cfg.stage_types[0] || '착수금', ratio: null, due_date: '',
+           supply_amount: null, tax_amount: null, scheduled_amount: null }];
+
+    const cur = this._msCurrency;
+    const curOpts = (cfg.allowed_currencies || ['KRW']).map(c =>
+      `<option value="${c}" ${c === cur ? 'selected' : ''}>${c}</option>`).join('');
+    const csupply =
+      shared.contract_supply_amount !== null && shared.contract_supply_amount !== undefined
+        ? Number(shared.contract_supply_amount)
+        : null;
+    const ctotal = csupply !== null ? Math.round(csupply * 1.1) : null;
 
     Modal.open({
       title: isEdit ? '✏️ 수금 스케줄 수정' : '➕ 수금 스케줄 등록',
+      wide: true,
       disableOverlayClose: true,
       body: `
-        <div style="display:grid;gap:12px">
+        <div style="display:flex;flex-direction:column;gap:0">
 
-          <!-- ① 고객사명 -->
-          <div>
-            <label class="form-label">고객사명 *</label>
-            <input id="pay-m-customer" class="form-input"
-              value="${this._esc(schedule?.customer_name || '')}" placeholder="고객사 이름">
-          </div>
+          <!-- ═══ 상단: 계약 기본 정보 ═══ -->
+          <div style="border:1px solid var(--border);border-radius:10px;padding:16px;background:#FAFBFC">
+            <div style="font-size:13px;font-weight:700;color:var(--text-1);margin-bottom:12px;
+                        display:flex;align-items:center;gap:6px">📄 계약 기본 정보</div>
 
-          <!-- ② 계약/프로젝트명 -->
-          <div>
-            <label class="form-label">계약/프로젝트명</label>
-            <input id="pay-m-contract-name" class="form-input"
-              value="${this._esc(schedule?.contract_name || '')}" placeholder="계약명 또는 프로젝트명">
-          </div>
+            <!-- 고객사명 | 계약/프로젝트명 -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div>
+                <label class="form-label">고객사명 *</label>
+                <input id="pay-m-customer" class="form-input"
+                  value="${this._esc(shared.customer_name || '')}" placeholder="고객사 이름">
+              </div>
+              <div>
+                <label class="form-label">계약/프로젝트명</label>
+                <input id="pay-m-contract-name" class="form-input"
+                  value="${this._esc(shared.contract_name || '')}" placeholder="계약명 또는 프로젝트명">
+              </div>
+            </div>
 
-          <!-- ③ 총계약금(VAT별도) | 계약금(VAT포함) -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div>
-              <label class="form-label">총계약금 (VAT별도)</label>
-              <input id="pay-m-contract-supply" type="number" class="form-input"
-                value="${schedule?.contract_supply_amount || ''}" placeholder="0" min="0">
+            <!-- 총계약금(VAT별도) | 계약금(VAT포함) | 통화 -->
+            <div style="display:grid;grid-template-columns:1.2fr 1.2fr 0.8fr;gap:12px;margin-bottom:12px">
+              <div>
+                <label class="form-label">총계약금 (VAT별도)</label>
+                <div style="position:relative">
+                  <input id="pay-m-contract-supply" type="text" inputmode="numeric" class="form-input"
+                    value="${csupply !== null ? csupply.toLocaleString('en-US') : ''}"
+                    placeholder="0" style="padding-right:38px">
+                  <span id="pay-unit-csupply" style="position:absolute;right:10px;top:50%;
+                    transform:translateY(-50%);font-size:12px;color:var(--text-3);pointer-events:none">${this._curUnit(cur)}</span>
+                </div>
+              </div>
+              <div>
+                <label class="form-label">계약금 (VAT포함 자동)</label>
+                <div style="position:relative">
+                  <input id="pay-m-contract-total" type="text" class="form-input" readonly
+                    value="${ctotal !== null ? ctotal.toLocaleString('en-US') : ''}" placeholder="자동계산"
+                    style="padding-right:38px;background:#F1F3F5;color:var(--text-2);cursor:default">
+                  <span id="pay-unit-ctotal" style="position:absolute;right:10px;top:50%;
+                    transform:translateY(-50%);font-size:12px;color:var(--text-3);pointer-events:none">${this._curUnit(cur)}</span>
+                </div>
+              </div>
+              <div>
+                <label class="form-label">통화</label>
+                <select id="pay-m-currency" class="form-input">${curOpts}</select>
+              </div>
             </div>
-            <div>
-              <label class="form-label">계약금 (VAT포함 자동계산)</label>
-              <input id="pay-m-contract-total" type="number" class="form-input"
-                value="${schedule?.contract_supply_amount ? Math.round(Number(schedule.contract_supply_amount) * 1.1) : ''}"
-                placeholder="자동계산" readonly
-                style="background:#F9FAFB;color:var(--text-3);cursor:default">
-            </div>
-          </div>
 
-          <!-- ④ 수금단계(2fr) | 지급율(1fr) | 수금예정일(1fr) -->
-          <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px">
-            <div>
-              <label class="form-label">수금 단계 *</label>
-              <select id="pay-m-stage" class="form-input">${stageOpts}</select>
-            </div>
-            <div>
-              <label class="form-label">지급율 (%)</label>
-              <input id="pay-m-ratio" type="number" class="form-input"
-                value="${schedule?.ratio || ''}"
-                placeholder="0.00" min="0.01" max="100" step="0.01">
-            </div>
-            <div>
-              <label class="form-label">수금 예정일 *</label>
-              <input id="pay-m-due-date" type="date" class="form-input"
-                value="${schedule?.due_date || ''}">
-            </div>
-          </div>
-
-          <!-- ⑤ 수금예정액(VAT별도) | 부가세(10%) | 수금예정액(VAT포함) -->
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-            <div>
-              <label class="form-label">수금예정액 (VAT별도) *</label>
-              <input id="pay-m-supply" type="number" class="form-input"
-                value="${schedule?.supply_amount || ''}" placeholder="0" min="0">
-            </div>
-            <div>
-              <label class="form-label">부가세 (10%)</label>
-              <input id="pay-m-tax" type="number" class="form-input"
-                value="${schedule?.tax_amount || ''}" placeholder="자동계산" readonly
-                style="background:#F9FAFB;color:var(--text-3);cursor:default">
-            </div>
-            <div>
-              <label class="form-label">수금예정액 (VAT포함)</label>
-              <input id="pay-m-amount" type="number" class="form-input"
-                value="${schedule?.scheduled_amount || ''}" placeholder="자동계산" readonly
-                style="background:#F0F4FF;color:#1664E5;font-weight:600;cursor:default">
+            <!-- 계약 시작일 | 종료일 -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label class="form-label">계약 시작일</label>
+                <input id="pay-m-start" type="date" class="form-input"
+                  value="${this._dateVal(shared.contract_start_date)}">
+              </div>
+              <div>
+                <label class="form-label">계약 종료일</label>
+                <input id="pay-m-end" type="date" class="form-input"
+                  value="${this._dateVal(shared.contract_end_date)}">
+              </div>
             </div>
           </div>
 
-          <!-- ⑥ 품목 내역 아코디언 -->
-          <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
-            <div style="display:flex;align-items:center;justify-content:space-between;
-                        padding:8px 12px;background:#F9FAFB;border-bottom:1px solid var(--border)">
-              <button id="pay-items-toggle" type="button"
-                style="background:none;border:none;font-size:13px;font-weight:600;
-                       cursor:pointer;display:flex;align-items:center;gap:6px;color:var(--text-1)">
-                <span id="pay-items-arrow">▼</span> 품목 내역
-                <span id="pay-items-cnt" style="font-size:11px;color:var(--text-3);font-weight:400">
-                  (${this._modalItems.length}건)
-                </span>
-              </button>
-              <button id="pay-items-add" type="button"
-                style="font-size:12px;padding:3px 10px;background:#EFF6FF;color:#1664E5;
-                       border:1px solid #BFDBFE;border-radius:6px;cursor:pointer;white-space:nowrap">
-                + 품목 추가
-              </button>
+          <!-- ═══ 구분 밴드: 수금 품목 구분 ═══ -->
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      margin:16px 0 12px;padding:10px 14px;border-radius:8px;
+                      background:linear-gradient(90deg,#FEF2F2,#FFF5F5);border:1px solid #FECACA">
+            <div style="font-size:13px;font-weight:700;color:#E63329;display:flex;align-items:center;gap:6px">
+              📋 수금 품목 구분
             </div>
-            <div id="pay-items-body-inner" style="overflow-x:auto">
-              <table id="pay-items-table"
-                style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px">
-                <thead style="background:#F9FAFB">
-                  <tr style="color:var(--text-3)">
-                    <th style="padding:6px 8px;text-align:left;font-weight:600;white-space:nowrap;min-width:110px">품목명</th>
-                    <th style="padding:6px 8px;text-align:left;font-weight:600;min-width:70px">규격</th>
-                    <th style="padding:6px 8px;text-align:center;font-weight:600;min-width:55px">수량</th>
-                    <th style="padding:6px 8px;text-align:right;font-weight:600;white-space:nowrap;min-width:100px">단가 (VAT별도)</th>
-                    <th style="padding:6px 8px;text-align:right;font-weight:600;white-space:nowrap;min-width:100px">소계 (VAT별도)</th>
-                    <th style="padding:6px 8px;text-align:left;font-weight:600;min-width:70px">비고</th>
-                    <th style="padding:6px 8px;width:28px"></th>
-                  </tr>
-                </thead>
-                <tbody id="pay-items-tbody"></tbody>
-                <tfoot id="pay-items-tfoot"></tfoot>
-              </table>
-            </div>
+            <button id="pay-ms-add" type="button"
+              style="font-size:12px;padding:5px 12px;background:#E63329;color:#fff;
+                     border:none;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:600">
+              + 수금 단계 추가
+            </button>
           </div>
 
-          <!-- ⑦ 비고 -->
-          <div>
-            <label class="form-label">비고</label>
+          <!-- ═══ 하단: 마일스톤 카드 목록 ═══ -->
+          <div id="pay-ms-list" style="display:flex;flex-direction:column;gap:10px"></div>
+
+          <!-- 합계 요약 -->
+          <div id="pay-ms-summary" style="margin-top:14px"></div>
+
+          <!-- 비고 (계약 전체) -->
+          <div style="margin-top:14px">
+            <label class="form-label">비고 (계약 전체)</label>
             <textarea id="pay-m-note" class="form-input" rows="2"
-              placeholder="메모">${this._esc(schedule?.note || '')}</textarea>
+              placeholder="메모">${this._esc(shared.note || '')}</textarea>
           </div>
         </div>
       `,
@@ -640,249 +666,382 @@ const PaymentsPage = {
         <button id="pay-m-save" class="btn btn-primary">${isEdit ? '저장' : '등록'}</button>
       `,
       onOpen: () => {
-        const contractSupplyEl = document.getElementById('pay-m-contract-supply');
-        const contractTotalEl  = document.getElementById('pay-m-contract-total');
-        const ratioEl          = document.getElementById('pay-m-ratio');
-        const supplyEl         = document.getElementById('pay-m-supply');
-        const taxEl            = document.getElementById('pay-m-tax');
-        const totalEl          = document.getElementById('pay-m-amount');
-        const itemsBodyEl      = document.getElementById('pay-items-body-inner');
+        const csupplyEl  = document.getElementById('pay-m-contract-supply');
+        const ctotalEl   = document.getElementById('pay-m-contract-total');
+        const currencyEl = document.getElementById('pay-m-currency');
+        const listEl     = document.getElementById('pay-ms-list');
 
-        // ── 자동계산: 수금예정액(VAT별도) → 부가세 + VAT포함 ──────
-        const recalcVat = () => {
-          const supply = Number(supplyEl?.value) || 0;
-          const tax    = Math.round(supply * 0.1);
-          taxEl.value   = supply > 0 ? tax          : '';
-          totalEl.value = supply > 0 ? supply + tax : '';
-        };
-
-        // ── 자동계산: 지급율 + 총계약금 → 수금예정액(VAT별도) ──────
-        const recalcSupplyFromRatio = () => {
-          const contractV = Number(contractSupplyEl?.value) || 0;
-          const ratioV    = Number(ratioEl?.value) || 0;
-          if (contractV > 0 && ratioV > 0) {
-            supplyEl.value = Math.round(contractV * ratioV / 100);
-            recalcVat();
-          }
-        };
-
-        // ── 자동계산: 총계약금 → 계약금(VAT포함) ──────────────────
-        const recalcContractTotal = () => {
-          const v = Number(contractSupplyEl?.value) || 0;
-          contractTotalEl.value = v > 0 ? Math.round(v * 1.1) : '';
-          recalcSupplyFromRatio();
-        };
-
-        contractSupplyEl?.addEventListener('input', recalcContractTotal);
-        ratioEl?.addEventListener('input', recalcSupplyFromRatio);
-        supplyEl?.addEventListener('input', recalcVat);
-
-        // 수정 모드: 기존값으로 초기 계산
-        if (contractSupplyEl?.value) recalcContractTotal();
-        else if (supplyEl?.value) recalcVat();
-
-        // ── 아코디언 토글 ───────────────────────────────────────
-        document.getElementById('pay-items-toggle')?.addEventListener('click', () => {
-          this._itemsOpen = !this._itemsOpen;
-          const inner = document.getElementById('pay-items-body-inner');
-          const arrow = document.getElementById('pay-items-arrow');
-          if (inner) inner.style.display = this._itemsOpen ? '' : 'none';
-          if (arrow) arrow.textContent = this._itemsOpen ? '▼' : '▶';
+        // 총계약금 입력 → 콤마 포맷 + 계약금(VAT포함) 재계산 + 비율기반 마일스톤 재계산
+        csupplyEl?.addEventListener('input', () => {
+          this._formatCommaEl(csupplyEl);
+          const v = this._unComma(csupplyEl.value);
+          ctotalEl.value = v > 0 ? Math.round(v * 1.1).toLocaleString('en-US') : '';
+          this._ms.forEach((m, i) => {
+            if (Number(m.ratio) > 0) this._recalcMilestone(i, { fromRatio: true });
+          });
         });
 
-        // ── 품목 추가 ───────────────────────────────────────────
-        document.getElementById('pay-items-add')?.addEventListener('click', () => {
-          this._modalItems.push({ name: '', spec: '', qty: 1, unit_price: 0, subtotal: 0, note: '' });
-          this._renderModalItems();
+        // 통화 변경 → 단위 표기 갱신 + 마일스톤 재렌더
+        currencyEl?.addEventListener('change', () => {
+          this._msCurrency = currencyEl.value;
+          const u = this._curUnit(this._msCurrency);
+          const us = document.getElementById('pay-unit-csupply');
+          const ut = document.getElementById('pay-unit-ctotal');
+          if (us) us.textContent = u;
+          if (ut) ut.textContent = u;
+          this._renderMilestones();
         });
 
-        // ── 이벤트 위임: 품목 입력 / 삭제 ──────────────────────
-        itemsBodyEl?.addEventListener('input', e => {
-          const i = parseInt(e.target.dataset.i ?? '-1', 10);
-          if (isNaN(i) || i < 0 || i >= this._modalItems.length) return;
-          const item = this._modalItems[i];
+        // 수금 단계 추가
+        document.getElementById('pay-ms-add')?.addEventListener('click', () => {
+          this._ms.push({ stage_name: (this._config?.stage_types?.[0]) || '착수금',
+            ratio: null, due_date: '', supply_amount: null, tax_amount: null, scheduled_amount: null });
+          this._renderMilestones();
+        });
 
-          if (e.target.classList.contains('pay-item-name'))  { item.name  = e.target.value; return; }
-          if (e.target.classList.contains('pay-item-spec'))  { item.spec  = e.target.value; return; }
-          if (e.target.classList.contains('pay-item-note'))  { item.note  = e.target.value; return; }
-
-          if (e.target.classList.contains('pay-item-qty')) {
-            item.qty      = Math.max(0, Number(e.target.value) || 0);
-            item.subtotal = item.qty * (item.unit_price || 0);
-            // 소계 셀만 in-place 갱신 (포커스 유지)
-            const row = document.querySelectorAll('#pay-items-tbody tr')[i];
-            if (row) {
-              const td = row.querySelectorAll('td')[4];
-              if (td) td.textContent = '₩' + item.subtotal.toLocaleString('ko-KR');
-            }
-            this._renderItemTotals();
+        // 이벤트 위임: 마일스톤 입력 (text/number/date)
+        listEl?.addEventListener('input', e => {
+          const card = e.target.closest('.pay-ms-card');
+          if (!card) return;
+          const i = parseInt(card.dataset.mi, 10);
+          if (isNaN(i) || !this._ms[i]) return;
+          const m = this._ms[i];
+          const t = e.target;
+          if (t.classList.contains('pay-ms-type-custom')) { m.stage_name = t.value; return; }
+          if (t.classList.contains('pay-ms-ratio')) {
+            m.ratio = t.value === '' ? null : Number(t.value);
+            this._recalcMilestone(i, { fromRatio: true });
             return;
           }
-          if (e.target.classList.contains('pay-item-price')) {
-            item.unit_price = Number(e.target.value) || 0;
-            item.subtotal   = (item.qty || 0) * item.unit_price;
-            const row = document.querySelectorAll('#pay-items-tbody tr')[i];
-            if (row) {
-              const td = row.querySelectorAll('td')[4];
-              if (td) td.textContent = '₩' + item.subtotal.toLocaleString('ko-KR');
-            }
-            this._renderItemTotals();
+          if (t.classList.contains('pay-ms-supply')) {
+            this._formatCommaEl(t);
+            m.supply_amount = this._unComma(t.value);
+            this._recalcMilestone(i, { fromSupply: true });
             return;
+          }
+          if (t.classList.contains('pay-ms-due')) { m.due_date = t.value; return; }
+        });
+
+        // 이벤트 위임: 품목유형 select 변경
+        listEl?.addEventListener('change', e => {
+          const card = e.target.closest('.pay-ms-card');
+          if (!card) return;
+          const i = parseInt(card.dataset.mi, 10);
+          if (isNaN(i) || !this._ms[i]) return;
+          if (e.target.classList.contains('pay-ms-type')) {
+            const v = e.target.value;
+            if (v === '__custom__') {
+              this._ms[i].stage_name = '';
+              this._renderMilestones();
+            } else {
+              this._ms[i].stage_name = v;
+            }
           }
         });
 
-        itemsBodyEl?.addEventListener('click', e => {
-          const btn = e.target.closest('.pay-item-del');
+        // 이벤트 위임: 마일스톤 삭제
+        listEl?.addEventListener('click', e => {
+          const btn = e.target.closest('.pay-ms-del');
           if (!btn) return;
-          const i = parseInt(btn.dataset.i ?? '-1', 10);
-          if (i >= 0 && i < this._modalItems.length) {
-            this._modalItems.splice(i, 1);
-            this._renderModalItems();
-          }
+          const i = parseInt(btn.dataset.mi, 10);
+          if (isNaN(i) || !this._ms[i]) return;
+          if (this._ms.length <= 1) { Toast.error?.('최소 1개 수금 단계가 필요합니다'); return; }
+          if (this._ms[i].id) this._msDeleted.push(this._ms[i].id);
+          this._ms.splice(i, 1);
+          this._renderMilestones();
         });
 
-        // ── 취소 / 저장 ─────────────────────────────────────────
+        // 취소 / 저장
         document.getElementById('pay-m-cancel')?.addEventListener('click', () => Modal.close());
-        document.getElementById('pay-m-save')?.addEventListener('click', () => this._saveSchedule(schedule?.id));
+        document.getElementById('pay-m-save')?.addEventListener('click', () => this._saveSchedule(schedule));
 
-        // 초기 품목 렌더
-        this._renderModalItems();
+        // 초기 렌더
+        this._renderMilestones();
       },
     });
   },
 
-  // ── 품목 테이블 전체 재렌더 (추가/삭제 시) ──────────────────
-  _renderModalItems() {
-    const tbody = document.getElementById('pay-items-tbody');
-    if (!tbody) return;
+  // ── 마일스톤 카드 전체 재렌더 (추가/삭제/통화변경 시) ─────────
+  _renderMilestones() {
+    const list = document.getElementById('pay-ms-list');
+    if (!list) return;
+    const cfg = this._config || { stage_types: ['착수금', '중도금', '잔금', '기타'] };
+    const cur = this._msCurrency;
+    const unit = this._curUnit(cur);
 
-    if (!this._modalItems.length) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="7" style="text-align:center;padding:14px;color:var(--text-3);font-size:12px">
-            [+ 품목 추가] 버튼으로 품목을 등록하세요
-          </td>
-        </tr>`;
-    } else {
-      tbody.innerHTML = this._modalItems.map((item, i) => `
-        <tr data-idx="${i}" style="border-top:1px solid var(--border)">
-          <td style="padding:4px 6px">
-            <input class="form-input pay-item-name" data-i="${i}"
-              value="${this._esc(item.name || '')}" placeholder="품목명"
-              style="min-width:100px;font-size:12px;padding:4px 6px">
-          </td>
-          <td style="padding:4px 6px">
-            <input class="form-input pay-item-spec" data-i="${i}"
-              value="${this._esc(item.spec || '')}" placeholder="규격"
-              style="min-width:65px;font-size:12px;padding:4px 6px">
-          </td>
-          <td style="padding:4px 6px">
-            <input class="form-input pay-item-qty" data-i="${i}"
-              type="number" value="${item.qty ?? 1}" min="0"
-              style="min-width:50px;font-size:12px;padding:4px 6px;text-align:center">
-          </td>
-          <td style="padding:4px 6px">
-            <input class="form-input pay-item-price" data-i="${i}"
-              type="number" value="${item.unit_price || ''}" placeholder="0" min="0"
-              style="min-width:90px;font-size:12px;padding:4px 6px;text-align:right">
-          </td>
-          <td style="padding:4px 8px;text-align:right;font-weight:600;white-space:nowrap;color:#1664E5">
-            ₩${Number(item.subtotal || 0).toLocaleString('ko-KR')}
-          </td>
-          <td style="padding:4px 6px">
-            <input class="form-input pay-item-note" data-i="${i}"
-              value="${this._esc(item.note || '')}" placeholder="비고"
-              style="min-width:65px;font-size:12px;padding:4px 6px">
-          </td>
-          <td style="padding:4px 6px;text-align:center">
-            <button type="button" class="pay-item-del" data-i="${i}"
-              style="background:none;border:none;cursor:pointer;color:#E63329;
-                     font-size:15px;line-height:1;padding:2px 4px" title="삭제">×</button>
-          </td>
-        </tr>
-      `).join('');
+    list.innerHTML = this._ms.map((m, i) => {
+      const isCustom = !cfg.stage_types.includes(m.stage_name);
+      const typeOpts = cfg.stage_types.map(t =>
+        `<option value="${this._esc(t)}" ${!isCustom && m.stage_name === t ? 'selected' : ''}>${this._esc(t)}</option>`
+      ).join('') + `<option value="__custom__" ${isCustom ? 'selected' : ''}>기타(직접입력)…</option>`;
+
+      const supplyStr = m.supply_amount !== null ? Number(m.supply_amount).toLocaleString('en-US') : '';
+      const taxStr    = m.tax_amount !== null ? Number(m.tax_amount).toLocaleString('en-US') : '';
+      const totalStr  = m.scheduled_amount !== null ? Number(m.scheduled_amount).toLocaleString('en-US') : '';
+
+      return `
+        <div class="pay-ms-card" data-mi="${i}"
+          style="border:1px solid var(--border);border-radius:10px;padding:14px;background:#fff;
+                 box-shadow:0 1px 2px rgba(0,0,0,0.03)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span style="font-size:11px;font-weight:700;color:#E63329;background:#FEF2F2;
+                         padding:2px 10px;border-radius:10px">수금 단계 ${i + 1}</span>
+            <button type="button" class="pay-ms-del" data-mi="${i}"
+              style="background:none;border:none;cursor:pointer;color:#E63329;font-size:16px;
+                     line-height:1;padding:2px 6px" title="이 단계 삭제">×</button>
+          </div>
+
+          <!-- 1행: 수금품목유형 | 지급율 | 수금예정일 -->
+          <div style="display:grid;grid-template-columns:2fr 1fr 1.2fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label class="form-label">수금품목 유형 *</label>
+              <select class="form-input pay-ms-type">${typeOpts}</select>
+              <input class="form-input pay-ms-type-custom" placeholder="유형 직접입력"
+                value="${isCustom ? this._esc(m.stage_name || '') : ''}"
+                style="margin-top:6px;${isCustom ? '' : 'display:none'}">
+            </div>
+            <div>
+              <label class="form-label">지급율 (%)</label>
+              <input class="form-input pay-ms-ratio" type="number" min="0" max="100" step="0.01"
+                value="${m.ratio !== null ? m.ratio : ''}" placeholder="0.00">
+            </div>
+            <div>
+              <label class="form-label">수금 예정일 *</label>
+              <input class="form-input pay-ms-due" type="date" value="${m.due_date || ''}">
+            </div>
+          </div>
+
+          <!-- 2행: 수금예정액(VAT별도) | 부가세(10%) | 수금예정액(VAT포함) -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div>
+              <label class="form-label">수금예정액 (VAT별도) *</label>
+              <div style="position:relative">
+                <input class="form-input pay-ms-supply" type="text" inputmode="numeric"
+                  value="${supplyStr}" placeholder="0" style="padding-right:34px">
+                <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                  font-size:12px;color:var(--text-3);pointer-events:none">${unit}</span>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">부가세 (10%)</label>
+              <div style="position:relative">
+                <input class="form-input pay-ms-tax" type="text" readonly
+                  value="${taxStr}" placeholder="자동"
+                  style="padding-right:34px;background:#F1F3F5;color:var(--text-2);cursor:default">
+                <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                  font-size:12px;color:var(--text-3);pointer-events:none">${unit}</span>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">수금예정액 (VAT포함)</label>
+              <div style="position:relative">
+                <input class="form-input pay-ms-total" type="text" readonly
+                  value="${totalStr}" placeholder="자동"
+                  style="padding-right:34px;background:#F0F4FF;color:#1664E5;font-weight:600;cursor:default">
+                <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                  font-size:12px;color:#1664E5;pointer-events:none">${unit}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    this._renderMsSummary();
+  },
+
+  // ── 단일 마일스톤 재계산 (포커스 유지: 해당 카드 셀만 갱신) ──
+  _recalcMilestone(i, opts = {}) {
+    const m = this._ms[i];
+    if (!m) return;
+    // 비율 기반 공급가 산정 (총계약금 입력 시)
+    if (opts.fromRatio) {
+      const contractV = this._unComma(document.getElementById('pay-m-contract-supply')?.value);
+      if (contractV > 0 && Number(m.ratio) > 0) {
+        m.supply_amount = Math.round(contractV * Number(m.ratio) / 100);
+      }
+    }
+    const supply = Number(m.supply_amount) || 0;
+    m.tax_amount = supply > 0 ? Math.round(supply * 0.1) : 0;
+    m.scheduled_amount = supply > 0 ? supply + m.tax_amount : 0;
+
+    // 해당 카드 셀만 갱신 (입력 포커스 유지)
+    const card = document.querySelector(`.pay-ms-card[data-mi="${i}"]`);
+    if (card) {
+      const supplyEl = card.querySelector('.pay-ms-supply');
+      const taxEl    = card.querySelector('.pay-ms-tax');
+      const totalEl  = card.querySelector('.pay-ms-total');
+      // fromRatio 시엔 공급가 input 도 갱신 (직접입력 중이 아니므로 안전)
+      if (opts.fromRatio && supplyEl) {
+        supplyEl.value = supply > 0 ? supply.toLocaleString('en-US') : '';
+      }
+      if (taxEl)   taxEl.value   = m.tax_amount > 0 ? m.tax_amount.toLocaleString('en-US') : '';
+      if (totalEl) totalEl.value = m.scheduled_amount > 0 ? m.scheduled_amount.toLocaleString('en-US') : '';
+    }
+    this._renderMsSummary();
+  },
+
+  // ── 합계 요약 (Σ지급율 + Σ수금예정액 vs 총계약금) ────────────
+  _renderMsSummary() {
+    const box = document.getElementById('pay-ms-summary');
+    if (!box) return;
+    const cur = this._msCurrency;
+    const sumRatio  = this._ms.reduce((s, m) => s + (Number(m.ratio) || 0), 0);
+    const sumSupply = this._ms.reduce((s, m) => s + (Number(m.supply_amount) || 0), 0);
+    const sumTotal  = this._ms.reduce((s, m) => s + (Number(m.scheduled_amount) || 0), 0);
+    const contractV = this._unComma(document.getElementById('pay-m-contract-supply')?.value);
+
+    // 지급율 배지 색상: ≈100 녹색, <100 amber, >100 red
+    let ratioColor = '#16A34A', ratioBg = '#F0FDF4';
+    if (sumRatio > 100.01) { ratioColor = '#E63329'; ratioBg = '#FEF2F2'; }
+    else if (sumRatio < 99.99 && sumRatio > 0) { ratioColor = '#D97706'; ratioBg = '#FFFBEB'; }
+
+    // 공급가 합계 vs 총계약금 일치 여부
+    let matchNote = '';
+    if (contractV > 0) {
+      const diff = sumSupply - contractV;
+      if (Math.abs(diff) < 1) {
+        matchNote = `<span style="color:#16A34A;font-size:11px">✓ 총계약금과 일치</span>`;
+      } else {
+        const sign = diff > 0 ? '초과' : '부족';
+        matchNote = `<span style="color:#D97706;font-size:11px">⚠ 총계약금 대비 ${this._money(Math.abs(diff), cur)} ${sign}</span>`;
+      }
     }
 
-    this._renderItemTotals();
-  },
-
-  // ── 품목 합계 행만 갱신 (수량/단가 입력 시 포커스 유지용) ────
-  _renderItemTotals() {
-    const tfoot = document.getElementById('pay-items-tfoot');
-    const cnt   = document.getElementById('pay-items-cnt');
-    if (!tfoot) return;
-
-    const A   = this._modalItems.reduce((s, item) => s + Number(item.subtotal || 0), 0);
-    const B   = Math.round(A * 0.1);
-    const fmt = n => Number(n).toLocaleString('ko-KR');
-
-    tfoot.innerHTML = `
-      <tr style="background:#F0F4FF;border-top:1px solid #BFDBFE">
-        <td colspan="4" style="padding:5px 8px;text-align:right;font-size:12px;
-            color:var(--text-3);font-weight:600">A 공급가액 합계</td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;
-            color:#1664E5;font-weight:700">₩${fmt(A)}</td>
-        <td colspan="2" style="padding:5px 8px;font-size:11px;color:var(--text-3)">VAT별도</td>
-      </tr>
-      <tr style="background:#F0F4FF">
-        <td colspan="4" style="padding:5px 8px;text-align:right;font-size:12px;
-            color:var(--text-3);font-weight:600">B 부가세 (A × 10%)</td>
-        <td style="padding:5px 8px;text-align:right;font-size:12px;
-            color:#F59C00;font-weight:700">₩${fmt(B)}</td>
-        <td colspan="2"></td>
-      </tr>
-      <tr style="background:#E8F0FF;border-top:2px solid #BFDBFE">
-        <td colspan="4" style="padding:6px 8px;text-align:right;font-size:13px;font-weight:700">
-          A + B 총계
-        </td>
-        <td style="padding:6px 8px;text-align:right;font-size:13px;
-            color:#1664E5;font-weight:800">₩${fmt(A + B)}</td>
-        <td colspan="2"></td>
-      </tr>
+    box.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+                  padding:12px 16px;border-radius:10px;background:#F8FAFC;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="font-size:12px;color:var(--text-3)">수금 단계 <b style="color:var(--text-1)">${this._ms.length}</b>개</div>
+          <div style="font-size:12px;color:var(--text-3)">Σ 지급율
+            <span style="font-weight:700;color:${ratioColor};background:${ratioBg};
+              padding:2px 8px;border-radius:8px;margin-left:2px">${sumRatio.toFixed(2)}%</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          ${matchNote}
+          <div style="font-size:12px;color:var(--text-3)">Σ VAT별도
+            <b style="color:var(--text-1)">${this._money(sumSupply, cur)}</b></div>
+          <div style="font-size:13px;color:var(--text-3)">Σ VAT포함
+            <b style="color:#1664E5;font-size:14px">${this._money(sumTotal, cur)}</b></div>
+        </div>
+      </div>
     `;
-
-    if (cnt) cnt.textContent = `(${this._modalItems.length}건)`;
   },
 
-  async _saveSchedule(existingId = null) {
-    const customer_name          = document.getElementById('pay-m-customer')?.value.trim();
-    const contract_name          = document.getElementById('pay-m-contract-name')?.value.trim();
-    const stage_name             = document.getElementById('pay-m-stage')?.value;
-    const due_date               = document.getElementById('pay-m-due-date')?.value;
-    const supply_str             = document.getElementById('pay-m-supply')?.value;
-    const note                   = document.getElementById('pay-m-note')?.value.trim();
-    const contract_supply_str    = document.getElementById('pay-m-contract-supply')?.value;
-    const ratio_str              = document.getElementById('pay-m-ratio')?.value;
+  // ── 통화/포맷 헬퍼 ──────────────────────────────────────────
+  _CUR_SYMBOL: {
+    KRW: '원', USD: '$', JPY: '¥', EUR: '€', GBP: '£',
+    CNY: '¥', AUD: 'A$', SGD: 'S$', HKD: 'HK$', VND: '₫',
+  },
+  _curUnit(code) {
+    return this._CUR_SYMBOL[code] || code || '원';
+  },
+  _curIsSuffix(code) {
+    // 원(KRW)/동(VND)은 금액 뒤에 단위, 나머지는 앞에 기호
+    return code === 'KRW' || code === 'VND';
+  },
+  _money(n, code) {
+    const v = Number(n) || 0;
+    const s = v.toLocaleString('en-US');
+    const u = this._curUnit(code);
+    return this._curIsSuffix(code) ? `${s}${u}` : `${u}${s}`;
+  },
+  _unComma(s) {
+    return Number(String(s ?? '').replace(/[^\d.-]/g, '')) || 0;
+  },
+  // 콤마 포맷 + 캐럿 위치 보존 (정수만)
+  _formatCommaEl(el) {
+    if (!el) return;
+    const raw = el.value;
+    const caret = el.selectionStart ?? raw.length;
+    const digitsBefore = raw.slice(0, caret).replace(/[^\d]/g, '').length;
+    const num = raw.replace(/[^\d]/g, '');
+    if (num === '') { el.value = ''; return; }
+    const formatted = Number(num).toLocaleString('en-US');
+    el.value = formatted;
+    // 캐럿 복원: 앞쪽 digit 수만큼 위치 재계산
+    let seen = 0, pos = 0;
+    for (; pos < formatted.length; pos++) {
+      if (/\d/.test(formatted[pos])) seen++;
+      if (seen >= digitsBefore) { pos++; break; }
+    }
+    try { el.setSelectionRange(pos, pos); } catch (_e) { /* 일부 input type 미지원 */ }
+  },
+  // 날짜값 정규화 → 'YYYY-MM-DD'
+  _dateVal(v) {
+    if (!v) return '';
+    const str = String(v);
+    const m = str.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+    const d = new Date(str);
+    if (isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  },
+
+  // ── 저장: 모달 → POST /payments/batch (계약 1건 → 마일스톤 N행) ──
+  async _saveSchedule(originalSchedule = null) {
+    const customer_name = document.getElementById('pay-m-customer')?.value.trim();
+    const contract_name = document.getElementById('pay-m-contract-name')?.value.trim();
+    const contract_supply_amount = this._unComma(document.getElementById('pay-m-contract-supply')?.value) || null;
+    const currency = document.getElementById('pay-m-currency')?.value || 'KRW';
+    const contract_start_date = document.getElementById('pay-m-start')?.value || null;
+    const contract_end_date = document.getElementById('pay-m-end')?.value || null;
+    const note = document.getElementById('pay-m-note')?.value.trim() || null;
 
     if (!customer_name) { Toast.error?.('고객사명을 입력하세요'); return; }
-    if (!supply_str)    { Toast.error?.('수금예정액(VAT별도)을 입력하세요'); return; }
-    if (!due_date)      { Toast.error?.('수금 예정일을 입력하세요'); return; }
+    if (!this._ms.length) { Toast.error?.('최소 1개 수금 단계가 필요합니다'); return; }
 
-    const supply_amount             = Number(supply_str);
-    const tax_amount                = Math.round(supply_amount * 0.1);
-    const scheduled_amount          = supply_amount + tax_amount;
-    const contract_supply_amount    = contract_supply_str ? Number(contract_supply_str) : null;
-    const ratio                     = ratio_str           ? Number(ratio_str)           : null;
-    const items_json                = JSON.stringify(this._modalItems);
+    // 마일스톤 검증 + 정규화
+    const milestones = [];
+    for (let i = 0; i < this._ms.length; i++) {
+      const m = this._ms[i];
+      const stage_name = (m.stage_name || '').trim();
+      if (!stage_name) { Toast.error?.(`${i + 1}번 수금 단계: 품목 유형을 입력하세요`); return; }
+      if (!m.due_date) { Toast.error?.(`${i + 1}번 수금 단계: 수금 예정일을 입력하세요`); return; }
+      const supply = Number(m.supply_amount) || 0;
+      if (supply <= 0) { Toast.error?.(`${i + 1}번 수금 단계: 수금예정액(VAT별도)을 입력하세요`); return; }
+      const tax = Math.round(supply * 0.1);
+      milestones.push({
+        id: m.id || undefined,
+        stage_name,
+        ratio: m.ratio !== null ? Number(m.ratio) : null,
+        due_date: m.due_date,
+        supply_amount: supply,
+        tax_amount: tax,
+        scheduled_amount: supply + tax,
+        note, // 계약 전체 비고를 각 행에 비정규화 (model A)
+      });
+    }
 
     const payload = {
-      customer_name, contract_name, stage_name, due_date,
-      supply_amount, tax_amount, scheduled_amount,
-      contract_supply_amount, ratio, items_json,
-      note,
+      shared: {
+        contract_id: originalSchedule?.contract_id || null,
+        customer_id: originalSchedule?.customer_id || null,
+        customer_name,
+        contract_name: contract_name || null,
+        contract_supply_amount,
+        currency,
+        contract_start_date,
+        contract_end_date,
+      },
+      milestones,
+      delete_ids: this._msDeleted,
     };
+
     try {
-      if (existingId) {
-        await API.put(`/payments/${existingId}`, payload);
-        Toast.success?.('수금 스케줄이 수정됐습니다');
-      } else {
-        await API.post('/payments', payload);
-        Toast.success?.('수금 스케줄이 등록됐습니다');
-      }
+      const res = await API.post('/payments/batch', payload);
+      const r = res?.data || {};
+      const parts = [];
+      if (r.created) parts.push(`${r.created}건 등록`);
+      if (r.updated) parts.push(`${r.updated}건 수정`);
+      if (r.deleted) parts.push(`${r.deleted}건 삭제`);
+      Toast.success?.(parts.length ? `수금 스케줄 ${parts.join(' · ')}` : '수금 스케줄이 저장됐습니다');
       Modal.close();
-      await this._loadSchedules();
-      await this._loadDashboard();
-      this._renderTab();
+      await this._reloadAndRender();
     } catch (err) {
       Toast.error?.('저장 실패: ' + (err?.message || err));
     }
