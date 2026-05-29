@@ -623,11 +623,13 @@ const PaymentsPage = {
               <div>
                 <label class="form-label">계약 시작일</label>
                 <input id="pay-m-start" type="date" class="form-input"
+                  min="1000-01-01" max="9999-12-31"
                   value="${this._dateVal(shared.contract_start_date)}">
               </div>
               <div>
                 <label class="form-label">계약 종료일</label>
                 <input id="pay-m-end" type="date" class="form-input"
+                  min="1000-01-01" max="9999-12-31"
                   value="${this._dateVal(shared.contract_end_date)}">
               </div>
             </div>
@@ -690,6 +692,15 @@ const PaymentsPage = {
           if (us) us.textContent = u;
           if (ut) ut.textContent = u;
           this._renderMilestones();
+        });
+
+        // 계약 시작일 변경 → 수금예정일 하한(min) 동기화 (과거 선택 차단)
+        document.getElementById('pay-m-start')?.addEventListener('change', () => {
+          const sv = document.getElementById('pay-m-start')?.value || '';
+          document.querySelectorAll('.pay-ms-due').forEach(el => {
+            if (sv) el.min = sv;
+            else el.removeAttribute('min');
+          });
         });
 
         // 수금 단계 추가
@@ -768,6 +779,8 @@ const PaymentsPage = {
     const cfg = this._config || { stage_types: ['착수금', '중도금', '잔금', '기타'] };
     const cur = this._msCurrency;
     const unit = this._curUnit(cur);
+    // 수금예정일 하한 = 계약 시작일(있으면) — 과거 선택 방지(브라우저 + 저장 검증 이중 가드)
+    const startMin = document.getElementById('pay-m-start')?.value || '';
 
     list.innerHTML = this._ms.map((m, i) => {
       const isCustom = !cfg.stage_types.includes(m.stage_name);
@@ -807,7 +820,8 @@ const PaymentsPage = {
             </div>
             <div>
               <label class="form-label">수금 예정일 *</label>
-              <input class="form-input pay-ms-due" type="date" value="${m.due_date || ''}">
+              <input class="form-input pay-ms-due" type="date"
+                min="${startMin}" max="9999-12-31" value="${m.due_date || ''}">
             </div>
           </div>
 
@@ -995,6 +1009,15 @@ const PaymentsPage = {
     if (!customer_name) { Toast.error?.('고객사명을 입력하세요'); return; }
     if (!this._ms.length) { Toast.error?.('최소 1개 수금 단계가 필요합니다'); return; }
 
+    // 날짜 유효성: 계약 시작/종료일 연도는 4자리 (입력 시에만 검사)
+    const YMD = /^\d{4}-\d{2}-\d{2}$/;
+    if (contract_start_date && !YMD.test(contract_start_date)) {
+      Toast.error?.('계약 시작일의 연도를 4자리로 입력하세요'); return;
+    }
+    if (contract_end_date && !YMD.test(contract_end_date)) {
+      Toast.error?.('계약 종료일의 연도를 4자리로 입력하세요'); return;
+    }
+
     // 마일스톤 검증 + 정규화
     const milestones = [];
     for (let i = 0; i < this._ms.length; i++) {
@@ -1002,6 +1025,12 @@ const PaymentsPage = {
       const stage_name = (m.stage_name || '').trim();
       if (!stage_name) { Toast.error?.(`${i + 1}번 수금 단계: 품목 유형을 입력하세요`); return; }
       if (!m.due_date) { Toast.error?.(`${i + 1}번 수금 단계: 수금 예정일을 입력하세요`); return; }
+      if (!YMD.test(m.due_date)) {
+        Toast.error?.(`${i + 1}번 수금 단계: 수금 예정일의 연도를 4자리로 입력하세요`); return;
+      }
+      if (contract_start_date && m.due_date < contract_start_date) {
+        Toast.error?.(`${i + 1}번 수금 단계: 수금 예정일은 계약 시작일(${contract_start_date}) 이후여야 합니다`); return;
+      }
       const supply = Number(m.supply_amount) || 0;
       if (supply <= 0) { Toast.error?.(`${i + 1}번 수금 단계: 수금예정액(VAT별도)을 입력하세요`); return; }
       const tax = Math.round(supply * 0.1);
@@ -1015,6 +1044,28 @@ const PaymentsPage = {
         scheduled_amount: supply + tax,
         note, // 계약 전체 비고를 각 행에 비정규화 (model A)
       });
+    }
+
+    // 단계 순서 검증: 착수금 ≤ 중도금 ≤ 잔금 (기본 유형에 한함, 직접입력 유형은 제외)
+    const downArr = [], interimArr = [], finalArr = [];
+    for (const m of milestones) {
+      if (m.stage_name === '착수금') downArr.push(m.due_date);
+      else if (m.stage_name === '중도금') interimArr.push(m.due_date);
+      else if (m.stage_name === '잔금') finalArr.push(m.due_date);
+    }
+    downArr.sort(); interimArr.sort(); finalArr.sort();
+    const downMax    = downArr.length ? downArr[downArr.length - 1] : null;
+    const interimMin = interimArr.length ? interimArr[0] : null;
+    const interimMax = interimArr.length ? interimArr[interimArr.length - 1] : null;
+    const finalMin   = finalArr.length ? finalArr[0] : null;
+    if (downMax && interimMin && interimMin < downMax) {
+      Toast.error?.('중도금 수금 예정일은 착수금보다 빠를 수 없습니다'); return;
+    }
+    if (downMax && finalMin && finalMin < downMax) {
+      Toast.error?.('잔금 수금 예정일은 착수금보다 빠를 수 없습니다'); return;
+    }
+    if (interimMax && finalMin && finalMin < interimMax) {
+      Toast.error?.('잔금 수금 예정일은 중도금보다 빠를 수 없습니다'); return;
     }
 
     const payload = {

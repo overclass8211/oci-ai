@@ -518,6 +518,84 @@ router.post('/batch', async (req, res) => {
       contract_end_date: shared.contract_end_date || null,
     };
 
+    // ── 날짜 유효성 검사 (프론트와 동일 규칙을 서버에서도 방어적으로 검증) ──
+    //   ① 계약 시작/종료일 연도 4자리  ② 수금예정일 ≥ 계약 시작일
+    //   ③ 단계 순서: 착수금 ≤ 중도금 ≤ 잔금 (기본 유형에 한함)
+    const YMD = /^\d{4}-\d{2}-\d{2}$/;
+    const startDate = sharedCols.contract_start_date
+      ? String(sharedCols.contract_start_date).slice(0, 10)
+      : null;
+    const endDate = sharedCols.contract_end_date
+      ? String(sharedCols.contract_end_date).slice(0, 10)
+      : null;
+    if (startDate && !YMD.test(startDate)) {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({ success: false, error: '계약 시작일의 연도는 4자리여야 합니다' });
+    }
+    if (endDate && !YMD.test(endDate)) {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({ success: false, error: '계약 종료일의 연도는 4자리여야 합니다' });
+    }
+    const downArr = [],
+      interimArr = [],
+      finalArr = [];
+    for (let i = 0; i < milestones.length; i++) {
+      const raw = milestones[i] && milestones[i].due_date ? String(milestones[i].due_date) : '';
+      const dd = raw.slice(0, 10);
+      if (!dd) continue; // due_date 필수 검증은 아래 upsert 루프에서 처리
+      if (!YMD.test(dd)) {
+        await conn.rollback();
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error: `${i + 1}번째 마일스톤: 수금예정일의 연도는 4자리여야 합니다`,
+          });
+      }
+      if (startDate && YMD.test(startDate) && dd < startDate) {
+        await conn.rollback();
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error: `${i + 1}번째 마일스톤: 수금예정일은 계약 시작일 이후여야 합니다`,
+          });
+      }
+      const sn = String(milestones[i].stage_name || '').trim();
+      if (sn === '착수금') downArr.push(dd);
+      else if (sn === '중도금') interimArr.push(dd);
+      else if (sn === '잔금') finalArr.push(dd);
+    }
+    downArr.sort();
+    interimArr.sort();
+    finalArr.sort();
+    const downMax = downArr.length ? downArr[downArr.length - 1] : null;
+    const interimMin = interimArr.length ? interimArr[0] : null;
+    const interimMax = interimArr.length ? interimArr[interimArr.length - 1] : null;
+    const finalMin = finalArr.length ? finalArr[0] : null;
+    if (downMax && interimMin && interimMin < downMax) {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({ success: false, error: '중도금 수금예정일은 착수금보다 빠를 수 없습니다' });
+    }
+    if (downMax && finalMin && finalMin < downMax) {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({ success: false, error: '잔금 수금예정일은 착수금보다 빠를 수 없습니다' });
+    }
+    if (interimMax && finalMin && finalMin < interimMax) {
+      await conn.rollback();
+      return res
+        .status(400)
+        .json({ success: false, error: '잔금 수금예정일은 중도금보다 빠를 수 없습니다' });
+    }
+
     // 1) 삭제 (제거된 마일스톤) — 입금기록도 함께 정리
     let deleted = 0;
     if (delIds.length) {
