@@ -132,7 +132,16 @@ async function runMigrations() {
     console.log('[payments:migration] 기본 템플릿 시드 완료');
   }
 
-  console.log('[payments:migration] 자가 마이그레이션 완료 (4개 테이블)');
+  // ⑤ 총계약금 + 품목내역 컬럼 추가 (Phase 1-B — idempotent)
+  await pool.query(`
+    ALTER TABLE payment_schedules
+      ADD COLUMN IF NOT EXISTS contract_supply_amount DECIMAL(20,2) NULL
+        COMMENT '총계약금(VAT별도)',
+      ADD COLUMN IF NOT EXISTS items_json MEDIUMTEXT NULL
+        COMMENT '품목 내역 JSON'
+  `);
+
+  console.log('[payments:migration] 자가 마이그레이션 완료 (4개 테이블 + 2개 컬럼)');
 }
 
 runMigrations().catch(err => console.error('[payments:migration] 오류:', err));
@@ -415,12 +424,14 @@ router.post('/', async (req, res) => {
       stage_name,
       stage_order,
       ratio,
+      contract_supply_amount,
       scheduled_amount,
       supply_amount,
       tax_amount,
       due_date,
       invoice_date,
       note,
+      items_json,
     } = req.body;
     if (!stage_name || !scheduled_amount || !due_date)
       return res
@@ -431,10 +442,10 @@ router.post('/', async (req, res) => {
       `
       INSERT INTO payment_schedules
         (contract_id, customer_id, customer_name, contract_name,
-         stage_name, stage_order, ratio,
+         stage_name, stage_order, ratio, contract_supply_amount,
          scheduled_amount, supply_amount, tax_amount,
-         due_date, invoice_date, status, note, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'scheduled', ?,?)
+         due_date, invoice_date, status, note, items_json, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'scheduled', ?,?,?)
     `,
       [
         contract_id || null,
@@ -444,12 +455,14 @@ router.post('/', async (req, res) => {
         stage_name,
         stage_order || 1,
         ratio || null,
+        contract_supply_amount || null,
         scheduled_amount,
         supply_amount || null,
         tax_amount || 0,
         due_date,
         invoice_date || null,
         note || null,
+        items_json || null,
         req.user?.id || null,
       ]
     );
@@ -558,6 +571,7 @@ const ALLOWED_SCHEDULE_FIELDS = [
   'stage_name',
   'stage_order',
   'ratio',
+  'contract_supply_amount',
   'scheduled_amount',
   'supply_amount',
   'tax_amount',
@@ -567,6 +581,7 @@ const ALLOWED_SCHEDULE_FIELDS = [
   'note',
   'customer_name',
   'contract_name',
+  'items_json',
 ];
 
 router.put('/:id', async (req, res) => {
