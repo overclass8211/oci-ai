@@ -37,7 +37,10 @@ const PaymentsPage = {
     document.getElementById('content').innerHTML = `
       <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
         <h2 style="margin:0;font-size:18px;font-weight:700">💰 수금관리</h2>
-        <button id="pay-btn-new" class="btn btn-primary btn-sm">+ 수금 스케줄 등록</button>
+        <div style="display:flex;gap:8px">
+          <button id="pay-btn-from-contract" class="btn btn-sm" style="background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE">📄 계약에서 생성</button>
+          <button id="pay-btn-new" class="btn btn-primary btn-sm">+ 수금 스케줄 등록</button>
+        </div>
       </div>
 
       <!-- KPI 카드 영역 -->
@@ -71,6 +74,9 @@ const PaymentsPage = {
 
     // 신규 등록 버튼
     document.getElementById('pay-btn-new')?.addEventListener('click', () => this._openScheduleModal());
+    document
+      .getElementById('pay-btn-from-contract')
+      ?.addEventListener('click', () => this._openFromContractModal());
 
     // 필터/정렬 초기화 (페이지 진입 시 리셋)
     this._filter = { status: '', search: '', due_from: '', due_to: '' };
@@ -1285,6 +1291,203 @@ const PaymentsPage = {
       });
     }
     this._charts = {};
+  },
+
+  // ── 계약 → 수금 일정 자동 생성 모달 (비율 템플릿 기반) ───────
+  //   기존 백엔드 from-contract(stages 경로) 활용 — 프론트에서 금액(=총액×ratio)·예정일(=기준일+offset_days) 계산
+  _openFromContractModal() {
+    const esc = s => this._esc(s);
+    const today = new Date().toISOString().slice(0, 10);
+    const fmt = n => Number(n || 0).toLocaleString('ko-KR');
+    let templates = [];
+    let picked = null; // 선택된 계약 { id, name, customer_name, amount }
+
+    const addDays = (base, days) => {
+      const d = new Date(`${base}T00:00:00`);
+      if (Number.isNaN(d.getTime())) return '';
+      d.setDate(d.getDate() + Number(days || 0));
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    };
+    const stagesOf = () => {
+      const sel = document.getElementById('fc-template');
+      const t = templates.find(x => String(x.id) === String(sel?.value));
+      return t?.stages || [];
+    };
+    const buildRows = () => {
+      const amount = Math.max(0, Number(document.getElementById('fc-amount')?.value || 0));
+      const base = document.getElementById('fc-base')?.value || today;
+      return stagesOf().map(s => ({
+        name: s.name,
+        ratio: Number(s.ratio || 0),
+        amount: Math.round((amount * Number(s.ratio || 0)) / 100),
+        due_date: addDays(base, s.offset_days),
+        note: s.note || '',
+      }));
+    };
+    const renderPreview = () => {
+      const el = document.getElementById('fc-preview');
+      if (!el) return;
+      if (!picked) {
+        el.innerHTML =
+          '<div style="color:var(--text-3);font-size:12px;padding:12px;text-align:center">계약을 먼저 선택하세요</div>';
+        return;
+      }
+      const rows = buildRows();
+      if (!rows.length) {
+        el.innerHTML =
+          '<div style="color:var(--text-3);font-size:12px;padding:12px;text-align:center">템플릿을 선택하세요</div>';
+        return;
+      }
+      const sum = rows.reduce((a, r) => a + r.amount, 0);
+      el.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#F9FAFB;color:var(--text-3)">
+            <th style="padding:6px 8px;text-align:left">단계</th><th style="padding:6px 8px;text-align:right">비율</th>
+            <th style="padding:6px 8px;text-align:right">금액</th><th style="padding:6px 8px;text-align:left">예정일</th>
+          </tr></thead>
+          <tbody>${rows
+            .map(
+              r => `<tr style="border-top:1px solid var(--border)">
+              <td style="padding:6px 8px">${esc(r.name)}</td>
+              <td style="padding:6px 8px;text-align:right">${r.ratio}%</td>
+              <td style="padding:6px 8px;text-align:right;font-weight:600">₩${fmt(r.amount)}</td>
+              <td style="padding:6px 8px">${r.due_date || '—'}</td></tr>`
+            )
+            .join('')}</tbody>
+          <tfoot><tr style="background:#F0F4FF;font-weight:600">
+            <td style="padding:6px 8px">합계 ${rows.length}단계</td><td></td>
+            <td style="padding:6px 8px;text-align:right;color:#1664E5">₩${fmt(sum)}</td><td></td></tr></tfoot>
+        </table>`;
+    };
+
+    Modal.open({
+      title: '📄 계약에서 수금 일정 생성',
+      size: 'md',
+      body: `
+        <div style="display:grid;gap:10px">
+          <div>
+            <label class="form-label">계약 선택 *</label>
+            <input id="fc-contract" class="form-input" autocomplete="off" placeholder="계약명·번호·고객사 검색 (2글자 이상)">
+            <div id="fc-contract-info" style="font-size:11px;color:var(--text-3);margin-top:4px">계약을 검색해 선택하세요</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label class="form-label">비율 템플릿 *</label>
+              <select id="fc-template" class="form-input"><option value="">불러오는 중…</option></select>
+            </div>
+            <div>
+              <label class="form-label">기준일 (1단계 기산)</label>
+              <input id="fc-base" type="date" class="form-input" value="${today}" min="1000-01-01" max="9999-12-31">
+            </div>
+          </div>
+          <div>
+            <label class="form-label">총 계약금액 (수금 기준, 원)</label>
+            <input id="fc-amount" type="number" class="form-input" placeholder="계약 선택 시 자동" min="0">
+            <div style="font-size:11px;color:var(--text-3);margin-top:4px">템플릿 비율을 이 금액에 적용해 단계별 금액을 계산합니다.</div>
+          </div>
+          <div>
+            <label class="form-label">미리보기</label>
+            <div id="fc-preview" style="border:1px solid var(--border);border-radius:6px;overflow:hidden"></div>
+          </div>
+        </div>`,
+      footer: `
+        <button class="btn btn-secondary" onclick="Modal.close()">취소</button>
+        <button id="fc-create" class="btn btn-primary">수금 일정 생성</button>`,
+      onOpen: async () => {
+        // 비율 템플릿 로드
+        try {
+          const r = await API.get('/payments/templates');
+          templates = (r.data || []).map(t => ({ ...t, stages: t.stages || [] }));
+        } catch (_) {
+          templates = [];
+        }
+        const tsel = document.getElementById('fc-template');
+        if (tsel) {
+          tsel.innerHTML = templates.length
+            ? templates
+                .map((t, i) => `<option value="${t.id}" ${i === 0 ? 'selected' : ''}>${esc(t.name)}</option>`)
+                .join('')
+            : '<option value="">템플릿 없음</option>';
+        }
+
+        // 계약 Combobox
+        this._fcCombobox?.destroy?.();
+        const cEl = document.getElementById('fc-contract');
+        if (cEl && window.Combobox) {
+          this._fcCombobox = Combobox.attach({
+            inputEl: cEl,
+            minChars: 2,
+            allowCustom: false,
+            fetchFn: async q => {
+              try {
+                const r = await API.contracts.list({ search: q, limit: 10 });
+                return (r.data || []).map(c => ({
+                  id: c.id,
+                  name: c.title || c.contract_no || `계약 #${c.id}`,
+                  contract_no: c.contract_no || '',
+                  customer_name: c.customer_name || '',
+                  amount: Number(c.contract_amount || 0),
+                }));
+              } catch (_) {
+                return [];
+              }
+            },
+            renderItem: (item, query, { highlightMatch }) =>
+              `<div style="font-size:13px">${highlightMatch(item.name, query)}</div>
+               <div style="font-size:11px;color:var(--text-3)">${item.contract_no ? esc(item.contract_no) + ' · ' : ''}${esc(item.customer_name)}</div>`,
+            onSelect: item => {
+              picked = item;
+              const info = document.getElementById('fc-contract-info');
+              if (info)
+                info.innerHTML = `🔗 <b>${esc(item.name)}</b>${item.customer_name ? ' · ' + esc(item.customer_name) : ''}`;
+              const amtEl = document.getElementById('fc-amount');
+              if (amtEl && item.amount > 0 && !amtEl.value) amtEl.value = item.amount;
+              renderPreview();
+            },
+          });
+        }
+
+        document.getElementById('fc-template')?.addEventListener('change', renderPreview);
+        document.getElementById('fc-base')?.addEventListener('change', renderPreview);
+        document.getElementById('fc-amount')?.addEventListener('input', renderPreview);
+        renderPreview();
+
+        document.getElementById('fc-create')?.addEventListener('click', async () => {
+          if (!picked) {
+            Toast.error?.('계약을 선택하세요');
+            return;
+          }
+          const rows = buildRows();
+          if (!rows.length) {
+            Toast.error?.('비율 템플릿을 선택하세요');
+            return;
+          }
+          if (rows.some(r => !/^\d{4}-\d{2}-\d{2}$/.test(r.due_date))) {
+            Toast.error?.('예정일 계산 오류 — 기준일을 확인하세요');
+            return;
+          }
+          try {
+            const res = await API.post(`/payments/from-contract/${picked.id}`, {
+              stages: rows.map(r => ({
+                name: r.name,
+                ratio: r.ratio,
+                amount: r.amount,
+                due_date: r.due_date,
+                note: r.note,
+              })),
+            });
+            const n = res?.data?.created || 0;
+            Toast.success?.(`수금 일정 ${n}건이 생성됐습니다`);
+            this._fcCombobox?.destroy?.();
+            Modal.close();
+            await this._reloadAndRender();
+          } catch (err) {
+            Toast.error?.('생성 실패: ' + (err?.message || err));
+          }
+        });
+      },
+    });
   },
 
   // ── 수금 스케줄 등록·수정 모달 (재설계: 2단 레이아웃) ─────────
