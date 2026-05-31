@@ -317,6 +317,7 @@ router.post('/tax-invoices', async (req, res) => {
       contract_id,
       customer_id,
       customer_name,
+      invoice_no,
       supply_amount,
       tax_amount,
       issue_date,
@@ -328,15 +329,16 @@ router.post('/tax-invoices', async (req, res) => {
     const [result] = await pool.query(
       `
       INSERT INTO tax_invoices
-        (schedule_id, contract_id, customer_id, customer_name,
+        (schedule_id, contract_id, customer_id, customer_name, invoice_no,
          supply_amount, tax_amount, total_amount, issue_date, status, note, created_by)
-      VALUES (?,?,?,?,?,?,?,?,  'draft', ?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,  'draft', ?,?)
     `,
       [
         schedule_id || null,
         contract_id || null,
         customer_id || null,
         customer_name || null,
+        invoice_no || null,
         supply_amount,
         tax_amount || 0,
         total,
@@ -346,6 +348,90 @@ router.post('/tax-invoices', async (req, res) => {
       ]
     );
     res.json({ success: true, data: { id: result.insertId } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 세금계산서 수정 + 상태 전환 (바로빌 키 없이 수동 상태 관리)
+//   상태: draft(작성중) → requested(발행요청) → issued(발행완료) → cancelled(취소)
+//   ※ issued 는 수동 발행 기록 — 바로빌 자동발행/국세청 전송(Phase 2 키 단계)이 아님
+const ALLOWED_TAX_FIELDS = [
+  'schedule_id',
+  'contract_id',
+  'customer_id',
+  'customer_name',
+  'invoice_no',
+  'supply_amount',
+  'tax_amount',
+  'issue_date',
+  'status',
+  'note',
+];
+const TAX_STATUSES = ['draft', 'requested', 'issued', 'cancelled'];
+
+router.put('/tax-invoices/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const [[existing]] = await pool.query(`SELECT * FROM tax_invoices WHERE id = ?`, [id]);
+    if (!existing)
+      return res.status(404).json({ success: false, error: '세금계산서를 찾을 수 없습니다' });
+
+    const updates = {};
+    for (const k of ALLOWED_TAX_FIELDS) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+    if (updates.status !== undefined && !TAX_STATUSES.includes(updates.status))
+      return res.status(400).json({ success: false, error: '허용되지 않은 상태값입니다' });
+    if (!Object.keys(updates).length)
+      return res.status(400).json({ success: false, error: '변경 필드 없음' });
+
+    // 공급가/세액 변경 시 합계 재계산
+    if (updates.supply_amount !== undefined || updates.tax_amount !== undefined) {
+      const supply =
+        updates.supply_amount !== undefined
+          ? Number(updates.supply_amount)
+          : Number(existing.supply_amount);
+      const tax =
+        updates.tax_amount !== undefined ? Number(updates.tax_amount) : Number(existing.tax_amount);
+      updates.total_amount = supply + tax;
+    }
+
+    // 발행완료(issued) 전환 시 발행시각 자동 기록 (수동 발행 기록)
+    let extraSet = '';
+    if (updates.status === 'issued' && !existing.issued_at) {
+      extraSet = ', issued_at = NOW()';
+      if (!existing.issue_date && updates.issue_date === undefined) {
+        updates.issue_date = new Date().toISOString().slice(0, 10); // DATE 컬럼 (YYYY-MM-DD)
+      }
+    }
+
+    const sets = Object.keys(updates)
+      .map(k => `${k} = ?`)
+      .join(', ');
+    await pool.query(`UPDATE tax_invoices SET ${sets}${extraSet} WHERE id = ?`, [
+      ...Object.values(updates),
+      id,
+    ]);
+    res.json({ success: true, data: { id, status: updates.status || existing.status } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 세금계산서 삭제 (발행완료 건은 이력 보존 — 삭제 차단)
+router.delete('/tax-invoices/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const [[existing]] = await pool.query(`SELECT status FROM tax_invoices WHERE id = ?`, [id]);
+    if (!existing)
+      return res.status(404).json({ success: false, error: '세금계산서를 찾을 수 없습니다' });
+    if (existing.status === 'issued')
+      return res
+        .status(400)
+        .json({ success: false, error: '발행완료된 세금계산서는 삭제할 수 없습니다' });
+    await pool.query(`DELETE FROM tax_invoices WHERE id = ?`, [id]);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -549,21 +635,17 @@ router.post('/batch', async (req, res) => {
       if (!dd) continue; // due_date 필수 검증은 아래 upsert 루프에서 처리
       if (!YMD.test(dd)) {
         await conn.rollback();
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: `${i + 1}번째 마일스톤: 수금예정일의 연도는 4자리여야 합니다`,
-          });
+        return res.status(400).json({
+          success: false,
+          error: `${i + 1}번째 마일스톤: 수금예정일의 연도는 4자리여야 합니다`,
+        });
       }
       if (startDate && YMD.test(startDate) && dd < startDate) {
         await conn.rollback();
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: `${i + 1}번째 마일스톤: 수금예정일은 계약 시작일 이후여야 합니다`,
-          });
+        return res.status(400).json({
+          success: false,
+          error: `${i + 1}번째 마일스톤: 수금예정일은 계약 시작일 이후여야 합니다`,
+        });
       }
       const sn = String(milestones[i].stage_name || '').trim();
       if (sn === '착수금') downArr.push(dd);
@@ -911,7 +993,12 @@ router.get('/:id', async (req, res) => {
       `SELECT * FROM payment_records WHERE schedule_id = ? ORDER BY paid_date DESC`,
       [id]
     );
-    res.json({ success: true, data: { ...schedule, records } });
+    // 연동(수금→계산서): 이 스케줄에 연결된 세금계산서 목록 (양방향 연동)
+    const [tax_invoices] = await pool.query(
+      `SELECT * FROM tax_invoices WHERE schedule_id = ? ORDER BY created_at DESC`,
+      [id]
+    );
+    res.json({ success: true, data: { ...schedule, records, tax_invoices } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

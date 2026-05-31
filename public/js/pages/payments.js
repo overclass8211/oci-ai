@@ -9,6 +9,7 @@ const PaymentsPage = {
   // ── 상태 ────────────────────────────────────────────────────
   _schedules: [],
   _overdue: [],
+  _taxInvoices: [],   // 세금계산서 목록 — /payments/tax-invoices
   _dashboard: null,
   _filter: { status: '', search: '', due_from: '', due_to: '' },
   _sort: { key: 'due_date', dir: 'asc' },
@@ -127,6 +128,16 @@ const PaymentsPage = {
       if (res.success) this._overdue = res.data;
     } catch (e) {
       console.error('[payments] 미수금 로드 실패', e);
+    }
+  },
+
+  async _loadTaxInvoices() {
+    try {
+      const res = await API.get('/payments/tax-invoices');
+      if (res.success) this._taxInvoices = res.data;
+    } catch (e) {
+      console.error('[payments] 세금계산서 로드 실패', e);
+      this._taxInvoices = [];
     }
   },
 
@@ -441,18 +452,224 @@ const PaymentsPage = {
   },
 
   // ── F4. 세금계산서 탭 ───────────────────────────────────────
-  _renderTax() {
+  //   상태: draft(작성중) → requested(발행요청) → issued(발행완료) → cancelled(취소)
+  //   ※ 발행완료는 "수동 기록" — 바로빌 자동발행/국세청 전송은 API 키 등록 후(Phase 2)
+  async _renderTax() {
+    await this._loadTaxInvoices();
     const el = document.getElementById('pay-tab-content');
-    el.innerHTML = `<div style="text-align:center;padding:60px;color:var(--text-3)">
-      <div style="font-size:40px;margin-bottom:12px">🧾</div>
-      <div style="font-weight:600;margin-bottom:8px">세금계산서 발행 (바로빌 API)</div>
-      <div style="font-size:13px">Phase 2에서 바로빌 API 연동 후 활성화 예정입니다</div>
-      <div style="margin-top:16px">
-        <span style="background:#FFFBEB;color:#F59C00;padding:4px 12px;border-radius:20px;font-size:12px;border:1px solid #FDE68A">
-          🔌 바로빌 API 키 등록 후 사용 가능
-        </span>
+    const fmt = n => Number(n || 0).toLocaleString('ko-KR');
+    const TAX_META = {
+      draft:     { label: '작성중',   color: '#6B7280', bg: '#F3F4F6' },
+      requested: { label: '발행요청', color: '#1664E5', bg: '#EFF6FF' },
+      issued:    { label: '발행완료', color: '#0F7A3F', bg: '#ECFDF5' },
+      cancelled: { label: '취소',     color: '#9CA3AF', bg: '#F9FAFB' },
+    };
+    const actBlue  = 'font-size:11px;padding:3px 7px;background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE;border-radius:6px;margin-right:3px';
+    const actGreen = 'font-size:11px;padding:3px 7px;background:#ECFDF5;color:#0F7A3F;border:1px solid #A7F3D0;border-radius:6px;margin-right:3px';
+    const actGray  = 'font-size:11px;padding:3px 7px;background:#F3F4F6;color:#374151;border:1px solid var(--border);border-radius:6px;margin-right:3px';
+    const actRed   = 'font-size:11px;padding:3px 7px;background:#FFF5F5;color:#E63329;border:1px solid #FECACA;border-radius:6px';
+
+    const rows = this._taxInvoices.map(t => {
+      const m    = TAX_META[t.status] || TAX_META.draft;
+      const acts = [];
+      if (t.status === 'draft')
+        acts.push(`<button class="tax-act btn btn-sm" data-id="${t.id}" data-to="requested" style="${actBlue}">발행요청</button>`);
+      if (t.status === 'requested')
+        acts.push(`<button class="tax-act btn btn-sm" data-id="${t.id}" data-to="issued" style="${actGreen}" title="발행완료로 표시(수동)">발행완료</button>`);
+      if (t.status === 'draft' || t.status === 'requested')
+        acts.push(`<button class="tax-edit btn btn-sm" data-id="${t.id}" style="${actGray}" title="수정">✏️</button>`);
+      if (t.status === 'requested' || t.status === 'issued')
+        acts.push(`<button class="tax-act btn btn-sm" data-id="${t.id}" data-to="cancelled" style="${actGray}" title="취소">취소</button>`);
+      if (t.status !== 'issued')
+        acts.push(`<button class="tax-del btn btn-sm" data-id="${t.id}" style="${actRed}" title="삭제">🗑️</button>`);
+      return `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:10px 12px">
+            <div style="font-weight:600;font-size:13px">${this._esc(t.customer_name || '—')}</div>
+            <div style="font-size:11px;color:var(--text-3)">${this._esc(t.contract_no || '')}${t.invoice_no ? ' · No.' + this._esc(t.invoice_no) : ''}</div>
+          </td>
+          <td style="padding:10px 12px;text-align:right;font-size:13px">₩${fmt(t.supply_amount)}</td>
+          <td style="padding:10px 12px;text-align:right;font-size:13px;color:var(--text-3)">₩${fmt(t.tax_amount)}</td>
+          <td style="padding:10px 12px;text-align:right;font-size:13px;font-weight:600">₩${fmt(t.total_amount)}</td>
+          <td style="padding:10px 12px;font-size:12px;white-space:nowrap">${(t.issue_date || '').slice(0, 10) || '—'}</td>
+          <td style="padding:10px 12px"><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:${m.bg};color:${m.color};font-weight:600">${m.label}</span></td>
+          <td style="padding:10px 12px;white-space:nowrap">${acts.join(' ')}</td>
+        </tr>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
+        <span style="font-size:15px">🧾</span>
+        <span style="font-size:12px;color:#92400E;line-height:1.5">세금계산서 <b>발행 상태를 수동으로 기록</b>합니다 (수금 ↔ 계산서 연동).
+          바로빌 자동발행·국세청 전송은 <b>API 키 등록 후(Phase 2)</b> 제공됩니다.</span>
       </div>
-    </div>`;
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+        <button id="tax-btn-new" class="btn btn-primary btn-sm">+ 발행요청 생성</button>
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:#F9FAFB;font-size:12px;color:var(--text-3)">
+              <th style="padding:8px 12px;text-align:left;font-weight:600">고객사 / 계약</th>
+              <th style="padding:8px 12px;text-align:right;font-weight:600">공급가액</th>
+              <th style="padding:8px 12px;text-align:right;font-weight:600">세액</th>
+              <th style="padding:8px 12px;text-align:right;font-weight:600">합계</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:600">발행일</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:600">상태</th>
+              <th style="padding:8px 12px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || `<tr><td colspan="7" style="text-align:center;padding:48px 20px;color:var(--text-3)">
+              <div style="font-size:32px;margin-bottom:8px">🧾</div>
+              <div style="font-weight:600;margin-bottom:4px">세금계산서가 없습니다</div>
+              <div style="font-size:12px">[+ 발행요청 생성] 또는 수금 상세에서 발행요청을 만드세요</div>
+            </td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    document.getElementById('tax-btn-new')?.addEventListener('click', () => this._openTaxModal());
+    el.querySelectorAll('.tax-act').forEach(b =>
+      b.addEventListener('click', () => this._taxStatusAction(parseInt(b.dataset.id, 10), b.dataset.to))
+    );
+    el.querySelectorAll('.tax-edit').forEach(b =>
+      b.addEventListener('click', () => {
+        const inv = this._taxInvoices.find(x => x.id === parseInt(b.dataset.id, 10));
+        if (inv) this._openTaxModal(inv);
+      })
+    );
+    el.querySelectorAll('.tax-del').forEach(b =>
+      b.addEventListener('click', () => this._deleteTaxInvoice(parseInt(b.dataset.id, 10)))
+    );
+  },
+
+  // 세금계산서 발행요청/수정 모달 (invoice=수정, prefill=수금 스케줄에서 연동 생성)
+  _openTaxModal(invoice = null, prefill = null) {
+    const isEdit = !!(invoice && invoice.id);
+    const src    = invoice || prefill || {};
+    const today  = new Date().toISOString().slice(0, 10);
+    const supply0 = Number(src.supply_amount || 0);
+    const tax0 =
+      src.tax_amount !== undefined && src.tax_amount !== null
+        ? Number(src.tax_amount)
+        : Math.round(supply0 * 0.1);
+
+    Modal.open({
+      title: isEdit ? '🧾 세금계산서 수정' : '🧾 세금계산서 발행요청',
+      size: 'sm',
+      body: `
+        ${
+          src.customer_name || src.contract_name
+            ? `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#1664E5">
+                 🔗 연동: <b>${this._esc(src.customer_name || '')}</b>${src.contract_name ? ' · ' + this._esc(src.contract_name) : ''}
+               </div>`
+            : ''
+        }
+        <div style="display:grid;gap:10px">
+          <div>
+            <label class="form-label">고객사 *</label>
+            <input id="tax-cust" class="form-input" value="${this._esc(src.customer_name || '')}" placeholder="고객사명">
+          </div>
+          <div>
+            <label class="form-label">공급가액 (VAT 별도) *</label>
+            <input id="tax-supply" type="number" class="form-input" value="${supply0 || ''}" placeholder="0">
+          </div>
+          <div>
+            <label class="form-label">세액 (VAT)</label>
+            <div style="display:flex;gap:8px">
+              <input id="tax-tax" type="number" class="form-input" value="${tax0 || ''}" placeholder="0" style="flex:1">
+              <button type="button" id="tax-vat10" class="btn btn-sm" style="white-space:nowrap;background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE">VAT 10%</button>
+            </div>
+          </div>
+          <div>
+            <label class="form-label">발행일</label>
+            <input id="tax-date" type="date" class="form-input" value="${this._esc((src.issue_date || '').slice(0, 10) || today)}" min="1000-01-01" max="9999-12-31">
+          </div>
+          <div>
+            <label class="form-label">계산서 번호 (선택)</label>
+            <input id="tax-no" class="form-input" value="${this._esc(src.invoice_no || '')}" placeholder="자사 발행번호 (발행 시 입력)">
+          </div>
+          <div>
+            <label class="form-label">비고</label>
+            <input id="tax-note" class="form-input" value="${this._esc(src.note || '')}" placeholder="메모">
+          </div>
+        </div>
+      `,
+      footer: `
+        <button id="tax-cancel" class="btn btn-secondary">취소</button>
+        <button id="tax-save" class="btn btn-primary">${isEdit ? '저장' : '발행요청 생성'}</button>
+      `,
+      onOpen: () => {
+        document.getElementById('tax-vat10')?.addEventListener('click', () => {
+          const s = Number(document.getElementById('tax-supply')?.value || 0);
+          document.getElementById('tax-tax').value = Math.round(s * 0.1);
+        });
+        document.getElementById('tax-cancel')?.addEventListener('click', () => Modal.close());
+        document.getElementById('tax-save')?.addEventListener('click', async () => {
+          const customer_name = document.getElementById('tax-cust')?.value?.trim();
+          const supply_amount = document.getElementById('tax-supply')?.value;
+          if (!customer_name) { Toast.error?.('고객사를 입력하세요'); return; }
+          if (!supply_amount) { Toast.error?.('공급가액을 입력하세요'); return; }
+          const issue_date = document.getElementById('tax-date')?.value || '';
+          if (issue_date && !/^\d{4}-\d{2}-\d{2}$/.test(issue_date)) {
+            Toast.error?.('발행일의 연도를 4자리로 입력하세요'); return;
+          }
+          const body = {
+            schedule_id: src.schedule_id || null,
+            contract_id: src.contract_id || null,
+            customer_id: src.customer_id || null,
+            customer_name,
+            invoice_no: document.getElementById('tax-no')?.value?.trim() || null,
+            supply_amount: Number(supply_amount),
+            tax_amount: Number(document.getElementById('tax-tax')?.value || 0),
+            issue_date: issue_date || null,
+            note: document.getElementById('tax-note')?.value?.trim() || null,
+          };
+          try {
+            if (isEdit) {
+              await API.put(`/payments/tax-invoices/${invoice.id}`, body);
+              Toast.success?.('세금계산서가 수정됐습니다');
+            } else {
+              await API.post('/payments/tax-invoices', body);
+              Toast.success?.('발행요청이 생성됐습니다 (작성중)');
+            }
+            Modal.close();
+            if (this.activeTab !== 'tax') { this.activeTab = 'tax'; this.render(); }
+            else this._renderTax();
+          } catch (err) {
+            Toast.error?.('저장 실패: ' + (err?.message || err));
+          }
+        });
+      },
+    });
+  },
+
+  // 세금계산서 상태 전환 (requested / issued / cancelled)
+  async _taxStatusAction(id, newStatus) {
+    const LABELS = { requested: '발행요청', issued: '발행완료', cancelled: '취소' };
+    if (newStatus === 'issued' &&
+        !confirm('발행완료로 표시하시겠습니까?\n\n※ 상태 기록(수동)이며, 실제 국세청 전송이 아닙니다.')) return;
+    if (newStatus === 'cancelled' && !confirm('이 세금계산서를 취소 상태로 변경하시겠습니까?')) return;
+    try {
+      await API.put(`/payments/tax-invoices/${id}`, { status: newStatus });
+      Toast.success?.(`상태가 '${LABELS[newStatus] || newStatus}'(으)로 변경됐습니다`);
+      this._renderTax();
+    } catch (err) {
+      Toast.error?.('상태 변경 실패: ' + (err?.message || err));
+    }
+  },
+
+  async _deleteTaxInvoice(id) {
+    if (!confirm('이 세금계산서를 삭제하시겠습니까?')) return;
+    try {
+      await API.del(`/payments/tax-invoices/${id}`);
+      Toast.success?.('삭제됐습니다');
+      this._renderTax();
+    } catch (err) {
+      Toast.error?.('삭제 실패: ' + (err?.message || err));
+    }
   },
 
   // ── F5. 매출분석 탭 ─────────────────────────────────────────
@@ -1195,6 +1412,19 @@ const PaymentsPage = {
         </tr>
       `).join('') || '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--text-3);font-size:12px">입금 내역 없음</td></tr>';
 
+      // 연동(수금→계산서): 이 스케줄에 연결된 세금계산서
+      const taxList  = s.tax_invoices || [];
+      const TAX_LABEL = { draft: '작성중', requested: '발행요청', issued: '발행완료', cancelled: '취소' };
+      const TAX_COLOR = { draft: '#6B7280', requested: '#1664E5', issued: '#0F7A3F', cancelled: '#9CA3AF' };
+      const taxRows = taxList.map(t => `
+        <tr>
+          <td style="padding:6px 8px;font-size:12px">${(t.issue_date || '').slice(0, 10) || '—'}</td>
+          <td style="padding:6px 8px;font-size:12px;font-weight:600">₩${fmt(t.total_amount)}</td>
+          <td style="padding:6px 8px;font-size:12px"><span style="color:${TAX_COLOR[t.status] || '#6B7280'};font-weight:600">${TAX_LABEL[t.status] || t.status}</span></td>
+          <td style="padding:6px 8px;font-size:12px;color:var(--text-3)">${this._esc(t.invoice_no || '—')}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" style="text-align:center;padding:10px;color:var(--text-3);font-size:12px">발행된 세금계산서 없음</td></tr>';
+
       Modal.open({
         title: `📋 수금 상세 — ${s.customer_name || ''}`,
         size: 'md',
@@ -1229,15 +1459,41 @@ const PaymentsPage = {
             </thead>
             <tbody>${recRows}</tbody>
           </table>
+
+          <div style="font-weight:600;font-size:13px;margin:16px 0 8px">🧾 세금계산서</div>
+          <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <thead>
+              <tr style="background:#F9FAFB;font-size:11px;color:var(--text-3)">
+                <th style="padding:6px 8px;text-align:left">발행일</th>
+                <th style="padding:6px 8px;text-align:left">합계</th>
+                <th style="padding:6px 8px;text-align:left">상태</th>
+                <th style="padding:6px 8px;text-align:left">번호</th>
+              </tr>
+            </thead>
+            <tbody>${taxRows}</tbody>
+          </table>
         `,
         footer: `
           <button class="btn btn-secondary" onclick="Modal.close()">닫기</button>
+          <button class="btn" id="sd-add-tax" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A">🧾 세금계산서 발행요청</button>
           <button class="btn btn-primary" id="sd-add-record">💳 입금등록</button>
         `,
         onOpen: () => {
           document.getElementById('sd-add-record')?.addEventListener('click', () => {
             Modal.close();
             this._openRecordModal(scheduleId);
+          });
+          document.getElementById('sd-add-tax')?.addEventListener('click', () => {
+            Modal.close();
+            this._openTaxModal(null, {
+              schedule_id: s.id,
+              contract_id: s.contract_id || null,
+              customer_id: s.customer_id || null,
+              customer_name: s.customer_name || '',
+              contract_name: s.contract_name || s.contract_no || '',
+              supply_amount: s.supply_amount ?? s.scheduled_amount,
+              tax_amount: s.tax_amount,
+            });
           });
         },
       });

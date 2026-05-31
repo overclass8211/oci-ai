@@ -17,11 +17,15 @@ import { api, pool } from './helpers.mjs';
 
 const TEST_USER_ID = 1;
 const createdIds = [];
+const createdTaxIds = [];
 
 afterAll(async () => {
   if (createdIds.length > 0) {
     await pool.query('DELETE FROM payment_records WHERE schedule_id IN (?)', [createdIds]);
     await pool.query('DELETE FROM payment_schedules WHERE id IN (?)', [createdIds]);
+  }
+  if (createdTaxIds.length > 0) {
+    await pool.query('DELETE FROM tax_invoices WHERE id IN (?)', [createdTaxIds]);
   }
 });
 
@@ -237,5 +241,106 @@ describe('Payments API — 수금 스케줄 일괄 저장 + 설정', () => {
       .send({ default_currency: 'XXX' });
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
+  });
+});
+
+// ── 세금계산서(tax invoices) — 발행요청 UI 백엔드 (2026-05-31 Phase 2 키 불필요) ──
+//   draft(작성중) → requested(발행요청) → issued(발행완료, 수동 기록) → cancelled(취소)
+//   ※ 바로빌 자동발행/국세청 전송 아님 — 상태를 수동으로 관리
+describe('Payments API — 세금계산서(tax invoices) 발행요청 + 상태 전환', () => {
+  let taxId;
+
+  it('POST /tax-invoices — draft 생성 → 200 + id (합계/번호 저장)', async () => {
+    const res = await api()
+      .post('/api/payments/tax-invoices')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        customer_name: '__TEST__세금고객사',
+        invoice_no: 'TEST-0001',
+        supply_amount: 1000000,
+        tax_amount: 100000,
+        issue_date: '2026-06-30',
+        note: '테스트 발행요청',
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.id).toBeTruthy();
+    taxId = res.body.data.id;
+    createdTaxIds.push(taxId);
+
+    const [[row]] = await pool.query(
+      'SELECT status, total_amount, invoice_no FROM tax_invoices WHERE id = ?',
+      [taxId]
+    );
+    expect(row.status).toBe('draft');
+    expect(Number(row.total_amount)).toBe(1100000);
+    expect(row.invoice_no).toBe('TEST-0001');
+  });
+
+  it('POST /tax-invoices — supply_amount 누락 → 400', async () => {
+    const res = await api()
+      .post('/api/payments/tax-invoices')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ customer_name: '__TEST__무공급가' });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('PUT /tax-invoices/:id — 허용되지 않은 상태값 → 400', async () => {
+    const res = await api()
+      .put(`/api/payments/tax-invoices/${taxId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'unknown_status' });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('PUT /tax-invoices/:id — 발행완료(issued) 전환 → issued_at 자동 기록', async () => {
+    const res = await api()
+      .put(`/api/payments/tax-invoices/${taxId}`)
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ status: 'issued' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const [[row]] = await pool.query('SELECT status, issued_at FROM tax_invoices WHERE id = ?', [
+      taxId,
+    ]);
+    expect(row.status).toBe('issued');
+    expect(row.issued_at).not.toBeNull();
+  });
+
+  it('DELETE /tax-invoices/:id — 발행완료 건은 삭제 차단 → 400', async () => {
+    const res = await api()
+      .delete(`/api/payments/tax-invoices/${taxId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('GET /tax-invoices — 목록에 생성 건 포함', async () => {
+    const res = await api()
+      .get('/api/payments/tax-invoices')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.some(t => t.id === taxId)).toBe(true);
+  });
+
+  it('DELETE /tax-invoices/:id — draft 건은 삭제 성공 → 200', async () => {
+    const c = await api()
+      .post('/api/payments/tax-invoices')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ customer_name: '__TEST__삭제용', supply_amount: 500000, tax_amount: 50000 });
+    const delId = c.body.data.id;
+    const res = await api()
+      .delete(`/api/payments/tax-invoices/${delId}`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const [rows] = await pool.query('SELECT id FROM tax_invoices WHERE id = ?', [delId]);
+    expect(rows).toHaveLength(0);
   });
 });
