@@ -21,6 +21,7 @@ const ExcelJS = require('exceljs');
 const { Readable } = require('stream');
 const { sanitizeCell, validateRequest } = require('../utils/bulkPasteHelper');
 const { toExcelBuffer, sendExcel } = require('../utils/excelHelper');
+const paymentNotifier = require('../services/paymentNotifier');
 
 // 홈택스 가져오기 전용 — 메모리 업로드(csv/xlsx, 10MB). 디스크 저장 불필요(파싱만).
 const uploadMem = multer({
@@ -165,10 +166,41 @@ async function runMigrations() {
         COMMENT '계약 종료일 (계약 단위, 비정규화)'
   `);
 
-  console.log('[payments:migration] 자가 마이그레이션 완료 (4개 테이블 + 5개 컬럼)');
+  // ⑦ 연체 미수금 알림 (B1 — 일일 스캔 → 인앱/이메일 알림 + 이력)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS payment_notifications (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      schedule_id   INT NULL,
+      contract_id   INT NULL,
+      customer_name VARCHAR(200) NULL,
+      kind          VARCHAR(20) DEFAULT 'overdue'  COMMENT 'overdue(연체)',
+      overdue_days  INT NULL,
+      amount        DECIMAL(20,2) NULL,
+      channel       VARCHAR(20) DEFAULT 'inapp'    COMMENT 'inapp|email',
+      recipient     VARCHAR(200) NULL,
+      status        VARCHAR(20) DEFAULT 'unread'   COMMENT 'unread|read|sent|failed|pending',
+      dedup_key     VARCHAR(150) NULL              COMMENT '중복 방지 (연체 건당 1회)',
+      payload_json  TEXT NULL,
+      sent_at       DATETIME NULL,
+      read_at       DATETIME NULL,
+      attempts      INT DEFAULT 0,
+      last_error    VARCHAR(500) NULL,
+      created_by    INT NULL,
+      created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_dedup (dedup_key),
+      INDEX idx_schedule (schedule_id),
+      INDEX idx_status (status),
+      INDEX idx_channel (channel)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  console.log('[payments:migration] 자가 마이그레이션 완료 (5개 테이블 + 5개 컬럼)');
 }
 
 runMigrations().catch(err => console.error('[payments:migration] 오류:', err));
+
+// 연체 미수금 일일 알림 스케줄러 시작 (테스트 환경에서는 내부적으로 no-op)
+paymentNotifier.startScheduler();
 
 // ─── Feature guard ─────────────────────────────────────────────
 router.use(requireFeature('crm.payments'));
@@ -292,6 +324,65 @@ router.get('/overdue', async (req, res) => {
       ORDER BY ps.due_date ASC
     `);
     res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── B1. 연체 미수금 알림 ─────────────────────────────────────
+//   인앱 알림 목록 (unread 우선 + 최근순). ?status=unread|read 필터.
+//   ※ '/:id' 패턴보다 먼저 정의해야 'notifications' 가 :id 로 잡히지 않음
+router.get('/notifications', async (req, res) => {
+  try {
+    const status = req.query.status;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    let where = `channel = 'inapp'`;
+    if (status === 'unread') where += ` AND status = 'unread'`;
+    else if (status === 'read') where += ` AND status = 'read'`;
+    const [rows] = await pool.query(
+      `SELECT * FROM payment_notifications
+        WHERE ${where}
+        ORDER BY (status = 'unread') DESC, created_at DESC
+        LIMIT ?`,
+      [limit]
+    );
+    const [[cnt]] = await pool.query(
+      `SELECT COUNT(*) AS unread FROM payment_notifications
+        WHERE channel = 'inapp' AND status = 'unread'`
+    );
+    res.json({ success: true, data: rows, unread_count: Number(cnt.unread) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+//   알림 읽음 처리 (단건 id 또는 'all')
+router.put('/notifications/:id/read', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (id === 'all') {
+      await pool.query(
+        `UPDATE payment_notifications SET status='read', read_at=NOW()
+          WHERE channel='inapp' AND status='unread'`
+      );
+    } else {
+      await pool.query(
+        `UPDATE payment_notifications SET status='read', read_at=NOW()
+          WHERE id = ? AND channel='inapp'`,
+        [parseInt(id, 10)]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+//   수동 연체 스캔 트리거 (관리/검증용)
+router.post('/notifications/scan', async (req, res) => {
+  try {
+    const result = await paymentNotifier.scanOverdue();
+    res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -633,6 +724,7 @@ router.post('/templates', async (req, res) => {
 //    supplier-info 패턴 동일. 페이지(team_lead+) 에서 직접 관리 가능.
 const PAYMENT_STAGE_TYPES_KEY = 'payment_stage_types';
 const PAYMENT_DEFAULT_CUR_KEY = 'payment_default_currency';
+const PAYMENT_NOTIFY_EMAIL_KEY = 'payment_overdue_notify_email'; // 연체 알림 수신 재무팀 메일
 const DEFAULT_STAGE_TYPES = ['착수금', '중도금', '잔금', '기타'];
 const DEFAULT_CURRENCY = 'KRW';
 const ALLOWED_CURRENCIES = ['KRW', 'USD', 'JPY', 'EUR', 'GBP', 'CNY', 'AUD', 'SGD', 'HKD', 'VND'];
@@ -640,8 +732,8 @@ const ALLOWED_CURRENCIES = ['KRW', 'USD', 'JPY', 'EUR', 'GBP', 'CNY', 'AUD', 'SG
 router.get('/config', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN (?, ?)`,
-      [PAYMENT_STAGE_TYPES_KEY, PAYMENT_DEFAULT_CUR_KEY]
+      `SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN (?, ?, ?)`,
+      [PAYMENT_STAGE_TYPES_KEY, PAYMENT_DEFAULT_CUR_KEY, PAYMENT_NOTIFY_EMAIL_KEY]
     );
     const map = {};
     rows.forEach(r => {
@@ -669,6 +761,7 @@ router.get('/config', async (req, res) => {
         stage_types: stageTypes,
         default_currency: defaultCurrency,
         allowed_currencies: ALLOWED_CURRENCIES,
+        notify_email: map[PAYMENT_NOTIFY_EMAIL_KEY] || '',
       },
     });
   } catch (err) {
@@ -678,7 +771,7 @@ router.get('/config', async (req, res) => {
 
 router.put('/config', async (req, res) => {
   try {
-    const { stage_types, default_currency } = req.body || {};
+    const { stage_types, default_currency, notify_email } = req.body || {};
     const updates = [];
 
     if (stage_types !== undefined) {
@@ -705,6 +798,13 @@ router.put('/config', async (req, res) => {
       if (!ALLOWED_CURRENCIES.includes(default_currency))
         return res.status(400).json({ success: false, error: '허용되지 않은 통화 코드입니다' });
       updates.push([PAYMENT_DEFAULT_CUR_KEY, default_currency]);
+    }
+    if (notify_email !== undefined) {
+      const email = String(notify_email || '').trim();
+      // 빈 문자열 → 알림 해제(설정 제거). 값이 있으면 형식 검증.
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        return res.status(400).json({ success: false, error: '유효한 이메일 형식이 아닙니다' });
+      updates.push([PAYMENT_NOTIFY_EMAIL_KEY, email]);
     }
     if (!updates.length)
       return res.status(400).json({ success: false, error: '저장할 항목이 없습니다' });

@@ -18,8 +18,25 @@ import { api, pool } from './helpers.mjs';
 const TEST_USER_ID = 1;
 const createdIds = [];
 const createdTaxIds = [];
+// B1 연체 알림 — 테스트용 재무팀 메일 + 설정 원복용 보관
+const TEST_NOTIFY_EMAIL = 'finance-overdue-test@example.com';
+let origNotifyEmail = null;
 
 afterAll(async () => {
+  // B1 연체 알림 행 정리 (스케줄 삭제 전, FK 없음 — 순서 무관)
+  if (createdIds.length > 0) {
+    await pool.query('DELETE FROM payment_notifications WHERE schedule_id IN (?)', [createdIds]);
+  }
+  await pool.query('DELETE FROM payment_notifications WHERE recipient = ?', [TEST_NOTIFY_EMAIL]);
+  // notify_email 설정 원복 (테스트 전 상태로)
+  if (origNotifyEmail !== null) {
+    await pool.query(
+      `INSERT INTO system_settings (setting_key, setting_value)
+         VALUES ('payment_overdue_notify_email', ?)
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+      [origNotifyEmail]
+    );
+  }
   if (createdIds.length > 0) {
     await pool.query('DELETE FROM payment_records WHERE schedule_id IN (?)', [createdIds]);
     await pool.query('DELETE FROM payment_schedules WHERE id IN (?)', [createdIds]);
@@ -483,5 +500,134 @@ describe('Payments API — 홈택스 가져오기(import)', () => {
     expect(res.body.data.headers).toContain('공급가액');
     expect(res.body.data.rows).toHaveLength(2);
     expect(res.body.data.rows[0][0]).toBe('2026-05-01');
+  });
+});
+
+// ── B1: 연체 미수금 자동 알림 — 스캔 → 인앱/이메일 + dedup + 읽음 (2026-06-01) ──
+//   POST /notifications/scan · GET /notifications · PUT /notifications/:id/read
+//   고정 재무팀 메일(payment_overdue_notify_email) 설정값으로 요약 메일 큐잉
+describe('Payments API — 연체 미수금 알림 (B1)', () => {
+  let overdueSchedId;
+
+  it('준비 — 과거 예정일(2020-01-01) 수금 스케줄 생성 (연체 대상)', async () => {
+    const b = await api()
+      .post('/api/payments/batch')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        shared: { customer_name: '__TEST__연체고객', contract_name: '__TEST__연체PJT', currency: 'KRW' },
+        milestones: [
+          {
+            stage_name: '잔금',
+            due_date: '2020-01-01',
+            supply_amount: 1000000,
+            tax_amount: 100000,
+            scheduled_amount: 1100000,
+          },
+        ],
+        delete_ids: [],
+      });
+    expect(b.status).toBe(200);
+    overdueSchedId = b.body.data.ids[0];
+    createdIds.push(overdueSchedId);
+  });
+
+  it('PUT /config — notify_email 저장 + GET 반영 + 잘못된 형식 400', async () => {
+    // 원복용 원본 보관
+    const before = await api().get('/api/payments/config').set('X-User-Id', String(TEST_USER_ID));
+    origNotifyEmail = before.body.data.notify_email || '';
+
+    const bad = await api()
+      .put('/api/payments/config')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ notify_email: 'not-an-email' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.success).toBe(false);
+
+    const ok = await api()
+      .put('/api/payments/config')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ notify_email: TEST_NOTIFY_EMAIL });
+    expect(ok.status).toBe(200);
+
+    const after = await api().get('/api/payments/config').set('X-User-Id', String(TEST_USER_ID));
+    expect(after.body.data.notify_email).toBe(TEST_NOTIFY_EMAIL);
+  });
+
+  it('POST /notifications/scan — 신규 연체 인앱 알림 + 재무팀 이메일(pending) 생성', async () => {
+    // 이전 실행 잔여 정리 (동일 스케줄 dedup / 당일 이메일 키)
+    await pool.query('DELETE FROM payment_notifications WHERE schedule_id = ?', [overdueSchedId]);
+    await pool.query('DELETE FROM payment_notifications WHERE recipient = ?', [TEST_NOTIFY_EMAIL]);
+
+    const res = await api()
+      .post('/api/payments/notifications/scan')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.created_inapp).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.created_email).toBe(1); // notify_email 설정됨 → 요약 1건
+
+    // 인앱 알림 행 (dedup_key=overdue:<id>)
+    const [[inapp]] = await pool.query(
+      `SELECT status, channel, overdue_days, amount FROM payment_notifications
+        WHERE schedule_id = ? AND channel='inapp'`,
+      [overdueSchedId]
+    );
+    expect(inapp.status).toBe('unread');
+    expect(Number(inapp.amount)).toBe(1100000);
+    expect(inapp.overdue_days).toBeGreaterThan(0);
+
+    // 이메일 알림 행 (Gmail OAuth 없음 → pending 큐잉, 있으면 sent)
+    const [[email]] = await pool.query(
+      `SELECT status, recipient FROM payment_notifications
+        WHERE recipient = ? AND channel='email'`,
+      [TEST_NOTIFY_EMAIL]
+    );
+    expect(email.recipient).toBe(TEST_NOTIFY_EMAIL);
+    expect(['pending', 'sent']).toContain(email.status);
+  });
+
+  it('POST /notifications/scan — 재스캔 시 동일 연체 중복 생성 안 함 (dedup)', async () => {
+    const res = await api()
+      .post('/api/payments/notifications/scan')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.data.created_inapp).toBe(0); // 이미 알림 존재 → 0
+    expect(res.body.data.created_email).toBe(0); // 신규 연체 없음 → 메일 없음
+
+    const [[cnt]] = await pool.query(
+      `SELECT COUNT(*) AS c FROM payment_notifications WHERE schedule_id = ? AND channel='inapp'`,
+      [overdueSchedId]
+    );
+    expect(Number(cnt.c)).toBe(1);
+  });
+
+  it('GET /notifications — 인앱 목록 + unread_count 반환', async () => {
+    const res = await api()
+      .get('/api/payments/notifications?status=unread')
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.unread_count).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.some(n => n.schedule_id === overdueSchedId)).toBe(true);
+  });
+
+  it('PUT /notifications/:id/read — 읽음 처리 → status=read + read_at 기록', async () => {
+    const [[row]] = await pool.query(
+      `SELECT id FROM payment_notifications WHERE schedule_id = ? AND channel='inapp'`,
+      [overdueSchedId]
+    );
+    const res = await api()
+      .put(`/api/payments/notifications/${row.id}/read`)
+      .set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const [[after]] = await pool.query(
+      'SELECT status, read_at FROM payment_notifications WHERE id = ?',
+      [row.id]
+    );
+    expect(after.status).toBe('read');
+    expect(after.read_at).not.toBeNull();
   });
 });
