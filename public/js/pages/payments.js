@@ -2,7 +2,7 @@
 // Payments Page — 수금관리 (SFR-011) v8.0.0
 // F1. 수금현황  F2. 미수금  F3. 세금계산서  F4. 매출분석
 // ============================================================
-/* global API, Toast, Modal */
+/* global API, Toast, Modal, Chart */
 const PaymentsPage = {
   activeTab: 'overview',
 
@@ -18,6 +18,19 @@ const PaymentsPage = {
   _ms: [],            // 현재 모달의 마일스톤 배열
   _msDeleted: [],     // 편집 중 삭제된 기존 마일스톤 id
   _msCurrency: 'KRW', // 현재 모달 통화
+  _groupView: true,            // 수금현황: 계약별 그룹(기본) ↔ 전체(평면)
+  _collapsedGroups: new Set(), // 접힌 계약 그룹 키 (기본=모두 펼침)
+  _charts: {},                 // 매출분석 Chart.js 인스턴스 (재렌더 시 파기)
+
+  // 수금 상태 메타 (배지 라벨/색상) — 평면·그룹 공용
+  _STATUS_META: {
+    scheduled:   { label: '예정',     color: '#6B7280', bg: '#F3F4F6' },
+    invoiced:    { label: '청구',     color: '#1664E5', bg: '#EFF6FF' },
+    partial:     { label: '부분수금', color: '#F59C00', bg: '#FFFBEB' },
+    collected:   { label: '수금완료', color: '#0F7A3F', bg: '#ECFDF5' },
+    overdue:     { label: '연체',     color: '#E63329', bg: '#FFF5F5' },
+    written_off: { label: '대손처리', color: '#374151', bg: '#F9FAFB' },
+  },
 
   // ── 진입점 ──────────────────────────────────────────────────
   async render() {
@@ -62,6 +75,8 @@ const PaymentsPage = {
     // 필터/정렬 초기화 (페이지 진입 시 리셋)
     this._filter = { status: '', search: '', due_from: '', due_to: '' };
     this._sort   = { key: 'due_date', dir: 'asc' };
+    // 뷰 모드 복원 (계약별 그룹 기본, '0' 저장 시 평면)
+    try { this._groupView = localStorage.getItem('oci_pay_groupview') !== '0'; } catch (_) { /* 무시 */ }
 
     // 데이터 로드
     await Promise.all([this._loadDashboard(), this._loadSchedules(), this._loadConfig()]);
@@ -70,6 +85,7 @@ const PaymentsPage = {
 
   // ── 탭 렌더 분기 ────────────────────────────────────────────
   _renderTab() {
+    this._destroyCharts(); // 탭 전환/재렌더 시 기존 Chart.js 인스턴스 정리 (메모리 누수 방지)
     switch (this.activeTab) {
       case 'overview':  this._renderOverview();  break;
       case 'overdue':   this._renderOverdue();   break;
@@ -171,14 +187,7 @@ const PaymentsPage = {
   // ── F1. 수금현황 탭 ─────────────────────────────────────────
   _renderOverview() {
     const el = document.getElementById('pay-tab-content');
-    const STATUS_META = {
-      scheduled:   { label: '예정',    color: '#6B7280', bg: '#F3F4F6' },
-      invoiced:    { label: '청구',    color: '#1664E5', bg: '#EFF6FF' },
-      partial:     { label: '부분수금', color: '#F59C00', bg: '#FFFBEB' },
-      collected:   { label: '수금완료', color: '#0F7A3F', bg: '#ECFDF5' },
-      overdue:     { label: '연체',    color: '#E63329', bg: '#FFF5F5' },
-      written_off: { label: '대손처리', color: '#374151', bg: '#F9FAFB' },
-    };
+    const STATUS_META = this._STATUS_META;
 
     // 필터+정렬 적용 목록
     const list = this._filteredAndSorted();
@@ -207,47 +216,69 @@ const PaymentsPage = {
     const totSch  = list.reduce((s, r) => s + Number(r.scheduled_amount || 0), 0);
     const totPaid = list.reduce((s, r) => s + Number(r.paid_amount || 0), 0);
 
-    // 행 생성
-    const rows = list.map(s => {
-      const m   = STATUS_META[s.status] || STATUS_META.scheduled;
-      const pct = s.scheduled_amount > 0
-        ? Math.min(Math.round((Number(s.paid_amount) / Number(s.scheduled_amount)) * 100), 100) : 0;
-      const dDay = this._dDay(s.due_date);
-      return `
-        <tr class="pay-row" data-id="${s.id}" style="cursor:pointer;border-bottom:1px solid var(--border)">
+    // 본문: 계약별 그룹뷰(기본) / 전체 평면뷰 — 자식행은 _scheduleRowHtml 공용
+    const EMPTY = `<tr><td colspan="7" style="text-align:center;padding:48px 20px;color:var(--text-3)">
+      <div style="font-size:32px;margin-bottom:8px">💰</div>
+      <div style="font-weight:600;margin-bottom:4px">수금 스케줄이 없습니다</div>
+      <div style="font-size:12px">상단 [+ 수금 스케줄 등록] 버튼을 클릭하세요</div>
+    </td></tr>`;
+    const footHtml = leftLabel => `<tr style="background:#F0F4FF;font-size:12px;font-weight:600;border-top:2px solid #BFDBFE">
+        <td colspan="2" style="padding:8px 12px;color:var(--text-3)">${leftLabel}</td>
+        <td style="padding:8px 12px;text-align:right;color:#1664E5">₩${fmt(totSch)}</td>
+        <td colspan="4" style="padding:8px 12px;color:#0F7A3F">수금 ₩${fmt(totPaid)}</td>
+      </tr>`;
+
+    let groups = [];
+    let bodyRows;
+    let footRow;
+    if (this._groupView) {
+      groups = this._groupSchedules(list);
+      bodyRows = groups
+        .map((g, gi) => {
+          const collapsed = this._collapsedGroups.has(g.key);
+          const gm = STATUS_META[g.status] || STATUS_META.scheduled;
+          const gd = g.nextDue ? this._dDay(g.nextDue) : null;
+          const cur = g.currency === 'KRW' ? '₩' : `${g.currency} `;
+          const parent = `
+        <tr class="pay-grp" data-gi="${gi}" style="cursor:pointer;background:#F8FAFF;border-top:2px solid #DBEAFE;border-bottom:1px solid #DBEAFE">
           <td style="padding:10px 12px">
-            <div style="font-weight:600;font-size:13px">${this._esc(s.customer_name || '—')}</div>
-            <div style="font-size:11px;color:var(--text-3)">${this._esc(s.contract_name || s.contract_no || '—')}</div>
-          </td>
-          <td style="padding:10px 12px;font-size:13px">${this._esc(s.stage_name)}</td>
-          <td style="padding:10px 12px;font-size:13px;text-align:right;font-weight:600">
-            ₩${fmt(s.scheduled_amount)}
-          </td>
-          <td style="padding:10px 12px;font-size:12px;white-space:nowrap">
-            ${s.due_date || '—'}
-            <span style="margin-left:4px;font-size:11px;font-weight:600;color:${dDay.color}">${dDay.label}</span>
-          </td>
-          <td style="padding:10px 12px">
-            <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:${m.bg};color:${m.color};font-weight:600">${m.label}</span>
-          </td>
-          <td style="padding:10px 12px;min-width:90px">
             <div style="display:flex;align-items:center;gap:6px">
-              <div style="flex:1;height:4px;background:#E5E7EB;border-radius:2px">
-                <div style="height:100%;width:${pct}%;background:#1664E5;border-radius:2px"></div>
+              <span class="pay-grp-caret" style="font-size:11px;color:#1664E5;width:10px;display:inline-block">${collapsed ? '▸' : '▾'}</span>
+              <div>
+                <div style="font-weight:700;font-size:13px">🏢 ${this._esc(g.customer_name || '—')}${g.linked ? '' : ' <span style="font-size:10px;color:#9CA3AF;font-weight:500">(계약 미연결)</span>'}</div>
+                <div style="font-size:11px;color:var(--text-3)">${this._esc(g.contract_name || g.contract_no || '—')}</div>
               </div>
-              <span style="font-size:11px;color:var(--text-3);min-width:28px">${pct}%</span>
             </div>
           </td>
-          <td style="padding:10px 12px;white-space:nowrap">
-            <button class="pay-btn-record btn btn-sm" data-id="${s.id}"
-              style="font-size:11px;padding:3px 7px;background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE;border-radius:6px;margin-right:3px" title="입금 등록">💳</button>
-            <button class="pay-btn-edit btn btn-sm" data-id="${s.id}"
-              style="font-size:11px;padding:3px 7px;background:#F3F4F6;color:#374151;border:1px solid var(--border);border-radius:6px;margin-right:3px" title="수정">✏️</button>
-            <button class="pay-btn-delete btn btn-sm" data-id="${s.id}"
-              style="font-size:11px;padding:3px 7px;background:#FFF5F5;color:#E63329;border:1px solid #FECACA;border-radius:6px" title="삭제">🗑️</button>
+          <td style="padding:10px 12px;font-size:11px;color:var(--text-3);white-space:nowrap">${g.children.length}개 단계</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:13px">${cur}${fmt(g.totSch)}</td>
+          <td style="padding:10px 12px;font-size:12px;white-space:nowrap">${
+            g.nextDue
+              ? `${g.nextDue} <span style="margin-left:4px;font-size:11px;font-weight:600;color:${gd.color}">${gd.label}</span>`
+              : '<span style="color:#0F7A3F;font-size:11px;font-weight:600">완료</span>'
+          }</td>
+          <td style="padding:10px 12px"><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:${gm.bg};color:${gm.color};font-weight:600">${gm.label}</span></td>
+          <td style="padding:10px 12px;min-width:90px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="flex:1;height:5px;background:#E5E7EB;border-radius:3px"><div style="height:100%;width:${g.pct}%;background:#1664E5;border-radius:3px"></div></div>
+              <span style="font-size:11px;color:var(--text-3);min-width:28px">${g.pct}%</span>
+            </div>
           </td>
+          <td style="padding:10px 12px"></td>
         </tr>`;
-    }).join('');
+          const children = g.children
+            .map(s => this._scheduleRowHtml(s, { gi, hidden: collapsed }))
+            .join('');
+          return parent + children;
+        })
+        .join('');
+      footRow = list.length ? footHtml(`계약 ${groups.length}건 · 단계 ${list.length}건`) : '';
+    } else {
+      bodyRows = list.map(s => this._scheduleRowHtml(s)).join('');
+      footRow = list.length ? footHtml(`합계 ${list.length}건`) : '';
+    }
+    const allCollapsed =
+      this._groupView && groups.length > 0 && groups.every(g => this._collapsedGroups.has(g.key));
 
     el.innerHTML = `
       <!-- 필터 바 -->
@@ -282,13 +313,22 @@ const PaymentsPage = {
         </div>
       </div>
 
+      <!-- 뷰 토글 -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+          <button id="pay-view-group" class="btn btn-sm" style="font-size:12px;border:none;border-radius:0;${this._groupView ? 'background:var(--primary,#E63329);color:#fff' : 'background:#fff;color:var(--text-2)'}">📂 계약별</button>
+          <button id="pay-view-flat" class="btn btn-sm" style="font-size:12px;border:none;border-radius:0;border-left:1px solid var(--border);${!this._groupView ? 'background:var(--primary,#E63329);color:#fff' : 'background:#fff;color:var(--text-2)'}">☰ 전체</button>
+        </div>
+        ${this._groupView && groups.length ? `<button id="pay-expand-all" class="btn btn-sm" style="font-size:12px">${allCollapsed ? '⊞ 모두 펼치기' : '⊟ 모두 접기'}</button>` : ''}
+      </div>
+
       <!-- 테이블 -->
       <div style="background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr style="background:#F9FAFB;font-size:12px;color:var(--text-3)">
-              <th id="pay-th-cust"  style="${thS}">고객사${sarr('customer_name')}</th>
-              <th id="pay-th-stage" style="${thS}">단계${sarr('stage_name')}</th>
+              <th id="pay-th-cust"  style="${thS}">${this._groupView ? '계약 / 고객사' : `고객사${sarr('customer_name')}`}</th>
+              <th id="pay-th-stage" style="${thS}">단계${this._groupView ? '' : sarr('stage_name')}</th>
               <th id="pay-th-amt"   style="${thSR}">수금예정액${sarr('scheduled_amount')}</th>
               <th id="pay-th-due"   style="${thS}">예정일${sarr('due_date')}</th>
               <th style="padding:8px 12px;font-weight:600">상태</th>
@@ -297,20 +337,9 @@ const PaymentsPage = {
             </tr>
           </thead>
           <tbody id="pay-tbody">
-            ${rows || `<tr><td colspan="7" style="text-align:center;padding:48px 20px;color:var(--text-3)">
-              <div style="font-size:32px;margin-bottom:8px">💰</div>
-              <div style="font-weight:600;margin-bottom:4px">수금 스케줄이 없습니다</div>
-              <div style="font-size:12px">상단 [+ 수금 스케줄 등록] 버튼을 클릭하세요</div>
-            </td></tr>`}
+            ${bodyRows || EMPTY}
           </tbody>
-          ${list.length ? `
-          <tfoot>
-            <tr style="background:#F0F4FF;font-size:12px;font-weight:600;border-top:2px solid #BFDBFE">
-              <td colspan="2" style="padding:8px 12px;color:var(--text-3)">합계 ${list.length}건</td>
-              <td style="padding:8px 12px;text-align:right;color:#1664E5">₩${fmt(totSch)}</td>
-              <td colspan="4" style="padding:8px 12px;color:#0F7A3F">수금 ₩${fmt(totPaid)}</td>
-            </tr>
-          </tfoot>` : ''}
+          ${footRow ? `<tfoot>${footRow}</tfoot>` : ''}
         </table>
       </div>
     `;
@@ -388,6 +417,147 @@ const PaymentsPage = {
         this._deleteSchedule(parseInt(btn.dataset.id, 10));
       });
     });
+
+    // 뷰 토글 (계약별 그룹 ↔ 전체 평면) — localStorage 기억
+    document.getElementById('pay-view-group')?.addEventListener('click', () => {
+      if (this._groupView) return;
+      this._groupView = true;
+      try { localStorage.setItem('oci_pay_groupview', '1'); } catch (_) { /* 무시 */ }
+      this._renderOverview();
+    });
+    document.getElementById('pay-view-flat')?.addEventListener('click', () => {
+      if (!this._groupView) return;
+      this._groupView = false;
+      try { localStorage.setItem('oci_pay_groupview', '0'); } catch (_) { /* 무시 */ }
+      this._renderOverview();
+    });
+
+    // 모두 펼치기 / 접기 (현재 표시 그룹 기준)
+    document.getElementById('pay-expand-all')?.addEventListener('click', () => {
+      const keys = this._groupSchedules(this._filteredAndSorted()).map(g => g.key);
+      const allCol = keys.length > 0 && keys.every(k => this._collapsedGroups.has(k));
+      if (allCol) this._collapsedGroups.clear();
+      else keys.forEach(k => this._collapsedGroups.add(k));
+      this._renderOverview();
+    });
+
+    // 계약 그룹 헤더 클릭 → 펼침/접힘 (DOM display 토글, 재조회 없음)
+    el.querySelectorAll('.pay-grp').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const gi = tr.dataset.gi;
+        const grp = groups[Number(gi)];
+        if (!grp) return;
+        const willCollapse = !this._collapsedGroups.has(grp.key);
+        if (willCollapse) this._collapsedGroups.add(grp.key);
+        else this._collapsedGroups.delete(grp.key);
+        el.querySelectorAll(`.pay-row[data-gi="${gi}"]`).forEach(c => {
+          c.style.display = willCollapse ? 'none' : '';
+        });
+        const caret = tr.querySelector('.pay-grp-caret');
+        if (caret) caret.textContent = willCollapse ? '▸' : '▾';
+      });
+    });
+  },
+
+  // 자식(단계) 행 HTML — 평면뷰/그룹뷰 공용
+  //   opts.gi 가 있으면 그룹 자식(들여쓰기 + data-gi), opts.hidden 이면 접힘 상태
+  _scheduleRowHtml(s, opts = {}) {
+    const fmt = n => Number(n || 0).toLocaleString('ko-KR');
+    const m = this._STATUS_META[s.status] || this._STATUS_META.scheduled;
+    const pct =
+      s.scheduled_amount > 0
+        ? Math.min(Math.round((Number(s.paid_amount) / Number(s.scheduled_amount)) * 100), 100)
+        : 0;
+    const dDay = this._dDay(s.due_date);
+    const grouped = opts.gi !== undefined;
+    const giAttr = grouped ? ` data-gi="${opts.gi}"` : '';
+    const hide = opts.hidden ? 'display:none;' : '';
+    // 1~2열: 평면=고객사/계약+단계, 그룹=빈칸+들여쓴 단계(고객사는 부모행에 있음)
+    const lead = grouped
+      ? `<td style="padding:8px 12px"></td>
+          <td style="padding:8px 12px 8px 24px;font-size:13px"><span style="color:#CBD5E1;margin-right:4px">└</span>${this._esc(s.stage_name)}</td>`
+      : `<td style="padding:10px 12px">
+            <div style="font-weight:600;font-size:13px">${this._esc(s.customer_name || '—')}</div>
+            <div style="font-size:11px;color:var(--text-3)">${this._esc(s.contract_name || s.contract_no || '—')}</div>
+          </td>
+          <td style="padding:10px 12px;font-size:13px">${this._esc(s.stage_name)}</td>`;
+    return `
+        <tr class="pay-row" data-id="${s.id}"${giAttr} style="${hide}cursor:pointer;border-bottom:1px solid var(--border)">
+          ${lead}
+          <td style="padding:10px 12px;font-size:13px;text-align:right;font-weight:600">₩${fmt(s.scheduled_amount)}</td>
+          <td style="padding:10px 12px;font-size:12px;white-space:nowrap">
+            ${s.due_date || '—'}
+            <span style="margin-left:4px;font-size:11px;font-weight:600;color:${dDay.color}">${dDay.label}</span>
+          </td>
+          <td style="padding:10px 12px">
+            <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:${m.bg};color:${m.color};font-weight:600">${m.label}</span>
+          </td>
+          <td style="padding:10px 12px;min-width:90px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="flex:1;height:4px;background:#E5E7EB;border-radius:2px">
+                <div style="height:100%;width:${pct}%;background:#1664E5;border-radius:2px"></div>
+              </div>
+              <span style="font-size:11px;color:var(--text-3);min-width:28px">${pct}%</span>
+            </div>
+          </td>
+          <td style="padding:10px 12px;white-space:nowrap">
+            <button class="pay-btn-record btn btn-sm" data-id="${s.id}"
+              style="font-size:11px;padding:3px 7px;background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE;border-radius:6px;margin-right:3px" title="입금 등록">💳</button>
+            <button class="pay-btn-edit btn btn-sm" data-id="${s.id}"
+              style="font-size:11px;padding:3px 7px;background:#F3F4F6;color:#374151;border:1px solid var(--border);border-radius:6px;margin-right:3px" title="수정">✏️</button>
+            <button class="pay-btn-delete btn btn-sm" data-id="${s.id}"
+              style="font-size:11px;padding:3px 7px;background:#FFF5F5;color:#E63329;border:1px solid #FECACA;border-radius:6px" title="삭제">🗑️</button>
+          </td>
+        </tr>`;
+  },
+
+  // 계약 단위 그룹핑 (contract_id 우선, null 이면 고객사|계약명 폴백)
+  //   합계 예정액/수금액·진행률·롤업 상태·다음 수금예정일 계산 → 다음 예정일 오름차순 정렬
+  _groupSchedules(list) {
+    const map = new Map();
+    for (const s of list) {
+      const linked = s.contract_id !== null && s.contract_id !== undefined;
+      const key = linked
+        ? `c:${s.contract_id}`
+        : `m:${s.customer_name || ''}|${s.contract_name || ''}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          linked,
+          customer_name: s.customer_name,
+          contract_name: s.contract_name,
+          contract_no: s.contract_no,
+          currency: s.currency || 'KRW',
+          children: [],
+        });
+      }
+      map.get(key).children.push(s);
+    }
+    const groups = [...map.values()].map(g => {
+      const totSch = g.children.reduce((a, c) => a + Number(c.scheduled_amount || 0), 0);
+      const totPaid = g.children.reduce((a, c) => a + Number(c.paid_amount || 0), 0);
+      const pct = totSch > 0 ? Math.min(Math.round((totPaid / totSch) * 100), 100) : 0;
+      const sts = g.children.map(c => c.status);
+      let status = 'scheduled';
+      if (sts.includes('overdue')) status = 'overdue';
+      else if (sts.length && sts.every(x => x === 'collected')) status = 'collected';
+      else if (sts.some(x => x === 'partial' || x === 'collected')) status = 'partial';
+      else if (sts.includes('invoiced')) status = 'invoiced';
+      const pendingDue = g.children
+        .filter(c => c.status !== 'collected' && c.status !== 'written_off' && c.due_date)
+        .map(c => String(c.due_date).slice(0, 10))
+        .sort();
+      const nextDue = pendingDue.length ? pendingDue[0] : null;
+      return { ...g, totSch, totPaid, pct, status, nextDue };
+    });
+    // 그룹 정렬: 다음 수금예정일 빠른 순, 완료(nextDue 없음)는 하단
+    groups.sort((a, b) => {
+      if (a.nextDue && b.nextDue) return a.nextDue < b.nextDue ? -1 : a.nextDue > b.nextDue ? 1 : 0;
+      if (a.nextDue) return -1;
+      if (b.nextDue) return 1;
+      return 0;
+    });
+    return groups;
   },
 
   // ── F3. 미수금 탭 ───────────────────────────────────────────
@@ -503,7 +673,8 @@ const PaymentsPage = {
         <span style="font-size:12px;color:#92400E;line-height:1.5">세금계산서 <b>발행 상태를 수동으로 기록</b>합니다 (수금 ↔ 계산서 연동).
           바로빌 자동발행·국세청 전송은 <b>API 키 등록 후(Phase 2)</b> 제공됩니다.</span>
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
+        <button id="tax-btn-import" class="btn btn-sm" style="background:#ECFDF5;color:#0F7A3F;border:1px solid #A7F3D0">⬆ 홈택스 가져오기</button>
         <button id="tax-btn-new" class="btn btn-primary btn-sm">+ 발행요청 생성</button>
       </div>
       <div style="background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden">
@@ -531,6 +702,7 @@ const PaymentsPage = {
     `;
 
     document.getElementById('tax-btn-new')?.addEventListener('click', () => this._openTaxModal());
+    document.getElementById('tax-btn-import')?.addEventListener('click', () => this._openHometaxImportModal());
     el.querySelectorAll('.tax-act').forEach(b =>
       b.addEventListener('click', () => this._taxStatusAction(parseInt(b.dataset.id, 10), b.dataset.to))
     );
@@ -672,6 +844,209 @@ const PaymentsPage = {
     }
   },
 
+  // 홈택스 세금계산서 가져오기 모달 (파일 .csv/.xlsx 또는 붙여넣기 → 컬럼 매핑 → tax_invoices 일괄 등록)
+  _openHometaxImportModal() {
+    const esc = s => this._esc(s);
+    const TARGETS = [
+      { key: 'issue_date', label: '작성일자(발행일)', req: false, guess: ['작성일자', '발행일', '일자', 'date'] },
+      { key: 'customer_name', label: '상호(공급받는자)', req: false, guess: ['공급받는자', '상호', '거래처', 'customer'] },
+      { key: 'supply_amount', label: '공급가액', req: true, guess: ['공급가액', '공급가', 'supply'] },
+      { key: 'tax_amount', label: '세액', req: false, guess: ['세액', '부가세', 'tax', 'vat'] },
+      { key: 'invoice_no', label: '승인번호', req: false, guess: ['승인번호', '승인', '번호'] },
+      { key: 'note', label: '비고', req: false, guess: ['비고', '품목', 'note'] },
+    ];
+    let headers = [];
+    let rows = [];
+
+    // 붙여넣기 텍스트 파싱 (탭 우선, 없으면 콤마)
+    const parsePaste = text => {
+      const lines = String(text || '')
+        .replace(/\r/g, '')
+        .split('\n')
+        .filter(l => l.trim() !== '');
+      if (!lines.length) return { headers: [], rows: [] };
+      const delim = lines[0].includes('\t') ? '\t' : ',';
+      const split = l => l.split(delim).map(c => c.trim());
+      return { headers: split(lines[0]), rows: lines.slice(1).map(split) };
+    };
+
+    // 컬럼 자동 추정 (헤더 키워드 매칭)
+    const guessMap = () => {
+      const map = {};
+      TARGETS.forEach(t => {
+        map[t.key] = headers.findIndex(h => {
+          const hl = (h || '').toLowerCase();
+          return t.guess.some(g => hl.includes(g.toLowerCase()));
+        });
+      });
+      return map;
+    };
+
+    const doImport = async () => {
+      const map = {};
+      document.querySelectorAll('.ht-map').forEach(sel => {
+        map[sel.dataset.key] = parseInt(sel.value, 10);
+      });
+      if (map.supply_amount === undefined || map.supply_amount < 0) {
+        Toast.error?.('공급가액 컬럼을 매핑하세요');
+        return;
+      }
+      const toNum = s => {
+        const n = Number(String(s ?? '').replace(/[^0-9.-]/g, ''));
+        return isNaN(n) ? '' : n;
+      };
+      const normDate = s => {
+        const t = String(s ?? '').trim();
+        const mt = t.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
+        if (mt) return `${mt[1]}-${String(mt[2]).padStart(2, '0')}-${String(mt[3]).padStart(2, '0')}`;
+        return t.slice(0, 10);
+      };
+      const pick = (r, idx) => (idx >= 0 ? r[idx] || '' : '');
+      const payload = rows.map(r => ({
+        issue_date: map.issue_date >= 0 ? normDate(r[map.issue_date]) : null,
+        customer_name: pick(r, map.customer_name),
+        supply_amount: toNum(r[map.supply_amount]),
+        tax_amount: map.tax_amount >= 0 ? toNum(r[map.tax_amount]) : 0,
+        invoice_no: pick(r, map.invoice_no),
+        note: pick(r, map.note),
+      }));
+      try {
+        const res = await API.post('/payments/tax-invoices/bulk', { rows: payload });
+        const d = res?.data || {};
+        const parts = [`${d.created || 0}건 등록`];
+        if (d.duplicates) parts.push(`${d.duplicates}건 중복 스킵`);
+        if (d.errors?.length) parts.push(`${d.errors.length}건 오류`);
+        Toast.success?.('홈택스 가져오기: ' + parts.join(' · '));
+        Modal.close();
+        this._renderTax();
+      } catch (err) {
+        Toast.error?.('가져오기 실패: ' + (err?.message || err));
+      }
+    };
+
+    const renderMapping = () => {
+      const body = document.getElementById('ht-body');
+      const foot = document.getElementById('ht-foot');
+      if (!body || !foot) return;
+      const m = guessMap();
+      const idxs = [...headers.keys()];
+      const opt = sel =>
+        headers
+          .map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h || `(열 ${i + 1})`)}</option>`)
+          .join('');
+      const mapRows = TARGETS.map(
+        t => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <label style="width:140px;font-size:12px">${t.label}${t.req ? ' <span style="color:#E63329">*</span>' : ''}</label>
+          <select class="form-input ht-map" data-key="${t.key}" style="flex:1;font-size:12px;padding:4px 8px">
+            <option value="-1">— 매핑 안 함 —</option>${opt(m[t.key])}
+          </select>
+        </div>`
+      ).join('');
+      const prev = rows.slice(0, 5);
+      const pHead = idxs.map(i => `<th style="padding:4px 6px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${esc(headers[i])}</th>`).join('');
+      const pBody = prev
+        .map(r => `<tr>${idxs.map(i => `<td style="padding:4px 6px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${esc(r[i] || '')}</td>`).join('')}</tr>`)
+        .join('');
+      body.innerHTML = `
+        <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#0F7A3F">
+          ✓ <b>${rows.length}행</b> 분석됨 · 발행번호 중복은 자동 스킵 · status=발행완료로 등록
+        </div>
+        <div style="margin-bottom:12px">${mapRows}</div>
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">미리보기 (상위 ${prev.length}행)</div>
+        <div style="overflow:auto;max-height:170px;border:1px solid var(--border);border-radius:6px">
+          <table style="border-collapse:collapse"><thead><tr style="background:#F9FAFB">${pHead}</tr></thead><tbody>${pBody}</tbody></table>
+        </div>`;
+      foot.innerHTML = `
+        <button id="ht-back" class="btn btn-secondary">← 다시</button>
+        <button id="ht-import" class="btn btn-primary">가져오기 (${rows.length}행)</button>`;
+      document.getElementById('ht-back')?.addEventListener('click', () => {
+        headers = [];
+        rows = [];
+        renderInput();
+      });
+      document.getElementById('ht-import')?.addEventListener('click', doImport);
+    };
+
+    const renderInput = () => {
+      const body = document.getElementById('ht-body');
+      const foot = document.getElementById('ht-foot');
+      if (!body || !foot) return;
+      const onStyle = 'font-size:12px;background:var(--primary,#E63329);color:#fff';
+      body.innerHTML = `
+        <div style="display:flex;gap:6px;margin-bottom:12px">
+          <button class="btn btn-sm ht-src active" data-src="file" style="${onStyle}">📄 파일(.csv/.xlsx)</button>
+          <button class="btn btn-sm ht-src" data-src="paste" style="font-size:12px">📋 붙여넣기</button>
+        </div>
+        <div id="ht-src-file">
+          <input id="ht-file" type="file" accept=".csv,.xlsx,.xls" class="form-input" style="font-size:12px">
+          <div style="font-size:11px;color:var(--text-3);margin-top:6px">홈택스에서 내려받은 전자세금계산서 CSV/Excel 파일을 선택하세요 (첫 행 = 헤더).</div>
+        </div>
+        <div id="ht-src-paste" style="display:none">
+          <textarea id="ht-paste" class="form-input" rows="8" placeholder="홈택스 표를 복사해 붙여넣으세요 (첫 행 = 헤더, 탭/콤마 구분)" style="font-size:12px;font-family:monospace"></textarea>
+        </div>`;
+      foot.innerHTML = `
+        <button class="btn btn-secondary" onclick="Modal.close()">취소</button>
+        <button id="ht-analyze" class="btn btn-primary">분석 →</button>`;
+      body.querySelectorAll('.ht-src').forEach(b =>
+        b.addEventListener('click', () => {
+          body.querySelectorAll('.ht-src').forEach(x => {
+            x.classList.remove('active');
+            x.style.background = '';
+            x.style.color = '';
+          });
+          b.classList.add('active');
+          b.style.background = 'var(--primary,#E63329)';
+          b.style.color = '#fff';
+          const src = b.dataset.src;
+          document.getElementById('ht-src-file').style.display = src === 'file' ? '' : 'none';
+          document.getElementById('ht-src-paste').style.display = src === 'paste' ? '' : 'none';
+        })
+      );
+      document.getElementById('ht-analyze')?.addEventListener('click', async () => {
+        const src = body.querySelector('.ht-src.active')?.dataset.src || 'file';
+        if (src === 'paste') {
+          const parsed = parsePaste(document.getElementById('ht-paste')?.value);
+          headers = parsed.headers;
+          rows = parsed.rows;
+          if (!rows.length) {
+            Toast.error?.('헤더 + 1행 이상 붙여넣으세요');
+            return;
+          }
+          renderMapping();
+        } else {
+          const f = document.getElementById('ht-file')?.files?.[0];
+          if (!f) {
+            Toast.error?.('파일을 선택하세요');
+            return;
+          }
+          const fd = new FormData();
+          fd.append('file', f);
+          try {
+            const res = await API._upload('/payments/import/parse', fd);
+            headers = res?.data?.headers || [];
+            rows = res?.data?.rows || [];
+            if (!rows.length) {
+              Toast.error?.('데이터 행이 없습니다 (헤더만 있거나 빈 파일)');
+              return;
+            }
+            renderMapping();
+          } catch (err) {
+            Toast.error?.('파일 분석 실패: ' + (err?.message || err));
+          }
+        }
+      });
+    };
+
+    Modal.open({
+      title: '⬆ 홈택스 세금계산서 가져오기',
+      size: 'md',
+      body: `<div id="ht-body"></div>`,
+      footer: `<div id="ht-foot" style="display:flex;gap:8px;justify-content:flex-end;width:100%"></div>`,
+      onOpen: () => renderInput(),
+    });
+  },
+
   // ── F5. 매출분석 탭 ─────────────────────────────────────────
   _renderAnalysis() {
     const el = document.getElementById('pay-tab-content');
@@ -683,51 +1058,233 @@ const PaymentsPage = {
 
     const trend = d.monthly_trend || [];
     const overdueByCust = d.overdue_by_customer || [];
-    const fmt = n => Number(n || 0).toLocaleString('ko-KR');
 
-    // 월별 추이 bar
-    const maxVal = Math.max(...trend.map(t => Math.max(Number(t.scheduled), Number(t.collected))), 1);
-    const trendBars = trend.map(t => {
-      const schPct = Math.round((Number(t.scheduled) / maxVal) * 100);
-      const colPct = Math.round((Number(t.collected) / maxVal) * 100);
-      return `
-        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
-          <div style="display:flex;gap:2px;align-items:flex-end;height:80px">
-            <div style="width:14px;background:#BFDBFE;border-radius:2px 2px 0 0;height:${schPct}%" title="예정: ₩${fmt(t.scheduled)}"></div>
-            <div style="width:14px;background:#1664E5;border-radius:2px 2px 0 0;height:${colPct}%" title="실적: ₩${fmt(t.collected)}"></div>
-          </div>
-          <div style="font-size:10px;color:var(--text-3)">${t.month?.slice(5)}</div>
-        </div>
-      `;
-    }).join('');
+    // 상태별 수금예정액 집계 (현재 로드된 스케줄 기준 — 클라이언트 계산)
+    const statusAgg = {};
+    (this._schedules || []).forEach(s => {
+      const k = s.status || 'scheduled';
+      statusAgg[k] = (statusAgg[k] || 0) + Number(s.scheduled_amount || 0);
+    });
+    const statusKeys = Object.keys(statusAgg).filter(k => statusAgg[k] > 0);
 
-    const overdueRows = overdueByCust.map(c => `
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:13px">${this._esc(c.customer_name)}</span>
-        <span style="font-size:13px;font-weight:600;color:#E63329">₩${fmt(c.overdue_amount)}</span>
-      </div>
-    `).join('') || '<div style="text-align:center;padding:16px;color:var(--text-3)">연체 미수금 없음</div>';
+    const hasTrend = trend.length > 0;
+    const hasStatus = statusKeys.length > 0;
+    const hasOverdue = overdueByCust.length > 0;
+    const noData = msg =>
+      `<div style="text-align:center;padding:40px;color:var(--text-3);font-size:12px">${msg}</div>`;
+    // 손익 시뮬레이터: 기본 매출 = 수금 예정액 합계, 원가율/판관비율은 직전 입력값 기억
+    const defaultRevenue = (this._schedules || []).reduce((a, s) => a + Number(s.scheduled_amount || 0), 0);
+    let savedCost = '70';
+    let savedSga = '10';
+    try {
+      savedCost = localStorage.getItem('oci_pnl_cost') || '70';
+      savedSga = localStorage.getItem('oci_pnl_sga') || '10';
+    } catch (_) {
+      /* 무시 */
+    }
 
     el.innerHTML = `
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
-        <!-- 월별 추이 -->
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px">
         <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px">
-          <div style="font-weight:600;margin-bottom:12px;font-size:13px">📈 월별 수금 현황 (최근 6개월)</div>
-          <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px">
-            ${trendBars || '<div style="color:var(--text-3);font-size:12px">데이터 없음</div>'}
-          </div>
-          <div style="display:flex;gap:12px;font-size:11px;color:var(--text-3)">
-            <span><span style="display:inline-block;width:10px;height:10px;background:#BFDBFE;border-radius:1px;margin-right:4px"></span>예정</span>
-            <span><span style="display:inline-block;width:10px;height:10px;background:#1664E5;border-radius:1px;margin-right:4px"></span>실적</span>
-          </div>
+          <div style="font-weight:600;margin-bottom:12px;font-size:13px">📈 월별 수금 현황 (예정 vs 실적, 최근 6개월)</div>
+          <div style="position:relative;height:240px">${hasTrend ? '<canvas id="pay-chart-trend"></canvas>' : noData('데이터 없음')}</div>
         </div>
-        <!-- 고객사별 미수금 TOP 5 -->
         <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px">
-          <div style="font-weight:600;margin-bottom:12px;font-size:13px">⚠️ 연체 미수금 TOP 5</div>
-          ${overdueRows}
+          <div style="font-weight:600;margin-bottom:12px;font-size:13px">🍩 상태별 수금예정액 비중</div>
+          <div style="position:relative;height:240px">${hasStatus ? '<canvas id="pay-chart-status"></canvas>' : noData('데이터 없음')}</div>
         </div>
       </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px">
+        <div style="font-weight:600;margin-bottom:12px;font-size:13px">⚠️ 연체 미수금 TOP 5 (고객사별)</div>
+        <div style="position:relative;height:${Math.max(overdueByCust.length * 38 + 16, 80)}px">${hasOverdue ? '<canvas id="pay-chart-overdue"></canvas>' : noData('연체 미수금 없음')}</div>
+      </div>
+
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:16px">
+        <div style="font-weight:600;font-size:13px">🧮 손익 시뮬레이터</div>
+        <div style="font-size:11px;color:var(--text-3);margin:4px 0 12px">매출·원가율·판관비율을 조정해 손익을 시뮬레이션합니다. 원가율·판관비율은 자동 기억됩니다.</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+          <div>
+            <label class="form-label">매출액 (원)</label>
+            <input id="pnl-rev" type="number" class="form-input" value="${defaultRevenue}" min="0">
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px">기본 = 수금 예정 합계</div>
+          </div>
+          <div>
+            <label class="form-label">원가율 (%)</label>
+            <input id="pnl-cost" type="number" class="form-input" value="${savedCost}" min="0" max="100" step="1">
+          </div>
+          <div>
+            <label class="form-label">판관비율 (%)</label>
+            <input id="pnl-sga" type="number" class="form-input" value="${savedSga}" min="0" max="100" step="1">
+          </div>
+        </div>
+        <div id="pnl-out"></div>
+      </div>
     `;
+
+    // ── 손익 시뮬레이터 — 실시간 계산 (저장 없음, Chart.js 불필요) ──
+    const pnlOut = () => {
+      const out = document.getElementById('pnl-out');
+      if (!out) return;
+      const rev = Math.max(0, Number(document.getElementById('pnl-rev')?.value || 0));
+      const cr = Math.max(0, Number(document.getElementById('pnl-cost')?.value || 0)) / 100;
+      const sr = Math.max(0, Number(document.getElementById('pnl-sga')?.value || 0)) / 100;
+      const cost = rev * cr;
+      const sga = rev * sr;
+      const gross = rev - cost;
+      const op = gross - sga;
+      const grossPct = rev > 0 ? (gross / rev) * 100 : 0;
+      const opPct = rev > 0 ? (op / rev) * 100 : 0;
+      const won = v => '₩' + Math.round(v).toLocaleString('ko-KR');
+      const opColor = op >= 0 ? '#0F7A3F' : '#E63329';
+      const seg = (w, c) => `<div style="width:${Math.max(0, Math.min(100, w))}%;background:${c};height:100%"></div>`;
+      // 입력값 기억 (원가율/판관비율)
+      try {
+        localStorage.setItem('oci_pnl_cost', document.getElementById('pnl-cost')?.value || '');
+        localStorage.setItem('oci_pnl_sga', document.getElementById('pnl-sga')?.value || '');
+      } catch (_) {
+        /* 무시 */
+      }
+      // 시나리오 비교 (원가율 ±10%p, 판관비 고정)
+      const crUp = Math.min(1, cr + 0.1);
+      const crDn = Math.max(0, cr - 0.1);
+      const scen = crp => {
+        const o = rev - rev * crp - sga;
+        return { op: o, pct: rev > 0 ? (o / rev) * 100 : 0 };
+      };
+      const consv = scen(crUp);
+      const optm = scen(crDn);
+      const scenCard = (lbl, s, hi) => `
+        <div style="background:${hi ? '#EFF6FF' : '#F9FAFB'};border:1px solid ${hi ? '#BFDBFE' : 'var(--border)'};border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:11px;color:var(--text-3)">${lbl}</div>
+          <div style="font-weight:700;font-size:13px;color:${s.op >= 0 ? '#0F7A3F' : '#E63329'}">${won(s.op)}</div>
+          <div style="font-size:11px;color:${s.op >= 0 ? '#0F7A3F' : '#E63329'}">${s.pct.toFixed(1)}%</div>
+        </div>`;
+      out.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+          <div style="background:#F9FAFB;border-radius:6px;padding:10px"><div style="font-size:11px;color:var(--text-3)">원가</div><div style="font-weight:700;font-size:14px">${won(cost)}</div></div>
+          <div style="background:#F9FAFB;border-radius:6px;padding:10px"><div style="font-size:11px;color:var(--text-3)">판관비</div><div style="font-weight:700;font-size:14px">${won(sga)}</div></div>
+          <div style="background:#ECFDF5;border-radius:6px;padding:10px"><div style="font-size:11px;color:var(--text-3)">매출총이익</div><div style="font-weight:700;font-size:14px;color:#0F7A3F">${won(gross)}</div><div style="font-size:11px;color:var(--text-3)">${grossPct.toFixed(1)}%</div></div>
+          <div style="background:${op >= 0 ? '#ECFDF5' : '#FFF5F5'};border-radius:6px;padding:10px"><div style="font-size:11px;color:var(--text-3)">영업이익</div><div style="font-weight:700;font-size:14px;color:${opColor}">${won(op)}</div><div style="font-size:11px;color:${opColor}">${opPct.toFixed(1)}%</div></div>
+        </div>
+        <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;background:#E5E7EB">
+          ${seg(cr * 100, '#F59C00')}${seg(sr * 100, '#FBBF24')}${seg(op >= 0 ? opPct : 0, '#0F7A3F')}
+        </div>
+        <div style="display:flex;gap:12px;font-size:11px;color:var(--text-3);margin-top:6px">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#F59C00;border-radius:1px;margin-right:4px"></span>원가</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#FBBF24;border-radius:1px;margin-right:4px"></span>판관비</span>
+          <span><span style="display:inline-block;width:10px;height:10px;background:#0F7A3F;border-radius:1px;margin-right:4px"></span>영업이익</span>
+        </div>
+        <div style="font-size:12px;font-weight:600;margin:14px 0 6px">시나리오 비교 <span style="font-weight:400;color:var(--text-3)">(영업이익 · 원가율 ±10%p · 판관비 고정)</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          ${scenCard('보수 (원가율 ' + Math.round(crUp * 100) + '%)', consv, false)}
+          ${scenCard('기본 (' + Math.round(cr * 100) + '%)', { op, pct: opPct }, true)}
+          ${scenCard('낙관 (원가율 ' + Math.round(crDn * 100) + '%)', optm, false)}
+        </div>`;
+    };
+    ['pnl-rev', 'pnl-cost', 'pnl-sga'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', pnlOut);
+    });
+    pnlOut();
+
+    // Chart.js 미로드 시 캔버스만 비워둠 (안전장치)
+    if (typeof Chart === 'undefined') return;
+    const won = v => '₩' + Number(v || 0).toLocaleString('ko-KR');
+    const krw = v => Number(v || 0).toLocaleString('ko-KR');
+
+    // ① 월별 예정 vs 실적 (세로 막대)
+    const trendEl = document.getElementById('pay-chart-trend');
+    if (trendEl) {
+      this._charts.trend = new Chart(trendEl, {
+        type: 'bar',
+        data: {
+          labels: trend.map(t => t.month || ''),
+          datasets: [
+            { label: '예정', data: trend.map(t => Number(t.scheduled || 0)), backgroundColor: '#BFDBFE', borderRadius: 4 },
+            { label: '실적', data: trend.map(t => Number(t.collected || 0)), backgroundColor: '#1664E5', borderRadius: 4 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { label: c => `${c.dataset.label}: ${won(c.parsed.y)}` } },
+          },
+          scales: {
+            y: { beginAtZero: true, ticks: { callback: krw, font: { size: 10 } } },
+            x: { ticks: { font: { size: 10 } } },
+          },
+        },
+      });
+    }
+
+    // ② 상태별 수금예정액 비중 (도넛)
+    const statusEl = document.getElementById('pay-chart-status');
+    if (statusEl) {
+      this._charts.status = new Chart(statusEl, {
+        type: 'doughnut',
+        data: {
+          labels: statusKeys.map(k => (this._STATUS_META[k] || {}).label || k),
+          datasets: [
+            {
+              data: statusKeys.map(k => statusAgg[k]),
+              backgroundColor: statusKeys.map(k => (this._STATUS_META[k] || {}).color || '#9CA3AF'),
+              borderColor: '#fff',
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { label: c => `${c.label}: ${won(c.parsed)}` } },
+          },
+        },
+      });
+    }
+
+    // ③ 연체 미수금 TOP 5 (가로 막대)
+    const overdueEl = document.getElementById('pay-chart-overdue');
+    if (overdueEl) {
+      this._charts.overdue = new Chart(overdueEl, {
+        type: 'bar',
+        data: {
+          labels: overdueByCust.map(c => c.customer_name || '—'),
+          datasets: [
+            { label: '연체 미수금', data: overdueByCust.map(c => Number(c.overdue_amount || 0)), backgroundColor: '#E63329', borderRadius: 4 },
+          ],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: c => won(c.parsed.x) } },
+          },
+          scales: {
+            x: { beginAtZero: true, ticks: { callback: krw, font: { size: 10 } } },
+            y: { ticks: { font: { size: 11 } } },
+          },
+        },
+      });
+    }
+  },
+
+  // 매출분석 Chart.js 인스턴스 일괄 파기 (재렌더·탭 전환 시 메모리 누수 방지)
+  _destroyCharts() {
+    if (this._charts) {
+      Object.keys(this._charts).forEach(k => {
+        try {
+          this._charts[k].destroy();
+        } catch (_) {
+          /* 무시 */
+        }
+      });
+    }
+    this._charts = {};
   },
 
   // ── 수금 스케줄 등록·수정 모달 (재설계: 2단 레이아웃) ─────────
@@ -757,6 +1314,8 @@ const PaymentsPage = {
     // 통화: 편집 시 기존값, 신규 시 기본통화
     this._msCurrency = shared.currency || cfg.default_currency || 'KRW';
     this._msDeleted = [];
+    this._msContractId = shared.contract_id || null; // 연결된 계약 id (계약 연결 Combobox)
+    this._msCustomerId = shared.customer_id || null;
 
     // 마일스톤 배열 구성
     this._ms = isEdit
@@ -792,6 +1351,18 @@ const PaymentsPage = {
           <div style="border:1px solid var(--border);border-radius:10px;padding:16px;background:#FAFBFC">
             <div style="font-size:13px;font-weight:700;color:var(--text-1);margin-bottom:12px;
                         display:flex;align-items:center;gap:6px">📄 계약 기본 정보</div>
+
+            <!-- 기존 계약 연결 (선택) -->
+            <div style="margin-bottom:12px">
+              <label class="form-label">🔗 기존 계약 연결 (선택)</label>
+              <input id="pay-m-contract-link" class="form-input" autocomplete="off"
+                placeholder="계약명·계약번호·고객사로 검색 (2글자 이상)">
+              <div id="pay-m-link-status" style="font-size:11px;margin-top:4px;color:var(--text-3)">${
+                shared.contract_id
+                  ? `🔗 <b>${this._esc(shared.contract_name || `계약 #${shared.contract_id}`)}</b> 연결됨 <button type="button" id="pay-m-unlink" style="margin-left:6px;font-size:11px;background:none;border:none;color:#E63329;cursor:pointer;text-decoration:underline">연결 해제</button>`
+                  : '미연결 — 계약을 검색해 연결하거나, 아래에 직접 입력하세요'
+              }</div>
+            </div>
 
             <!-- 고객사명 | 계약/프로젝트명 -->
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -889,6 +1460,48 @@ const PaymentsPage = {
         const ctotalEl   = document.getElementById('pay-m-contract-total');
         const currencyEl = document.getElementById('pay-m-currency');
         const listEl     = document.getElementById('pay-ms-list');
+
+        // 기존 계약 연결 Combobox (선택 시 contract_id + 고객사/계약명 자동 채움)
+        this._contractCombobox?.destroy?.();
+        const linkEl = document.getElementById('pay-m-contract-link');
+        if (linkEl && window.Combobox) {
+          this._contractCombobox = Combobox.attach({
+            inputEl: linkEl,
+            minChars: 2,
+            allowCustom: false,
+            fetchFn: async q => {
+              try {
+                const r = await API.contracts.list({ search: q, limit: 10 });
+                return (r.data || []).map(c => ({
+                  id: c.id,
+                  name: c.title || c.contract_no || `계약 #${c.id}`,
+                  contract_no: c.contract_no || '',
+                  customer_id: c.customer_id || null,
+                  customer_name: c.customer_name || '',
+                }));
+              } catch (_) {
+                return [];
+              }
+            },
+            renderItem: (item, query, { highlightMatch }) =>
+              `<div style="font-size:13px">${highlightMatch(item.name, query)}</div>
+               <div style="font-size:11px;color:var(--text-3)">${item.contract_no ? this._esc(item.contract_no) + ' · ' : ''}${this._esc(item.customer_name || '')}</div>`,
+            onSelect: item => {
+              this._msContractId = item.id;
+              this._msCustomerId = item.customer_id;
+              const cuEl = document.getElementById('pay-m-customer');
+              const cnEl = document.getElementById('pay-m-contract-name');
+              if (cuEl && item.customer_name) cuEl.value = item.customer_name;
+              if (cnEl) cnEl.value = item.name;
+              const st = document.getElementById('pay-m-link-status');
+              if (st)
+                st.innerHTML = `🔗 <b>${this._esc(item.name)}</b> 연결됨 <button type="button" id="pay-m-unlink" style="margin-left:6px;font-size:11px;background:none;border:none;color:#E63329;cursor:pointer;text-decoration:underline">연결 해제</button>`;
+              linkEl.value = '';
+              this._bindUnlink();
+            },
+          });
+        }
+        this._bindUnlink();
 
         // 총계약금 입력 → 콤마 포맷 + 계약금(VAT포함) 재계산 + 비율기반 마일스톤 재계산
         csupplyEl?.addEventListener('input', () => {
@@ -1213,6 +1826,18 @@ const PaymentsPage = {
     return `${yyyy}-${mm}-${dd}`;
   },
 
+  // 계약 연결 해제 버튼 바인딩 (연결 상태 표시 내 버튼은 재생성되므로 매번 재바인딩)
+  _bindUnlink() {
+    const btn = document.getElementById('pay-m-unlink');
+    if (!btn) return;
+    btn.onclick = () => {
+      this._msContractId = null;
+      this._msCustomerId = null;
+      const st = document.getElementById('pay-m-link-status');
+      if (st) st.textContent = '미연결 — 계약을 검색해 연결하거나, 아래에 직접 입력하세요';
+    };
+  },
+
   // ── 저장: 모달 → POST /payments/batch (계약 1건 → 마일스톤 N행) ──
   async _saveSchedule(originalSchedule = null) {
     const customer_name = document.getElementById('pay-m-customer')?.value.trim();
@@ -1287,8 +1912,8 @@ const PaymentsPage = {
 
     const payload = {
       shared: {
-        contract_id: originalSchedule?.contract_id || null,
-        customer_id: originalSchedule?.customer_id || null,
+        contract_id: this._msContractId || originalSchedule?.contract_id || null,
+        customer_id: this._msCustomerId || originalSchedule?.customer_id || null,
         customer_name,
         contract_name: contract_name || null,
         contract_supply_amount,
@@ -1308,6 +1933,7 @@ const PaymentsPage = {
       if (r.updated) parts.push(`${r.updated}건 수정`);
       if (r.deleted) parts.push(`${r.deleted}건 삭제`);
       Toast.success?.(parts.length ? `수금 스케줄 ${parts.join(' · ')}` : '수금 스케줄이 저장됐습니다');
+      this._contractCombobox?.destroy?.();
       Modal.close();
       await this._reloadAndRender();
     } catch (err) {

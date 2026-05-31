@@ -16,6 +16,17 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { requireFeature } = require('../middleware/featureGuard');
+const multer = require('multer');
+const ExcelJS = require('exceljs');
+const { Readable } = require('stream');
+const { sanitizeCell, validateRequest } = require('../utils/bulkPasteHelper');
+
+// 홈택스 가져오기 전용 — 메모리 업로드(csv/xlsx, 10MB). 디스크 저장 불필요(파싱만).
+const uploadMem = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /\.(csv|xlsx|xls)$/i.test(file.originalname || '')),
+});
 
 // ─── 자가 마이그레이션 ─────────────────────────────────────────
 async function runMigrations() {
@@ -350,6 +361,148 @@ router.post('/tax-invoices', async (req, res) => {
     res.json({ success: true, data: { id: result.insertId } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── 홈택스 가져오기: 파일 파싱 (csv/xlsx → headers/rows, 위치 기반) ──
+//   헤더 중복('상호' 2개 등) 대응 위해 객체키가 아닌 컬럼 배열로 반환. DB 미저장(파싱만).
+router.post('/import/parse', uploadMem.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: '파일이 없습니다' });
+    const name = (req.file.originalname || '').toLowerCase();
+    const wb = new ExcelJS.Workbook();
+    if (name.endsWith('.csv')) {
+      await wb.csv.read(Readable.from(req.file.buffer));
+    } else {
+      await wb.xlsx.load(req.file.buffer);
+    }
+    const ws = wb.worksheets[0];
+    if (!ws) return res.json({ success: true, data: { headers: [], rows: [] } });
+
+    const colCount = ws.columnCount || 0;
+    const cellText = val => {
+      if (val === null || val === undefined) return '';
+      if (val instanceof Date) {
+        // 로컬 날짜 컴포넌트 사용 (toISOString 은 UTC 변환으로 KST 에서 하루 당겨짐)
+        const pad = x => String(x).padStart(2, '0');
+        return `${val.getFullYear()}-${pad(val.getMonth() + 1)}-${pad(val.getDate())}`;
+      }
+      if (typeof val === 'object') {
+        if (val.text !== undefined) return String(val.text);
+        if (val.result !== undefined) return String(val.result);
+        return '';
+      }
+      return String(val);
+    };
+    const headerRow = ws.getRow(1);
+    const headers = [];
+    for (let c = 1; c <= colCount; c++) headers.push(cellText(headerRow.getCell(c).value).trim());
+
+    const rows = [];
+    const maxRow = Math.min(ws.rowCount, 501); // 헤더 + 최대 500행
+    for (let r = 2; r <= maxRow; r++) {
+      const row = ws.getRow(r);
+      const arr = [];
+      let hasAny = false;
+      for (let c = 1; c <= colCount; c++) {
+        const t = cellText(row.getCell(c).value).trim();
+        if (t) hasAny = true;
+        arr.push(t);
+      }
+      if (hasAny) rows.push(arr);
+    }
+    res.json({ success: true, data: { headers, rows } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: '파일 파싱 실패: ' + err.message });
+  }
+});
+
+// ─── 홈택스 가져오기: 매핑된 행 일괄 등록 (tax_invoices, status=issued) ──
+//   중복(invoice_no=승인번호)은 스킵. 행 단위 검증(공급가액 필수·발행일 4자리연도).
+router.post('/tax-invoices/bulk', async (req, res) => {
+  const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  const invalid = validateRequest(rows); // 행 수 제한(200) + 빈 배열 검사
+  if (invalid) return res.status(invalid.status).json({ success: false, error: invalid.message });
+
+  const conn = await pool.getConnection();
+  try {
+    // 기존 발행번호 조회 (중복 스킵)
+    const incomingNos = [
+      ...new Set(rows.map(r => String((r && r.invoice_no) || '').trim()).filter(Boolean)),
+    ];
+    let existingNos = new Set();
+    if (incomingNos.length) {
+      const [ex] = await conn.query('SELECT invoice_no FROM tax_invoices WHERE invoice_no IN (?)', [
+        incomingNos,
+      ]);
+      existingNos = new Set(ex.map(e => String(e.invoice_no)));
+    }
+
+    const YMD = /^\d{4}-\d{2}-\d{2}$/;
+    const seen = new Set();
+    const errors = [];
+    let created = 0;
+    let duplicates = 0;
+
+    await conn.beginTransaction();
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const r = rows[i] || {};
+        const customer_name = sanitizeCell(r.customer_name) || null;
+        const invoice_no = (sanitizeCell(r.invoice_no) || '').trim() || null;
+        const note = sanitizeCell(r.note) || null;
+        const supply = Number(r.supply_amount);
+        const tax = Number(r.tax_amount || 0);
+        const issue_date =
+          String(r.issue_date || '')
+            .trim()
+            .slice(0, 10) || null;
+
+        if (!supply || isNaN(supply)) {
+          errors.push({ row: i + 1, reason: '공급가액 누락/숫자 아님' });
+          continue;
+        }
+        if (issue_date && !YMD.test(issue_date)) {
+          errors.push({ row: i + 1, reason: '발행일 형식(YYYY-MM-DD) 오류' });
+          continue;
+        }
+        if (invoice_no && (existingNos.has(invoice_no) || seen.has(invoice_no))) {
+          duplicates++;
+          continue;
+        }
+        if (invoice_no) seen.add(invoice_no);
+
+        await conn.query(
+          `INSERT INTO tax_invoices
+             (customer_name, invoice_no, supply_amount, tax_amount, total_amount,
+              issue_date, status, issued_at, note, created_by)
+           VALUES (?,?,?,?,?,?, 'issued', NOW(), ?,?)`,
+          [
+            customer_name,
+            invoice_no,
+            supply,
+            tax,
+            supply + tax,
+            issue_date,
+            note,
+            req.user?.id || null,
+          ]
+        );
+        created++;
+      } catch (e) {
+        errors.push({
+          row: i + 1,
+          reason: e.code === 'SECURITY_VIOLATION' ? '보안 위반 셀' : e.message,
+        });
+      }
+    }
+    await conn.commit();
+    res.json({ success: true, data: { created, duplicates, errors } });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
   }
 });
 
@@ -1006,6 +1159,8 @@ router.get('/:id', async (req, res) => {
 
 // ─── F1. 스케줄 수정 ──────────────────────────────────────────
 const ALLOWED_SCHEDULE_FIELDS = [
+  'contract_id',
+  'customer_id',
   'stage_name',
   'stage_order',
   'ratio',
