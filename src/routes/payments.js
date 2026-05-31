@@ -566,6 +566,16 @@ router.put('/tax-invoices/:id', async (req, res) => {
       ...Object.values(updates),
       id,
     ]);
+
+    // 발행완료(issued) 전환 + 연결된 수금 스케줄이 있으면 → 스케줄 상태 '청구(invoiced)' 자동 전환
+    //   (예정 단계만 승급. 부분수금/수금완료/연체/대손은 보존)
+    if (updates.status === 'issued' && existing.schedule_id) {
+      await pool.query(
+        `UPDATE payment_schedules SET status = 'invoiced' WHERE id = ? AND status = 'scheduled'`,
+        [existing.schedule_id]
+      );
+    }
+
     res.json({ success: true, data: { id, status: updates.status || existing.status } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
