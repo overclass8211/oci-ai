@@ -20,6 +20,7 @@ const multer = require('multer');
 const ExcelJS = require('exceljs');
 const { Readable } = require('stream');
 const { sanitizeCell, validateRequest } = require('../utils/bulkPasteHelper');
+const { toExcelBuffer, sendExcel } = require('../utils/excelHelper');
 
 // 홈택스 가져오기 전용 — 메모리 업로드(csv/xlsx, 10MB). 디스크 저장 불필요(파싱만).
 const uploadMem = multer({
@@ -1004,6 +1005,92 @@ router.get('/', async (req, res) => {
     sql += ` GROUP BY ps.id ORDER BY ps.due_date ASC LIMIT 500`;
     const [rows] = await pool.query(sql, params);
     res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── 수금현황 엑셀 내보내기 (현재 필터 반영, .xlsx) ───────────
+router.get('/export', async (req, res) => {
+  try {
+    await syncOverdueStatus();
+    const { status, contract_id, customer_id, due_from, due_to, search } = req.query;
+    let sql = `
+      SELECT ps.*, COALESCE(SUM(pr.paid_amount),0) AS paid_amount, c.contract_no
+      FROM payment_schedules ps
+      LEFT JOIN payment_records pr ON pr.schedule_id = ps.id
+      LEFT JOIN contracts c ON c.id = ps.contract_id
+      WHERE 1=1`;
+    const params = [];
+    if (status) {
+      sql += ` AND ps.status = ?`;
+      params.push(status);
+    }
+    if (contract_id) {
+      sql += ` AND ps.contract_id = ?`;
+      params.push(Number(contract_id));
+    }
+    if (customer_id) {
+      sql += ` AND ps.customer_id = ?`;
+      params.push(Number(customer_id));
+    }
+    if (due_from) {
+      sql += ` AND ps.due_date >= ?`;
+      params.push(due_from);
+    }
+    if (due_to) {
+      sql += ` AND ps.due_date <= ?`;
+      params.push(due_to);
+    }
+    if (search) {
+      sql += ` AND (ps.customer_name LIKE ? OR ps.contract_name LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    sql += ` GROUP BY ps.id ORDER BY ps.due_date ASC LIMIT 5000`;
+    const [rows] = await pool.query(sql, params);
+
+    const LABEL = {
+      scheduled: '예정',
+      invoiced: '청구',
+      partial: '부분수금',
+      collected: '수금완료',
+      overdue: '연체',
+      written_off: '대손처리',
+    };
+    const data = rows.map(r => {
+      const sch = Number(r.scheduled_amount || 0);
+      const paid = Number(r.paid_amount || 0);
+      return {
+        customer_name: r.customer_name || '',
+        contract_name: r.contract_name || r.contract_no || '',
+        stage_name: r.stage_name || '',
+        currency: r.currency || 'KRW',
+        scheduled_amount: sch,
+        supply_amount: r.supply_amount ?? '',
+        tax_amount: r.tax_amount ?? '',
+        paid_amount: paid,
+        due_date: r.due_date ? String(r.due_date).slice(0, 10) : '',
+        status: LABEL[r.status] || r.status || '',
+        progress_pct: sch > 0 ? Math.min(Math.round((paid / sch) * 100), 100) : 0,
+        note: r.note || '',
+      };
+    });
+    const columns = [
+      { key: 'customer_name', label: '고객사' },
+      { key: 'contract_name', label: '계약/프로젝트' },
+      { key: 'stage_name', label: '단계' },
+      { key: 'currency', label: '통화' },
+      { key: 'scheduled_amount', label: '수금예정액' },
+      { key: 'supply_amount', label: '공급가액' },
+      { key: 'tax_amount', label: '세액' },
+      { key: 'paid_amount', label: '수금액' },
+      { key: 'due_date', label: '수금예정일' },
+      { key: 'status', label: '상태' },
+      { key: 'progress_pct', label: '진행률(%)' },
+      { key: 'note', label: '비고' },
+    ];
+    const buffer = await toExcelBuffer(columns, data, '수금현황');
+    sendExcel(res, buffer, `수금현황_${new Date().toISOString().slice(0, 10)}`);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -326,6 +326,7 @@ const PaymentsPage = {
           <button id="pay-view-flat" class="btn btn-sm" style="font-size:12px;border:none;border-radius:0;border-left:1px solid var(--border);${!this._groupView ? 'background:var(--primary,#E63329);color:#fff' : 'background:#fff;color:var(--text-2)'}">☰ 전체</button>
         </div>
         ${this._groupView && groups.length ? `<button id="pay-expand-all" class="btn btn-sm" style="font-size:12px">${allCollapsed ? '⊞ 모두 펼치기' : '⊟ 모두 접기'}</button>` : ''}
+        <button id="pay-export" class="btn btn-sm" style="margin-left:auto;font-size:12px;background:#ECFDF5;color:#0F7A3F;border:1px solid #A7F3D0">⤓ 엑셀</button>
       </div>
 
       <!-- 테이블 -->
@@ -446,6 +447,9 @@ const PaymentsPage = {
       else keys.forEach(k => this._collapsedGroups.add(k));
       this._renderOverview();
     });
+
+    // 엑셀 내보내기 (현재 필터 반영)
+    document.getElementById('pay-export')?.addEventListener('click', () => this._exportExcel());
 
     // 계약 그룹 헤더 클릭 → 펼침/접힘 (DOM display 토글, 재조회 없음)
     el.querySelectorAll('.pay-grp').forEach(tr => {
@@ -2370,6 +2374,19 @@ const PaymentsPage = {
   async _reloadAndRender() {
     await Promise.all([this._loadSchedules(), this._loadDashboard()]);
     this._renderTab();
+  },
+
+  // ── 수금현황 엑셀 내보내기 (현재 필터 반영) ─────────────────
+  _exportExcel() {
+    const p = new URLSearchParams();
+    if (this._filter.status) p.set('status', this._filter.status);
+    if (this._filter.due_from) p.set('due_from', this._filter.due_from);
+    if (this._filter.due_to) p.set('due_to', this._filter.due_to);
+    if (this._filter.search) p.set('search', this._filter.search);
+    const qs = p.toString() ? '?' + p.toString() : '';
+    const name = '수금현황_' + new Date().toISOString().slice(0, 10);
+    if (API.downloadExport) API.downloadExport('/payments/export' + qs, name, 'xlsx');
+    else window.open('/api/payments/export' + qs, '_blank');
   },
 
   // ── 스케줄 삭제 ─────────────────────────────────────────────

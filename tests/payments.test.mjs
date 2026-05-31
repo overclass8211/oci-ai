@@ -264,6 +264,14 @@ describe('Payments API — 수금 스케줄 일괄 저장 + 설정', () => {
     expect(Number(row.customer_id)).toBe(42);
   });
 
+  // ── 수금현황 엑셀 내보내기 ──
+  it('GET /export — 수금현황 엑셀(.xlsx) 다운로드 200', async () => {
+    const res = await api().get('/api/payments/export').set('X-User-Id', String(TEST_USER_ID));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('spreadsheetml');
+    expect(res.headers['content-disposition'] || '').toContain('attachment');
+  });
+
   // ── PUT /config — 허용되지 않은 통화 → 400 (라우트 등록 확인, 부수효과 없음) ──
   it('PUT /config — 허용되지 않은 통화 코드 → 400', async () => {
     const res = await api()
