@@ -574,11 +574,33 @@ const PaymentsPage = {
   async _renderOverdue() {
     await this._loadOverdue();
     const el = document.getElementById('pay-tab-content');
-    if (!this._overdue.length) {
-      el.innerHTML = `<div style="text-align:center;padding:60px;color:var(--text-3)">
-        <div style="font-size:40px;margin-bottom:12px">✅</div>
-        <div>현재 연체된 미수금이 없습니다</div>
+
+    // 연체 알림 액션바 (목록 유무와 무관하게 항상 표시 — 설정/스캔 접근성)
+    const notifyEmail = this._esc(this._config?.notify_email || '');
+    const actionBar = `
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="pay-btn-alerts" class="btn btn-sm" style="background:#FFF7ED;color:#C2410C;border:1px solid #FED7AA">
+            🔔 연체 알림<span id="pay-alert-badge" style="display:none;margin-left:6px;background:#E63329;color:#fff;border-radius:9px;padding:1px 6px;font-size:11px;font-weight:700">0</span>
+          </button>
+          <button id="pay-btn-scan" class="btn btn-sm" style="background:#F3F4F6;border:1px solid var(--border)">↻ 지금 스캔</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <label for="pay-notify-email" style="font-size:12px;color:var(--text-3)">📧 재무팀 알림 메일</label>
+          <input id="pay-notify-email" type="email" value="${notifyEmail}" placeholder="finance@company.com"
+            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:210px"/>
+          <button id="pay-notify-save" class="btn btn-sm btn-primary">저장</button>
+        </div>
       </div>`;
+
+    if (!this._overdue.length) {
+      el.innerHTML =
+        actionBar +
+        `<div style="text-align:center;padding:48px;color:var(--text-3)">
+          <div style="font-size:40px;margin-bottom:12px">✅</div>
+          <div>현재 연체된 미수금이 없습니다</div>
+        </div>`;
+      this._bindOverdueActions();
       return;
     }
     const rows = this._overdue.map(s => `
@@ -605,7 +627,9 @@ const PaymentsPage = {
       </tr>
     `).join('');
 
-    el.innerHTML = `
+    el.innerHTML =
+      actionBar +
+      `
       <div style="background:#FFF5F5;border:1px solid #FECACA;border-radius:8px;padding:12px 16px;margin-bottom:12px;display:flex;gap:8px;align-items:center">
         <span style="font-size:16px">⚠️</span>
         <span style="font-size:13px;color:#E63329;font-weight:600">연체 ${this._overdue.length}건 — 즉시 수금 조치가 필요합니다</span>
@@ -629,6 +653,153 @@ const PaymentsPage = {
     el.querySelectorAll('.pay-btn-record').forEach(btn => {
       btn.addEventListener('click', () => this._openRecordModal(parseInt(btn.dataset.id, 10)));
     });
+    this._bindOverdueActions();
+  },
+
+  // 연체 알림 액션바 이벤트 바인딩 (목록 유무 공용) + 배지 갱신
+  _bindOverdueActions() {
+    document.getElementById('pay-btn-alerts')?.addEventListener('click', () => this._openAlertsModal());
+    document.getElementById('pay-btn-scan')?.addEventListener('click', () => this._runScan());
+    document.getElementById('pay-notify-save')?.addEventListener('click', () => this._saveNotifyEmail());
+    this._refreshAlertBadge();
+  },
+
+  // 미읽음 알림 수 배지 갱신
+  async _refreshAlertBadge() {
+    try {
+      const res = await API.get('/payments/notifications?status=unread&limit=1');
+      const n = Number(res?.unread_count || 0);
+      const badge = document.getElementById('pay-alert-badge');
+      if (badge) {
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.style.display = n > 0 ? 'inline-block' : 'none';
+      }
+    } catch (_) {
+      /* 배지는 보조 정보 — 실패해도 무시 */
+    }
+  },
+
+  // 재무팀 알림 메일 저장 (빈 값 = 해제)
+  async _saveNotifyEmail() {
+    const input = document.getElementById('pay-notify-email');
+    const email = (input?.value || '').trim();
+    try {
+      const res = await API.put('/payments/config', { notify_email: email });
+      if (res.success) {
+        if (this._config) this._config.notify_email = email;
+        Toast.success?.(email ? '재무팀 알림 메일이 저장됐습니다' : '재무팀 알림 메일이 해제됐습니다');
+      } else {
+        Toast.error?.(res.error || '저장 실패');
+      }
+    } catch (err) {
+      Toast.error?.('저장 실패: ' + (err?.message || err));
+    }
+  },
+
+  // 연체 즉시 스캔 (인앱 알림 + 재무팀 메일 발송/큐잉)
+  async _runScan() {
+    const btn = document.getElementById('pay-btn-scan');
+    if (btn) { btn.disabled = true; btn.textContent = '스캔 중…'; }
+    try {
+      const res = await API.post('/payments/notifications/scan', {});
+      if (res.success) {
+        const d = res.data || {};
+        const parts = [`연체 ${d.overdue_total || 0}건`, `신규 알림 ${d.created_inapp || 0}건`];
+        if (d.created_email) parts.push(d.emailed ? '재무팀 메일 발송' : '재무팀 메일 대기');
+        Toast.success?.('스캔 완료: ' + parts.join(' · '));
+      } else {
+        Toast.error?.(res.error || '스캔 실패');
+      }
+    } catch (err) {
+      Toast.error?.('스캔 실패: ' + (err?.message || err));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '↻ 지금 스캔'; }
+      await this._loadOverdue();
+      this._renderOverdue();
+    }
+  },
+
+  // 연체 알림 목록 모달 (인앱) — 읽음/모두읽음
+  async _openAlertsModal() {
+    let list = [];
+    try {
+      const res = await API.get('/payments/notifications?limit=100');
+      if (res.success) list = res.data || [];
+    } catch (err) {
+      Toast.error?.('알림 조회 실패: ' + (err?.message || err));
+      return;
+    }
+    const body = list.length
+      ? list
+          .map(n => {
+            const payload = this._parseJson(n.payload_json);
+            const unread = n.status === 'unread';
+            const cust = this._esc(n.customer_name || '—');
+            const ctx = this._esc(payload.contract_name || '') + (payload.stage ? ' · ' + this._esc(payload.stage) : '');
+            const amt =
+              n.amount !== null && n.amount !== undefined
+                ? '₩' + Number(n.amount).toLocaleString('ko-KR')
+                : '';
+            return `
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);${unread ? 'background:#FFFBF5' : 'opacity:.65'}">
+                <div style="min-width:0">
+                  <div style="font-weight:600;font-size:13px">${cust}
+                    <span style="background:#FEF2F2;color:#E63329;padding:1px 6px;border-radius:9px;font-size:10px;font-weight:700;margin-left:6px">D+${n.overdue_days || 0}</span>
+                  </div>
+                  <div style="font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ctx || '—'}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                  <span style="font-size:13px;color:#E63329;font-weight:700">${amt}</span>
+                  ${unread ? `<button class="pay-alert-read btn btn-sm" data-id="${n.id}" style="font-size:11px;padding:2px 8px">읽음</button>` : '<span style="font-size:11px;color:var(--text-3)">읽음</span>'}
+                </div>
+              </div>`;
+          })
+          .join('')
+      : `<div style="text-align:center;padding:40px;color:var(--text-3)">알림이 없습니다</div>`;
+
+    Modal.open({
+      title: '🔔 연체 미수금 알림',
+      size: 'md',
+      body: `<div id="pay-alerts-list" style="max-height:50vh;overflow:auto;border:1px solid var(--border);border-radius:8px">${body}</div>`,
+      footer: `
+        <button class="btn btn-secondary" onclick="Modal.close()">닫기</button>
+        <button id="pay-alerts-readall" class="btn btn-primary">모두 읽음</button>`,
+      onOpen: () => {
+        document.querySelectorAll('.pay-alert-read').forEach(b => {
+          b.addEventListener('click', async () => {
+            await this._markAlertRead(b.dataset.id);
+            Modal.close();
+            this._openAlertsModal();
+          });
+        });
+        document.getElementById('pay-alerts-readall')?.addEventListener('click', async () => {
+          await this._markAlertRead('all');
+          Modal.close();
+          this._refreshAlertBadge();
+          Toast.success?.('모든 알림을 읽음 처리했습니다');
+        });
+      },
+    });
+  },
+
+  async _markAlertRead(id) {
+    try {
+      await API.put('/payments/notifications/' + encodeURIComponent(id) + '/read', {});
+      this._refreshAlertBadge();
+    } catch (err) {
+      Toast.error?.('읽음 처리 실패: ' + (err?.message || err));
+    }
+  },
+
+  // payload_json 안전 파싱
+  _parseJson(s) {
+    if (!s) return {};
+    if (typeof s === 'object') return s;
+    try {
+      return JSON.parse(s);
+    } catch (_) {
+      return {};
+    }
   },
 
   // ── F4. 세금계산서 탭 ───────────────────────────────────────
