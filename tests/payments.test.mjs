@@ -631,3 +631,101 @@ describe('Payments API — 연체 미수금 알림 (B1)', () => {
     expect(after.read_at).not.toBeNull();
   });
 });
+
+// ── 은행 거래내역 자동 매칭 (입금 자동화) — match/apply (2026-06-08) ──
+//   POST /bank/match (금액·입금자명·예정일 점수화) · POST /bank/apply (일괄 입금 + 상태전환)
+describe('Payments API — 은행 거래내역 자동 매칭 (Phase 1)', () => {
+  let schX, schY, schZ;
+
+  const mkSchedule = (name, scheduled, supply, tax, due, stage) =>
+    api()
+      .post('/api/payments/batch')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        shared: { customer_name: name, currency: 'KRW' },
+        milestones: [
+          { stage_name: stage, due_date: due, supply_amount: supply, tax_amount: tax, scheduled_amount: scheduled },
+        ],
+        delete_ids: [],
+      });
+
+  it('준비 — 미수 스케줄 3건 생성 (고유 금액)', async () => {
+    const a = await mkSchedule('__BANK__가나상사', 5610000, 5100000, 510000, '2026-08-10', '잔금');
+    const b = await mkSchedule('__BANK__다라물산', 3410000, 3100000, 310000, '2026-08-20', '중도금');
+    const c = await mkSchedule('__BANK__마바테크', 2090000, 1900000, 190000, '2026-08-25', '착수금');
+    schX = a.body.data.ids[0];
+    schY = b.body.data.ids[0];
+    schZ = c.body.data.ids[0];
+    [schX, schY, schZ].forEach(id => createdIds.push(id));
+    expect(schX && schY && schZ).toBeTruthy();
+  });
+
+  it('POST /bank/match — 금액+입금자명+예정일 점수화 (상위 후보 + 콤마 파싱)', async () => {
+    const res = await api()
+      .post('/api/payments/bank/match')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        rows: [
+          { date: '2026-08-11', amount: 5610000, name: '가나상사', memo: '8월 잔금' },
+          { date: '2026-08-21', amount: '3,410,000', name: '(주)다라물산', memo: '' }, // 콤마/(주) 파싱
+          { date: '2026-08-15', amount: 9999999999, name: '없는회사', memo: '' }, // 초고액 → 미매칭
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // 공유 dev DB 의 기존 미수금에 따라 매칭 수가 달라질 수 있어, 내 행만 정확히 검증
+    expect(res.body.data.summary.total).toBe(3);
+
+    const m0 = res.body.data.matches[0];
+    expect(m0.suggested_schedule_id).toBe(schX);
+    expect(m0.candidates[0].confidence).toBe('high');
+    expect(m0.candidates[0].reasons).toContain('잔액 정확 일치');
+
+    // 콤마 포함 금액 + (주) 정규화 → 다라물산 매칭
+    expect(res.body.data.matches[1].suggested_schedule_id).toBe(schY);
+
+    // 매칭 없는 행 → suggested null
+    expect(res.body.data.matches[2].suggested_schedule_id).toBeNull();
+  });
+
+  it('POST /bank/apply — 확정 매칭 일괄 등록 + 상태 자동전환(collected/partial)', async () => {
+    const res = await api()
+      .post('/api/payments/bank/apply')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({
+        applies: [
+          { schedule_id: schX, paid_amount: 5610000, paid_date: '2026-08-11', name: '가나상사', memo: '8월 잔금' },
+          { schedule_id: schZ, paid_amount: 1000000, paid_date: '2026-08-26', name: '마바테크', memo: '부분' },
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.created).toBe(2);
+
+    const [[x]] = await pool.query('SELECT status FROM payment_schedules WHERE id = ?', [schX]);
+    expect(x.status).toBe('collected'); // 전액
+    const [[z]] = await pool.query('SELECT status FROM payment_schedules WHERE id = ?', [schZ]);
+    expect(z.status).toBe('partial'); // 1,000,000 < 2,090,000
+
+    // payment_records — 자동매칭 표식 + bank_transfer
+    const [[rec]] = await pool.query(
+      'SELECT note, payment_method, paid_amount FROM payment_records WHERE schedule_id = ? ORDER BY id DESC LIMIT 1',
+      [schX]
+    );
+    expect(rec.note).toContain('은행자동매칭');
+    expect(rec.payment_method).toBe('bank_transfer');
+    expect(Number(rec.paid_amount)).toBe(5610000);
+  });
+
+  it('POST /bank/match·/bank/apply — 빈 입력 → 400', async () => {
+    const m = await api()
+      .post('/api/payments/bank/match')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ rows: [] });
+    expect(m.status).toBe(400);
+    const a = await api()
+      .post('/api/payments/bank/apply')
+      .set('X-User-Id', String(TEST_USER_ID))
+      .send({ applies: [] });
+    expect(a.status).toBe(400);
+  });
+});

@@ -388,6 +388,212 @@ router.post('/notifications/scan', async (req, res) => {
   }
 });
 
+// ─── 은행 거래내역 자동 매칭 (입금 자동화) ────────────────────
+//   파일 파싱은 기존 POST /import/parse 재사용 → 프론트가 컬럼 매핑 후
+//   구조화 행 [{date, amount, name, memo}] 을 /bank/match 로 전송.
+//   매칭은 미수 스케줄과 금액·입금자명·예정일 근접도로 점수화(무스키마).
+function _bankNormName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/\(주\)|주식회사|㈜|（주）/g, '')
+    .replace(/[\s\-_.()]/g, '');
+}
+function _bankToNum(v) {
+  if (typeof v === 'number') return v;
+  const n = parseFloat(String(v ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+function _bankDateDiff(a, b) {
+  const da = new Date(String(a).slice(0, 10) + 'T00:00:00');
+  const db = new Date(String(b).slice(0, 10) + 'T00:00:00');
+  if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 9999;
+  return Math.round(Math.abs(da.getTime() - db.getTime()) / 86400000);
+}
+function _bankScore(bank, sch) {
+  const reasons = [];
+  let score = 0;
+  const remaining = Math.round(Number(sch.remaining));
+  const scheduled = Math.round(Number(sch.scheduled_amount));
+  const amt = Math.round(bank.amount);
+  if (amt === remaining) {
+    score += 100;
+    reasons.push('잔액 정확 일치');
+  } else if (amt === scheduled) {
+    score += 90;
+    reasons.push('예정액 일치');
+  } else if (amt > 0 && amt <= remaining) {
+    score += 40;
+    reasons.push('부분 입금 가능');
+  } else {
+    score -= 50; // 초과 입금 — 비선호
+  }
+  const bn = _bankNormName(bank.name);
+  const cn = _bankNormName(sch.customer_name);
+  if (bn && cn) {
+    if (bn === cn) {
+      score += 50;
+      reasons.push('입금자명 일치');
+    } else if (bn.includes(cn) || cn.includes(bn)) {
+      score += 30;
+      reasons.push('입금자명 포함');
+    }
+  }
+  if (bank.date && sch.due_date) {
+    const d = _bankDateDiff(bank.date, sch.due_date);
+    if (d <= 3) {
+      score += 20;
+      reasons.push('예정일 근접(±3일)');
+    } else if (d <= 14) {
+      score += 10;
+      reasons.push('예정일 근접(±14일)');
+    } else if (d <= 31) {
+      score += 5;
+    }
+  }
+  return { score, reasons };
+}
+
+//   POST /bank/match — 은행 행 → 미수 스케줄 자동 매칭(상위 후보 + 점수)
+router.post('/bank/match', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length)
+      return res.status(400).json({ success: false, error: 'rows 가 비어 있습니다' });
+
+    await syncOverdueStatus();
+    // 미수(잔액>0) 스케줄
+    const [open] = await pool.query(`
+      SELECT ps.id, ps.customer_name, ps.contract_name, ps.stage_name,
+             ps.scheduled_amount, ps.due_date, ps.status,
+             ps.scheduled_amount - COALESCE(SUM(pr.paid_amount), 0) AS remaining
+        FROM payment_schedules ps
+        LEFT JOIN payment_records pr ON pr.schedule_id = ps.id
+       WHERE ps.status IN ('scheduled','invoiced','partial','overdue')
+       GROUP BY ps.id
+      HAVING remaining > 0
+    `);
+
+    const matches = rows.map((r, i) => {
+      const bank = {
+        date: String(r.date || '').slice(0, 10),
+        amount: _bankToNum(r.amount),
+        name: String(r.name || '').slice(0, 100),
+        memo: String(r.memo || '').slice(0, 200),
+      };
+      const candidates = open
+        .map(s => {
+          const { score, reasons } = _bankScore(bank, s);
+          return {
+            schedule_id: s.id,
+            customer_name: s.customer_name,
+            contract_name: s.contract_name,
+            stage_name: s.stage_name,
+            scheduled_amount: Number(s.scheduled_amount),
+            remaining: Number(s.remaining),
+            due_date: String(s.due_date || '').slice(0, 10),
+            score,
+            reasons,
+            confidence: score >= 120 ? 'high' : score >= 60 ? 'medium' : 'low',
+          };
+        })
+        .filter(c => c.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3);
+      const best = candidates[0] || null;
+      return {
+        row_index: i,
+        bank,
+        candidates,
+        suggested_schedule_id: best ? best.schedule_id : null,
+        suggested_amount: best ? Math.min(bank.amount, best.remaining) : bank.amount,
+      };
+    });
+    const matched = matches.filter(m => m.suggested_schedule_id).length;
+    res.json({
+      success: true,
+      data: {
+        matches,
+        summary: { total: matches.length, matched, unmatched: matches.length - matched },
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+//   POST /bank/apply — 확정된 매칭 → payment_records 일괄 등록 + 상태 자동전환
+router.post('/bank/apply', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const applies = Array.isArray(req.body?.applies) ? req.body.applies : [];
+    if (!applies.length) {
+      conn.release();
+      return res.status(400).json({ success: false, error: 'applies 가 비어 있습니다' });
+    }
+    await conn.beginTransaction();
+    const results = [];
+    let created = 0;
+    for (const a of applies) {
+      const scheduleId = parseInt(a.schedule_id, 10);
+      const paidAmount = _bankToNum(a.paid_amount);
+      const paidDate = String(a.paid_date || '').slice(0, 10);
+      if (!scheduleId || !(paidAmount > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) continue;
+      const [[sch]] = await conn.query(`SELECT * FROM payment_schedules WHERE id = ?`, [
+        scheduleId,
+      ]);
+      if (!sch) continue;
+      const payer = String(a.name || '').slice(0, 100);
+      const memo = String(a.memo || '').slice(0, 100);
+      const note = `[은행자동매칭] 입금자:${payer}${memo ? ' / ' + memo : ''}`.slice(0, 255);
+      const [r] = await conn.query(
+        `INSERT INTO payment_records
+           (schedule_id, contract_id, customer_id, paid_amount, paid_date,
+            payment_method, bank_account, reference_no, note, registered_by)
+         VALUES (?,?,?,?,?, 'bank_transfer', ?, ?, ?, ?)`,
+        [
+          scheduleId,
+          sch.contract_id,
+          sch.customer_id,
+          paidAmount,
+          paidDate,
+          payer || null,
+          memo || null,
+          note,
+          req.user?.id || null,
+        ]
+      );
+      const [[sumRow]] = await conn.query(
+        `SELECT COALESCE(SUM(paid_amount), 0) AS total FROM payment_records WHERE schedule_id = ?`,
+        [scheduleId]
+      );
+      const collected = Number(sumRow.total);
+      const scheduled = Number(sch.scheduled_amount);
+      let newStatus = sch.status;
+      if (collected >= scheduled) newStatus = 'collected';
+      else if (collected > 0) newStatus = 'partial';
+      if (newStatus !== sch.status)
+        await conn.query(`UPDATE payment_schedules SET status = ? WHERE id = ?`, [
+          newStatus,
+          scheduleId,
+        ]);
+      created++;
+      results.push({
+        schedule_id: scheduleId,
+        record_id: r.insertId,
+        new_status: newStatus,
+        collected,
+      });
+    }
+    await conn.commit();
+    res.json({ success: true, data: { created, results } });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // ─── F4. 세금계산서 목록 ──────────────────────────────────────
 router.get('/tax-invoices', async (req, res) => {
   try {
