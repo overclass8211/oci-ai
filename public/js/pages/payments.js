@@ -38,6 +38,7 @@ const PaymentsPage = {
       <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
         <h2 style="margin:0;font-size:18px;font-weight:700">💰 수금관리</h2>
         <div style="display:flex;gap:8px">
+          <button id="pay-btn-bank" class="btn btn-sm" style="background:#F0FDF4;color:#0F7A3F;border:1px solid #A7F3D0">🏦 은행 거래내역</button>
           <button id="pay-btn-from-contract" class="btn btn-sm" style="background:#EFF6FF;color:#1664E5;border:1px solid #BFDBFE">📄 계약에서 생성</button>
           <button id="pay-btn-new" class="btn btn-primary btn-sm">+ 수금 스케줄 등록</button>
         </div>
@@ -77,6 +78,9 @@ const PaymentsPage = {
     document
       .getElementById('pay-btn-from-contract')
       ?.addEventListener('click', () => this._openFromContractModal());
+    document
+      .getElementById('pay-btn-bank')
+      ?.addEventListener('click', () => this._openBankImportModal());
 
     // 필터/정렬 초기화 (페이지 진입 시 리셋)
     this._filter = { status: '', search: '', due_from: '', due_to: '' };
@@ -1224,6 +1228,306 @@ const PaymentsPage = {
       size: 'md',
       body: `<div id="ht-body"></div>`,
       footer: `<div id="ht-foot" style="display:flex;gap:8px;justify-content:flex-end;width:100%"></div>`,
+      onOpen: () => renderInput(),
+    });
+  },
+
+  // ── 은행 거래내역 가져오기 (자동 매칭 → 입금 일괄 등록) ────────
+  //   입력(file/paste) → 컬럼 매핑(입금일·입금액·입금자명·적요) →
+  //   /bank/match(자동 매칭) → 확정(스케줄 선택) → /bank/apply(입금 등록)
+  _openBankImportModal() {
+    const esc = s => this._esc(s);
+    const TARGETS = [
+      { key: 'date', label: '입금일', req: true, guess: ['입금일', '거래일', '거래일시', '일자', '날짜', 'date'] },
+      { key: 'amount', label: '입금액', req: true, guess: ['입금액', '입금', '맡기신', '금액', 'amount', 'deposit'] },
+      { key: 'name', label: '입금자명', req: false, guess: ['입금자', '보낸분', '보낸이', '거래처', '내용', 'name'] },
+      { key: 'memo', label: '적요/메모', req: false, guess: ['적요', '메모', '비고', '내용', 'memo'] },
+    ];
+    let headers = [];
+    let rows = [];
+    let matchData = null;
+
+    const parsePaste = text => {
+      const lines = String(text || '')
+        .replace(/\r/g, '')
+        .split('\n')
+        .filter(l => l.trim() !== '');
+      if (!lines.length) return { headers: [], rows: [] };
+      const delim = lines[0].includes('\t') ? '\t' : ',';
+      const split = l => l.split(delim).map(c => c.trim());
+      return { headers: split(lines[0]), rows: lines.slice(1).map(split) };
+    };
+    const guessMap = () => {
+      const map = {};
+      TARGETS.forEach(t => {
+        let bestIdx = -1;
+        let bestScore = 0;
+        headers.forEach((h, i) => {
+          const hl = (h || '').toLowerCase();
+          let s = 0;
+          t.guess.forEach(g => {
+            const gl = g.toLowerCase();
+            if (hl === gl) s = Math.max(s, 100);
+            else if (hl.includes(gl)) s = Math.max(s, gl.length); // 더 긴(구체적) 매칭 우선 — '입금'<'입금액'
+          });
+          if (s > bestScore) {
+            bestScore = s;
+            bestIdx = i;
+          }
+        });
+        map[t.key] = bestIdx;
+      });
+      return map;
+    };
+    const toNum = s => {
+      const n = Number(String(s ?? '').replace(/[^0-9.-]/g, ''));
+      return Number.isNaN(n) ? 0 : n;
+    };
+    const normDate = s => {
+      const t = String(s ?? '').trim();
+      const mt = t.match(/(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/);
+      if (mt) return `${mt[1]}-${String(mt[2]).padStart(2, '0')}-${String(mt[3]).padStart(2, '0')}`;
+      return t.slice(0, 10);
+    };
+    const pick = (r, idx) => (idx >= 0 ? r[idx] || '' : '');
+
+    // Step 3 — 매칭 확정 → 입금 등록
+    const doApply = async () => {
+      const applies = [];
+      (matchData?.matches || []).forEach((m, i) => {
+        const sel = document.querySelector(`.bk-sched[data-row="${i}"]`);
+        const amtEl = document.querySelector(`.bk-amt[data-row="${i}"]`);
+        const sid = sel ? parseInt(sel.value, 10) : 0;
+        const amt = toNum(amtEl?.value);
+        if (sid > 0 && amt > 0)
+          applies.push({ schedule_id: sid, paid_amount: amt, paid_date: m.bank.date, name: m.bank.name, memo: m.bank.memo });
+      });
+      if (!applies.length) {
+        Toast.error?.('등록할 매칭을 1건 이상 선택하세요');
+        return;
+      }
+      try {
+        const res = await API.post('/payments/bank/apply', { applies });
+        Toast.success?.(`은행 입금 등록: ${res?.data?.created || 0}건 반영`);
+        Modal.close();
+        await Promise.all([this._loadSchedules(), this._loadDashboard()]);
+        this._renderTab();
+      } catch (err) {
+        Toast.error?.('입금 등록 실패: ' + (err?.message || err));
+      }
+    };
+
+    const renderMatch = () => {
+      const body = document.getElementById('bk-body');
+      const foot = document.getElementById('bk-foot');
+      if (!body || !foot) return;
+      const matches = matchData?.matches || [];
+      const sum = matchData?.summary || { total: matches.length, matched: 0 };
+      const schedOptions = m => {
+        const opts = ['<option value="0">— 제외 —</option>'];
+        (m.candidates || []).forEach(c => {
+          const sel = c.schedule_id === m.suggested_schedule_id ? 'selected' : '';
+          const tag = c.confidence === 'high' ? '🟢' : c.confidence === 'medium' ? '🟡' : '⚪';
+          opts.push(
+            `<option value="${c.schedule_id}" ${sel}>${tag} ${esc(c.customer_name || '-')} · ${esc(c.stage_name || '')} · ₩${Number(c.remaining).toLocaleString('ko-KR')}</option>`
+          );
+        });
+        return opts.join('');
+      };
+      const trs = matches
+        .map((m, i) => {
+          const hasCand = (m.candidates || []).length > 0;
+          return `
+          <tr style="${hasCand ? '' : 'opacity:.6'}">
+            <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px;white-space:nowrap">${esc(m.bank.date || '-')}</td>
+            <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px;text-align:right;white-space:nowrap">₩${Number(m.bank.amount || 0).toLocaleString('ko-KR')}</td>
+            <td style="padding:6px 8px;border:1px solid var(--border);font-size:12px;white-space:nowrap">${esc(m.bank.name || '-')}</td>
+            <td style="padding:6px 8px;border:1px solid var(--border)">
+              <select class="form-input bk-sched" data-row="${i}" style="font-size:11px;padding:3px 6px;min-width:220px">${schedOptions(m)}</select>
+            </td>
+            <td style="padding:6px 8px;border:1px solid var(--border)">
+              <input class="form-input bk-amt" data-row="${i}" type="number" value="${m.suggested_amount || ''}" style="font-size:11px;padding:3px 6px;width:110px;text-align:right">
+            </td>
+          </tr>`;
+        })
+        .join('');
+      body.innerHTML = `
+        <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#0F7A3F">
+          ✓ <b>${sum.total}건</b> 중 <b>${sum.matched}건</b> 자동 매칭 · 🟢높음/🟡보통/⚪낮음 · 스케줄을 확인·수정 후 등록하세요
+        </div>
+        <div style="overflow:auto;max-height:50vh;border:1px solid var(--border);border-radius:6px">
+          <table style="border-collapse:collapse;width:100%">
+            <thead><tr style="background:#F9FAFB">
+              <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">입금일</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">입금액</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">입금자명</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">매칭 수금 건</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);font-size:11px">등록 금액</th>
+            </tr></thead>
+            <tbody>${trs}</tbody>
+          </table>
+        </div>`;
+      foot.innerHTML = `
+        <button id="bk-back2" class="btn btn-secondary">← 다시</button>
+        <button id="bk-apply" class="btn btn-primary">입금 등록</button>`;
+      document.getElementById('bk-back2')?.addEventListener('click', () => {
+        matchData = null;
+        renderMapping();
+      });
+      document.getElementById('bk-apply')?.addEventListener('click', doApply);
+    };
+
+    // Step 2 — 컬럼 매핑 → /bank/match
+    const doMatch = async () => {
+      const map = {};
+      document.querySelectorAll('.bk-map').forEach(sel => {
+        map[sel.dataset.key] = parseInt(sel.value, 10);
+      });
+      if (!(map.date >= 0) || !(map.amount >= 0)) {
+        Toast.error?.('입금일·입금액 컬럼을 매핑하세요');
+        return;
+      }
+      const payload = rows
+        .map(r => ({
+          date: normDate(r[map.date]),
+          amount: toNum(r[map.amount]),
+          name: pick(r, map.name),
+          memo: pick(r, map.memo),
+        }))
+        .filter(x => x.amount > 0);
+      if (!payload.length) {
+        Toast.error?.('유효한 입금액 행이 없습니다');
+        return;
+      }
+      try {
+        const res = await API.post('/payments/bank/match', { rows: payload });
+        matchData = res?.data;
+        renderMatch();
+      } catch (err) {
+        Toast.error?.('매칭 실패: ' + (err?.message || err));
+      }
+    };
+
+    const renderMapping = () => {
+      const body = document.getElementById('bk-body');
+      const foot = document.getElementById('bk-foot');
+      if (!body || !foot) return;
+      const m = guessMap();
+      const idxs = [...headers.keys()];
+      const opt = sel =>
+        headers
+          .map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h || `(열 ${i + 1})`)}</option>`)
+          .join('');
+      const mapRows = TARGETS.map(
+        t => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <label style="width:120px;font-size:12px">${t.label}${t.req ? ' <span style="color:#E63329">*</span>' : ''}</label>
+          <select class="form-input bk-map" data-key="${t.key}" style="flex:1;font-size:12px;padding:4px 8px">
+            <option value="-1">— 매핑 안 함 —</option>${opt(m[t.key])}
+          </select>
+        </div>`
+      ).join('');
+      const prev = rows.slice(0, 5);
+      const pHead = idxs.map(i => `<th style="padding:4px 6px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${esc(headers[i])}</th>`).join('');
+      const pBody = prev
+        .map(r => `<tr>${idxs.map(i => `<td style="padding:4px 6px;border:1px solid var(--border);font-size:11px;white-space:nowrap">${esc(r[i] || '')}</td>`).join('')}</tr>`)
+        .join('');
+      body.innerHTML = `
+        <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#0F7A3F">
+          ✓ <b>${rows.length}행</b> 분석됨 · 입금일·입금액 컬럼을 지정하면 미수금과 자동 매칭합니다
+        </div>
+        <div style="margin-bottom:12px">${mapRows}</div>
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">미리보기 (상위 ${prev.length}행)</div>
+        <div style="overflow:auto;max-height:160px;border:1px solid var(--border);border-radius:6px">
+          <table style="border-collapse:collapse"><thead><tr style="background:#F9FAFB">${pHead}</tr></thead><tbody>${pBody}</tbody></table>
+        </div>`;
+      foot.innerHTML = `
+        <button id="bk-back" class="btn btn-secondary">← 다시</button>
+        <button id="bk-match" class="btn btn-primary">자동 매칭 →</button>`;
+      document.getElementById('bk-back')?.addEventListener('click', () => {
+        headers = [];
+        rows = [];
+        renderInput();
+      });
+      document.getElementById('bk-match')?.addEventListener('click', doMatch);
+    };
+
+    // Step 1 — 입력 (파일/붙여넣기)
+    const renderInput = () => {
+      const body = document.getElementById('bk-body');
+      const foot = document.getElementById('bk-foot');
+      if (!body || !foot) return;
+      const onStyle = 'font-size:12px;background:var(--primary,#E63329);color:#fff';
+      body.innerHTML = `
+        <div style="display:flex;gap:6px;margin-bottom:12px">
+          <button class="btn btn-sm bk-src active" data-src="file" style="${onStyle}">📄 파일(.csv/.xlsx)</button>
+          <button class="btn btn-sm bk-src" data-src="paste" style="font-size:12px">📋 붙여넣기</button>
+        </div>
+        <div id="bk-src-file">
+          <input id="bk-file" type="file" accept=".csv,.xlsx,.xls" class="form-input" style="font-size:12px">
+          <div style="font-size:11px;color:var(--text-3);margin-top:6px">은행에서 내려받은 거래내역 CSV/Excel 파일을 선택하세요 (첫 행 = 헤더).</div>
+        </div>
+        <div id="bk-src-paste" style="display:none">
+          <textarea id="bk-paste" class="form-input" rows="8" placeholder="은행 거래내역 표를 복사해 붙여넣으세요 (첫 행 = 헤더, 탭/콤마 구분)" style="font-size:12px;font-family:monospace"></textarea>
+        </div>`;
+      foot.innerHTML = `
+        <button class="btn btn-secondary" onclick="Modal.close()">취소</button>
+        <button id="bk-analyze" class="btn btn-primary">분석 →</button>`;
+      body.querySelectorAll('.bk-src').forEach(b =>
+        b.addEventListener('click', () => {
+          body.querySelectorAll('.bk-src').forEach(x => {
+            x.classList.remove('active');
+            x.style.background = '';
+            x.style.color = '';
+          });
+          b.classList.add('active');
+          b.style.background = 'var(--primary,#E63329)';
+          b.style.color = '#fff';
+          const src = b.dataset.src;
+          document.getElementById('bk-src-file').style.display = src === 'file' ? '' : 'none';
+          document.getElementById('bk-src-paste').style.display = src === 'paste' ? '' : 'none';
+        })
+      );
+      document.getElementById('bk-analyze')?.addEventListener('click', async () => {
+        const src = body.querySelector('.bk-src.active')?.dataset.src || 'file';
+        if (src === 'paste') {
+          const parsed = parsePaste(document.getElementById('bk-paste')?.value);
+          headers = parsed.headers;
+          rows = parsed.rows;
+          if (!rows.length) {
+            Toast.error?.('헤더 + 1행 이상 붙여넣으세요');
+            return;
+          }
+          renderMapping();
+        } else {
+          const f = document.getElementById('bk-file')?.files?.[0];
+          if (!f) {
+            Toast.error?.('파일을 선택하세요');
+            return;
+          }
+          const fd = new FormData();
+          fd.append('file', f);
+          try {
+            const res = await API._upload('/payments/import/parse', fd);
+            headers = res?.data?.headers || [];
+            rows = res?.data?.rows || [];
+            if (!rows.length) {
+              Toast.error?.('데이터 행이 없습니다 (헤더만 있거나 빈 파일)');
+              return;
+            }
+            renderMapping();
+          } catch (err) {
+            Toast.error?.('파일 분석 실패: ' + (err?.message || err));
+          }
+        }
+      });
+    };
+
+    Modal.open({
+      title: '🏦 은행 거래내역 가져오기 (자동 매칭)',
+      size: 'md',
+      body: `<div id="bk-body"></div>`,
+      footer: `<div id="bk-foot" style="display:flex;gap:8px;justify-content:flex-end;width:100%"></div>`,
       onOpen: () => renderInput(),
     });
   },
