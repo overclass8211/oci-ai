@@ -2204,6 +2204,41 @@ const PaymentsPage = {
         }
         this._bindUnlink();
 
+        // 고객사 Combobox — customers 마스터 검색·선택 시 customer_id 연결 (Step 2-2)
+        //   직접 타이핑(미선택)은 free-text 허용(customer_id 해제). 계약 연결로 채워진 값은 유지.
+        this._customerCombobox?.destroy?.();
+        const custEl = document.getElementById('pay-m-customer');
+        if (custEl && window.Combobox && API.customers?.autocomplete) {
+          this._customerCombobox = Combobox.attach({
+            inputEl: custEl,
+            minChars: 2,
+            allowCustom: true,
+            fetchFn: async q => {
+              try {
+                const r = await API.customers.autocomplete(q, 10);
+                return (r.data || []).map(c => ({
+                  id: c.id,
+                  name: c.name,
+                  industry: c.industry || '',
+                  region: c.region || '',
+                }));
+              } catch (_) {
+                return [];
+              }
+            },
+            renderItem: (item, query, { highlightMatch }) =>
+              `<div style="font-size:13px">${highlightMatch(item.name, query)}</div>
+               <div style="font-size:11px;color:var(--text-3)">${this._esc([item.industry, item.region].filter(Boolean).join(' · '))}</div>`,
+            onSelect: item => {
+              this._msCustomerId = item.id; // 마스터 연결
+            },
+          });
+          // 사용자가 직접 입력하면 마스터 연결 해제(free-text) — programmatic value 세팅은 input 미발생이라 영향 없음
+          custEl.addEventListener('input', () => {
+            this._msCustomerId = null;
+          });
+        }
+
         // 총계약금 입력 → 콤마 포맷 + 계약금(VAT포함) 재계산 + 비율기반 마일스톤 재계산
         csupplyEl?.addEventListener('input', () => {
           this._formatCommaEl(csupplyEl);
@@ -2635,6 +2670,7 @@ const PaymentsPage = {
       if (r.deleted) parts.push(`${r.deleted}건 삭제`);
       Toast.success?.(parts.length ? `수금 스케줄 ${parts.join(' · ')}` : '수금 스케줄이 저장됐습니다');
       this._contractCombobox?.destroy?.();
+      this._customerCombobox?.destroy?.();
       Modal.close();
       await this._reloadAndRender();
     } catch (err) {
