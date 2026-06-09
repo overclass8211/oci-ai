@@ -268,7 +268,10 @@ const PaymentsPage = {
             <div style="font-weight:600;font-size:13px">🏢 ${this._esc(g.customer_name || '—')}</div>
           </td>
           <td style="padding:10px 12px;font-size:11px;color:var(--text-3);white-space:nowrap">${g.children.length}개 단계</td>
-          <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:13px">${cur}${fmt(g.totSch)}</td>
+          <td style="padding:10px 12px;text-align:right">
+            <div style="font-weight:700;font-size:13px">${cur}${fmt(g.totSch)}</div>
+            ${this._gapLine(g)}
+          </td>
           <td style="padding:10px 12px;font-size:12px;white-space:nowrap">${
             g.nextDue
               ? `${g.nextDue} <span style="margin-left:4px;font-size:11px;font-weight:600;color:${gd.color}">${gd.label}</span>`
@@ -490,6 +493,22 @@ const PaymentsPage = {
     return s.contract_id && s.linked_customer_name ? s.linked_customer_name : s.customer_name || '';
   },
 
+  // 계약금액 대비 수금계획 정합성 라인 (그룹 부모행 — Step 3)
+  //   양수 gap=미편성(계획<계약금), 음수=초과편성. contract_amount/scheduled_amount 동일 VAT포함 기준.
+  _gapLine(g) {
+    if (!g.linked || !(g.contract_amount > 0)) return '';
+    const fmt = n => Number(n || 0).toLocaleString('ko-KR');
+    const cur = g.currency === 'KRW' ? '₩' : `${g.currency} `;
+    const thr = Math.max(10000, g.contract_amount * 0.005); // 0.5% 또는 1만원 이상만 갭 표기
+    let badge;
+    if (g.gap > thr) badge = `<span style="color:#E63329;font-weight:600">▲ 미편성 ${cur}${fmt(g.gap)}</span>`;
+    else if (g.gap < -thr)
+      badge = `<span style="color:#F59C00;font-weight:600">▼ 초과 ${cur}${fmt(-g.gap)}</span>`;
+    else badge = `<span style="color:#0F7A3F;font-weight:600">✓ 계획일치</span>`;
+    return `<div style="font-size:10px;color:var(--text-3);white-space:nowrap">계약금 ${cur}${fmt(g.contract_amount)}</div>
+            <div style="font-size:10px;white-space:nowrap">${badge}</div>`;
+  },
+
   // 자식(단계) 행 HTML — 평면뷰/그룹뷰 공용
   //   opts.gi 가 있으면 그룹 자식(들여쓰기 + data-gi), opts.hidden 이면 접힘 상태
   _scheduleRowHtml(s, opts = {}) {
@@ -560,6 +579,7 @@ const PaymentsPage = {
           customer_name: this._dispCustomer(s),
           contract_name: this._dispContract(s),
           contract_no: s.contract_no,
+          contract_amount: Number(s.contract_amount || 0), // 연결 계약의 계약금액 (Step 3 정합성)
           currency: s.currency || 'KRW',
           children: [],
         });
@@ -581,7 +601,10 @@ const PaymentsPage = {
         .map(c => String(c.due_date).slice(0, 10))
         .sort();
       const nextDue = pendingDue.length ? pendingDue[0] : null;
-      return { ...g, totSch, totPaid, pct, status, nextDue };
+      // 정합성: 계약금액(VAT별도 기준) 대비 수금계획(VAT포함 scheduled_amount) 갭
+      //   양수=미편성(계획<계약금), 음수=초과편성. 연결 계약 + 계약금액 입력시만.
+      const gap = g.linked && g.contract_amount > 0 ? g.contract_amount - totSch : 0;
+      return { ...g, totSch, totPaid, pct, status, nextDue, gap };
     });
     // 그룹 정렬: 다음 수금예정일 빠른 순, 완료(nextDue 없음)는 하단
     groups.sort((a, b) => {
