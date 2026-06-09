@@ -2860,7 +2860,7 @@ const PaymentsPage = {
           </table>
         `,
         footer: `
-          <button class="btn btn-secondary" onclick="Modal.close()">닫기</button>
+          <button class="btn btn-secondary" id="sd-close" onclick="Modal.close()">닫기</button>
           <button class="btn" id="sd-add-tax" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A">🧾 세금계산서 발행요청</button>
           <button class="btn btn-primary" id="sd-add-record">💳 입금등록</button>
         `,

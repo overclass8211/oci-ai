@@ -237,6 +237,19 @@ const Modal = {
     box.addEventListener('change', markDirty);
     // × 버튼 — inline onclick 제거 (CSP 대응) + dirty 시 컨펌
     document.getElementById('__modal-x-btn').addEventListener('click', () => Modal._tryClose());
+    // 인라인 onclick="Modal.close()" 버튼 — CSP(script-src-attr)로 인라인 핸들러가 차단됨.
+    //   onOpen 에서 동적으로 렌더되는 버튼(홈택스/은행 가져오기 [취소] 등)까지 포함하려면
+    //   1회성 스캔이 아니라 box 클릭 위임(delegation) 으로 처리 (× 버튼과 동일 CSP-safe).
+    //   box 는 재사용 엘리먼트라 위임 리스너는 1회만 등록.
+    if (!box._closeDelegated) {
+      box.addEventListener('click', e => {
+        const t = e.target.closest('[onclick]');
+        if (t && box.contains(t) && /Modal\.close\(\)/.test(t.getAttribute('onclick') || '')) {
+          Modal.close();
+        }
+      });
+      box._closeDelegated = true;
+    }
     // bind 맵으로 버튼·요소에 이벤트 바인딩 (CSP-safe)
     for (const [sel, fn] of Object.entries(bind)) {
       box.querySelectorAll(sel).forEach(el => el.addEventListener('click', fn));
