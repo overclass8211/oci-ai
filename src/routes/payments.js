@@ -1278,7 +1278,10 @@ router.get('/', async (req, res) => {
     let sql = `
       SELECT ps.*,
              COALESCE(SUM(pr.paid_amount), 0) AS paid_amount,
-             c.contract_no
+             c.contract_no,
+             c.title           AS contract_title,
+             c.customer_name   AS linked_customer_name,
+             c.contract_amount AS contract_amount
       FROM payment_schedules ps
       LEFT JOIN payment_records pr ON pr.schedule_id = ps.id
       LEFT JOIN contracts c ON c.id = ps.contract_id

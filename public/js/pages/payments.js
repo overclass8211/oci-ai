@@ -227,13 +227,13 @@ const PaymentsPage = {
     const totPaid = list.reduce((s, r) => s + Number(r.paid_amount || 0), 0);
 
     // 본문: 계약별 그룹뷰(기본) / 전체 평면뷰 — 자식행은 _scheduleRowHtml 공용
-    const EMPTY = `<tr><td colspan="7" style="text-align:center;padding:48px 20px;color:var(--text-3)">
+    const EMPTY = `<tr><td colspan="8" style="text-align:center;padding:48px 20px;color:var(--text-3)">
       <div style="font-size:32px;margin-bottom:8px">💰</div>
       <div style="font-weight:600;margin-bottom:4px">수금 스케줄이 없습니다</div>
       <div style="font-size:12px">상단 [+ 수금 스케줄 등록] 버튼을 클릭하세요</div>
     </td></tr>`;
     const footHtml = leftLabel => `<tr style="background:#F0F4FF;font-size:12px;font-weight:600;border-top:2px solid #BFDBFE">
-        <td colspan="2" style="padding:8px 12px;color:var(--text-3)">${leftLabel}</td>
+        <td colspan="3" style="padding:8px 12px;color:var(--text-3)">${leftLabel}</td>
         <td style="padding:8px 12px;text-align:right;color:#1664E5">₩${fmt(totSch)}</td>
         <td colspan="4" style="padding:8px 12px;color:#0F7A3F">수금 ₩${fmt(totPaid)}</td>
       </tr>`;
@@ -255,10 +255,17 @@ const PaymentsPage = {
             <div style="display:flex;align-items:center;gap:6px">
               <span class="pay-grp-caret" style="font-size:11px;color:#1664E5;width:10px;display:inline-block">${collapsed ? '▸' : '▾'}</span>
               <div>
-                <div style="font-weight:700;font-size:13px">🏢 ${this._esc(g.customer_name || '—')}${g.linked ? '' : ' <span style="font-size:10px;color:#9CA3AF;font-weight:500">(계약 미연결)</span>'}</div>
-                <div style="font-size:11px;color:var(--text-3)">${this._esc(g.contract_name || g.contract_no || '—')}</div>
+                <div style="font-weight:700;font-size:13px">${this._esc(g.contract_name || '—')}</div>
+                <div style="font-size:11px;color:var(--text-3)">${
+                  g.linked
+                    ? this._esc(g.contract_no || '')
+                    : '<span style="color:#9CA3AF">직접 등록(계약 없음)</span>'
+                }</div>
               </div>
             </div>
+          </td>
+          <td style="padding:10px 12px">
+            <div style="font-weight:600;font-size:13px">🏢 ${this._esc(g.customer_name || '—')}</div>
           </td>
           <td style="padding:10px 12px;font-size:11px;color:var(--text-3);white-space:nowrap">${g.children.length}개 단계</td>
           <td style="padding:10px 12px;text-align:right;font-weight:700;font-size:13px">${cur}${fmt(g.totSch)}</td>
@@ -338,7 +345,8 @@ const PaymentsPage = {
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr style="background:#F9FAFB;font-size:12px;color:var(--text-3)">
-              <th id="pay-th-cust"  style="${thS}">${this._groupView ? '계약 / 고객사' : `고객사${sarr('customer_name')}`}</th>
+              <th id="pay-th-contract" style="${thS}">계약${this._groupView ? '' : sarr('contract_name')}</th>
+              <th id="pay-th-cust"  style="${thS}">고객사${this._groupView ? '' : sarr('customer_name')}</th>
               <th id="pay-th-stage" style="${thS}">단계${this._groupView ? '' : sarr('stage_name')}</th>
               <th id="pay-th-amt"   style="${thSR}">수금예정액${sarr('scheduled_amount')}</th>
               <th id="pay-th-due"   style="${thS}">예정일${sarr('due_date')}</th>
@@ -390,7 +398,7 @@ const PaymentsPage = {
     });
 
     // 정렬 헤더 클릭
-    [['pay-th-cust', 'customer_name'], ['pay-th-stage', 'stage_name'],
+    [['pay-th-contract', 'contract_name'], ['pay-th-cust', 'customer_name'], ['pay-th-stage', 'stage_name'],
      ['pay-th-amt', 'scheduled_amount'], ['pay-th-due', 'due_date']
     ].forEach(([thId, col]) => {
       document.getElementById(thId)?.addEventListener('click', () => this._setSortKey(col));
@@ -473,6 +481,15 @@ const PaymentsPage = {
     });
   },
 
+  // 표시용 계약명/고객사 — 연결된 계약이면 contracts 신뢰값(비정규화 드리프트 차단),
+  //   미연결(직접 등록)이면 스케줄 비정규화값 사용
+  _dispContract(s) {
+    return s.contract_id && s.contract_title ? s.contract_title : s.contract_name || '';
+  },
+  _dispCustomer(s) {
+    return s.contract_id && s.linked_customer_name ? s.linked_customer_name : s.customer_name || '';
+  },
+
   // 자식(단계) 행 HTML — 평면뷰/그룹뷰 공용
   //   opts.gi 가 있으면 그룹 자식(들여쓰기 + data-gi), opts.hidden 이면 접힘 상태
   _scheduleRowHtml(s, opts = {}) {
@@ -486,14 +503,16 @@ const PaymentsPage = {
     const grouped = opts.gi !== undefined;
     const giAttr = grouped ? ` data-gi="${opts.gi}"` : '';
     const hide = opts.hidden ? 'display:none;' : '';
-    // 1~2열: 평면=고객사/계약+단계, 그룹=빈칸+들여쓴 단계(고객사는 부모행에 있음)
+    // 1~3열: 평면=계약/고객사/단계, 그룹=빈칸·빈칸·들여쓴 단계(계약·고객사는 부모행)
     const lead = grouped
       ? `<td style="padding:8px 12px"></td>
+          <td style="padding:8px 12px"></td>
           <td style="padding:8px 12px 8px 24px;font-size:13px"><span style="color:#CBD5E1;margin-right:4px">└</span>${this._esc(s.stage_name)}</td>`
       : `<td style="padding:10px 12px">
-            <div style="font-weight:600;font-size:13px">${this._esc(s.customer_name || '—')}</div>
-            <div style="font-size:11px;color:var(--text-3)">${this._esc(s.contract_name || s.contract_no || '—')}</div>
+            <div style="font-weight:600;font-size:13px">${this._esc(this._dispContract(s) || '—')}</div>
+            <div style="font-size:11px;color:var(--text-3)">${this._esc(s.contract_no || (s.contract_id ? '' : '직접 등록'))}</div>
           </td>
+          <td style="padding:10px 12px;font-size:13px">${this._esc(this._dispCustomer(s) || '—')}</td>
           <td style="padding:10px 12px;font-size:13px">${this._esc(s.stage_name)}</td>`;
     return `
         <tr class="pay-row" data-id="${s.id}"${giAttr} style="${hide}cursor:pointer;border-bottom:1px solid var(--border)">
@@ -538,8 +557,8 @@ const PaymentsPage = {
         map.set(key, {
           key,
           linked,
-          customer_name: s.customer_name,
-          contract_name: s.contract_name,
+          customer_name: this._dispCustomer(s),
+          contract_name: this._dispContract(s),
           contract_no: s.contract_no,
           currency: s.currency || 'KRW',
           children: [],
